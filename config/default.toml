@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KESTREL desk — default configuration.
+# This file is the ONE authoritative definition of every tunable value.
+# Every decision records a hash of the loaded configuration ("config snapshot").
+# Values must stay within config/safety_ceilings.toml or the desk refuses to start.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[desk]
+mode = "SHADOW"          # SHADOW (default) | PAPER | LIVE. LIVE also needs the gates in PLAN.md §16.5 (M8).
+
+[paper]
+starting_capital_usd = "100"   # operator answer Q3; converted to SOL when paper trading starts
+
+[sizing]                        # PLAN.md §13.2 — $100 small-account profile
+fixed_fraction = "0.10"                      # ~$10 tickets
+max_ticket_fraction_free_capital = "0.15"
+max_ticket_fraction_pool_liquidity = "0.005"
+max_ticket_sol = "0.15"
+min_ticket_sol = "0.05"
+max_fixed_cost_fraction = "0.01"             # fee floor: signature + priority fees ≤ 1% of ticket
+
+[limits]
+max_open_positions = 2
+max_total_exposure_fraction = "0.25"
+max_positions_per_dev = 1
+max_positions_per_launchpad = 1
+daily_realized_loss_fraction = "0.05"
+daily_equity_drawdown_fraction = "0.08"
+cumulative_drawdown_fraction = "0.25"
+max_trades_per_day = 10
+max_order_submissions_per_min = 6
+max_consecutive_failed_tx = 3
+stale_data_halt_seconds = 120
+live_sol_reserve = "0.05"
+
+[http]
+timeout_seconds = 10
+max_retries = 3
+backoff_base_seconds = 2
+backoff_max_seconds = 60
+user_agent = "desk/0.1 (private local research tool)"
+
+[health]
+degraded_after_failures = 3
+down_after_failures = 10
+recover_after_successes = 3
+
+[collector]
+geckoterminal_new_pools_interval_seconds = 60
+geckoterminal_new_pools_pages = 2
+geckoterminal_trending_interval_seconds = 120
+jupiter_recent_interval_seconds = 60
+jupiter_trending_interval_seconds = 180
+dexscreener_refresh_interval_seconds = 60
+rpc_slot_interval_seconds = 60
+max_tracked_tokens = 300
+
+[storage]
+raw_retention_days = 14

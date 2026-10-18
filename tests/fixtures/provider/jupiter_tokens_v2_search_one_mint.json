@@ -1,0 +1,101 @@
+[
+ {
+  "id": "ArpPsesHXKbGeJsHdquM6acT3uNs7BChyetJjiNYpump",
+  "name": "godspeed",
+  "symbol": "godspeed",
+  "icon": "https://metadata.j7tracker.io/images/b7f4eb918b814884",
+  "decimals": 6,
+  "twitter": "https://x.com/banesthemane/status/2111919980388164018",
+  "website": "https://x.com/yang_mady/status/2111623155781636132",
+  "dev": "FDfyqqenHVySjjyo4etCgBzxZNfUXUMaZo8ifKpDJGUf",
+  "circSupply": 972197171.530193,
+  "totalSupply": 972197171.530193,
+  "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+  "launchpad": "pump.fun",
+  "graduatedPool": "CkEeZKJpcro2dEp8RXJpSYfjF3TPoijmH8xVGuEAxoue",
+  "graduatedAt": "2026-10-18T21:00:32Z",
+  "holderCount": 3549,
+  "fdv": 325209.1547468132,
+  "mcap": 325209.1547468132,
+  "usdPrice": 0.0003345094639958159,
+  "priceBlockId": 458593210,
+  "liquidity": 97625.22923982002,
+  "stats5m": {
+   "priceChange": -26.452923857196176,
+   "holderChange": 1.9534616489514507,
+   "liquidityChange": -10.618683101496876,
+   "volumeChange": -45.309231984846996,
+   "buyVolume": 64392.85040559875,
+   "sellVolume": 80392.20538188248,
+   "buyOrganicVolume": 1322.1661481161464,
+   "sellOrganicVolume": 1432.7873127780183,
+   "numBuys": 1633,
+   "numSells": 1818,
+   "numTraders": 915,
+   "numOrganicBuyers": 49,
+   "numNetBuyers": 436
+  },
+  "stats1h": {
+   "priceChange": 385.37123476011004,
+   "holderChange": 1086.9565217391305,
+   "liquidityChange": 382.1091568273384,
+   "volumeChange": 1230.772919758678,
+   "buyVolume": 888009.662473255,
+   "sellVolume": 1053840.203588867,
+   "buyOrganicVolume": 19266.51033208646,
+   "sellOrganicVolume": 27553.684995807776,
+   "numBuys": 17511,
+   "numSells": 18066,
+   "numTraders": 4631,
+   "numOrganicBuyers": 91,
+   "numNetBuyers": 2239
+  },
+  "stats6h": {
+   "priceChange": 3424.992069602436,
+   "holderChange": 29475,
+   "liquidityChange": 2390.429401821936,
+   "buyVolume": 963708.3605686926,
+   "sellVolume": 1124550.7114071706,
+   "buyOrganicVolume": 21336.482031787436,
+   "sellOrganicVolume": 29116.85522697114,
+   "numBuys": 19275,
+   "numSells": 19531,
+   "numTraders": 5077,
+   "numOrganicBuyers": 81,
+   "numNetBuyers": 2390
+  },
+  "stats24h": {
+   "priceChange": 3424.992069602436,
+   "holderChange": 29475,
+   "liquidityChange": 2390.429401821936,
+   "buyVolume": 963708.3605686926,
+   "sellVolume": 1124550.7114071706,
+   "buyOrganicVolume": 21336.482031787436,
+   "sellOrganicVolume": 29116.85522697114,
+   "numBuys": 19275,
+   "numSells": 19531,
+   "numTraders": 5077,
+   "numOrganicBuyers": 79,
+   "numNetBuyers": 2390
+  },
+  "firstPool": {
+   "id": "ArpPsesHXKbGeJsHdquM6acT3uNs7BChyetJjiNYpump",
+   "createdAt": "2026-10-18T20:38:55Z"
+  },
+  "audit": {
+   "mintAuthorityDisabled": true,
+   "freezeAuthorityDisabled": true,
+   "topHoldersPercentage": 18.799549393553637,
+   "devMigrations": 55,
+   "devMints": 1852
+  },
+  "organicScore": 69.01771806024315,
+  "organicScoreLabel": "medium",
+  "tags": [
+   "unknown",
+   "token-2022"
+  ],
+  "createdAt": "2026-10-18T20:38:55Z",
+  "updatedAt": "2026-10-18T22:01:11.75830942Z"
+ }
+]

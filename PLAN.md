@@ -1,6 +1,6 @@
 # PLAN.md — Solana Quant Desk (working brand: **KESTREL**)
 
-**Status:** M0 — awaiting operator approval. **No implementation code has been written.**
+**Status:** Plan **approved 2026-10-18**; M1 in progress. Operator answers are recorded in §24 and PROGRESS.md.
 **Companion documents:** `RESEARCH.md` (verified facts + evidence), `ACCEPTANCE.md` (milestone tests),
 `PROGRESS.md` (session-to-session state), `research/provider_registry.yaml` (machine-readable provider registry).
 
@@ -42,7 +42,7 @@
 ## 1. Executive summary and honest feasibility verdict
 
 **What will be built:** a locally operated Solana memecoin research-and-trading desk made of a small number of
-cooperating Python processes, three SQLite databases, a premium React dashboard served by FastAPI on `localhost`,
+cooperating Python processes, SQLite databases (market, per-mode ledgers, research, plus a tiny runtime-coordination file), a premium React dashboard served by FastAPI on `localhost`,
 and — only in M8 and only when explicitly armed — an isolated transaction signer.
 
 **What the research showed (details in RESEARCH.md):**
@@ -239,12 +239,12 @@ cryptomfappdawg/
 ├─ config/
 │  ├─ default.toml            # every tunable threshold — ONE authoritative definition, versioned
 │  ├─ safety_ceilings.toml    # hard ceilings; changing requires `desk ceilings approve` (typed confirmation)
-│  └─ providers.yaml          # machine-readable provider registry (draft: research/provider_registry.yaml)
+│  └─ providers.toml          # machine-readable provider registry (supersedes the research/provider_registry.yaml draft)
 ├─ src/desk/
 │  ├─ core/          config loading + snapshot hashing, clock (UTC + monotonic + slot), ids (ULID),
 │  │                 structured logging + secret redaction, error taxonomy, units (lamports, raw amounts, Decimal)
 │  ├─ contracts/     pydantic models shared by all modules (§6)
-│  ├─ storage/       engines, schema, migrations (Alembic), repositories, backup, integrity checks, retention
+│  ├─ storage/       stdlib sqlite3 connections, numbered .sql migrations, repositories, raw store, backup, integrity
 │  ├─ providers/     rate limiter (token bucket + adaptive backoff), single-flight cache, HTTP client,
 │  │                 geckoterminal.py, dexscreener.py, jupiter.py, solana_rpc.py, solana_ws.py,
 │  │                 telegram.py, health.py, registry.py   (no LLM / paid-API clients)
@@ -357,6 +357,7 @@ A position lock is released only at `RECONCILED` (or `ENTRY_FAILED`/`REJECTED`).
 | `market.db` | tokens, pools, discoveries, market_snapshots, quotes, security_assessments, feature_snapshots, candidates, stage results, rejections, wallet_observations, provider_health, raw_response index | engine (guardian writes quotes) | daily |
 | `ledger-paper.db` / `ledger-live.db` | intents, orders, fills, positions, risk_events, daily_pnl, commands, halts/safety state, config_snapshots, strategies, strategy_versions, approvals | engine (entries), guardian (exits, risk) | hourly + on every position state change (online backup API) |
 | `research.db` | experiments, strategy_evaluations, counterfactuals, model_predictions, model_calibrations, confidence_matrix, performance_snapshots | research jobs, engine (model_predictions, counterfactual samples) | daily |
+| `runtime.db` *(added in M1)* | cross-process coordination only: rate-limit windows, provider health (current + recent transitions), process heartbeats | every process | not backed up (rebuildable) |
 
 Paper and live ledgers are **separate files** so performance histories can never be mixed. A repository layer hides
 the physical layout (future Postgres migration = one DB with three schemas).
@@ -392,7 +393,7 @@ processes (state in SQLite) with single-flight request coalescing and TTL cachin
 | Solana WS | public or keyed | ≤ 20 subscriptions | held positions' mint + pool vaults; optional migration detector (verify bandwidth first) |
 
 Every provider entry (endpoint, auth, verified fields, limits, freshness, cost, failure handling, fallback, allowed
-usage) is in `research/provider_registry.yaml`, which M1 promotes to `config/providers.yaml` with a schema test.
+usage) was drafted in `research/provider_registry.yaml`; M1 promotes it to `config/providers.toml` with a schema test.
 
 **Failure handling:** each adapter maps failures to `MISSING`/`STALE`, records health, and degrades gracefully. When a
 *critical* source for a decision is unavailable, **new entries halt** (plain-English reason on the dashboard), while
@@ -584,30 +585,57 @@ a bounded schedule. Hypothetical sale proceeds are **never** booked as realized 
 
 ### 13.1 Deterministic sizing (code only; no model ever sizes)
 Baseline **fixed fraction**: `ticket = min(f × equity, cap_free × free_capital, cap_liq × verified_liquidity, cap_abs)`
-then **zero** if any of: expected round-trip cost (measured quote) > cost cap; fixed costs (fees + rent) > 1% of ticket
-(fee floor); strategy uncertainty too high (lower confidence bound of expectancy < −X when strategy is in probation);
+then **zero** if any of: expected round-trip cost (measured quote) > cost cap; non-refundable fixed costs (signature +
+priority fees) > 1% of ticket or ticket < minimum (fee floor; rent is tracked separately as locked, refundable capital); strategy uncertainty too high (lower confidence bound of expectancy < −X when strategy is in probation);
 drawdown throttle active; risk budget exhausted. No leverage, no averaging down, fee/rent reserve never touched.
 Kelly-style sizing is research-only until calibrated probabilities exist (M6+).
 
-### 13.2 Default limits (PAPER; LIVE values are approved separately)
-| Limit | Default | Class |
+### 13.2 Default limits — $100 small-account profile (operator answer Q3, 2026-10-18)
+
+The operator will start with **$100** (≈ 0.98 SOL at the research-time price). Paper trading simulates exactly that
+amount: `starting_capital_usd = 100`, converted to SOL at the moment paper trading starts (the rate is recorded).
+**No real money is deposited anywhere until M9 + explicit LIVE approval.**
+
+Why the original 2% fraction cannot work at $100: a 2% ticket is ~$2 (0.02 SOL). Two signatures plus priority fees
+(range 0.00002–0.0005 SOL per transaction, to be measured in M5) would cost roughly **0.25%–5% of such a ticket in
+non-refundable fees**, plus 0.0015 SOL of token-account rent locked (~7.5% of the ticket, refunded on close).
+At 10% tickets (~$10, 0.098 SOL) the same fees are **0.05%–1.0%** and the rent lock is 1.5%:
+
+| Ticket (of $100) | Non-refundable fixed fees (low–high priority fee) | Rent locked while open |
 |---|---|---|
-| Fixed fraction `f` | 2% of equity | strategy config |
-| Max ticket vs free capital | 5% | ceiling |
-| Max ticket vs verified pool liquidity | 0.5% | ceiling |
-| Max absolute ticket | 0.5 SOL (paper) | ceiling |
-| Max open positions | 3 | ceiling |
-| Max total open exposure | 20% of equity | ceiling |
-| Max exposure per dev wallet / per launchpad | 1 position / 2 positions | ceiling |
-| Daily realized loss limit | 5% of start-of-day equity → halt entries until next UTC day | ceiling |
+| 5% (0.049 SOL) | 0.10% – 2.06% | 3.1% |
+| **10% (0.098 SOL)** | **0.05% – 1.03%** | **1.5%** |
+| 15% (0.147 SOL) | 0.03% – 0.69% | 1.0% |
+
+| Limit | $100 profile default | Class |
+|---|---|---|
+| Fixed fraction `f` | **10% of equity** (≈ $10 / 0.098 SOL) | strategy config |
+| Minimum ticket (fee floor) | non-refundable fixed costs ≤ 1% of ticket **and** ticket ≥ 0.05 SOL; otherwise size 0 | ceiling |
+| Max ticket vs free capital | 15% | ceiling |
+| Max ticket vs verified pool liquidity | 0.5% (not binding at this size) | ceiling |
+| Max absolute ticket | 0.15 SOL | ceiling |
+| Max open positions | **2** | ceiling |
+| Max total open exposure | 25% of equity | ceiling |
+| Max exposure per dev wallet / per launchpad | 1 position / 1 position | ceiling |
+| Daily realized loss limit | 5% of start-of-day equity (≈ $5) → halt entries until next UTC day | ceiling |
 | Daily equity drawdown | 8% → halt entries | ceiling |
-| Cumulative drawdown | 25% from peak → **halt until manual reset** | ceiling |
-| Trades per day | 15 | ceiling |
+| Cumulative drawdown | 25% from peak (≈ $25) → **halt until manual reset** | ceiling |
+| Trades per day | 10 | ceiling |
 | Order submissions | ≤ 6/min | ceiling |
 | Consecutive failed transactions | 3 → halt entries | ceiling |
 | Paid API spend | **$0** — the desk has no paid integrations; a provider entry with non-zero cost fails config validation | ceiling |
 | Stale critical data | > 120 s → halt entries | ceiling |
-| SOL reserve (LIVE) | ≥ 0.05 SOL never deployable | ceiling |
+| SOL reserve (LIVE) | ≥ 0.05 SOL never deployable (rent for open token accounts + fees) | ceiling |
+
+**Honest implications of a $100 account:**
+- Each position is ~10% of the account. Stops are evaluated on executable quotes and are **not guaranteed**; a
+  rug-pull or liquidity removal can skip the stop entirely, so one bad position can cost up to **~10% (≈ $10)**.
+  The security filters exist to make that rare, not impossible.
+- Even a genuinely good strategy earns small absolute amounts: e.g. +3% net per trade × 5 trades/day on $10 tickets
+  ≈ **$1.50/day** before variance. At this size the desk is a validation instrument, not an income source.
+- Measured priority fees (M5, open item R-06) may push the fee floor up; if fixed costs exceed 1% of a $10 ticket,
+  the desk will refuse those trades rather than pay them.
+- Scaling up later is a separate decision, made only after LIVE evidence at this size.
 
 Ceilings live in `config/safety_ceilings.toml`; strategy code and model output cannot change them; changing them
 requires `desk ceilings approve` with typed confirmation, recorded in the ledger.
@@ -867,9 +895,11 @@ latency to each provider, observed rate-limit headers, and whether keys are conf
 
 Exact pins are fixed at M1 in `uv.lock` (with hashes), choosing stable releases at least ~2 weeks old.
 
-**Runtime (Python 3.12):** `pydantic`, `pydantic-settings`, `httpx`, `orjson`, `structlog`, `sqlalchemy` (Core),
-`alembic`, `tenacity`, `websockets`, `solders` (types, keys, tx parsing), `base58`, `fastapi`, `uvicorn`,
-`python-ulid` (ids). **Research extras:** `numpy`, `scipy`, `pandas`, `scikit-learn`, `statsmodels`, `arch`.
+**Runtime (Python 3.12), kept deliberately small (decision D-15, 2026-10-18):** `pydantic`, `httpx` from M1;
+`websockets` (guardian, M5), `fastapi` + `uvicorn` (console, M7), `solders` (signer, M8). Everything else uses the
+standard library: `sqlite3` + numbered SQL migrations (instead of SQLAlchemy/Alembic), `logging` with a JSON
+formatter (instead of structlog), `tomllib` for config and the provider registry (instead of YAML), `argparse` for the
+CLI, `gzip` for raw-response storage, and small in-repo helpers for base58 and time-sortable ids. **Research extras:** `numpy`, `scipy`, `pandas`, `scikit-learn`, `statsmodels`, `arch`.
 **Signer (M8, minimal):** `solders`, `cryptography`, `httpx`. **No LLM SDKs** (operator decision, §15).
 **Dev:** `pytest`, `pytest-asyncio`, `respx`, `hypothesis`, `ruff`, `mypy`.
 **UI (build-time only):** `react`, `typescript`, `vite`, `tailwindcss`, `@radix-ui/*`, `@tanstack/react-table`,
@@ -966,12 +996,12 @@ Defaults are given so work can proceed; items marked **blocking** must be answer
 
 | # | Question | Default if no answer | Blocking for |
 |---|---|---|---|
-| Q1 | **Approve this plan** (architecture, process split, three DBs, scope changes in §3)? | — | **M1 (blocking)** |
-| Q2 | Will you create **free** accounts for a **Jupiter API key** and a **keyed Solana RPC** (e.g. Helius free)? Keys go into `~/.config/desk/secrets.env` on your laptop — never into chat. | Jupiter keyless + public RPC; holder analysis marked `INSUFFICIENT_DATA` (which, under fail-closed rules, rejects most candidates) | **M2 (effectively blocking)** |
-| Q3 | Approx. **intended future LIVE capital** (e.g. $200 / $500 / $1,000+)? Paper equity and ticket sizes should mirror it so costs are realistic. | Paper equity **5 SOL** (~$500 at research-time prices) | M5 |
+| ~~Q1~~ | ~~Approve this plan?~~ **Answered 2026-10-18: Approved.** M1 started | — | — |
+| ~~Q2~~ | ~~Free Jupiter key + keyed RPC?~~ **Answered 2026-10-18: Yes.** Keys go into `~/.config/desk/secrets.env` on the laptop (mode 0600) — never into chat; setup steps are given at the end of M1 | — | — |
+| ~~Q3~~ | ~~Intended LIVE capital?~~ **Answered 2026-10-18: $100.** Paper simulates $100; small-account sizing profile in §13.2 | — | — |
 | ~~Q4~~ | ~~AI judge?~~ **Answered 2026-10-18: No — no paid API.** Desk is deterministic-only (§15); M4 dropped | — | — |
-| Q5 | Approve the **React + TypeScript** dashboard stack (needs Node 22 *or* Docker only to build the UI)? | Yes, React | M7 |
-| Q6 | **Brand:** KESTREL (recommended), MERIDIAN, NULLPOINT, OBSIDIAN, or your own? | KESTREL | M7 |
+| ~~Q5~~ | ~~React + TypeScript dashboard?~~ **Answered 2026-10-18: Approved** | — | — |
+| ~~Q6~~ | ~~Brand?~~ **KESTREL** — taken as approved together with Q5 ("5 approve" covered the dashboard item that included the brand); easy to change before M7 | — | — |
 | Q7 | **Telegram** alerts + `/stop`? | Off until M7 setup | M7 |
-| Q8 | Approve the **initial promotion thresholds** (§14) as the research baseline? | Use as proposed; flag in reports as "pending approval" | M6 |
+| ~~Q8~~ | ~~Promotion thresholds?~~ **Approved 2026-10-18 as part of the plan approval** (research baseline; loosening still requires justification + approval) | — | — |
 | Q9 | Will the laptop typically run **24/7 on AC power**? Is a wired (USB-Ethernet) connection possible? | Assume intermittent uptime and Wi-Fi; design handles both | — (informational) |

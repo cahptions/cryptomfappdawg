@@ -1,0 +1,359 @@
+[
+ {
+  "chainId": "solana",
+  "dexId": "pumpswap",
+  "url": "https://dexscreener.com/solana/g2uurbmvdzdfp4qyobjrskbxsi7d6v4bpp9thps36y4b",
+  "pairAddress": "G2UuRbmVDzDFP4qyoBJrSKBXSi7d6V4bPP9tHPs36y4b",
+  "baseToken": {
+   "address": "nxPqZ4F7ux8Vph5NFu25rEP6Kx9Gr1U6Fmj36Rjpump",
+   "name": "Dacity Coin",
+   "symbol": "Dacity"
+  },
+  "quoteToken": {
+   "address": "TTWofwAge91oFhZs7kpQdyrVRkmevgM88xijGvQFbKo",
+   "name": "Take-Two Interactive Software - Backpack Securities",
+   "symbol": "TTWO"
+  },
+  "priceNative": "0.00001891",
+  "priceUsd": "0.003995",
+  "txns": {
+   "m5": {
+    "buys": 18,
+    "sells": 13
+   },
+   "h1": {
+    "buys": 532,
+    "sells": 362
+   },
+   "h6": {
+    "buys": 6008,
+    "sells": 4387
+   },
+   "h24": {
+    "buys": 8414,
+    "sells": 6651
+   }
+  },
+  "volume": {
+   "h24": 1788000.65,
+   "h6": 1166008.3,
+   "h1": 65235.93,
+   "m5": 1245.63
+  },
+  "priceChange": {
+   "m5": -0.65,
+   "h1": -5.86,
+   "h6": 77.21,
+   "h24": 128
+  },
+  "liquidity": {
+   "usd": 239512.03,
+   "base": 30256878,
+   "quote": 561.649
+  },
+  "fdv": 3922409,
+  "marketCap": 3922409,
+  "pairCreatedAt": 1791717419000,
+  "info": {
+   "imageUrl": "https://cdn.dexscreener.com/cms/images/iKZSFe4f9XKLJV8o?width=800&height=800&quality=95&format=auto",
+   "header": "https://cdn.dexscreener.com/cms/images/NbIxPmBwkJJufpX0?width=1500&height=500&quality=95&format=auto",
+   "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/nxPqZ4F7ux8Vph5NFu25rEP6Kx9Gr1U6Fmj36Rjpump?timestamp=1792363200000",
+   "websites": [],
+   "socials": [
+    {
+     "url": "https://x.com/robtmb1/status/2109241600002118071?s=20",
+     "type": "twitter"
+    }
+   ]
+  }
+ },
+ {
+  "chainId": "solana",
+  "dexId": "pumpswap",
+  "url": "https://dexscreener.com/solana/ckeezkjpcro2dep8rxjpsyfjf3tpoijmh8xvgueaxoue",
+  "pairAddress": "CkEeZKJpcro2dEp8RXJpSYfjF3TPoijmH8xVGuEAxoue",
+  "baseToken": {
+   "address": "ArpPsesHXKbGeJsHdquM6acT3uNs7BChyetJjiNYpump",
+   "name": "godspeed",
+   "symbol": "godspeed"
+  },
+  "quoteToken": {
+   "address": "So11111111111111111111111111111111111111112",
+   "name": "Wrapped SOL",
+   "symbol": "SOL"
+  },
+  "priceNative": "0.000002825",
+  "priceUsd": "0.0002915",
+  "txns": {
+   "m5": {
+    "buys": 457,
+    "sells": 388
+   },
+   "h1": {
+    "buys": 12652,
+    "sells": 9647
+   },
+   "h6": {
+    "buys": 24676,
+    "sells": 19586
+   },
+   "h24": {
+    "buys": 24676,
+    "sells": 19586
+   }
+  },
+  "volume": {
+   "h24": 2387485.68,
+   "h6": 2387485.68,
+   "h1": 1109409.49,
+   "m5": 44537.39
+  },
+  "priceChange": {
+   "m5": 0.4,
+   "h1": -28.68,
+   "h6": 601,
+   "h24": 601
+  },
+  "liquidity": {
+   "usd": 49589.95,
+   "base": 87395870,
+   "quote": 233.6048
+  },
+  "fdv": 283488,
+  "marketCap": 283488,
+  "pairCreatedAt": 1792357232000,
+  "info": {
+   "imageUrl": "https://cdn.dexscreener.com/cms/images/tAhK2K_483-pYoy4?width=800&height=800&quality=95&format=auto",
+   "header": "https://cdn.dexscreener.com/cms/images/MfMvWu4CMSY-G4TB?width=1500&height=500&quality=95&format=auto",
+   "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/ArpPsesHXKbGeJsHdquM6acT3uNs7BChyetJjiNYpump?timestamp=1792363200000",
+   "websites": [
+    {
+     "url": "https://dexhut.com/",
+     "label": "Website"
+    }
+   ],
+   "socials": []
+  }
+ },
+ {
+  "chainId": "solana",
+  "dexId": "meteora",
+  "url": "https://dexscreener.com/solana/zxtpi4btawx3mgdapoezkmd1hxx8cdecfrqxmwvsclx",
+  "pairAddress": "zxTpi4BtaWX3mgdAPoezkMD1hxx8CdeCfrqXMWvSCLX",
+  "labels": [
+   "DLMM"
+  ],
+  "baseToken": {
+   "address": "6GmAFSYs4gk3FDao5FzzySQpPZaWsa4rUJHacpMpUNgx",
+   "name": "STONK",
+   "symbol": "STONK"
+  },
+  "quoteToken": {
+   "address": "So11111111111111111111111111111111111111112",
+   "name": "Wrapped SOL",
+   "symbol": "SOL"
+  },
+  "priceNative": "0.0009443",
+  "priceUsd": "0.09744",
+  "txns": {
+   "m5": {
+    "buys": 289,
+    "sells": 852
+   },
+   "h1": {
+    "buys": 867,
+    "sells": 2022
+   },
+   "h6": {
+    "buys": 2262,
+    "sells": 2642
+   },
+   "h24": {
+    "buys": 5165,
+    "sells": 4632
+   }
+  },
+  "volume": {
+   "h24": 2906288.27,
+   "h6": 1102299.14,
+   "h1": 299322.64,
+   "m5": 67848.95
+  },
+  "priceChange": {
+   "m5": 0.17,
+   "h1": 6.37,
+   "h6": 4.18,
+   "h24": -9.47
+  },
+  "liquidity": {
+   "usd": 1873159.7,
+   "base": 12562212,
+   "quote": 6289.8353
+  },
+  "fdv": 97443946,
+  "marketCap": 76991714,
+  "pairCreatedAt": 1786531900000,
+  "info": {
+   "imageUrl": "https://cdn.dexscreener.com/cms/images/bJ1wrZe7IYIknT9a?width=800&height=800&quality=95&format=auto",
+   "header": "https://cdn.dexscreener.com/cms/images/xs4xvIESQllaMzR-?width=1500&height=500&quality=95&format=auto",
+   "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/6GmAFSYs4gk3FDao5FzzySQpPZaWsa4rUJHacpMpUNgx?timestamp=1792363200000",
+   "websites": [
+    {
+     "url": "https://www.stonkfun.xyz/",
+     "label": "Website"
+    }
+   ],
+   "socials": [
+    {
+     "url": "https://x.com/LaunchOnSF",
+     "type": "twitter"
+    },
+    {
+     "url": "https://t.me/StonkFunXyz",
+     "type": "telegram"
+    }
+   ]
+  }
+ },
+ {
+  "chainId": "solana",
+  "dexId": "pumpswap",
+  "url": "https://dexscreener.com/solana/c1gr6idrfxx3neg8qckak452qtnbiu4orzm13nrzt4i8",
+  "pairAddress": "C1gR6idrfxx3NeG8qCkAK452QTNBiu4oRzM13NRZT4i8",
+  "baseToken": {
+   "address": "8RpybikpGLbKsYJ4FXz12ExDz89R7VXAUZ3JXNcKpump",
+   "name": "FLYING TESLA DOGESTER",
+   "symbol": "DOGESTER"
+  },
+  "quoteToken": {
+   "address": "So11111111111111111111111111111111111111112",
+   "name": "Wrapped SOL",
+   "symbol": "SOL"
+  },
+  "priceNative": "0.000001993",
+  "priceUsd": "0.0002056",
+  "txns": {
+   "m5": {
+    "buys": 7,
+    "sells": 10
+   },
+   "h1": {
+    "buys": 309,
+    "sells": 84
+   },
+   "h6": {
+    "buys": 2736,
+    "sells": 1174
+   },
+   "h24": {
+    "buys": 2810,
+    "sells": 1237
+   }
+  },
+  "volume": {
+   "h24": 212567.93,
+   "h6": 209617.28,
+   "h1": 18494.13,
+   "m5": 561.62
+  },
+  "priceChange": {
+   "m5": -2.6,
+   "h1": -0.03,
+   "h6": 219,
+   "h24": 379
+  },
+  "liquidity": {
+   "usd": 37247.84,
+   "base": 94406758,
+   "quote": 172.7778
+  },
+  "fdv": 199418,
+  "marketCap": 199418,
+  "pairCreatedAt": 1792340914000,
+  "info": {
+   "imageUrl": "https://cdn.dexscreener.com/cms/images/28D1Gu73Q0qhmbvr?width=800&height=800&quality=95&format=auto",
+   "header": "https://cdn.dexscreener.com/cms/images/XMht6XS6o1MkGdHn?width=1500&height=500&quality=95&format=auto",
+   "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/8RpybikpGLbKsYJ4FXz12ExDz89R7VXAUZ3JXNcKpump?timestamp=1792363200000",
+   "websites": [],
+   "socials": [
+    {
+     "url": "https://x.com/dogestersol?s=11",
+     "type": "twitter"
+    }
+   ]
+  }
+ },
+ {
+  "chainId": "solana",
+  "dexId": "pumpswap",
+  "url": "https://dexscreener.com/solana/3p3yajjrqwrvgns3m1udvdxvurizjz8ve8bdpnpvknrj",
+  "pairAddress": "3p3yajJRqwrvgNs3M1UDVDXVUriZjZ8vE8bdpnpvkNRJ",
+  "baseToken": {
+   "address": "3NxfWMHmfQg8NJFW5AG1ti2xACdczWz24e9SKyk1pump",
+   "name": "Minter",
+   "symbol": "MINTER"
+  },
+  "quoteToken": {
+   "address": "So11111111111111111111111111111111111111112",
+   "name": "Wrapped SOL",
+   "symbol": "SOL"
+  },
+  "priceNative": "0.00004338",
+  "priceUsd": "0.004477",
+  "txns": {
+   "m5": {
+    "buys": 374,
+    "sells": 204
+   },
+   "h1": {
+    "buys": 8956,
+    "sells": 3341
+   },
+   "h6": {
+    "buys": 49788,
+    "sells": 27643
+   },
+   "h24": {
+    "buys": 184825,
+    "sells": 106840
+   }
+  },
+  "volume": {
+   "h24": 6808694.52,
+   "h6": 2210959.8,
+   "h1": 294245.7,
+   "m5": 11623.65
+  },
+  "priceChange": {
+   "m5": 0.41,
+   "h1": -49.07,
+   "h6": -58.86,
+   "h24": -9.78
+  },
+  "liquidity": {
+   "usd": 199779.32,
+   "base": 22535415,
+   "quote": 958.2524
+  },
+  "fdv": 4456038,
+  "marketCap": 4456038,
+  "pairCreatedAt": 1792272293000,
+  "info": {
+   "imageUrl": "https://cdn.dexscreener.com/cms/images/QVgFjcelDS0phmd2?width=800&height=800&quality=95&format=auto",
+   "header": "https://cdn.dexscreener.com/cms/images/CJIcn3Vdiegh5VCq?width=1500&height=500&quality=95&format=auto",
+   "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/3NxfWMHmfQg8NJFW5AG1ti2xACdczWz24e9SKyk1pump?timestamp=1792363200000",
+   "websites": [
+    {
+     "url": "https://minter.live",
+     "label": "Website"
+    }
+   ],
+   "socials": [
+    {
+     "url": "https://x.com/MinterXSOL",
+     "type": "twitter"
+    }
+   ]
+  }
+ }
+]

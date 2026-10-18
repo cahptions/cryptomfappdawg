@@ -1,5 +1,5 @@
-# Provider registry — DRAFT produced in M0 (2026-10-18).
-# Promoted to config/providers.yaml in M1, where a schema test validates it and every adapter must have an entry.
+# Provider registry — DRAFT produced in M0 (2026-10-18). Kept as the research record.
+# SUPERSEDED in M1 by config/providers.toml (runtime registry, schema-validated, one entry per adapter).
 #
 # evidence tags: MEASURED (live probe, see research/evidence/2026-10-18/), DOCUMENTED (official docs/spec),
 #                ASSUMPTION, TO_VERIFY (milestone noted)

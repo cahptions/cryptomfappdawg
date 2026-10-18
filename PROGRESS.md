@@ -7,9 +7,9 @@
 
 | Milestone | Status | Date | Notes |
 |---|---|---|---|
-| **M0** Architecture & feasibility | ✅ Documents delivered — **awaiting operator approval** | 2026-10-18 | PLAN.md, RESEARCH.md, ACCEPTANCE.md, provider registry draft, evidence |
-| M1 Infrastructure & data collection | ⏸ not started (blocked on approval, PLAN §24 Q1) | — | |
-| M2 Discovery & on-chain safety | ⏸ | — | effectively needs Q2 (free Jupiter key + keyed RPC) |
+| **M0** Architecture & feasibility | ✅ **Approved by operator** | 2026-10-18 | PLAN.md, RESEARCH.md, ACCEPTANCE.md, provider registry draft, evidence |
+| **M1** Infrastructure & data collection | 🔧 **in progress** | 2026-10-18 | started after approval |
+| M2 Discovery & on-chain safety | ⏸ | — | operator will create free Jupiter key + keyed RPC (Q2 = yes) |
 | M3 Features & strategy engine | ⏸ | — | |
 | ~~M4 AI judge~~ | ❌ **Dropped** | 2026-10-18 | Operator declined paid API; desk is deterministic-only (PLAN §15) |
 | M5 Full PAPER trading | ⏸ | — | |
@@ -18,7 +18,7 @@
 | M8 LIVE infrastructure | ⏸ | — | no real funds ever used in M8 |
 | M9 Forward validation | ⏸ | — | ≥ 60 days calendar time |
 
-**Mode of the system:** nothing runs yet. No code, no keys, no wallet.
+**Mode of the system:** nothing runs yet. No keys, no wallet. Paper capital will be a simulated **$100**.
 
 ## M0 acceptance results (2026-10-18)
 
@@ -60,6 +60,9 @@
 | D-12 | Internal package `desk`, brand only in UI (working brand KESTREL) | Brand can change freely |
 | D-13 | Python 3.12 via `uv`, hash-locked | Matches operator's Mint 22.3; reproducible |
 | D-14 | Address constants verified on-chain, never typed from memory | A memory-typed USDC mint was wrong during M0 |
+| D-15 | Minimal dependencies: runtime M1 deps are only `pydantic` + `httpx`; stdlib `sqlite3` + numbered SQL migrations (not SQLAlchemy/Alembic), stdlib `logging` JSON formatter (not structlog), `tomllib` registry `config/providers.toml` (not YAML), `argparse` CLI | Fewer moving parts for a single beginner maintainer; plain SQL is readable |
+| D-16 | Fourth SQLite file `runtime.db` for cross-process coordination (rate-limit windows, provider health, heartbeats) | Keeps transient coordination writes away from the market store and the money ledger |
+| D-17 | $100 small-account sizing profile (10% tickets, max 2 positions, fee floor) | 2% tickets would be ~$2, where fees could be 0.25–5% per trade |
 
 ## Known issues / open items
 See RESEARCH.md §11 (R-01 … R-10) and PLAN.md §23 (risk register).
@@ -71,11 +74,18 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
 ## Operator answers received
 | Question | Answer | Date | Effect |
 |---|---|---|---|
+| Q1 Plan | **Approved** | 2026-10-18 | M1 started |
+| Q2 Free keys | **Yes** — will create a free Jupiter API key and a free keyed RPC (e.g. Helius) | 2026-10-18 | Setup steps provided at end of M1; keys live only in `~/.config/desk/secrets.env` on the laptop |
+| Q3 Capital | **$100** | 2026-10-18 | PLAN §13.2 rewritten as a $100 small-account profile: 10% tickets (~$10), max 2 positions, fee floor; paper simulates $100 |
 | Q4 AI judge | **No** — "the AI shouldn't judge; I'm not paying for an API" | 2026-10-18 | M4 dropped; PLAN §15 rewritten; M1-20, M6-13, M6-14 added; running cost $0/month |
+| Q5 Dashboard stack | **Approved** (React + TypeScript) | 2026-10-18 | — |
+| Q6 Brand | **KESTREL** (inferred: "5 approve" covered the summary item that bundled stack + brand) | 2026-10-18 | changeable before M7 |
+| Q8 Thresholds | Approved as part of plan approval | 2026-10-18 | research baseline |
+| Q7 Telegram, Q9 uptime/wired | not answered — defaults apply | — | non-blocking |
 
 ## Next step
-1. Operator reviews PLAN.md and answers the remaining PLAN.md §24 questions (Q1 is blocking; Q2 effectively blocking for M2).
-2. On approval: start M1 — `pyproject.toml` + `uv.lock`, `src/desk/core`, `contracts`, `storage`, provider adapters
+1. (Done) Operator approved the plan.
+2. M1 in progress — `pyproject.toml` + `uv.lock`, `src/desk/core`, `contracts`, `storage`, provider adapters
    seeded with the M0 fixtures, rate limiter, `desk doctor`. Then run M1 acceptance tests and report actual results here.
 
 ## Session log

@@ -398,13 +398,36 @@ Implications are handled in PLAN.md §2 and §15.
 | R-01 | Home-IP behaviour of public RPC `getTokenLargestAccounts`, GT, Jupiter keyless | M1 `desk doctor` |
 | R-02 | Helius credit cost of `getTokenLargestAccounts`; WS credit accounting | M1 |
 | R-03 | Definitions of Jupiter `topHoldersPercentage`, `devMints`, `numTraders`, organic metrics | M2 (compare with on-chain) |
-| R-04 | Max mints per Jupiter `tokens/v2/search` call | M1 |
+| R-04 | Max mints per Jupiter `tokens/v2/search` call (comma-separated lists work: 3 verified) | M2 |
 | R-05 | `/swap/v2/execute` contract, status codes, requestId validity | M8 |
 | R-06 | `/order` with read-only `taker`: are fee/priority/rent fields populated without funds? | M5 |
 | R-07 | Cheap migration detector via `programSubscribe` on PumpSwap | M2 (optional) |
 | R-08 | LP lock/burn verifiability per venue (PumpSwap, Meteora DAMM v2, Raydium) | M2 |
 | ~~R-09~~ | ~~Anthropic model list & prices~~ — closed: AI judge removed by operator decision | — |
 | R-10 | Whether systemd sleep/lid inhibitors are honoured by Cinnamon's power manager on the operator's laptop | M7 |
+
+---
+
+## 12. M1 verification log (2026-10-18, 22:15–23:10 UTC)
+
+New facts established while building and testing M1. Evidence files are prefixed `m1_` in
+`research/evidence/2026-10-18/`; the code that relies on each fact has a test.
+
+| Fact | Tag | Consequence |
+|---|---|---|
+| DexScreener `/tokens/v1` returns **one pair per token** (its main pair): 10 mints → 9 pairs (1 not yet indexed), 5 → 5, 1 → 1 | [MEASURED] | Good for refreshing a token's main pool; use `/token-pairs/v1` when all pools of a token are needed (M2) |
+| DexScreener AMM pairs (PumpSwap, Meteora) **do** report `liquidity.{usd,base,quote}`; only bonding-curve pairs omit it | [MEASURED] `m1_dexscreener_tokens_v1_amm_pairs.json` | "Liquidity missing" is a bonding-curve signal, not a data outage |
+| GeckoTerminal `pools/multi` adds `locked_liquidity_percentage` (e.g. `"100.0"` on a PumpSwap migration pool), `pool_fee_percentage` (nullable), `pool_name`, and `base_token_price_native_currency`; duplicate addresses in a request are de-duplicated | [MEASURED] `m1_geckoterminal_pools_multi.json` | LP-lock evidence for R-08 — stored as a **provider claim**, to be checked on-chain in M2 |
+| Jupiter `graduatedPool` for a token equals GeckoTerminal's PumpSwap pool address for the same token | [MEASURED] | Cross-source confirmation of migration pools |
+| GeckoTerminal OHLCV: `data.attributes.ohlcv_list[] = [ts_seconds, o, h, l, c, volume_usd]` as JSON floats, plus `meta.base` / `meta.quote` | [MEASURED] `m1_geckoterminal_ohlcv_5m.json` | Parsed as `Decimal`; bar timestamp semantics (start vs end) still [TO VERIFY @M3] |
+| Jupiter Tokens v2 `search` accepts **comma-separated mints** (3 → 3 tokens) | [MEASURED] `m1_jupiter_tokens_v2_search_3mints.json` | Batched claim lookups; maximum per call still unknown (R-04 partly resolved) |
+| Jupiter timestamps carry up to **9 fractional digits** (`…11.75830942Z`) | [MEASURED] | Parser truncates to microseconds explicitly (works on Python 3.11 and 3.12) |
+| Classic SPL Token program `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` is the owner of the USDC and wSOL mints | [MEASURED] (live test) | Program constant verified on-chain, not from memory |
+| USDC mint has **both mint and freeze authority set** | [MEASURED] `m1_solana_rpc_getAccountInfo_usdc_spl_mint.json` | Real "authority present" fixture for M2 rejection tests |
+| Venue program IDs (pump.fun curve, PumpSwap, Meteora DBC/DAMM v2) re-verified against live pools | [MEASURED] (live test M1-19) | `providers/venues.py` constants confirmed |
+| Public RPC `getTokenLargestAccounts` still 429 (desk doctor, ~22:55 UTC) | [MEASURED] | R-01 remains open until measured from the operator's home IP |
+| Local clock vs latest confirmed block time: +1.3 s | [MEASURED] (container) | Freshness checks can rely on block time as a cross-check |
+| SOL ≈ $103.7 (0.1 SOL → 10.3743 USDC via Metis, 2 bps fee) | [MEASURED] doctor ~22:55 UTC | Reference only |
 
 ---
 

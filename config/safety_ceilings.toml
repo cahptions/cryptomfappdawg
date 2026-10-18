@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SAFETY CEILINGS — hard limits that configuration may tighten but never loosen.
+#
+# "max" entries: the matching config value must be <= the ceiling.
+# "min" entries: the matching config value must be >= the floor.
+#
+# Strategy code and model output can never change these. Changing this file is a
+# deliberate operator action (from M5: `desk ceilings approve`, recorded in the ledger).
+# ─────────────────────────────────────────────────────────────────────────────
+
+[max]
+"sizing.fixed_fraction" = "0.15"
+"sizing.max_ticket_fraction_free_capital" = "0.15"
+"sizing.max_ticket_fraction_pool_liquidity" = "0.005"
+"sizing.max_ticket_sol" = "0.15"
+"sizing.max_fixed_cost_fraction" = "0.01"
+"limits.max_open_positions" = "2"
+"limits.max_total_exposure_fraction" = "0.25"
+"limits.max_positions_per_dev" = "1"
+"limits.max_positions_per_launchpad" = "1"
+"limits.daily_realized_loss_fraction" = "0.05"
+"limits.daily_equity_drawdown_fraction" = "0.08"
+"limits.cumulative_drawdown_fraction" = "0.25"
+"limits.max_trades_per_day" = "10"
+"limits.max_order_submissions_per_min" = "6"
+"limits.max_consecutive_failed_tx" = "3"
+"limits.stale_data_halt_seconds" = "120"
+"paper.starting_capital_usd" = "100000"
+"providers.max_paid_cost_usd_month" = "0"     # operator decision: no paid APIs
+
+[min]
+"sizing.min_ticket_sol" = "0.05"
+"limits.live_sol_reserve" = "0.05"

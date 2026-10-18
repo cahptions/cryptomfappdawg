@@ -1,0 +1,169 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Provider registry (runtime). Supersedes the M0 draft research/provider_registry.yaml.
+# Every adapter must have an entry here (tested). Facts are tagged in RESEARCH.md.
+#
+# Rate limiting: each provider has one or more "buckets"; each bucket lists sliding
+# windows as [max_requests, window_seconds]. A request must fit in EVERY window.
+# Windows are deliberately below documented limits. `windows_with_key` applies when
+# the provider's API key is configured in ~/.config/desk/secrets.env.
+#
+# cost_usd_month must be 0 for every provider (operator decision: no paid APIs).
+# ─────────────────────────────────────────────────────────────────────────────
+schema_version = 1
+
+# ── GeckoTerminal ────────────────────────────────────────────────────────────
+[providers.geckoterminal]
+display_name = "GeckoTerminal"
+base_url = "https://api.geckoterminal.com/api/v2"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "approximately 10 calls/minute, may fluctuate (swagger info, 2026-10-18)"
+measured_limit = "16 requests at ~35/min attempted: 7x429 with retry-after: 0, 9x200 (2026-10-18, shared cloud IP)"
+freshness_seconds = 60
+failure_handling = "429 -> shared exponential backoff with jitter (retry-after: 0 is ignored); 5xx/timeouts retried; schema errors recorded, item skipped"
+fallback = "DexScreener for refresh; Jupiter tokens v2 for discovery"
+allowed_usage = "public API, beta; private local use"
+evidence = ["research/evidence/2026-10-18/geckoterminal_new_pools_p1.json", "research/evidence/2026-10-18/geckoterminal_trending_pools_1h.json",
+  "research/evidence/2026-10-18/m1_geckoterminal_pools_multi.json", "research/evidence/2026-10-18/m1_geckoterminal_ohlcv_5m.json"]
+default_headers = { Accept = "application/json;version=20230203" }
+
+[providers.geckoterminal.buckets.default]
+windows = [[8, 60], [2, 15]]
+
+[providers.geckoterminal.endpoints.new_pools]
+path = "/networks/solana/new_pools"
+status = "verified"
+page_size = 20
+verified_fields = ["address", "name", "pool_created_at", "base_token_price_usd", "quote_token_price_usd", "fdv_usd",
+  "market_cap_usd (nullable)", "reserve_in_usd (nullable; '0.0' possible)", "price_change_percentage.{m5,m15,m30,h1,h6,h24}",
+  "transactions.{m5,m15,m30,h1,h6,h24}.{buys,sells,buyers,sellers}", "volume_usd.{m5,m15,m30,h1,h6,h24}",
+  "relationships.{base_token,quote_token,dex}.data.id"]
+
+[providers.geckoterminal.endpoints.trending_pools]
+path = "/networks/solana/trending_pools"
+status = "verified"
+verified_fields = ["same as new_pools"]
+
+[providers.geckoterminal.endpoints.pools_multi]
+path = "/networks/solana/pools/multi/{addresses}"
+status = "verified"
+max_addresses = 30
+notes = "verified 2026-10-18 (M1): 4 addresses requested incl. one duplicate -> 3 unique pools returned (duplicates are de-duplicated); adds locked_liquidity_percentage, pool_fee_percentage, pool_name"
+verified_fields = ["same as new_pools", "base_token_price_native_currency", "locked_liquidity_percentage (provider claim)",
+  "pool_fee_percentage (nullable)", "pool_name"]
+
+[providers.geckoterminal.endpoints.ohlcv]
+path = "/networks/solana/pools/{pool}/ohlcv/{timeframe}"
+status = "verified"
+notes = "verified 2026-10-18 (M1): numbers are JSON floats -> parsed as Decimal; timestamp in epoch seconds"
+verified_fields = ["data.attributes.ohlcv_list[] = [ts_seconds, open, high, low, close, volume_usd]", "meta.base", "meta.quote"]
+
+# ── DexScreener ──────────────────────────────────────────────────────────────
+[providers.dexscreener]
+display_name = "DexScreener"
+base_url = "https://api.dexscreener.com"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "300 req/min pairs/tokens/search; 60 req/min profiles/boosts/orders/metas (OpenAPI spec)"
+measured_limit = "not exceeded during M0"
+freshness_seconds = 30
+failure_handling = "429 -> shared backoff; missing tokens in a batch are recorded as not indexed, never as zero"
+fallback = "GeckoTerminal pools/multi (small budget); Jupiter tokens v2 search"
+allowed_usage = "public API; private local use"
+evidence = ["research/evidence/2026-10-18/dexscreener_tokens_v1_10mints.json"]
+
+[providers.dexscreener.buckets.default]
+windows = [[120, 60], [10, 1]]
+
+[providers.dexscreener.buckets.promotions]
+windows = [[10, 60]]
+
+[providers.dexscreener.endpoints.tokens_v1]
+path = "/tokens/v1/solana/{mints}"
+status = "verified"
+max_addresses = 30
+notes = "returns ONE pair per token (its main pair) in every sample: 10 mints->9 pairs (1 not indexed), 5->5, 1->1. Use token_pairs for all pools of a token"
+verified_fields = ["chainId", "dexId", "url", "pairAddress", "baseToken.{address,name,symbol}", "quoteToken.{address,name,symbol}",
+  "priceNative", "priceUsd", "txns.{m5,h1,h6,h24}.{buys,sells}", "volume.{m5,h1,h6,h24}", "priceChange.{m5,h1,h6,h24}",
+  "fdv", "marketCap", "pairCreatedAt (epoch ms)", "liquidity.{usd,base,quote} (ABSENT on bonding-curve pairs)", "labels (optional)"]
+
+[providers.dexscreener.endpoints.token_profiles_latest]
+path = "/token-profiles/latest/v1"
+bucket = "promotions"
+status = "verified"
+notes = "PAID promotion: a feature, never a neutral discovery source"
+verified_fields = ["url", "chainId", "tokenAddress", "icon", "header", "description", "links"]
+
+# ── Jupiter ──────────────────────────────────────────────────────────────────
+[providers.jupiter]
+display_name = "Jupiter"
+base_url = "https://api.jup.ag"
+keyless_base_url = "https://lite-api.jup.ag"   # used for Tokens endpoints when no key is configured
+auth = "header"
+key_env = "JUPITER_API_KEY"
+key_header = "x-api-key"
+cost_usd_month = 0
+documented_limit = "keyless 0.5 RPS / 30 RPM; free key 1 RPS / 60 RPM; Swap+Price+Token share one bucket; 60 s sliding window"
+measured_limit = "lite-api window of 5; api.jup.ag keyless 429 after ~13 calls/min (2026-10-18)"
+freshness_seconds = 0
+failure_handling = "429 -> shared backoff; quotes are never reused past their age limit"
+fallback = "none for execution (documented single point of failure)"
+allowed_usage = "public API with free Portal key; private local use"
+evidence = ["research/evidence/2026-10-18/jupiter_v2_order_memecoin_roundtrips.json", "research/evidence/2026-10-18/jupiter_tokens_v2_search_one_mint.json"]
+
+[providers.jupiter.buckets.default]
+windows = [[4, 10], [25, 60]]
+windows_with_key = [[9, 10], [50, 60]]
+
+[providers.jupiter.endpoints.order]
+path = "/swap/v2/order"
+status = "verified"
+notes = "ExactIn only; without taker returns a quote and transaction=null; priceImpact is in percentage points"
+verified_fields = ["inputMint", "outputMint", "inAmount", "outAmount", "otherAmountThreshold", "swapMode", "slippageBps",
+  "priceImpact", "priceImpactPct (deprecated)", "routePlan[].swapInfo.{ammKey,label,inputMint,outputMint,inAmount,outAmount}",
+  "feeMint", "feeBps", "platformFee", "transaction", "gasless", "signatureFeeLamports", "prioritizationFeeLamports",
+  "rentFeeLamports", "requestId", "router", "quoteId", "taker", "inUsdValue", "outUsdValue", "swapUsdValue", "mode", "totalTime"]
+
+[providers.jupiter.endpoints.tokens_search]
+path = "/tokens/v2/search"
+status = "verified"
+notes = "audit/organic fields are provider claims with undocumented definitions; comma-separated mints work (3 verified 2026-10-18); maximum per query still TO_VERIFY (R-04)"
+verified_fields = ["id", "name", "symbol", "decimals", "dev", "circSupply", "totalSupply", "tokenProgram", "launchpad",
+  "graduatedPool", "graduatedAt", "holderCount", "fdv", "mcap", "usdPrice", "priceBlockId", "liquidity", "stats5m/1h/6h/24h",
+  "firstPool.{id,createdAt}", "audit.{mintAuthorityDisabled,freezeAuthorityDisabled,topHoldersPercentage,devMigrations,devMints}",
+  "organicScore", "organicScoreLabel", "tags", "createdAt", "updatedAt"]
+
+[providers.jupiter.endpoints.tokens_recent]
+path = "/tokens/v2/recent"
+status = "verified"
+verified_fields = ["same as tokens_search"]
+
+[providers.jupiter.endpoints.tokens_category]
+path = "/tokens/v2/{category}/{interval}"
+status = "verified"
+verified_fields = ["same as tokens_search"]
+
+# ── Solana RPC ───────────────────────────────────────────────────────────────
+[providers.solana_rpc]
+display_name = "Solana RPC"
+base_url = "https://api.mainnet-beta.solana.com"   # replaced by SOLANA_RPC_URL when configured
+auth = "url"
+key_env = "SOLANA_RPC_URL"
+cost_usd_month = 0
+documented_limit = "public: 100 req/10 s per IP, 40 req/10 s per IP per method, 'not intended for production'; Helius free: 10 RPS, 1M credits/month"
+measured_limit = "public: getTokenLargestAccounts 429 on 4/4 attempts from a shared cloud IP (2026-10-18)"
+freshness_seconds = 0
+failure_handling = "JSON-RPC error code 429 treated as rate limiting; holder data missing => INSUFFICIENT_DATA (fail-closed)"
+fallback = "public endpoint for non-holder calls when the keyed endpoint is down"
+allowed_usage = "public endpoint for development only; free keyed endpoint for operation"
+evidence = ["research/evidence/2026-10-18/solana_public_rpc_getAccountInfo_token2022_mint.json"]
+
+[providers.solana_rpc.buckets.default]
+windows = [[8, 10]]
+windows_with_key = [[20, 10], [600, 60]]
+
+[providers.solana_rpc.endpoints.json_rpc]
+path = ""
+status = "verified"
+verified_fields = ["getHealth", "getSlot", "getAccountInfo(jsonParsed)", "getTokenSupply", "getMinimumBalanceForRentExemption",
+  "getTokenLargestAccounts (429 on public RPC)"]

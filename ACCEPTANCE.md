@@ -44,10 +44,10 @@ Rules that apply to every milestone:
 | M1-10 | Rate limiter never exceeds budget | P/U | Simulated 10-minute load across 3 concurrent tasks: requests per provider ≤ configured budget in every 60 s window; budget state shared across processes via SQLite |
 | M1-11 | Adaptive backoff on 429 | FI | Mock returning 429 with `retry-after: 0` ⇒ backoff grows exponentially with jitter (not immediate retry); success resets |
 | M1-12 | Cache + single-flight dedup | U | 10 concurrent identical requests within TTL ⇒ exactly 1 upstream call; after TTL ⇒ refetch |
-| M1-13 | Databases | U/FI | Migrations build all three DBs from empty; `PRAGMA integrity_check = ok`; WAL enabled; `kill -9` during a write loop loses no committed rows |
+| M1-13 | Databases | U/FI | Migrations build all DBs (market, ledger-paper, research, runtime) from empty; `PRAGMA integrity_check = ok`; WAL enabled; `kill -9` during a write loop loses no committed rows |
 | M1-14 | Structured logging with secret redaction | U | Values of env vars/settings matching `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSPHRASE*` never appear in log output (asserted on captured logs) |
 | M1-15 | Provider health | U | N consecutive failures ⇒ `DEGRADED`, then `DOWN`; recovery after M successes; transitions recorded with timestamps |
-| M1-16 | Provider registry | U | `config/providers.yaml` validates against its schema; every adapter has an entry; every entry has verified-fields, limits, freshness, cost, fallback |
+| M1-16 | Provider registry | U | `config/providers.toml` validates against its schema; every adapter has an entry; every entry has verified-fields, limits, freshness, cost, fallback |
 | M1-17 | Raw evidence | U | Each stored response is retrievable by SHA-256 and decompresses byte-identical |
 | M1-18 | **Stable read-only collection** | L/R | 60-minute run on the operator's laptop: zero unhandled exceptions; per provider ≥ 95% of scheduled polls succeed *or* are recorded as degraded with reason; RSS < 500 MB; numbers reported |
 | M1-19 | Verified program/mint constants | L | Each hard-coded program ID / mint has a live check asserting its on-chain owner/type (RESEARCH.md §5) |
