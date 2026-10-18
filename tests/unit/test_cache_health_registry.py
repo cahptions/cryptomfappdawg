@@ -158,3 +158,16 @@ def test_no_llm_or_paid_dependencies() -> None:
         assert not LLM_HOSTS.search(source.read_text()), source
     registry = load_registry(REPO / "config")
     assert all(spec.cost_usd_month == 0 for spec in registry.providers.values())
+
+
+async def test_expired_entries_are_dropped_not_kept_until_capacity() -> None:
+    clock = Clock()
+    cache = SingleFlightCache(clock=clock, max_entries=2048)
+
+    async def value() -> bytes:
+        return b"x" * 30_000
+
+    for i in range(100):
+        clock.t = i * 61.0            # every entry has expired by the time the next is stored
+        await cache.get_or_fetch(f"k{i}", 60, value)
+    assert len(cache) == 1

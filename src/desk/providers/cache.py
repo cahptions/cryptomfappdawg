@@ -43,7 +43,15 @@ class SingleFlightCache:
             self._inflight.pop(key, None)
         future.set_result(result)
         if ttl > 0:
-            self._values[key] = (self._clock() + ttl, result)
+            now = self._clock()
+            self._values[key] = (now + ttl, result)
+            self._values.move_to_end(key)
+            # drop expired entries promptly (responses can be tens of KB; long runs must not accumulate them)
+            for stale in [k for k, (expires, _) in self._values.items() if expires <= now]:
+                del self._values[stale]
             while len(self._values) > self._max_entries:
                 self._values.popitem(last=False)
         return result
+
+    def __len__(self) -> int:
+        return len(self._values)

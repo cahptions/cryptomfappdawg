@@ -8,7 +8,7 @@
 | Milestone | Status | Date | Notes |
 |---|---|---|---|
 | **M0** Architecture & feasibility | ✅ **Approved by operator** | 2026-10-18 | PLAN.md, RESEARCH.md, ACCEPTANCE.md, provider registry draft, evidence |
-| **M1** Infrastructure & data collection | 🔧 **in progress** | 2026-10-18 | started after approval |
+| **M1** Infrastructure & data collection | 🟡 **implemented & tested in the cloud; awaiting laptop runs (M1-02, M1-18)** | 2026-10-18 | see results table below |
 | M2 Discovery & on-chain safety | ⏸ | — | operator will create free Jupiter key + keyed RPC (Q2 = yes) |
 | M3 Features & strategy engine | ⏸ | — | |
 | ~~M4 AI judge~~ | ❌ **Dropped** | 2026-10-18 | Operator declined paid API; desk is deterministic-only (PLAN §15) |
@@ -29,6 +29,46 @@
 | M0-03 | 20 sanitized evidence files in `research/evidence/2026-10-18/` (cookies stripped; secret-pattern scan: only a false positive inside a token's marketing text) |
 | M0-04 | Questions batched in PLAN.md §24 |
 | M0-05 | No implementation code written |
+
+## M1 acceptance results (2026-10-18, cloud container — see "Where" column)
+
+Commands: `uv run pytest` (offline suite), `uv run pytest -m live` (read-only network), `uv run ruff check src tests`,
+`uv run mypy`, `uv run desk doctor`, `uv run desk collect --minutes 60`.
+Totals at commit time: **136 offline tests passed, 4 live tests passed, ruff clean, mypy --strict clean (46 files).**
+
+| ID | Result | Where | Evidence |
+|---|---|---|---|
+| M1-01 Reproducible install | ✅ PASS | cloud (fresh `git clone` + `uv sync --frozen`) | 289 hashes in `uv.lock`; `desk 0.1.0`; same config snapshot `52014c14933b`; 135/135 tests in the clean clone |
+| M1-02 `desk doctor` on the laptop | ⏳ **PENDING — operator** | cloud run: 13 ok / 2 warn / 0 fail | warnings: no keyed RPC; public RPC refuses holder list (429) |
+| M1-03 Config hash | ✅ PASS | unit | `tests/unit/test_config.py` |
+| M1-04 Ceilings | ✅ PASS | unit | ceiling + floor + paid-provider tests |
+| M1-05 Real fixtures parse | ✅ PASS | unit | 15 real responses, 0 validation errors |
+| M1-06 Unknown is never zero | ✅ PASS | unit + DB | DexScreener bonding-curve liquidity → MISSING; DB CHECK constraint |
+| M1-07 Schema drift rejected | ✅ PASS | unit + mocked HTTP | truncated JSON, wrong shapes, NaN, per-item errors, typed `SCHEMA` errors recorded in health |
+| M1-08 Units | ✅ PASS | property tests | decimals 0–12, lamports, 70-digit provider decimals |
+| M1-09 Timestamps | ✅ PASS | unit | ISO `Z`, offsets, epoch s/ms, nanoseconds, s/ms mix-ups rejected |
+| M1-10 Budget never exceeded | ✅ PASS | simulated 10 min × 3 tasks + **3 real OS processes** | no window ever over budget |
+| M1-11 Backoff on 429 | ✅ PASS | unit + mocked HTTP | `retry-after: 0` ignored; 2→4→8 s; capped; per-provider isolation |
+| M1-12 Cache + single-flight | ✅ PASS | unit + mocked HTTP | 10 concurrent → 1 upstream call; expired entries dropped |
+| M1-13 Databases | ✅ PASS | unit + fault injection | 4 DBs from empty, WAL, integrity ok, migration tamper detection, **kill -9 lost 0 committed rows** |
+| M1-14 Secret redaction | ✅ PASS | unit | keys absent from message/args/extra/exception text and JSON log file |
+| M1-15 Provider health | ✅ PASS | unit | OK→DEGRADED(3)→DOWN(10)→OK(3 successes), transitions timestamped |
+| M1-16 Provider registry | ✅ PASS | unit | `config/providers.toml` schema, buckets, evidence files, every adapter has an entry |
+| M1-17 Raw evidence | ✅ PASS | unit | byte-identical by SHA-256; corruption detected; retention keeps decision-linked |
+| M1-18 60-min collection | ⏳ cloud run in progress; **laptop run PENDING — operator** | — | filled in below when complete |
+| M1-19 On-chain constants | ✅ PASS | live (cloud) | Token, Token-2022, wSOL, USDC, venue programs vs live pools |
+| M1-20 No paid / LLM deps | ✅ PASS | unit | no LLM SDK in lockfile, no LLM hosts in source, all providers $0 |
+
+### Defects found and fixed during M1 (honest log)
+1. **Out-of-range epoch timestamps** raised a raw `ValueError` instead of the typed `TimestampError` — caught by a unit test; fixed.
+2. **All providers shared one rate-limit bucket** (every endpoint used the bucket name `default`), so a GeckoTerminal
+   429 backoff would also have stalled DexScreener/Jupiter/RPC. Found by inspecting `runtime.db` during the first live
+   60-minute run (which was stopped and restarted on the fixed code). Regression test added and shown to fail without
+   the fix.
+3. **Rate-limiter wait timeout** surfaced as a bare `TimeoutError` instead of `ProviderError(RATE_LIMITED)` — fixed + test.
+4. **Response cache kept expired entries** until 2,048 entries (up to ~60 MB on long runs) — now dropped promptly + test.
+5. My own analysis error: I reported GeckoTerminal `pools/multi` as returning "3 of 4" pools; the request actually
+   contained a duplicate address. Corrected in the registry and RESEARCH.md.
 
 ## Key measurements from M0 (details + evidence in RESEARCH.md)
 
