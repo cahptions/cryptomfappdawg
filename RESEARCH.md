@@ -316,10 +316,13 @@ itself), `tokenMetadata` (updateAuthority null, `uri` on a third-party host). Ev
 
 ---
 
-## 6. Anthropic API (for the advisory judge)
+## 6. Anthropic API — NOT USED (operator decision, 2026-10-18)
 
-Source: bundled Claude API reference skill (model table cached 2026-10-06) — **must be re-verified at M4** with the
-Models API (`client.models.list()`), as the spec requires.
+> The operator declined a paid AI API, so the desk has no AI judge and no LLM dependency (PLAN.md §15). This section
+> is kept only as a record of what was researched; nothing below is used by the design.
+
+Source: bundled Claude API reference skill (model table cached 2026-10-06). Would need re-verification with the
+Models API if an AI judge were ever re-proposed.
 
 | Model | ID | Input $/MTok | Output $/MTok |
 |---|---|---|---|
@@ -347,7 +350,7 @@ Not probed in M0 (requires a bot token). Well-established free API; the plan use
 
 ## 8. Library versions available on PyPI / npm (2026-10-18) [MEASURED via `pip index versions` / `npm view`]
 
-Python: `pydantic 2.14.1`, `pydantic-settings 2.16.0`, `httpx 0.28.1`, `anthropic 1.15.0`, `solders 0.29.0`,
+Python: `pydantic 2.14.1`, `pydantic-settings 2.16.0`, `httpx 0.28.1`, `anthropic 1.15.0` (not used), `solders 0.29.0`,
 `solana 0.41.0`, `fastapi 0.146.0`, `uvicorn 0.54.0`, `structlog 26.1.0`, `sqlalchemy 2.1.5`, `alembic 1.20.0`,
 `pytest 9.1.1`, `pytest-asyncio 1.4.0`, `respx 0.23.1`, `hypothesis 6.170.1`, `numpy 2.5.4`, `pandas 3.0.6`,
 `scipy 1.18.1`, `scikit-learn 1.9.1`, `statsmodels 0.15.0`, `arch 8.0.0`, `websockets 17.2`, `orjson 3.13.0`,
@@ -400,7 +403,7 @@ Implications are handled in PLAN.md §2 and §15.
 | R-06 | `/order` with read-only `taker`: are fee/priority/rent fields populated without funds? | M5 |
 | R-07 | Cheap migration detector via `programSubscribe` on PumpSwap | M2 (optional) |
 | R-08 | LP lock/burn verifiability per venue (PumpSwap, Meteora DAMM v2, Raydium) | M2 |
-| R-09 | Anthropic model list & prices via Models API | M4 |
+| ~~R-09~~ | ~~Anthropic model list & prices~~ — closed: AI judge removed by operator decision | — |
 | R-10 | Whether systemd sleep/lid inhibitors are honoured by Cinnamon's power manager on the operator's laptop | M7 |
 
 ---

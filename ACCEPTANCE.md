@@ -51,6 +51,7 @@ Rules that apply to every milestone:
 | M1-17 | Raw evidence | U | Each stored response is retrievable by SHA-256 and decompresses byte-identical |
 | M1-18 | **Stable read-only collection** | L/R | 60-minute run on the operator's laptop: zero unhandled exceptions; per provider ≥ 95% of scheduled polls succeed *or* are recorded as degraded with reason; RSS < 500 MB; numbers reported |
 | M1-19 | Verified program/mint constants | L | Each hard-coded program ID / mint has a live check asserting its on-chain owner/type (RESEARCH.md §5) |
+| M1-20 | **No paid or LLM dependencies** (operator decision 2026-10-18) | U | Lockfile contains no LLM SDK (`anthropic`, `openai`, etc.); no source file references an LLM API host; every provider in `config/providers.yaml` has `cost_usd_month: 0`, and a non-zero entry fails validation |
 
 ---
 
@@ -95,20 +96,17 @@ Rules that apply to every milestone:
 
 ---
 
-## M4 — AI judge (advisory)
+## M4 — AI judge — DROPPED (operator decision, 2026-10-18)
 
-| ID | Criterion | Kind | Pass condition |
-|---|---|---|---|
-| M4-01 | Disabled by default; deterministic mode works without a key | U/E2E | With no key the full SHADOW pipeline runs and judge fields read `UNAVAILABLE` |
-| M4-02 | Model IDs validated against the live Models API | L | Configured IDs present in `models.list()`; an unknown ID fails startup with a clear message |
-| M4-03 | Schema validation for all three output types | U | Valid outputs parse; out-of-range values (p > 1, negative confidence), extra keys, or wrong types ⇒ validation failure record, fallback applied |
-| M4-04 | Untrusted-data isolation | U | Prompt builder output: untrusted fields only inside the delimited data block, length-capped, control chars stripped; snapshot test |
-| M4-05 | Prompt-injection fixtures | U (mocked) + L | Pipeline outputs remain schema-valid or logged failures; no fixture changes any non-judge field; live opt-in run reports judge outputs on clean vs injected twins |
-| M4-06 | Zero influence until validated | U | Decision hash identical whether the judge returns 0.0, 1.0, or fails (while `judge_influence = none`) |
-| M4-07 | Hard budget | U | Simulated spend reaching the cap blocks further calls; counter persists across restart |
-| M4-08 | Timeouts/retries/failures | FI | Timeout ⇒ 1 retry ⇒ structured failure; never blocks the pipeline longer than configured |
-| M4-09 | Logging | U | Every call records model id, question-set version, prompt hash, tokens, cost, latency, parsed output, validation status |
-| M4-10 | No authority leakage | U | Static/import test: `portfolio`, `risk`, `security`, `execution` and `desk_signer` modules cannot import `judge` |
+The operator declined a paid AI API; the desk is deterministic-only (PLAN.md §15). There are no M4 tests. The parts
+of M4 that still matter were moved, not deleted:
+
+| Former intent | Now covered by |
+|---|---|
+| Model predictions logged and compared with deterministic baselines | M6-13, M6-14 (local statistical models) |
+| Model output never sizes, never overrides security or risk | M2-15, M6-14 |
+| Hostile token text (names/descriptions) handled safely | M7-04 (XSS / Unicode), M1-07 (corrupted input) |
+| No paid API usage | M1-20 |
 
 ---
 
@@ -155,6 +153,8 @@ Rules that apply to every milestone:
 | M6-10 | Experiment registry is append-only | U | Updates/deletes rejected; every parameter search and comparison recorded |
 | M6-11 | Champion/challenger | U | Challenger cannot replace champion without criteria met **and** a recorded operator approval; history preserved |
 | M6-12 | Multiple-testing correction | U | Holm adjustment applied across concurrent challengers; reported alongside raw p-values |
+| M6-13 | Local model predictions logged and benchmarked | U | Every local statistical model score is stored with model version, training window, feature-set version and inputs hash; evaluation reports compare it against B0/B1/B2 out-of-sample |
+| M6-14 | Local models have zero influence until validated | U | Decision hash identical whether the model scores 0.0, 1.0 or is unavailable while `model_influence = none`; `portfolio`, `risk`, `security`, `execution` and `desk_signer` cannot import model-scoring modules (import-graph test) |
 
 ---
 

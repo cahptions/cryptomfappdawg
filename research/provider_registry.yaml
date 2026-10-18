@@ -267,15 +267,10 @@ providers:
         to_verify: ["M2: v2 equivalent under api.jup.ag"]
 
   anthropic:
-    sdk: "anthropic (Python) 1.x"
-    auth: "ANTHROPIC_API_KEY (separate paid API account; Claude Pro does not apply)"
-    default: disabled
-    model_discovery: "client.models.list() at startup; configured IDs must be present"
-    reference_prices_usd_per_mtok:   # from Claude API reference (cached 2026-10-06) — RE-VERIFY at M4
-      claude-haiku-5-5: {input: 0.10, output: 0.50}
-      claude-sonnet-5-5: {input: 2.00, output: 10.00}
-    budget_usd_month_default: 5
-    fallback: "deterministic-only; judge fields UNAVAILABLE"
+    status: EXCLUDED   # operator decision 2026-10-18: no paid AI API; desk is deterministic-only (PLAN.md §15)
+    reason: "paid API declined by operator"
+    cost_usd_month: 0
+    notes: "kept as a record only; no adapter will be built. Re-adding requires a new approved proposal."
 
   telegram:
     base_url: https://api.telegram.org

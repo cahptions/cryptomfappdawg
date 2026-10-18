@@ -11,7 +11,7 @@
 | M1 Infrastructure & data collection | ⏸ not started (blocked on approval, PLAN §24 Q1) | — | |
 | M2 Discovery & on-chain safety | ⏸ | — | effectively needs Q2 (free Jupiter key + keyed RPC) |
 | M3 Features & strategy engine | ⏸ | — | |
-| M4 AI judge | ⏸ | — | optional; needs Q4 |
+| ~~M4 AI judge~~ | ❌ **Dropped** | 2026-10-18 | Operator declined paid API; desk is deterministic-only (PLAN §15) |
 | M5 Full PAPER trading | ⏸ | — | |
 | M6 Statistical learning & confidence | ⏸ | — | |
 | M7 Dashboard & operations | ⏸ | — | |
@@ -54,7 +54,7 @@
 | D-06 | `Observed[T]` wrapper; unknown never zero | Spec + DexScreener missing-field finding |
 | D-07 | Pure decision core shared by SHADOW/PAPER/LIVE | Replay determinism; mode parity |
 | D-08 | Conservative paper profile drives portfolio state | Avoid optimistic simulation |
-| D-09 | Judge off by default; zero influence until validated | Spec + cost |
+| D-09 | **No AI judge, no LLM, no paid APIs** (operator decision 2026-10-18). "Models evaluate" = local statistical models in M6, zero influence until validated | Operator declined paying for an API; spec permits deterministic-only mode |
 | D-10 | LIVE arming is CLI-only; dashboard can only disarm | Attack surface |
 | D-11 | React + TS + Vite dashboard; UI built with Node or Docker; runtime Python-only | Polish + maintainability |
 | D-12 | Internal package `desk`, brand only in UI (working brand KESTREL) | Brand can change freely |
@@ -68,8 +68,13 @@ See RESEARCH.md §11 (R-01 … R-10) and PLAN.md §23 (risk register).
 Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at report time, ~6 Docker containers),
 ~290 GB free NVMe, Wi-Fi only (RTL8821CE), laptop on battery/AC, Tailscale installed, 1920×1080 display.
 
+## Operator answers received
+| Question | Answer | Date | Effect |
+|---|---|---|---|
+| Q4 AI judge | **No** — "the AI shouldn't judge; I'm not paying for an API" | 2026-10-18 | M4 dropped; PLAN §15 rewritten; M1-20, M6-13, M6-14 added; running cost $0/month |
+
 ## Next step
-1. Operator reviews PLAN.md and answers PLAN.md §24 (Q1 is blocking; Q2 effectively blocking for M2).
+1. Operator reviews PLAN.md and answers the remaining PLAN.md §24 questions (Q1 is blocking; Q2 effectively blocking for M2).
 2. On approval: start M1 — `pyproject.toml` + `uv.lock`, `src/desk/core`, `contracts`, `storage`, provider adapters
    seeded with the M0 fixtures, rate limiter, `desk doctor`. Then run M1 acceptance tests and report actual results here.
 
@@ -82,3 +87,7 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
   muted text changed `#5F6D7D` → `#76869A` (contrast 3.6 → 5.1:1); brand neons restricted to identity use; series
   palette stepped into the dark band (worst adjacent CVD ΔE 7.9 ⇒ direct labels mandatory). Rendered at 1920×1080 and
   390 px: no console errors, no external requests, no horizontal page scroll. Stopped for approval.
+- **2026-10-18 (session 1, later):** Operator answered Q4: no AI judge / no paid API. Removed the judge from PLAN
+  (§1, §3.1, §4 diagram and pipeline, §5, §6, §7, §8, §9, §13, §15, §19, §20, §22, §24), dropped M4 in ACCEPTANCE
+  (moved its surviving intents to M1-20, M6-13, M6-14, M7-04), marked Anthropic EXCLUDED in the registry and RESEARCH,
+  removed the judge from the design concept. Still awaiting Q1 (plan approval).
