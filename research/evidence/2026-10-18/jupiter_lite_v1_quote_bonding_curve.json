@@ -1,0 +1,70 @@
+{
+ "inputMint": "So11111111111111111111111111111111111111112",
+ "inAmount": "50000000",
+ "outputMint": "AUegDtsKB8LrhhvXm6pr7EGXcHRGJrTRFZoYdQf4pump",
+ "outAmount": "1623619583303",
+ "otherAmountThreshold": "1574910995804",
+ "swapMode": "ExactIn",
+ "slippageBps": 300,
+ "platformFee": null,
+ "priceImpactPct": "0.0291134891077180630744820733",
+ "routePlan": [
+  {
+   "swapInfo": {
+    "ammKey": "83v8iPyZihDEjDdY8RdZddyZNyUtXngz69Lgo9Kt5d6d",
+    "label": "Whirlpool",
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "inAmount": "50000000",
+    "outAmount": "5159410",
+    "updateContextSlot": "458593697"
+   },
+   "percent": 100,
+   "bps": null
+  },
+  {
+   "swapInfo": {
+    "ammKey": "4nFbdT7DeXATvaRZfR3WqALGJnogMjqe9vf2H6C1WXBr",
+    "label": "Raydium CLMM",
+    "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "outputMint": "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+    "inAmount": "5159410",
+    "outAmount": "6339",
+    "updateContextSlot": "458593647"
+   },
+   "percent": 100,
+   "bps": null
+  },
+  {
+   "swapInfo": {
+    "ammKey": "3zhuSfJxueSV9tJAvqKTymdak7temSS2BYXZLsZDn3ne",
+    "label": "Pump.fun",
+    "inputMint": "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+    "outputMint": "AUegDtsKB8LrhhvXm6pr7EGXcHRGJrTRFZoYdQf4pump",
+    "inAmount": "6339",
+    "outAmount": "1623619583303",
+    "updateContextSlot": "458593481"
+   },
+   "percent": 100,
+   "bps": null
+  }
+ ],
+ "contextSlot": 458593698,
+ "timeTaken": 0.001088388,
+ "swapUsdValue": "5.160621307757045",
+ "mostReliableAmmsQuoteReport": {
+  "info": {
+   "AUegDtsKB8LrhhvXm6pr7EGXcHRGJrTRFZoYdQf4pump": "No MRP",
+   "B5EwJVDuAauzUEEdwvbuXzbFFgEYnUqqS37TUM1c4PQA": "6333",
+   "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "5157099",
+   "BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU": "Not used RG: FullLiquidIntermediate, contains ALT: true"
+  }
+ },
+ "longtailMarketQuoteReport": null,
+ "useIncurredSlippageForQuoting": null,
+ "useRewards": null,
+ "otherRoutePlans": null,
+ "loadedLongtailToken": false,
+ "instructionVersion": null,
+ "transactionVersion": 0
+}

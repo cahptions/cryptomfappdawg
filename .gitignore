@@ -1,0 +1,37 @@
+# Secrets — never commit
+*.env
+.env
+.env.*
+*.keystore.json
+*-keypair.json
+*_keypair.json
+id.json
+
+# Runtime data (lives in ~/desk-data by default, but guard anyway)
+desk-data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite*
+STOP
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+build/
+*.egg-info/
+
+# UI
+ui/node_modules/
+ui/dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

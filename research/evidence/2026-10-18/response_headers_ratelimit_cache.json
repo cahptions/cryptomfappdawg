@@ -1,0 +1,52 @@
+{
+ "geckoterminal_new_pools": [
+  "date: Sun, 18 Oct 2026 21:53:53 GMT",
+  "content-type: application/json; charset=utf-8",
+  "cache-control: max-age=30, public, must-revalidate, s-maxage=60",
+  "age: 48",
+  "cf-cache-status: HIT"
+ ],
+ "dexscreener_token_profiles": [
+  "date: Sun, 18 Oct 2026 21:53:53 GMT",
+  "content-type: application/json; charset=utf-8",
+  "age: 9",
+  "cache-control: public, max-age=60",
+  "cf-cache-status: HIT"
+ ],
+ "dexscreener_tokens_v1": [
+  "date: Sun, 18 Oct 2026 21:55:42 GMT",
+  "content-type: application/json; charset=utf-8",
+  "cache-control: public, max-age=30",
+  "cf-cache-status: MISS"
+ ],
+ "jupiter_lite_v1_quote_first": [
+  "content-type: application/json",
+  "date: Sun, 18 Oct 2026 21:53:54 GMT",
+  "x-ratelimit-remaining: 4",
+  "x-ratelimit-current: 1",
+  "x-ratelimit-reset: 1792360444"
+ ],
+ "jupiter_lite_v1_quote_second": [
+  "content-type: application/json",
+  "date: Sun, 18 Oct 2026 21:54:47 GMT",
+  "x-ratelimit-remaining: 3",
+  "x-ratelimit-current: 2",
+  "x-ratelimit-reset: 1792360493"
+ ],
+ "jupiter_v2_order_keyless": [
+  "content-type: application/json",
+  "date: Sun, 18 Oct 2026 21:54:48 GMT",
+  "x-ratelimit-remaining: 19",
+  "x-ratelimit-current: 1",
+  "x-ratelimit-reset: 1792360498"
+ ],
+ "jupiter_tokens_v2_recent": [
+  "content-type: application/json",
+  "cache-control: public, max-age=5",
+  "date: Sun, 18 Oct 2026 22:01:57 GMT",
+  "x-ratelimit-remaining: 2",
+  "x-ratelimit-current: 3",
+  "x-ratelimit-reset: 1792360919",
+  "age: 2"
+ ]
+}

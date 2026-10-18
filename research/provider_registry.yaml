@@ -1,0 +1,286 @@
+# Provider registry — DRAFT produced in M0 (2026-10-18).
+# Promoted to config/providers.yaml in M1, where a schema test validates it and every adapter must have an entry.
+#
+# evidence tags: MEASURED (live probe, see research/evidence/2026-10-18/), DOCUMENTED (official docs/spec),
+#                ASSUMPTION, TO_VERIFY (milestone noted)
+# Rule: unknown values are written as null with a `to_verify` note — never guessed.
+
+schema_version: 1
+generated_at: "2026-10-18T22:10:00Z"
+
+providers:
+
+  geckoterminal:
+    base_url: https://api.geckoterminal.com/api/v2
+    auth: none
+    api_version_header: "Accept: application/json;version=20230203"   # DOCUMENTED (beta API)
+    rate_limit:
+      documented: "~10 calls/minute, may fluctuate"                    # DOCUMENTED swagger info
+      measured: "16 requests at ~35/min attempted -> 7x429 (retry-after: 0), 9x200"   # MEASURED
+      our_budget_per_min: 8
+      backoff: exponential_with_jitter_ignore_retry_after_zero
+    freshness:
+      provider_cache_s: 60                                                # DOCUMENTED
+      http_cache_control: "max-age=30, s-maxage=60"                       # MEASURED
+      min_poll_interval_s: 60
+    cost_usd_month: 0
+    allowed_usage: "Public API for programmatic access; attribution for public display TO_VERIFY (not needed for private local use)"
+    reliability: "beta; schema may change; erratic 429s"
+    fallback: "DexScreener for refresh; Jupiter tokens/v2 for discovery; own snapshots replace OHLCV gaps"
+    endpoints:
+      new_pools:
+        path: /networks/solana/new_pools?page={1..10}
+        page_size: 20                                                    # MEASURED
+        verified_fields:
+          - "address"
+          - "name"
+          - "pool_created_at"
+          - "base_token_price_usd"
+          - "quote_token_price_usd"
+          - "fdv_usd"
+          - "market_cap_usd (nullable)"
+          - "reserve_in_usd (nullable; can be '0.0' on an active pool)"
+          - "price_change_percentage.{m5,m15,m30,h1,h6,h24}"
+          - "transactions.{m5,m15,m30,h1,h6,h24}.{buys,sells,buyers,sellers}"
+          - "volume_usd.{m5,m15,m30,h1,h6,h24}"
+          - "relationships.{base_token,quote_token,dex}.data.id"
+        evidence: research/evidence/2026-10-18/geckoterminal_new_pools_p1.json
+        notes: "windows shorter than pool age repeat the since-creation value"
+      trending_pools:
+        path: /networks/solana/trending_pools?duration={5m,1h,6h,24h}&include=base_token
+        verified_fields: same_as_new_pools
+        evidence: research/evidence/2026-10-18/geckoterminal_trending_pools_1h.json
+      pools_multi:
+        path: /networks/solana/pools/multi/{addresses}
+        max_addresses: 30                                                 # DOCUMENTED
+        verified_fields: TO_VERIFY_M1
+      ohlcv:
+        path: /networks/solana/pools/{pool}/ohlcv/{day|hour|minute}?aggregate=&limit=&before_timestamp=
+        params: {minute_aggregate: [1, 5, 15], hour_aggregate: [1, 4, 12], day_aggregate: [1], limit_max: 1000}   # DOCUMENTED
+        verified_fields: TO_VERIFY_M1
+      trades:
+        path: /networks/solana/pools/{pool}/trades
+        notes: "last 24h; cursor/per_page are Pro-only"                   # DOCUMENTED
+        verified_fields: TO_VERIFY_M1
+      search_pools:
+        path: /search/pools?query=&network=solana
+        evidence: research/evidence/2026-10-18/geckoterminal_search_usdc.json
+
+  dexscreener:
+    base_url: https://api.dexscreener.com
+    auth: none
+    rate_limit:
+      documented:
+        pairs_tokens_search: "300 requests/minute"                        # DOCUMENTED openapi spec
+        profiles_boosts_orders_metas: "60 requests/minute"                # DOCUMENTED
+      our_budget_per_min: {pairs_tokens_search: 120, profiles_boosts_orders_metas: 10}
+    freshness:
+      http_cache_control: "public, max-age=30"                            # MEASURED
+      min_poll_interval_s: 30
+    cost_usd_month: 0
+    allowed_usage: "Public API; TO_VERIFY terms for automated use"
+    reliability: "no new-pairs endpoint; some fresh tokens not yet indexed (9/10 returned in probe)"
+    fallback: "GeckoTerminal pools/multi (budget-limited); Jupiter tokens/v2 search"
+    endpoints:
+      tokens_v1:
+        path: /tokens/v1/solana/{comma_separated_mints}
+        max_addresses: 30                                                 # DOCUMENTED
+        verified_fields:
+          - "chainId"
+          - "dexId"
+          - "url"
+          - "pairAddress"
+          - "baseToken.{address,name,symbol}"
+          - "quoteToken.{address,name,symbol}"
+          - "priceNative"
+          - "priceUsd"
+          - "txns.{m5,h1,h6,h24}.{buys,sells}"
+          - "volume.{m5,h1,h6,h24}"
+          - "priceChange.{m5,h1,h6,h24}"
+          - "fdv"
+          - "marketCap"
+          - "pairCreatedAt (epoch ms)"
+          - "liquidity.{usd,base,quote} (ABSENT for bonding-curve pairs)"
+          - "labels (optional)"
+        evidence: research/evidence/2026-10-18/dexscreener_tokens_v1_10mints.json
+        notes: "no distinct-trader counts; dexId spellings differ from GeckoTerminal (pumpfun vs pump-fun)"
+      pairs:
+        path: /latest/dex/pairs/solana/{pairIds}
+        verified_fields: TO_VERIFY_M1
+      token_pairs:
+        path: /token-pairs/v1/solana/{mint}
+        verified_fields: TO_VERIFY_M1
+      token_profiles_latest:
+        path: /token-profiles/latest/v1
+        bias: "PAID promotion — tag discoveries as PROMOTED; never a neutral universe source"
+        evidence: research/evidence/2026-10-18/dexscreener_token_profiles_latest.json
+        notes: "descriptions are untrusted text; useful as prompt-injection fixtures"
+      token_boosts:
+        path: [/token-boosts/latest/v1, /token-boosts/top/v1]
+        bias: "PAID promotion"
+
+  solana_rpc_public:
+    base_url: https://api.mainnet-beta.solana.com
+    ws_url: wss://api.mainnet-beta.solana.com
+    auth: none
+    rate_limit:
+      documented: {per_ip_per_10s: 100, per_ip_per_method_per_10s: 40, concurrent_connections: 40, data_per_30s_mb: 100}   # DOCUMENTED
+      measured: "getTokenLargestAccounts -> HTTP 429 on 4/4 attempts from shared cloud IP"                                    # MEASURED
+      our_budget_rps: 1
+    allowed_usage: "Docs: 'not intended for production applications'"   # DOCUMENTED
+    cost_usd_month: 0
+    fallback: "keyed RPC (solana_rpc_keyed)"
+    methods_verified:                                                     # MEASURED
+      getHealth: {latency_ms: 157}
+      getSlot: {latency_ms: 394}
+      getAccountInfo_jsonParsed: {latency_ms: 252, note: "returns Token-2022 extensions parsed"}
+      getTokenSupply: {latency_ms: 219}
+      getMinimumBalanceForRentExemption: {165: 1488440, 170: 1513840, 182: 1574800}
+      getTokenLargestAccounts: {status: "429 every attempt (from research IP)"}
+    websocket:
+      logsSubscribe_pump_program: "works; ~140-234 msg/s; ~217 KiB/s (~19 GB/day) — NOT used by default"   # MEASURED
+    to_verify: ["M1: re-measure from operator home IP via desk doctor"]
+
+  solana_rpc_keyed:
+    provider: configurable          # default suggestion: Helius free tier
+    helius_free_tier:               # DOCUMENTED https://www.helius.dev/pricing
+      monthly_credits: 1000000
+      rpc_rps: 10
+      das_rps: 2
+      credit_costs: {standard_rpc: 1, getProgramAccounts: 10, archival: 10, das: 10, getTokenLargestAccounts: TO_VERIFY_M1}
+      websocket: "LaserStream WSS (standard); no transactionSubscribe"
+      upgrade: {name: Developer, usd_month: 49, credits: 10000000, rpc_rps: 50}
+    auth: "api key in URL or header (provider-specific); stored in ~/.config/desk/secrets.env"
+    our_budget: {avg_rps: 2, burst_rps: 5, monthly_credits_projection: "200k-400k"}
+    cost_usd_month: 0
+    fallback: "public RPC for non-holder calls; holder analysis -> INSUFFICIENT_DATA (fail-closed)"
+
+  jupiter:
+    docs: https://developers.jup.ag/docs/
+    base_url: https://api.jup.ag
+    legacy_base_url: https://lite-api.jup.ag       # still live in M0; deprecated-risk fallback (ASSUMPTION)
+    auth: "x-api-key header (Portal key); keyless tier exists"
+    rate_limit:                                     # DOCUMENTED https://developers.jup.ag/docs/portal/rate-limits
+      tiers: {keyless: {rps: 0.5, rpm: 30}, free: {rps: 1, rpm: 60}, developer: {rps: 10, rpm: 600},
+              launch: {rps: 50, rpm: 3000}, pro: {rps: 150, rpm: 9000}}
+      window: "60s sliding window, no cooldown"
+      shared_bucket: "Swap + Price + Token requests share one bucket"
+      execute_bucket_rps: {keyless: 20, free: 50, paid: 100}
+      headers: [x-ratelimit-remaining (signed), x-ratelimit-current, x-ratelimit-reset (unix s)]   # also MEASURED
+      measured: "api.jup.ag keyless -> 429 '[API Gateway] Too many requests' after ~13 calls/min"   # MEASURED
+      our_budget_per_min: {free_key: 50, keyless: 25}
+    cost_usd_month: 0
+    fees_measured:                                   # MEASURED
+      platform_fee_bps_memecoin: 10
+      platform_fee_bps_sol_usdc_rfq: 2
+    reliability: "single aggregator dependency; outage => no quotes and no exits"
+    fallback: "none for execution (documented SPOF); lite-api v1 quote as quote-only fallback"
+    endpoints:
+      swap_v2_order:
+        path: /swap/v2/order?inputMint=&outputMint=&amount=&taker=&slippageBps=&...
+        swap_mode: ExactIn only                                           # DOCUMENTED
+        verified_fields:
+          - "inputMint"
+          - "outputMint"
+          - "inAmount"
+          - "outAmount"
+          - "otherAmountThreshold"
+          - "swapMode"
+          - "slippageBps"
+          - "priceImpactPct (deprecated)"
+          - "priceImpact (percentage points)"
+          - "routePlan[].swapInfo.{ammKey,label,inputMint,outputMint,inAmount,outAmount}"
+          - "feeMint"
+          - "feeBps"
+          - "platformFee"
+          - "transaction (null without taker)"
+          - "gasless"
+          - "signatureFeeLamports"
+          - "prioritizationFeeLamports"
+          - "rentFeeLamports"
+          - "requestId"
+          - "router"
+          - "quoteId"
+          - "maker"
+          - "taker"
+          - "inUsdValue"
+          - "outUsdValue"
+          - "swapUsdValue"
+          - "mode"
+          - "totalTime"
+        evidence: [research/evidence/2026-10-18/jupiter_v2_order_keyless_sol_usdc.json,
+                   research/evidence/2026-10-18/jupiter_v2_order_memecoin_roundtrips.json]
+        measured_latency_ms: [230, 517]
+        to_verify: ["M5: fee fields with read-only taker (R-06)", "expireAt / lastValidBlockHeight semantics"]
+      swap_v2_execute:
+        path: POST /swap/v2/execute
+        status: "TO_VERIFY_M8 — request/response schema not on fetched docs pages"
+      swap_v1_quote_lite:
+        path: https://lite-api.jup.ag/swap/v1/quote
+        measured_window: "5 requests per window"                         # MEASURED headers
+        evidence: [research/evidence/2026-10-18/jupiter_lite_v1_quote_sol_usdc.json,
+                   research/evidence/2026-10-18/jupiter_lite_v1_quote_bonding_curve.json]
+        notes: "routes pump.fun bonding curves (route label 'Pump.fun')"
+      tokens_v2_search:
+        path: /tokens/v2/search?query={mint_or_text}
+        verified_fields:
+          - "id"
+          - "name"
+          - "symbol"
+          - "decimals"
+          - "dev"
+          - "circSupply"
+          - "totalSupply"
+          - "tokenProgram"
+          - "launchpad"
+          - "graduatedPool"
+          - "graduatedAt"
+          - "holderCount"
+          - "fdv"
+          - "mcap"
+          - "usdPrice"
+          - "priceBlockId"
+          - "liquidity"
+          - "stats{5m,1h,6h,24h}.{priceChange,holderChange,liquidityChange,volumeChange,buyVolume,sellVolume,buyOrganicVolume,sellOrganicVolume,numBuys,numSells,numTraders,numOrganicBuyers,numNetBuyers}"
+          - "firstPool.{id,createdAt}"
+          - "audit.{mintAuthorityDisabled,freezeAuthorityDisabled,topHoldersPercentage,devMigrations,devMints}"
+          - "organicScore"
+          - "organicScoreLabel"
+          - "tags"
+          - "createdAt"
+          - "updatedAt"
+        semantics_undocumented: [audit.topHoldersPercentage, audit.devMints, audit.devMigrations, numTraders, organic volumes]
+        treat_as: provider_claim
+        max_mints_per_query: TO_VERIFY_M1
+        evidence: research/evidence/2026-10-18/jupiter_tokens_v2_search_one_mint.json
+      tokens_v2_recent:
+        path: /tokens/v2/recent
+        result_count: 30                                                  # MEASURED (~15 s of launches)
+        evidence: research/evidence/2026-10-18/jupiter_tokens_v2_recent.json
+      tokens_v2_category:
+        path: /tokens/v2/{toptrending|toptraded|toporganicscore}/{5m|1h|6h|24h}?limit=
+        evidence: research/evidence/2026-10-18/jupiter_tokens_v2_toptrending_1h.json
+      shield:
+        path: https://lite-api.jup.ag/ultra/v1/shield?mints=
+        verified_fields: ["warnings.{mint}[].{type,message,severity}"]
+        evidence: research/evidence/2026-10-18/jupiter_ultra_v1_shield.json
+        to_verify: ["M2: v2 equivalent under api.jup.ag"]
+
+  anthropic:
+    sdk: "anthropic (Python) 1.x"
+    auth: "ANTHROPIC_API_KEY (separate paid API account; Claude Pro does not apply)"
+    default: disabled
+    model_discovery: "client.models.list() at startup; configured IDs must be present"
+    reference_prices_usd_per_mtok:   # from Claude API reference (cached 2026-10-06) — RE-VERIFY at M4
+      claude-haiku-5-5: {input: 0.10, output: 0.50}
+      claude-sonnet-5-5: {input: 2.00, output: 10.00}
+    budget_usd_month_default: 5
+    fallback: "deterministic-only; judge fields UNAVAILABLE"
+
+  telegram:
+    base_url: https://api.telegram.org
+    auth: "bot token in secrets.env"
+    usage: [sendMessage, getUpdates(long-poll)]
+    commands_allowed: ["/status", "/stop"]
+    default: disabled
+    to_verify: ["M7"]

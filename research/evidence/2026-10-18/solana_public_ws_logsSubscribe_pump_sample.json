@@ -1,0 +1,30 @@
+{
+ "jsonrpc": "2.0",
+ "method": "logsNotification",
+ "params": {
+  "result": {
+   "context": {
+    "slot": 458592254
+   },
+   "value": {
+    "signature": "4YmCnDFPF6i3ud4C6HZ6SBxpz424kK1JUQyKCjG9kbz1h8UjEFPHgNTF4rA7gfsebJLEuwDxwCRB2mSjTDYKXgiH",
+    "err": {
+     "InstructionError": [
+      1,
+      {
+       "Custom": 111
+      }
+     ]
+    },
+    "logs": [
+     "Program 11111111111111111111111111111111 invoke [1]",
+     "Program 11111111111111111111111111111111 success",
+     "Program 5kZmvKbaqNjSNEnQKEREEKu5r9JkaDRKrQMUvZagCMoz invoke [1]",
+     "Program 5kZmvKbaqNjSNEnQKEREEKu5r9JkaDRKrQMUvZagCMoz consumed 8453 of 72249 compute units",
+     "Program 5kZmvKbaqNjSNEnQKEREEKu5r9JkaDRKrQMUvZagCMoz failed: custom program error: 0x6f"
+    ]
+   }
+  },
+  "subscription": 75442876
+ }
+}

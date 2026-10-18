@@ -1,0 +1,51 @@
+{
+ "jsonrpc": "2.0",
+ "result": {
+  "context": {
+   "apiVersion": "4.3.0",
+   "slot": 458591717
+  },
+  "value": {
+   "data": {
+    "parsed": {
+     "info": {
+      "decimals": 6,
+      "extensions": [
+       {
+        "extension": "metadataPointer",
+        "state": {
+         "authority": null,
+         "metadataAddress": "7wrVy57WvGRxwn679U3buysv6FDdAV3hoDfJSqVrpump"
+        }
+       },
+       {
+        "extension": "tokenMetadata",
+        "state": {
+         "additionalMetadata": [],
+         "mint": "7wrVy57WvGRxwn679U3buysv6FDdAV3hoDfJSqVrpump",
+         "name": "$15 And a dream",
+         "symbol": "$15",
+         "updateAuthority": null,
+         "uri": "https://metadata.j7tracker.io/m/3SMxISVtDR"
+        }
+       }
+      ],
+      "freezeAuthority": null,
+      "isInitialized": true,
+      "mintAuthority": null,
+      "supply": "1000000000000000"
+     },
+     "type": "mint"
+    },
+    "program": "spl-token-2022",
+    "space": 378
+   },
+   "executable": false,
+   "lamports": 2570480,
+   "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+   "rentEpoch": 18446744073709551615,
+   "space": 378
+  }
+ },
+ "id": 1
+}

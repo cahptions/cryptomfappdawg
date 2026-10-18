@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kestrel Desk Concept</title>
+<meta name="description" content="M0 design concept for the Solana Quant Desk dashboard. Illustrative sample data only — not trading results.">
+<style>
+/* ===================================================================
+   KESTREL — design tokens (single source of truth for the concept)
+   Dark-first by product decision. All sample data is illustrative.
+   =================================================================== */
+:root{
+  color-scheme: dark;
+  /* surfaces */
+  --canvas:#07090C; --panel:#0C1016; --raised:#121821; --hover:#18202B;
+  --border:#1C2530; --border-strong:#2A3644;
+  /* text (contrast on --panel: 16.3 / 7.9 / 5.1) */
+  --text:#E8EEF5; --text-2:#9AA8B8; --text-3:#76869A;
+  /* brand identity accents — never data marks */
+  --sol-green:#14F195; --sol-purple:#9945FF; --sol-cyan:#3CD2FF; --sol-magenta:#E44CFF;
+  /* semantic / status — reserved, always paired with icon or sign */
+  --pos:#1FD8A4; --neg:#FF4D6D; --warn:#FFB020; --info:#4CC3FF; --neutral:#8A99AB;
+  /* chart series (validated: worst adjacent CVD ΔE 7.9 ⇒ direct labels required) */
+  --s1:#009FC8; --s2:#9B70F3; --s3:#00AD62; --s4:#D439EF;
+  --grid:#1A222C;
+  /* mode identity */
+  --mode-shadow:#7FA7C9; --mode-paper:#A57BFF; --mode-live:#FF3D7F;
+  /* type */
+  --font-ui: Inter, "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* spacing / radius */
+  --r-chip:6px; --r-card:10px; --r-modal:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--canvas);color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+a{color:inherit}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* concept banner */
+.concept{display:block;padding:8px 16px;background:repeating-linear-gradient(135deg,#1a1405 0 10px,#211a07 10px 20px);border-bottom:1px solid #3a2e0e;color:#FFD27A;font-size:12px;text-align:center}
+.concept b{color:#FFE2A8}
+
+/* app shell */
+.app{display:grid;grid-template-columns:76px 1fr;min-height:calc(100vh - 34px)}
+.rail{background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:0;height:100vh}
+.logo{width:40px;height:40px;margin-bottom:12px}
+.nav{width:60px;padding:8px 0 6px;border-radius:var(--r-card);display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--text-3);font-size:10.5px;text-decoration:none;border:1px solid transparent}
+.nav svg{width:20px;height:20px}
+.nav:hover{background:var(--hover);color:var(--text-2)}
+.nav.active{color:var(--text);background:var(--raised);border-color:var(--border-strong);box-shadow:inset 2px 0 0 var(--sol-cyan)}
+.nav.live{margin-top:auto;color:#c9879f}
+main{min-width:0}
+
+/* summary bar */
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:stretch;gap:0;background:rgba(12,16,22,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);overflow-x:auto}
+.brand{display:flex;flex-direction:column;justify-content:center;padding:10px 18px;border-right:1px solid var(--border);min-width:150px}
+.brand .wm{font-weight:700;letter-spacing:.32em;font-size:13px}
+.brand .sub{color:var(--text-3);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+.kpi{padding:9px 16px;border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;min-width:118px;white-space:nowrap}
+.kpi .l{font-size:10.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.07em}
+.kpi .v{font-size:16px;font-weight:600}
+.kpi .d{font-size:11px;color:var(--text-2)}
+.up{color:var(--pos)} .down{color:var(--neg)}
+.modepill{display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:999px;font-weight:700;font-size:12px;letter-spacing:.12em;color:var(--mode-paper);background:rgba(165,123,255,.10);border:1px solid rgba(165,123,255,.45);box-shadow:0 0 0 1px rgba(165,123,255,.15),0 0 22px rgba(165,123,255,.18)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:currentColor}
+.dots{display:flex;gap:6px;align-items:center}
+.pd{width:9px;height:9px;border-radius:50%}
+.ok{background:var(--pos)} .deg{background:var(--warn)} .bad{background:var(--neg)} .off{background:#3a4656}
+
+/* content grid */
+.content{padding:16px;display:grid;gap:14px;grid-template-columns:repeat(12,minmax(0,1fr))}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);min-width:0;display:flex;flex-direction:column}
+.card h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2)}
+.ch{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px 10px;border-bottom:1px solid var(--border)}
+.cb{padding:12px 14px}
+.span5{grid-column:span 5}.span7{grid-column:span 7}.span8{grid-column:span 8}.span4{grid-column:span 4}.span6{grid-column:span 6}.span12{grid-column:span 12}
+
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:var(--r-chip);font-size:11.5px;font-weight:500;border:1px solid var(--border-strong);color:var(--text-2);background:var(--raised);white-space:nowrap}
+.chip.pass{color:var(--pos);border-color:rgba(31,216,164,.35);background:rgba(31,216,164,.07)}
+.chip.fail{color:var(--neg);border-color:rgba(255,77,109,.35);background:rgba(255,77,109,.07)}
+.chip.warnc{color:var(--warn);border-color:rgba(255,176,32,.35);background:rgba(255,176,32,.07)}
+.chip.ins{color:var(--text-2);border-style:dashed}
+.chip.info{color:var(--info);border-color:rgba(76,195,255,.35);background:rgba(76,195,255,.07)}
+.sample{font-size:10px;letter-spacing:.1em;color:#FFD27A;border:1px dashed #6b5414;border-radius:4px;padding:1px 6px}
+
+/* active position */
+.pos-card{position:relative;border-color:#2b3a4c;box-shadow:0 0 0 1px rgba(60,210,255,.06),0 10px 40px -18px rgba(60,210,255,.25)}
+.pos-head{display:flex;gap:12px;align-items:center}
+.ident{width:40px;height:40px;border-radius:10px;flex:none}
+.tok{font-size:18px;font-weight:700}
+.mint{font-size:11.5px;color:var(--text-3)}
+.pos-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.m{background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px;min-width:0}
+.m .l{font-size:10.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em}
+.m .v{font-size:15px;font-weight:600;margin-top:2px}
+.m .s{font-size:11px;color:var(--text-3)}
+.rules{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.note{font-size:11.5px;color:var(--text-3);margin-top:10px}
+
+/* charts */
+.chart-wrap{position:relative}
+svg.chart{width:100%;height:auto;display:block}
+.tip{position:absolute;pointer-events:none;background:var(--raised);border:1px solid var(--border-strong);border-radius:8px;padding:6px 9px;font-size:12px;white-space:nowrap;opacity:0;transform:translate(-50%,-110%);transition:opacity .08s}
+.tip .t{color:var(--text-3);font-size:11px}
+.legend-row{display:flex;gap:14px;align-items:center;color:var(--text-2);font-size:12px}
+
+/* table */
+.tbl-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;padding:4px 10px;font-size:12px;color:var(--text-2)}
+.seg button[aria-pressed="true"]{background:var(--hover);color:var(--text)}
+.search{all:unset;padding:4px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:12px;color:var(--text-2);min-width:150px}
+.tscroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;text-align:left;font-weight:500;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid #141b24;white-space:nowrap}
+tr:hover td{background:var(--hover)}
+td.r,th.r{text-align:right}
+.tkn{display:flex;align-items:center;gap:8px}
+.tkn .ident{width:22px;height:22px;border-radius:6px}
+.miss{color:var(--text-3);font-style:italic}
+
+/* confidence */
+.ready{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border-radius:8px;background:linear-gradient(90deg,rgba(127,167,201,.08),transparent);border:1px solid var(--border-strong)}
+.ready .big{font-weight:700;letter-spacing:.06em}
+.prog{height:6px;border-radius:99px;background:var(--raised);overflow:hidden;margin-top:6px}
+.prog i{display:block;height:100%;background:var(--sol-cyan);border-radius:99px}
+.matrix{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:12px}
+.cell{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--raised);border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;min-width:0}
+.cell span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)}
+.lb{margin-top:12px}
+.lb-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #141b24;font-size:12.5px}
+
+/* feed */
+.feed{list-style:none;margin:0;padding:0}
+.feed li{display:grid;grid-template-columns:62px 18px 1fr;gap:8px;padding:8px 0;border-bottom:1px solid #141b24;font-size:13px}
+.feed .time{color:var(--text-3);font-size:11.5px;padding-top:1px}
+.feed .ic{width:16px;height:16px;margin-top:1px}
+.feed .det{color:var(--text-3);font-size:11.5px}
+
+/* health */
+.hrow{display:grid;grid-template-columns:150px 1fr 124px;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #141b24;font-size:12.5px}
+.hrow .name{display:flex;align-items:center;gap:8px}
+.budget{height:6px;background:var(--raised);border-radius:99px;overflow:hidden}
+.budget i{display:block;height:100%;border-radius:99px;background:#3d5068}
+.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
+
+/* brand directions */
+.brands{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.bd{border:1px solid var(--border);border-radius:var(--r-card);padding:16px;background:var(--panel);position:relative;overflow:hidden}
+.bd.rec{border-color:#2f5a6b;box-shadow:0 0 0 1px rgba(60,210,255,.12)}
+.bd .nm{font-weight:800;letter-spacing:.3em;font-size:18px;margin:10px 0 4px}
+.bd p{margin:0;color:var(--text-2);font-size:12.5px}
+.sw{display:flex;gap:6px;margin-top:12px}
+.sw i{width:22px;height:22px;border-radius:6px;border:1px solid rgba(255,255,255,.08)}
+
+/* live preview */
+.livebox{border:2px solid var(--mode-live);border-radius:var(--r-card);padding:12px;background:linear-gradient(180deg,rgba(255,61,127,.06),transparent);box-shadow:0 0 30px -10px rgba(255,61,127,.5)}
+.livepill{display:inline-flex;gap:7px;align-items:center;padding:4px 10px;border-radius:999px;font-weight:800;letter-spacing:.14em;font-size:12px;color:#fff;background:var(--mode-live)}
+.gates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.kbd{font-family:var(--font-num);font-size:11px;border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--text-2)}
+footer{padding:4px 16px 28px;color:var(--text-3);font-size:12px}
+
+@media (max-width:1280px){.span5,.span7,.span8,.span4,.span6{grid-column:span 12}.brands{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:720px){
+  .app{grid-template-columns:1fr}
+  .rail{position:static;height:auto;flex-direction:row;overflow-x:auto;justify-content:flex-start;padding:8px 16px;border-right:0;border-bottom:1px solid var(--border)}
+  .logo{margin:0 6px 0 0}.nav.live{margin-top:0}
+  .content{padding:12px 16px}
+  .pos-grid,.kv{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .matrix,.gates,.brands{grid-template-columns:1fr}
+  .hrow{grid-template-columns:110px 1fr 70px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="concept" role="note">
+  <b>DESIGN CONCEPT (M0)</b> · Every number, token and event on this page is <b>illustrative sample data</b> — not real trading results, not a forecast. No external requests are made by this page.
+</div>
+
+<div class="app">
+  <!-- ============ LEFT RAIL ============ -->
+  <nav class="rail" aria-label="Primary">
+    <svg class="logo" viewBox="0 0 40 40" role="img" aria-label="Kestrel">
+      <defs><linearGradient id="kg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3CD2FF"/><stop offset="1" stop-color="#9945FF"/></linearGradient></defs>
+      <rect x="1" y="1" width="38" height="38" rx="11" fill="#0F151D" stroke="#24303d"/>
+      <path d="M6 15 L20 24 L34 15" fill="none" stroke="url(#kg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M11 13 L20 19 L29 13" fill="none" stroke="url(#kg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>
+      <path d="M20 26.5 L22.6 29.2 L20 31.9 L17.4 29.2 Z" fill="#3CD2FF"/>
+    </svg>
+    <a class="nav active" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Scanner</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 17l5-6 4 3 7-8"/><path d="M15 6h5v5"/></svg>Positions</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Strategies</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/></svg>Research</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>Audit</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>System</a>
+    <a class="nav live" href="#" title="LIVE gates — view only; arming is CLI-only"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Live</a>
+  </nav>
+
+  <main>
+    <!-- ============ SUMMARY BAR ============ -->
+    <header class="bar" aria-label="Desk summary">
+      <div class="brand"><span class="wm">KESTREL</span><span class="sub">Solana Quant Desk</span></div>
+      <div class="kpi"><span class="l">Mode</span><span><span class="modepill"><span class="dot"></span>PAPER</span></span></div>
+      <div class="kpi"><span class="l">Desk</span><span class="v" style="font-size:14px"><span class="dot" style="color:var(--pos)"></span> Paper trading active</span><span class="d">last cycle 3 s ago</span></div>
+      <div class="kpi"><span class="l">Paper equity</span><span class="v num">4.9312 SOL</span><span class="d num">≈ $502.0 · start 5.0000</span></div>
+      <div class="kpi"><span class="l">Realized</span><span class="v num down">▼ −0.0670</span><span class="d">SOL, all costs incl.</span></div>
+      <div class="kpi"><span class="l">Unrealized</span><span class="v num down">▼ −0.0018</span><span class="d">executable quote · 14 s</span></div>
+      <div class="kpi"><span class="l">Today</span><span class="v num up">▲ +0.0094</span><span class="d num">+0.19%</span></div>
+      <div class="kpi"><span class="l">Open</span><span class="v num">1 / 3</span><span class="d">exposure 2.0%</span></div>
+      <div class="kpi"><span class="l">Drawdown</span><span class="v num">−1.8%</span><span class="d">halt at −25%</span></div>
+      <div class="kpi"><span class="l">Strategy</span><span class="v" style="font-size:13px">H1 · v1.0</span><span class="d" style="color:var(--warn)">◐ edge not yet validated</span></div>
+      <div class="kpi"><span class="l">Providers</span><span class="dots" aria-label="5 healthy, 1 degraded"><i class="pd ok" title="DexScreener"></i><i class="pd ok" title="Jupiter"></i><i class="pd deg" title="GeckoTerminal: degraded"></i><i class="pd ok" title="RPC"></i><i class="pd ok" title="RPC WebSocket"></i><i class="pd off" title="Judge: disabled"></i></span><span class="d">GeckoTerminal degraded</span></div>
+    </header>
+
+    <div class="content">
+
+      <!-- ============ ACTIVE POSITION ============ -->
+      <section class="card pos-card span5" aria-labelledby="h-pos">
+        <div class="ch"><h2 id="h-pos">Active position</h2><span class="sample">SAMPLE</span></div>
+        <div class="cb">
+          <div class="pos-head">
+            <svg class="ident" viewBox="0 0 5 5" shape-rendering="crispEdges" aria-hidden="true"><rect width="5" height="5" fill="#122230"/><rect x="0" y="0" width="1" height="1" fill="#009FC8"/><rect x="4" y="0" width="1" height="1" fill="#009FC8"/><rect x="1" y="1" width="3" height="1" fill="#9B70F3"/><rect x="2" y="2" width="1" height="1" fill="#009FC8"/><rect x="0" y="3" width="2" height="1" fill="#9B70F3"/><rect x="3" y="3" width="2" height="1" fill="#9B70F3"/><rect x="1" y="4" width="3" height="1" fill="#009FC8"/></svg>
+            <div style="min-width:0">
+              <div class="tok">EXAMPLE <span class="chip info" style="vertical-align:middle">pumpswap</span></div>
+              <div class="mint num">mint demo…0001 · identicon from mint, no remote images</div>
+            </div>
+            <div style="margin-left:auto;text-align:right">
+              <div class="num down" style="font-size:22px;font-weight:700">▼ −1.8%</div>
+              <div class="mint">P&amp;L on executable sell quote</div>
+            </div>
+          </div>
+          <div class="pos-grid">
+            <div class="m"><div class="l">Size</div><div class="v num">0.1000 SOL</div><div class="s num">1,284,551 tokens</div></div>
+            <div class="m"><div class="l">Entry (conservative)</div><div class="v num">0.0000000778</div><div class="s">SOL / token, quote 0.4 s old</div></div>
+            <div class="m"><div class="l">Exit value now</div><div class="v num">0.0982 SOL</div><div class="s">sell quote, 14 s ago</div></div>
+            <div class="m"><div class="l">Time in trade</div><div class="v num">42m</div><div class="s">max hold 6h</div></div>
+            <div class="m"><div class="l">Liquidity</div><div class="v num">$61.4k</div><div class="s"><span class="up">▲</span> +3% since entry</div></div>
+            <div class="m"><div class="l">Sell route</div><div class="v" style="font-size:13px;color:var(--pos)">✓ Route available</div><div class="s">round-trip est. 2.6%</div></div>
+          </div>
+          <div class="rules" aria-label="Active exit rules">
+            <span class="chip">Stop −12% <span class="num" style="color:var(--text-3)">· 10.2% away</span></span>
+            <span class="chip">Trailing arms at +15%</span>
+            <span class="chip">Max hold 6h</span>
+            <span class="chip">Volume decay (age-adj.)</span>
+            <span class="chip">Liquidity −30%</span>
+            <span class="chip pass">✓ Security unchanged</span>
+          </div>
+          <div class="legend-row" style="margin-top:14px;justify-content:space-between"><span>Executable value since entry</span><span style="color:var(--text-3);font-size:11px">sell-quote marks every ~20 s · dashed = entry · stop at −12% is off-scale</span></div>
+          <div class="chart-wrap" id="pmwrap"><svg class="chart" id="pm" viewBox="0 0 720 150" role="img" aria-label="Sample executable position value since entry, currently −1.8%"></svg><div class="tip" id="pmtip"></div></div>
+          <div class="note">Strategy <b>H1 Post-migration continuation v1.0</b> · Guardian supervising · sleep inhibitor held. Stops are evaluated on executable quotes every ~20 s and are <b>not guaranteed</b>.</div>
+        </div>
+      </section>
+
+      <!-- ============ EQUITY + DRAWDOWN ============ -->
+      <section class="card span7" aria-labelledby="h-eq">
+        <div class="ch">
+          <h2 id="h-eq">Paper equity · conservative profile</h2>
+          <div class="tbl-tools">
+            <div class="seg" role="group" aria-label="Range"><button aria-pressed="false">24h</button><button aria-pressed="false">7d</button><button aria-pressed="true">30d</button><button aria-pressed="false">All</button></div>
+            <span class="sample">SAMPLE</span>
+          </div>
+        </div>
+        <div class="cb">
+          <div class="chart-wrap" id="eqwrap">
+            <svg class="chart" id="eq" viewBox="0 0 720 200" role="img" aria-label="Sample paper equity over 30 days, from 5.000 to 4.931 SOL"></svg>
+            <div class="tip" id="eqtip"></div>
+          </div>
+          <div class="legend-row" style="margin:6px 0 2px;justify-content:space-between">
+            <span>Drawdown from peak</span><span style="color:var(--text-3);font-size:11px">one y-axis per chart · hover for values</span>
+          </div>
+          <div class="chart-wrap" id="ddwrap">
+            <svg class="chart" id="dd" viewBox="0 0 720 80" role="img" aria-label="Sample drawdown from peak, worst −3.1%"></svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SCANNER ============ -->
+      <section class="card span8" aria-labelledby="h-scan">
+        <div class="ch">
+          <h2 id="h-scan">Market scanner</h2>
+          <div class="tbl-tools">
+            <div class="seg" role="group" aria-label="Filter"><button aria-pressed="true">All</button><button aria-pressed="false">Passing</button><button aria-pressed="false">Rejected</button><button aria-pressed="false">Promoted</button></div>
+            <span class="search">⌕ Search mint or symbol <span class="kbd">/</span></span>
+            <span class="sample">SAMPLE</span>
+          </div>
+        </div>
+        <div class="tscroll">
+          <table>
+            <thead><tr><th>Token</th><th>Stage / status</th><th class="r">Liquidity</th><th class="r">Vol 1h</th><th class="r">Traders 1h</th><th>Momentum</th><th>Security</th><th class="r">Round-trip</th><th class="r">Fresh</th></tr></thead>
+            <tbody>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#1b1430"/><rect x="1" y="0" width="1" height="3" fill="#9B70F3"/><rect x="0" y="1" width="3" height="1" fill="#9B70F3"/></svg><span><b>ORBITAL</b><br><span class="mint num">demo…0002</span></span></div></td>
+                <td><span class="chip pass">✓ S7 ranked #1</span></td><td class="r num">$84.2k</td><td class="r num">$51.0k</td><td class="r num">412</td><td><span class="chip">persistent ↗</span></td><td><span class="chip pass">✓ clean</span></td><td class="r num">2.3%</td><td class="r num">12s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#0f2622"/><rect x="0" y="0" width="1" height="1" fill="#00AD62"/><rect x="2" y="0" width="1" height="1" fill="#00AD62"/><rect x="1" y="1" width="1" height="2" fill="#00AD62"/></svg><span><b>MOSSCAT</b><br><span class="mint num">demo…0003</span></span></div></td>
+                <td><span class="chip">S7 · NO-TRADE wins</span></td><td class="r num">$46.9k</td><td class="r num">$22.4k</td><td class="r num">188</td><td><span class="chip">exhausting ↘</span></td><td><span class="chip pass">✓ clean</span></td><td class="r num">2.9%</td><td class="r num">12s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#2a1022"/><rect x="0" y="2" width="3" height="1" fill="#D439EF"/><rect x="1" y="0" width="1" height="2" fill="#D439EF"/></svg><span><b>BLIP</b><br><span class="mint num">demo…0004</span></span></div></td>
+                <td><span class="chip fail">✕ S4 freeze authority</span></td><td class="r num">$38.0k</td><td class="r num">$90.3k</td><td class="r num">1,204</td><td><span class="chip">accelerating ↗↗</span></td><td><span class="chip fail">✕ freeze auth</span></td><td class="r num">—</td><td class="r num">9s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#0d1f29"/><rect x="0" y="0" width="3" height="1" fill="#009FC8"/><rect x="2" y="1" width="1" height="2" fill="#009FC8"/></svg><span><b>HALCYON</b><br><span class="mint num">demo…0005</span></span></div></td>
+                <td><span class="chip warnc">◐ S3 dossier pending</span></td><td class="r num">$112.7k</td><td class="r num">$33.8k</td><td class="r num">251</td><td><span class="chip">consolidating →</span></td><td><span class="chip ins">… checking</span></td><td class="r num">1.9%</td><td class="r num">21s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#1f1a0d"/><rect x="1" y="1" width="1" height="1" fill="#9B70F3"/><rect x="0" y="0" width="1" height="1" fill="#009FC8"/></svg><span><b>QUILLDOG</b><br><span class="mint num">demo…0006</span></span></div></td>
+                <td><span class="chip fail">✕ S1 liquidity missing</span></td><td class="r miss">unknown</td><td class="r num">$12.1k</td><td class="r num">97</td><td><span class="chip">—</span></td><td><span class="chip ins">not assessed</span></td><td class="r num">—</td><td class="r num">34s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#13102a"/><rect x="0" y="1" width="1" height="2" fill="#D439EF"/><rect x="2" y="0" width="1" height="2" fill="#9B70F3"/></svg><span><b>TERRAFLY</b><br><span class="mint num">demo…0007</span></span></div></td>
+                <td><span class="chip fail">✕ S4 cost 4.4% &gt; 3.0%</span></td><td class="r num">$24.5k</td><td class="r num">$18.9k</td><td class="r num">140</td><td><span class="chip">persistent ↗</span></td><td><span class="chip pass">✓ clean</span></td><td class="r num">4.4%</td><td class="r num">15s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#0f2622"/><rect x="2" y="2" width="1" height="1" fill="#00AD62"/><rect x="0" y="0" width="2" height="1" fill="#009FC8"/></svg><span><b>NEBULITE</b><br><span class="mint num">demo…0008</span></span></div></td>
+                <td><span class="chip fail">✕ S4 dev mints 2,310</span></td><td class="r num">$57.3k</td><td class="r num">$140.6k</td><td class="r num">2,033</td><td><span class="chip">spike ↑↑</span></td><td><span class="chip fail">✕ serial launcher</span></td><td class="r num">2.7%</td><td class="r num">10s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#0d1f29"/><rect x="0" y="0" width="1" height="3" fill="#009FC8"/><rect x="2" y="1" width="1" height="1" fill="#D439EF"/></svg><span><b>VELVETOAD</b><br><span class="mint num">demo…0009</span></span></div></td>
+                <td><span class="chip fail">✕ S4 transfer hook</span></td><td class="r num">$71.0k</td><td class="r num">$26.2k</td><td class="r num">305</td><td><span class="chip">persistent ↗</span></td><td><span class="chip fail">✕ Token-2022 hook</span></td><td class="r num">—</td><td class="r num">13s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#1b1430"/><rect x="0" y="2" width="2" height="1" fill="#9B70F3"/><rect x="2" y="0" width="1" height="1" fill="#00AD62"/></svg><span><b>GRANITE</b><br><span class="mint num">demo…0010</span></span></div></td>
+                <td><span class="chip fail">✕ S4 top-10 adj. 48%</span></td><td class="r num">$40.3k</td><td class="r num">$29.7k</td><td class="r num">162</td><td><span class="chip">choppy ↔</span></td><td><span class="chip fail">✕ concentrated</span></td><td class="r num">3.0%</td><td class="r num">18s</td></tr>
+              <tr><td><div class="tkn"><svg class="ident" viewBox="0 0 3 3" aria-hidden="true"><rect width="3" height="3" fill="#2a1022"/><rect x="1" y="0" width="2" height="1" fill="#D439EF"/><rect x="0" y="2" width="1" height="1" fill="#009FC8"/></svg><span><b>PIXELMOTH</b><br><span class="mint num">demo…0011</span></span></div></td>
+                <td><span class="chip">S6 · H2 shadow signal</span></td><td class="r num">$95.8k</td><td class="r num">$44.1k</td><td class="r num">377</td><td><span class="chip">pullback ↘↗</span></td><td><span class="chip pass">✓ clean</span></td><td class="r num">2.1%</td><td class="r num">11s</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="cb" style="padding-top:8px;color:var(--text-3);font-size:11.5px">Last 15 min: 214 discovered · 37 passed S1 · 9 reached S4 · 1 ranked above NO-TRADE · rejection reasons ↗ drill-down. Unknown values are shown as <span class="miss">unknown</span>, never as 0.</div>
+      </section>
+
+      <!-- ============ STRATEGY / CONFIDENCE ============ -->
+      <section class="card span4" aria-labelledby="h-conf">
+        <div class="ch"><h2 id="h-conf">Strategy confidence</h2><span class="sample">SAMPLE</span></div>
+        <div class="cb">
+          <div class="ready">
+            <div><div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.07em">Readiness</div><div class="big" style="color:var(--mode-shadow)">INSUFFICIENT EVIDENCE</div></div>
+            <span class="chip ins" title="Derived from explicit evidence rules, not model confidence">rule-derived</span>
+          </div>
+          <div style="margin-top:12px;font-size:12.5px;display:flex;justify-content:space-between"><span>Champion <b>H1 v1.0</b> closed paper trades</span><span class="num">84 / 300</span></div>
+          <div class="prog" role="progressbar" aria-valuenow="84" aria-valuemin="0" aria-valuemax="300"><i style="width:28%"></i></div>
+          <div style="margin-top:10px;font-size:12.5px;color:var(--text-2)">Out-of-sample net expectancy <span class="num">−0.4%</span> per trade, 95% CI <span class="num">[−6.6%, +5.8%]</span> — <b>uncertain</b>; cannot distinguish from zero yet.</div>
+          <div class="matrix" aria-label="Confidence matrix">
+            <div class="cell"><span>Predictive value vs B1</span><span class="chip ins">n&lt;300</span></div>
+            <div class="cell"><span>Net expectancy</span><span class="chip ins">n&lt;300</span></div>
+            <div class="cell"><span>Statistical reliability</span><span class="chip ins">84/300</span></div>
+            <div class="cell"><span>Drawdown</span><span class="chip pass">✓ 2.5%</span></div>
+            <div class="cell"><span>Downside tail</span><span class="chip ins">n&lt;300</span></div>
+            <div class="cell"><span>Market robustness</span><span class="chip ins">1 regime</span></div>
+            <div class="cell"><span>Execution reliability</span><span class="chip pass">✓ 99%</span></div>
+            <div class="cell"><span>Exit reliability</span><span class="chip warnc">◐ 2.4%</span></div>
+            <div class="cell"><span>Stress profile</span><span class="chip fail">✕ −1.9%</span></div>
+            <div class="cell"><span>Generalization</span><span class="chip ins">1 fold</span></div>
+            <div class="cell"><span>Stability</span><span class="chip pass">✓ no alarm</span></div>
+            <div class="cell"><span>Data integrity</span><span class="chip pass">✓ replay 100%</span></div>
+          </div>
+          <div class="lb">
+            <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Leaderboard · shadow, cost-model estimated</div>
+            <div class="lb-row"><span><span class="dot" style="color:var(--s1)"></span> H1 champion</span><span class="num">−0.4%</span><span class="chip ins">n 84</span></div>
+            <div class="lb-row"><span><span class="dot" style="color:var(--s2)"></span> H2 challenger</span><span class="num">+0.9%</span><span class="chip ins">n 131</span></div>
+            <div class="lb-row"><span><span class="dot" style="color:var(--s3)"></span> B1 random-eligible</span><span class="num">−1.7%</span><span class="chip ins">n 140</span></div>
+            <div class="lb-row" style="border-bottom:0"><span><span class="dot" style="color:var(--neutral)"></span> B0 no-trade</span><span class="num">0.0%</span><span class="chip">baseline</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ EXECUTION / AUDIT ============ -->
+      <section class="card span6" aria-labelledby="h-audit">
+        <div class="ch"><h2 id="h-audit">Execution &amp; audit</h2><span class="sample">SAMPLE</span></div>
+        <div class="cb" style="padding-top:2px">
+          <ul class="feed">
+            <li><span class="time num">14:02:11</span><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#1FD8A4" stroke-width="1.6"/><path d="M5 8l2 2 4-4" fill="none" stroke="#1FD8A4" stroke-width="1.6"/></svg><span>Paper entry filled · EXAMPLE · 0.1000 SOL<div class="det num">conservative fill · 2 quotes 2.4 s apart (worse used) · fee 10 bps · impact 1.21% · rent 0.00151 SOL (refundable)</div></span></li>
+            <li><span class="time num">13:58:40</span><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#FF4D6D" stroke-width="1.6"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#FF4D6D" stroke-width="1.6"/></svg><span>Rejected · BLIP · Stage 4 · freeze authority present<div class="det">security exclusions cannot be overridden by any score</div></span></li>
+            <li><span class="time num">13:41:05</span><svg class="ic" viewBox="0 0 16 16"><path d="M8 2l6.5 11.5h-13z" fill="none" stroke="#FFB020" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="#FFB020" stroke-width="1.6" stroke-linecap="round"/></svg><span>Entries halted: stale market data (DexScreener 141 s) — resumed 13:43:20<div class="det">guardian kept supervising open positions throughout</div></span></li>
+            <li><span class="time num">12:17:52</span><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#1FD8A4" stroke-width="1.6"/><path d="M5 8l2 2 4-4" fill="none" stroke="#1FD8A4" stroke-width="1.6"/></svg><span>Position closed by trailing stop · ORBIT-B · <span class="up num">▲ +6.2%</span> net<div class="det num">exit on executable sell quote · slippage vs quote −0.4 pp · fees 0.0002 SOL</div></span></li>
+            <li><span class="time num">11:05:16</span><svg class="ic" viewBox="0 0 16 16"><path d="M8 2l6.5 11.5h-13z" fill="none" stroke="#FFB020" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="#FFB020" stroke-width="1.6" stroke-linecap="round"/></svg><span>Exit route unavailable · DUSKFIN · retry 2 of 5 — position remains open<div class="det">valued at last executable quote, not displayed price</div></span></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============ SYSTEM HEALTH ============ -->
+      <section class="card span6" aria-labelledby="h-sys">
+        <div class="ch"><h2 id="h-sys">System health</h2><span class="sample">SAMPLE</span></div>
+        <div class="cb" style="padding-top:2px">
+          <div class="hrow"><span class="name"><i class="pd ok"></i>DexScreener</span><span class="budget" title="41 of 120 per minute"><i style="width:34%"></i></span><span class="num" style="text-align:right">41/120 · 210ms</span></div>
+          <div class="hrow"><span class="name"><i class="pd ok"></i>Jupiter (free key)</span><span class="budget" title="22 of 50 per minute"><i style="width:44%"></i></span><span class="num" style="text-align:right">22/50 · 280ms</span></div>
+          <div class="hrow"><span class="name"><i class="pd deg"></i>GeckoTerminal</span><span class="budget" title="8 of 8 per minute, backing off"><i style="width:100%;background:#7a5a17"></i></span><span class="num" style="text-align:right;color:var(--warn)">8/8 · 429s</span></div>
+          <div class="hrow"><span class="name"><i class="pd ok"></i>Solana RPC</span><span class="budget" title="0.8 of 2 requests per second"><i style="width:40%"></i></span><span class="num" style="text-align:right">0.8/2 rps</span></div>
+          <div class="hrow"><span class="name"><i class="pd ok"></i>RPC WebSocket</span><span class="budget" title="4 of 20 subscriptions"><i style="width:20%"></i></span><span class="num" style="text-align:right">4 subs</span></div>
+          <div class="hrow" style="border-bottom:0"><span class="name"><i class="pd off"></i>AI judge</span><span style="color:var(--text-3);font-size:12px">Disabled — deterministic mode</span><span class="num" style="text-align:right">$0.00/$5</span></div>
+          <div class="kv">
+            <div class="m"><div class="l">Database</div><div class="v" style="font-size:13px;color:var(--pos)">✓ integrity ok</div><div class="s num">market 1.8 GB · backup 22m ago</div></div>
+            <div class="m"><div class="l">Power</div><div class="v" style="font-size:13px">AC · 78%</div><div class="s">sleep inhibited (1 open)</div></div>
+            <div class="m"><div class="l">Network</div><div class="v" style="font-size:13px">Wi-Fi · ok</div><div class="s">clock drift 0.3 s</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ LIVE TREATMENT PREVIEW ============ -->
+      <section class="card span12" aria-labelledby="h-live">
+        <div class="ch"><h2 id="h-live">LIVE treatment preview · gates are view-only in the dashboard</h2><span class="sample">CONCEPT</span></div>
+        <div class="cb">
+          <div class="livebox">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <span class="livepill"><span class="dot"></span>LIVE · REAL FUNDS</span>
+              <span style="color:var(--text-2);font-size:13px">In LIVE mode every page gets this 2&nbsp;px frame. Arming happens only in a terminal: <span class="kbd">desk live arm</span>. The dashboard can show gates and <b>Disarm</b> — it can never arm.</span>
+            </div>
+            <div class="gates">
+              <div class="cell"><span>Mode = LIVE and DESK_LIVE_CONFIRM=yes</span><span class="chip fail">✕ not set</span></div>
+              <div class="cell"><span>Approved strategy version (hash)</span><span class="chip fail">✕ none</span></div>
+              <div class="cell"><span>Readiness = ELIGIBLE FOR MANUAL LIVE REVIEW</span><span class="chip fail">✕ insufficient</span></div>
+              <div class="cell"><span>Max capital configured ≤ ceiling</span><span class="chip fail">✕ 0</span></div>
+              <div class="cell"><span>Signer unlocked (terminal passphrase)</span><span class="chip fail">✕ locked</span></div>
+              <div class="cell"><span>Fee balance · quote freshness · guardian heartbeat</span><span class="chip ins">n/a</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ BRAND DIRECTIONS ============ -->
+      <section class="span12" aria-labelledby="h-brand">
+        <h2 id="h-brand" style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2);margin:6px 2px 10px">Brand directions (choose one — PLAN.md §17.4)</h2>
+        <div class="brands">
+          <div class="bd rec">
+            <span class="chip pass">Recommended</span>
+            <div class="nm" style="background:linear-gradient(90deg,#3CD2FF,#9945FF);-webkit-background-clip:text;background-clip:text;color:transparent">KESTREL</div>
+            <p>Hovers motionless until the target is certain, then commits. "Hold position. Strike on evidence." — NO-TRADE as a virtue.</p>
+            <div class="sw"><i style="background:#3CD2FF"></i><i style="background:#9945FF"></i><i style="background:#14F195"></i><i style="background:#0C1016"></i></div>
+          </div>
+          <div class="bd">
+            <span class="chip">Institutional</span>
+            <div class="nm" style="color:#CFE3F5">MERIDIAN</div>
+            <p>The reference line navigators measure against. Calibration and measured truth; cooler, more sober.</p>
+            <div class="sw"><i style="background:#7FB6E6"></i><i style="background:#C9D6E2"></i><i style="background:#1FD8A4"></i><i style="background:#0B1118"></i></div>
+          </div>
+          <div class="bd">
+            <span class="chip">Quant-edgy</span>
+            <div class="nm" style="color:#E8EEF5">NULL<span style="color:#14F195">POINT</span></div>
+            <p>Zero exposure is the default state. Sharp, minimal, slightly aggressive monospace identity.</p>
+            <div class="sw"><i style="background:#14F195"></i><i style="background:#E8EEF5"></i><i style="background:#2A3644"></i><i style="background:#07090C"></i></div>
+          </div>
+          <div class="bd">
+            <span class="chip">Cinematic</span>
+            <div class="nm" style="background:linear-gradient(90deg,#9AA8B8,#E44CFF);-webkit-background-clip:text;background-clip:text;color:transparent">OBSIDIAN</div>
+            <p>Volcanic glass: dark, sharp, reflective. The most literal match for a black-glass terminal look.</p>
+            <div class="sw"><i style="background:#E44CFF"></i><i style="background:#9AA8B8"></i><i style="background:#18202B"></i><i style="background:#050608"></i></div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <footer>Concept only · tokens in this file mirror PLAN.md §17.3 · contrast and series palette validated (dataviz checker, dark surface #0C1016) · keyboard: <span class="kbd">g o</span> overview <span class="kbd">/</span> search <span class="kbd">Shift S</span> stop entries <span class="kbd">?</span> help</footer>
+  </main>
+</div>
+
+<script>
+/* Sample series for the concept only (deterministic pseudo-random walk). Not real results. */
+(function(){
+  let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const n = 30*6, start = Date.UTC(2026,8,18), step = 4*3600e3;
+  const eq = []; let v = 5.0;
+  for (let i=0;i<n;i++){ v += (rnd()-0.505)*0.018; eq.push({t:start+i*step, v}); }
+  const fix = 4.9312 - eq[n-1].v;                       // blend so the sample ends at the KPI value without a jump
+  eq.forEach((p,i) => { p.v += fix * i/(n-1); }); eq[0].v = 5.0;
+  let peak = -Infinity; const dd = eq.map(p => { peak = Math.max(peak,p.v); return {t:p.t, v:(p.v/peak-1)*100}; });
+  const worst = Math.min(...dd.map(d=>d.v)), cur = dd[n-1].v;
+  document.getElementById('dd').setAttribute('aria-label', `Sample drawdown from peak, worst ${worst.toFixed(1)}%, current ${cur.toFixed(1)}%`);
+  window.__sample = {worst, cur};
+
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+  const fmtDate = t => new Date(t).toISOString().slice(5,16).replace('T',' ') + ' UTC';
+
+  function draw(svg, data, {h, pad, yfmt, area, color, ticks, xfmt}){
+    xfmt = xfmt || (t => new Date(t).toISOString().slice(5,10));
+    const W = 720, x0 = pad.l, x1 = W - pad.r, y0 = pad.t, y1 = h - pad.b;
+    const vs = data.map(d=>d.v); let lo = Math.min(...vs), hi = Math.max(...vs);
+    if (area) hi = 0; const padv = (hi-lo)*0.08 || 0.01; lo -= padv; if(!area) hi += padv;
+    const X = i => x0 + (x1-x0) * i/(data.length-1), Y = v => y0 + (y1-y0) * (hi - v)/(hi-lo);
+    for (let k=0;k<=ticks;k++){ const val = lo + (hi-lo)*k/ticks, y = Y(val);
+      el('line',{x1:x0,x2:x1,y1:y,y2:y,stroke:'var(--grid)','stroke-width':1},svg);
+      const t = el('text',{x:x0-8,y:y+3.5,'text-anchor':'end',fill:'var(--text-3)','font-size':10,'font-family':'var(--font-num)'},svg); t.textContent = yfmt(val); }
+    let d = data.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ');
+    if (area){ el('path',{d: d+` L${x1} ${Y(0)} L${x0} ${Y(0)} Z`, fill:'rgba(255,77,109,.14)'},svg); }
+    el('path',{d, fill:'none', stroke:color, 'stroke-width':2, 'stroke-linejoin':'round','stroke-linecap':'round'},svg);
+    [0, Math.floor(data.length/2), data.length-1].forEach(i=>{ const t = el('text',{x:X(i),y:h-4,'text-anchor': i===0?'start':i===data.length-1?'end':'middle',fill:'var(--text-3)','font-size':10},svg); t.textContent = xfmt(data[i].t); });
+    return {X, Y, x0, x1, y0, y1};
+  }
+
+  const eqSvg = document.getElementById('eq'), ddSvg = document.getElementById('dd');
+  const g1 = draw(eqSvg, eq, {h:200, pad:{l:52,r:88,t:10,b:20}, yfmt:v=>v.toFixed(3), color:'var(--s1)', ticks:4});
+  const g2 = draw(ddSvg, dd, {h:80, pad:{l:52,r:88,t:6,b:18}, yfmt:v=>v.toFixed(1)+'%', color:'var(--neg)', area:true, ticks:2});
+  // direct end label for the single equity series
+  const last = eq[eq.length-1];
+  const lab = el('text',{x:g1.x1+8,y:g1.Y(last.v)+4,'text-anchor':'start',fill:'var(--text-2)','font-size':11,'font-family':'var(--font-num)'},eqSvg); lab.textContent = last.v.toFixed(4)+' SOL';
+
+  // crosshair + tooltip layer
+  function hover(svg, wrap, g, data, fmt, tip){
+    const cross = el('line',{y1:g.y0,y2:g.y1,stroke:'var(--border-strong)','stroke-width':1,opacity:0},svg);
+    const dot = el('circle',{r:4.5,fill:'var(--panel)',stroke:'var(--s1)','stroke-width':2,opacity:0},svg);
+    const hit = el('rect',{x:g.x0,y:0,width:g.x1-g.x0,height:g.y1,fill:'transparent'},svg);
+    const show = e => {
+      const r = svg.getBoundingClientRect(), sx = 720 / r.width, px = (e.clientX - r.left) * sx;
+      const i = Math.max(0, Math.min(data.length-1, Math.round((px-g.x0)/(g.x1-g.x0)*(data.length-1))));
+      const X = g.X(i), Y = g.Y(data[i].v);
+      cross.setAttribute('x1',X); cross.setAttribute('x2',X); cross.setAttribute('opacity',1);
+      dot.setAttribute('cx',X); dot.setAttribute('cy',Y); dot.setAttribute('opacity',1);
+      if (tip){ tip.innerHTML = '<div class="t">'+fmtDate(data[i].t)+'</div><div class="num">'+fmt(data[i].v)+'</div>'; tip.style.left = (X/sx)+'px'; tip.style.top = (Y/sx)+'px'; tip.style.opacity = 1; }
+    };
+    const hide = () => { cross.setAttribute('opacity',0); dot.setAttribute('opacity',0); if (tip) tip.style.opacity = 0; };
+    hit.addEventListener('pointermove', show); hit.addEventListener('pointerleave', hide);
+  }
+  hover(eqSvg, document.getElementById('eqwrap'), g1, eq, v=>v.toFixed(4)+' SOL (sample)', document.getElementById('eqtip'));
+  hover(ddSvg, document.getElementById('ddwrap'), g2, dd, v=>v.toFixed(2)+'%', null);
+
+  // position mini chart: executable value relative to entry (sample)
+  const pm = []; let pv = 0;
+  for (let i=0;i<126;i++){ pv += (rnd()-0.5)*0.55; pm.push({t: Date.UTC(2026,9,18,14,2,11) + i*20e3, v: pv}); }
+  const pfix = -1.8 - pm[125].v; pm.forEach((p,i)=>{ p.v += pfix*i/125; }); pm[0].v = 0;
+  const pmSvg = document.getElementById('pm');
+  const g3 = draw(pmSvg, pm, {h:150, pad:{l:52,r:88,t:8,b:18}, yfmt:v=>(v>0?'+':'')+v.toFixed(1)+'%', color:'var(--s1)', ticks:3, xfmt:t=>new Date(t).toISOString().slice(11,16)+' UTC'});
+  const yE = g3.Y(0);
+  el('line',{x1:g3.x0,x2:g3.x1,y1:yE,y2:yE,stroke:'var(--text-2)','stroke-width':1,'stroke-dasharray':'4 4'},pmSvg);
+  const le = el('text',{x:g3.x1+8,y:yE+4,fill:'var(--text-2)','font-size':11},pmSvg); le.textContent = 'entry';
+  const lp = el('text',{x:g3.x1+8,y:g3.Y(pm[125].v)+16,fill:'var(--text-2)','font-size':11,'font-family':'var(--font-num)'},pmSvg); lp.textContent = '−1.8%';
+  hover(pmSvg, document.getElementById('pmwrap'), g3, pm, v=>(v>0?'+':'')+v.toFixed(2)+'% vs entry (sample)', document.getElementById('pmtip'));
+
+  // segmented controls (visual only)
+  document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
+    if (e.target.tagName !== 'BUTTON') return;
+    seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === e.target)));
+  }));
+})();
+</script>
+</body>
+</html>
