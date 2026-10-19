@@ -44,7 +44,9 @@ class SizingSection(_Section):
     fixed_fraction: Fraction = Field(gt=0, le=1)
     max_ticket_fraction_free_capital: Fraction = Field(gt=0, le=1)
     max_ticket_fraction_pool_liquidity: Fraction = Field(gt=0, le=1)
-    max_ticket_sol: Decimal = Field(gt=0)
+    max_ticket_fraction_equity: Fraction = Field(default=Decimal("0.15"), gt=0, le=1)
+    # Retained only as an optional additional tightening limit for older/operator profiles.
+    max_ticket_sol: Decimal | None = Field(default=None, gt=0)
     min_ticket_sol: Decimal = Field(gt=0)
     max_fixed_cost_fraction: Fraction = Field(gt=0, le=1)
 

@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from desk.contracts.observed import SolAddress, UtcDatetime
+from desk.contracts.quotes import QuoteObservation
 
 
 class DiscoveryReason(StrEnum):
@@ -120,6 +121,11 @@ class SecurityAssessment(BaseModel):
     roundtrip_cost_fraction: Decimal | None = None
     cost_scope: Literal["quote_implied_plus_reported_fixed_fees"] = "quote_implied_plus_reported_fixed_fees"
     fixed_fees_complete: bool = False
+    # M3 preserves exact ticket, quote ages and pool provenance. Old dossiers remain readable,
+    # but absent provenance cannot be upgraded into verified feature inputs retrospectively.
+    pool_verification: PoolVerification | None = None
+    buy_quote: QuoteObservation | None = None
+    sell_quote: QuoteObservation | None = None
     unprovable: tuple[str, ...] = (
         "Future liquidity and sell-route availability",
         "Unobserved holdings outside the top twenty token accounts",

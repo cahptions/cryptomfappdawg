@@ -15,7 +15,7 @@ starting_capital_usd = "100"   # operator answer Q3; converted to SOL when paper
 fixed_fraction = "0.10"                      # ~$10 tickets
 max_ticket_fraction_free_capital = "0.15"
 max_ticket_fraction_pool_liquidity = "0.005"
-max_ticket_sol = "0.15"
+max_ticket_fraction_equity = "0.15"          # hard cap relative to eligible account capital
 min_ticket_sol = "0.05"
 max_fixed_cost_fraction = "0.01"             # fee floor: signature + priority fees ≤ 1% of ticket
 

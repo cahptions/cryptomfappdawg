@@ -141,6 +141,9 @@ def assess(*, mint_address: str, mint: MintAccount | None, holders: HolderMetric
                               provider_top_holders_pct=provider_pct,
                               provider_claim_source=None if claim is None else claim.source,
                               roundtrip_cost_fraction=cost,
+                              pool_verification=pool,
+                              buy_quote=buy if isinstance(buy, QuoteObservation) else None,
+                              sell_quote=sell if isinstance(sell, QuoteObservation) else None,
                               fixed_fees_complete=all(isinstance(q, QuoteObservation)
                                   and q.signature_fee_lamports is not None and q.prioritization_fee_lamports is not None
                                   for q in (buy, sell)))

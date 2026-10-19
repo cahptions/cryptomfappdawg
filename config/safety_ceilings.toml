@@ -12,7 +12,7 @@
 "sizing.fixed_fraction" = "0.15"
 "sizing.max_ticket_fraction_free_capital" = "0.15"
 "sizing.max_ticket_fraction_pool_liquidity" = "0.005"
-"sizing.max_ticket_sol" = "0.15"
+"sizing.max_ticket_fraction_equity" = "0.15" # operator: cap scales with eligible account capital
 "sizing.max_fixed_cost_fraction" = "0.01"
 "limits.max_open_positions" = "2"
 "limits.max_total_exposure_fraction" = "0.25"

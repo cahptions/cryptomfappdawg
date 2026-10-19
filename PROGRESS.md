@@ -185,6 +185,49 @@ Cloud setup draft saved: corrected repository SHA/mount path, tested frozen inst
 and the six required provider domains. Draft persistence is confirmed; review/save/publication and fresh-task
 restoration have **not** been claimed. The draft does not contain credential values.
 
+## M3 development and conditional sizing (2026-10-19 UTC)
+
+Operator clarified that development should proceed while the 24-hour run finishes. Later software can be built
+in parallel; acceptance criteria and calendar-time evidence remain unchanged. User also requested position sizes
+that grow only when realized profit and confidence support the increase, with a hard cap relative to account size.
+
+Implemented the point-in-time feature registry/builder, versioned regime classifier, frozen strategy hypotheses,
+NO_TRADE ranking, immutable strategy/input/SHADOW decision storage, bounded offline SHADOW runner and streamed
+replay/threshold experiments. Added exact pool and quote provenance to new security dossiers; old dossiers retain
+missing provenance. No additional runtime dependency or provider requests were added by M3.
+
+Validation performed in the cloud: **376 offline tests passed, 4 live tests deselected** (14.11 seconds), Ruff
+clean, strict mypy clean across **73 source files**. New coverage includes 41 feature/regime tests, 46 strategy
+tests (including 1,000 randomized repeated decisions), 15 SHADOW/replay integration tests and 62 sizing tests.
+Integration uses independent WAL connections for concurrent collector writes/SHADOW decisions and verifies
+that PAPER ledger contents remain unchanged. These numbers are cloud results, not laptop benchmarks.
+
+Actual CLI smoke `shadow_01M5921PFDR21T3RJHD4NYHV3Z`: 1.80 seconds, 2 cycles, **20 NO_TRADE decisions**, zero
+unhandled exceptions, **37.1 MB peak RSS**. All **20/20** decisions replayed identically; the six-hour gate
+correctly refused this short run. All four database integrity/WAL checks passed. Exact outputs are stored in
+`research/evidence/2026-10-19/m3_cloud_smoke.json`. This smoke does not close M3's six-hour criterion.
+
+Conditional sizing is a standalone **PAPER-only recommendation foundation**, not an execution engine or matrix
+producer. Fixed fraction remains 10%; the hard ceiling is now **15% of eligible capital**, replacing the fixed
+0.15 SOL default per the user's explicit instruction. Old/custom profiles may retain an optional absolute cap
+as additional tightening. Eligible profit growth requires fresh matching strategy/regime PAPER evidence, all
+required confidence dimensions, 300 trades/ESS150/60 days, positive conservative net/baseline/OOS bounds and no
+deterioration/integrity issue. Larger targets require their own complete fresh quotes and positive net expectancy
+at that size. Liquidity, deployable capital, reserve, exposure, drawdown and fee limits still bind. Unit tests
+include eligible growth beyond 0.15 SOL, unqualified profits/equity exclusion and shrinking account equity.
+Independent review also tested that caller policies cannot loosen configured quote-age/cost limits; effective
+limits use the stricter policy/configuration value. Every recommendation hashes all sizing/risk/discovery/policy
+inputs. Original replay integrity is checked even in alternative-threshold experiments.
+
+**Still pending:** M2's actual 24-hour laptop acceptance; M3's actual six-hour SHADOW/replay acceptance; measured
+global-context collection/reference integration; verified migration/spike/retest event chronology. Without
+genuine thirty-day context the runner reports insufficient regime history and chooses NO_TRADE. Provider
+claims do not silently become verified strategy inputs. M5 wallet/guardian/execution and M6 statistical-matrix
+production are not implemented by this foundation. M7–M9 also remain pending. No real funds or LIVE capability.
+
+Delivery branch: `codex/m3-strategy-engine`; see `M3_HANDOFF.md`. Let an already-running laptop test finish
+before switching the code it is using. Publishing code does not update the laptop process automatically.
+
 ## Key measurements from M0 (details + evidence in RESEARCH.md)
 
 - Jupiter quote round-trip cost on memecoins with $22k–$59k liquidity: **2.2%–4.1%** (0.1–1 SOL tickets).
@@ -247,8 +290,10 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
    `uv sync --frozen`; keep using the already
    configured free keys. Run `uv run desk discover --minutes 1440`, then
    `uv run desk discovery-report --require-hours 24` and `uv run desk db check`. Record the actual results.
-4. Once M2 acceptance is recorded, continue M3, M5, M6, M7, M8 (zero funds), then M9 (real calendar-time
-   evidence). M4 remains dropped. Do not claim any of those later milestones complete from M2 smoke tests.
+4. Record M2's actual acceptance when it finishes. M3 development has proceeded in parallel; after updating,
+   collect real SHADOW/replay evidence and complete context/event provenance integrations. Continue M5, M6,
+   M7, M8 (zero funds), then M9. Development need not wait for earlier timers; acceptance still requires every
+   criterion. M4 remains dropped. Do not claim later milestones complete from smoke tests.
 
 ## Session log
 - **2026-10-18 (session 1):** M0 research (live read-only probes of GeckoTerminal, DexScreener, Solana public RPC/WS,

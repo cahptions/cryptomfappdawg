@@ -116,6 +116,66 @@ def cmd_console(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shadow(args: argparse.Namespace) -> int:
+    from desk.core.config import Mode
+    from desk.ops.shadow import ShadowRunner, render_shadow
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    if load_config(paths.config_dir).settings.desk.mode is not Mode.SHADOW:
+        raise ConfigError("M3 research requires SHADOW mode")
+    dbs = Databases.open(paths)
+    runner = ShadowRunner(dbs.market, seed=args.seed, interval_seconds=args.interval,
+                          max_candidates=args.max_candidates)
+    handlers = {sig: signal.signal(sig, lambda *_: runner.stop()) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        print("SHADOW research started. Reading existing collection data; no provider calls or positions.", flush=True)
+        print(render_shadow(runner.run(args.minutes)))
+        return 0
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+        dbs.close()
+
+
+def cmd_shadow_report(args: argparse.Namespace) -> int:
+    from desk.storage.databases import Databases
+    from desk.storage.shadow_repo import ShadowRepository
+
+    paths, _ = _bootstrap(args.verbose)
+    dbs = Databases.open(paths)
+    try:
+        print(json.dumps(ShadowRepository(dbs.market).report(args.run_id), indent=2))
+        return 0
+    finally:
+        dbs.close()
+
+
+def cmd_replay(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from desk.contracts.strategy import StrategySpec
+    from desk.ops.replay import replay_run
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    dbs = Databases.open(paths)
+    try:
+        specs = None
+        if args.specs_file:
+            raw = json.loads(Path(args.specs_file).read_text(encoding="utf-8"))
+            if not isinstance(raw, list):
+                raise ConfigError("replay specs file must contain an array of complete strategy specifications")
+            specs = tuple(StrategySpec.model_validate(spec) for spec in raw)
+        report = replay_run(dbs.market, dbs.research, args.run_id, specs=specs, require_hours=args.require_hours)
+        print(json.dumps(report, indent=2))
+        return 0 if report["passed"] else 1
+    except (ValueError, OSError) as exc:
+        raise ConfigError(str(exc)) from exc
+    finally:
+        dbs.close()
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     from desk.providers.health import HealthTracker
     from desk.storage.databases import Databases
@@ -202,6 +262,23 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("console", help="local read-only M2 status console")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(func=cmd_console)
+
+    p = sub.add_parser("shadow", help="record deterministic research decisions from existing data; no positions")
+    p.add_argument("--minutes", type=_positive_minutes, default=360.0)
+    p.add_argument("--interval", type=_positive_minutes, default=30.0, help="seconds between bounded evaluation cycles")
+    p.add_argument("--max-candidates", type=int, choices=range(1, 1001), default=100, metavar="1..1000")
+    p.add_argument("--seed", type=int, default=0)
+    p.set_defaults(func=cmd_shadow)
+
+    p = sub.add_parser("shadow-report", help="recorded SHADOW sessions and signal counts")
+    p.add_argument("--run-id")
+    p.set_defaults(func=cmd_shadow_report)
+
+    p = sub.add_parser("replay", help="reproduce recorded SHADOW decisions or compare copied strategy specifications")
+    p.add_argument("--run-id")
+    p.add_argument("--require-hours", type=_positive_minutes, help="check actual completed forward-session duration")
+    p.add_argument("--specs-file", help="JSON array of alternative specs; recorded source inputs remain unchanged")
+    p.set_defaults(func=cmd_replay)
 
     sub.add_parser("status", help="provider health and database summary").set_defaults(func=cmd_status)
     sub.add_parser("config", help="show effective configuration").set_defaults(func=cmd_config)

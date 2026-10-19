@@ -1,0 +1,56 @@
+{
+  "recorded_at": "2026-10-19T03:07:29.580368+00:00",
+  "environment": "Codex cloud, not the operator laptop",
+  "note": "Short software smoke only; no 6-hour acceptance or trading-performance claim.",
+  "commands": [
+    {
+      "command": [
+        "uv",
+        "run",
+        "desk",
+        "shadow",
+        "--minutes",
+        "0.03",
+        "--interval",
+        "1",
+        "--max-candidates",
+        "10"
+      ],
+      "exit_code": 0,
+      "stdout": "SHADOW research started. Reading existing collection data; no provider calls or positions.\n{\n  \"run_id\": \"shadow_01M5921PFDR21T3RJHD4NYHV3Z\",\n  \"decisions\": 20,\n  \"signals\": 0,\n  \"no_trade\": 20,\n  \"cycles\": 2,\n  \"completed_requested_duration\": true,\n  \"unhandled_exceptions\": 0,\n  \"elapsed_monotonic_seconds\": 1.8001107399977627,\n  \"rss_mb\": 37.1,\n  \"peak_rss_mb\": 37.1\n}\n"
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "desk",
+        "replay"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"kind\": \"REPLAY\",\n  \"run_id\": \"shadow_01M5921PFDR21T3RJHD4NYHV3Z\",\n  \"experiment\": false,\n  \"checked\": 20,\n  \"identical\": 20,\n  \"changed\": 0,\n  \"action_changed\": 0,\n  \"samples\": [],\n  \"input_integrity_failures\": 0,\n  \"maximum_decision_gap_seconds\": 1.043639,\n  \"required_hours\": null,\n  \"passed\": true,\n  \"failures\": [],\n  \"experiment_id\": \"replay_01M5921RFD7GCK47HQATC3QH5E\"\n}\n"
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "desk",
+        "replay",
+        "--require-hours",
+        "6"
+      ],
+      "exit_code": 1,
+      "stdout": "{\n  \"kind\": \"REPLAY\",\n  \"run_id\": \"shadow_01M5921PFDR21T3RJHD4NYHV3Z\",\n  \"experiment\": false,\n  \"checked\": 20,\n  \"identical\": 20,\n  \"changed\": 0,\n  \"action_changed\": 0,\n  \"samples\": [],\n  \"input_integrity_failures\": 0,\n  \"maximum_decision_gap_seconds\": 1.043639,\n  \"required_hours\": 6.0,\n  \"passed\": false,\n  \"failures\": [\n    \"SHADOW run shorter than 6 hours\",\n    \"recorded decisions do not cover the required session\"\n  ],\n  \"experiment_id\": \"replay_01M5921RPK9V22MF41KZZN93W0\"\n}\n"
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "desk",
+        "db",
+        "check"
+      ],
+      "exit_code": 0,
+      "stdout": "  \u2713 market        integrity=ok journal=wal\n  \u2713 research      integrity=ok journal=wal\n  \u2713 runtime       integrity=ok journal=wal\n  \u2713 ledger-paper  integrity=ok journal=wal\n"
+    }
+  ]
+}

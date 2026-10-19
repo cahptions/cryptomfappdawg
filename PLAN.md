@@ -584,11 +584,25 @@ a bounded schedule. Hypothetical sale proceeds are **never** booked as realized 
 ## 13. Position sizing, risk engine, and global limits
 
 ### 13.1 Deterministic sizing (code only; no model ever sizes)
-Baseline **fixed fraction**: `ticket = min(f × equity, cap_free × free_capital, cap_liq × verified_liquidity, cap_abs)`
+Baseline **fixed fraction**: `ticket = min(f × eligible_capital, cap_equity × eligible_capital,
+cap_free × deployable_free_capital, cap_liq × verified_liquidity, remaining_exposure_budget)`
 then **zero** if any of: expected round-trip cost (measured quote) > cost cap; non-refundable fixed costs (signature +
 priority fees) > 1% of ticket or ticket < minimum (fee floor; rent is tracked separately as locked, refundable capital); strategy uncertainty too high (lower confidence bound of expectancy < −X when strategy is in probation);
 drawdown throttle active; risk budget exhausted. No leverage, no averaging down, fee/rent reserve never touched.
 Kelly-style sizing is research-only until calibrated probabilities exist (M6+).
+
+Operator refinement (2026-10-19): position sizes may compound only when **closed realized net profit** and the
+relevant strategy-version/regime confidence matrix support it. Deposits, unrealized appreciation, a winning
+streak and an arbitrary confidence percentage do not unlock larger positions. The initial policy keeps the
+percentage fraction fixed: eligible sizing capital is `min(current_equity, initial_capital + positive_net_profit)`;
+without sufficient evidence it is `min(current_equity, initial_capital)`. Drawdown throttles and all independent
+risk, free-capital, exposure, reserve, liquidity and absolute limits still bind. The proposed larger ticket must
+receive its own fresh exact-size round-trip quote; smaller-ticket costs cannot justify it. Confidence or execution
+deterioration reduces eligible size or rejects the entry. The initial evidence gate uses §14.1's complete matrix,
+300 trades, ESS 150 and 60 days, not an invented score. This policy is a tested foundation until M5/M6 connect it to
+the reconciled PAPER ledger and statistical producer. Operator refinement later in the same session replaces the
+fixed 0.15 SOL default with a hard cap of 15% of eligible account capital. The percentage cap stays fixed while
+the qualified capital base grows or shrinks. An optional absolute SOL limit may additionally tighten a profile.
 
 ### 13.2 Default limits — $100 small-account profile (operator answer Q3, 2026-10-18)
 
@@ -613,7 +627,7 @@ At 10% tickets (~$10, 0.098 SOL) the same fees are **0.05%–1.0%** and the rent
 | Minimum ticket (fee floor) | non-refundable fixed costs ≤ 1% of ticket **and** ticket ≥ 0.05 SOL; otherwise size 0 | ceiling |
 | Max ticket vs free capital | 15% | ceiling |
 | Max ticket vs verified pool liquidity | 0.5% (not binding at this size) | ceiling |
-| Max absolute ticket | 0.15 SOL | ceiling |
+| Max ticket vs eligible account capital | 15%; qualified realized-profit growth may raise the capital base | ceiling |
 | Max open positions | **2** | ceiling |
 | Max total open exposure | 25% of equity | ceiling |
 | Max exposure per dev wallet / per launchpad | 1 position / 1 position | ceiling |
@@ -635,7 +649,8 @@ At 10% tickets (~$10, 0.098 SOL) the same fees are **0.05%–1.0%** and the rent
   ≈ **$1.50/day** before variance. At this size the desk is a validation instrument, not an income source.
 - Measured priority fees (M5, open item R-06) may push the fee floor up; if fixed costs exceed 1% of a $10 ticket,
   the desk will refuse those trades rather than pay them.
-- Scaling up later is a separate decision, made only after LIVE evidence at this size.
+- Operator-authorized conditional compounding uses the account-relative ceiling and confidence gates above.
+  LIVE activation remains separately authorized after its validation gates.
 
 Ceilings live in `config/safety_ceilings.toml`; strategy code and model output cannot change them; changing them
 requires `desk ceilings approve` with typed confirmation, recorded in the ledger.

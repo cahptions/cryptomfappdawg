@@ -5,7 +5,9 @@ tokens, paper trades under realistic execution costs, measures whether any strat
 net edge — and stays in PAPER mode indefinitely if it doesn't.
 
 > **Status:** M0 approved; **M1 passed**. **M2 discovery and safety implemented; 24-hour acceptance pending** — see
-> [PROGRESS.md](PROGRESS.md) for test results, including the successful laptop 60-minute run. M2 is in progress.
+> [PROGRESS.md](PROGRESS.md) for test results, including the successful laptop 60-minute run.
+> M3 feature/strategy/replay software and a conditional sizing foundation pass offline checks; live acceptance
+> stays separate from development. See [M3_HANDOFF.md](M3_HANDOFF.md).
 > Nothing here can trade: there is no wallet code at all yet.
 > No AI/LLM and no paid services are used (operator decision).
 
@@ -42,7 +44,8 @@ git clone https://github.com/cahptions/cryptomfappdawg.git ~/kestrel
 cd ~/kestrel
 git checkout claude/funny-rubin-gq99vj
 ```
-To update later: `cd ~/kestrel && git pull`.
+For the newer implementation branches, follow [M3_HANDOFF.md](M3_HANDOFF.md). An existing collection process
+does not automatically update when a branch is published; let the running test finish before switching its code.
 
 ### 3. Install
 ```bash
@@ -96,6 +99,27 @@ Discovery is bounded by configured provider budgets and two expensive assessment
 holder, liquidity, Shield or quote evidence never produces a security pass. Token identities, pool identities,
 creation timestamps and source claims remain separate. The early console is read-only; the full React dashboard
 is M7.
+
+### M3: SHADOW research and replay
+
+M3 reads existing collection records without making additional provider calls. It records feature snapshots,
+immutable strategy specifications, research signal rankings and NO_TRADE outcomes. It never creates positions.
+
+```bash
+uv run desk shadow --minutes 360
+uv run desk shadow-report
+uv run desk replay --require-hours 6
+```
+
+The unchanged replay uses stored inputs and specifications; copied threshold experiments are written separately
+to the append-only research registry. A short or interrupted run cannot satisfy the six-hour acceptance gate.
+Cold-start regime history and unverified provider claims remain insufficient; the engine may correctly choose
+NO_TRADE throughout. See the handoff for the currently missing live evidence and provenance limits.
+
+Profit-based sizing is a standalone M5/M6 foundation: it compounds realized net profit only with matching, fresh
+PAPER confidence evidence, and caps each ticket at 15% of eligible account capital plus the other risk limits.
+An optional absolute cap may further tighten older profiles. No runtime trade sizing,
+wallet, full PAPER ledger or confidence-matrix producer is connected yet.
 
 ---
 

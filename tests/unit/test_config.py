@@ -16,6 +16,8 @@ def test_real_config_loads_and_defaults_to_shadow(config_dir: Path) -> None:
     assert loaded.settings.desk.mode is Mode.SHADOW
     assert str(loaded.settings.paper.starting_capital_usd) == "100"
     assert len(loaded.snapshot_hash) == 64
+    assert loaded.settings.sizing.max_ticket_fraction_equity == loaded.settings.sizing.max_ticket_fraction_free_capital
+    assert loaded.settings.sizing.max_ticket_sol is None
 
 
 def test_same_file_twice_gives_same_hash(config_dir: Path) -> None:
@@ -48,7 +50,7 @@ def test_wrong_type_rejected(config_dir: Path) -> None:
     ("setting", "value"),
     [
         ("sizing.fixed_fraction", "0.5"),
-        ("sizing.max_ticket_sol", "5"),
+        ("sizing.max_ticket_fraction_equity", "0.16"),
         ("limits.max_open_positions", 10),
         ("limits.cumulative_drawdown_fraction", "0.9"),
         ("limits.stale_data_halt_seconds", 3600),

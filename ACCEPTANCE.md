@@ -2,6 +2,9 @@
 
 Rules that apply to every milestone:
 
+- Development scheduling (operator clarification, 2026-10-19): later software may be built and tested while
+  earlier measured runs are pending. This changes scheduling only; every acceptance criterion and real-duration
+  requirement below still applies. A smoke test or synthetic timeline cannot close a measured-run criterion.
 - A milestone is **accepted only when every test below passes and the actual output is reported** in PROGRESS.md
   (command, date, pass/fail counts, notable numbers). Untested features are never described as working.
 - Tests are never weakened, skipped, or deleted to make a milestone pass. If a criterion turns out to be wrong, the
