@@ -111,6 +111,11 @@ class Collector:
 
         self.discovery_engine = DiscoveryEngine(suite, dbs, loaded) if discovery or paper else None
         self._last_gap_mono: float | None = None
+        self.counterfactual_tracker = None
+        if self.discovery_engine is not None:
+            from desk.discovery.counterfactual import CounterfactualTracker
+
+            self.counterfactual_tracker = CounterfactualTracker(suite, dbs.market, loaded.settings.discovery.ticket_sol)
         self.paper_engine = None
         if paper:
             from desk.paper.engine import PaperEngine
@@ -246,6 +251,11 @@ class Collector:
             fetched = await self.suite.dexscreener.tokens(mints[i:i + 30])
             self._save_pools("hazard_followup", fetched.items, fetched.errors, fetched.raw_sha256, lambda s: False)
 
+    async def counterfactuals(self) -> None:
+        assert self.counterfactual_tracker is not None
+        result = await self.counterfactual_tracker.run_once(utc_now())
+        self.stats.tasks["counterfactuals"].items += result["recorded"] + result["no_data"]
+
     async def evaluate_discovery(self) -> None:
         assert self.discovery_engine is not None
         self.stats.tasks["discovery_evaluation"].items += await self.discovery_engine.evaluate_cycle()
@@ -302,6 +312,7 @@ class Collector:
             jobs.append(("dexscreener_promotions", s.dexscreener_promotions_interval_seconds,
                          self.dexscreener_promotions))
             jobs.append(("jupiter_categories", s.jupiter_trending_interval_seconds, self.jupiter_categories))
+            jobs.append(("counterfactuals", 300, self.counterfactuals))
         for name, _, _ in jobs:
             self.stats.tasks[name] = TaskStats()
         if self.paper_engine is not None:

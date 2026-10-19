@@ -339,17 +339,17 @@ only permits your review; it never arms LIVE.
 | M6-02 walk-forward purge/embargo | PASS | no training label window reaches an embargo before the test; embargo < max hold refused |
 | M6-03 leakage detector | PASS | a deliberately leaky "latest value" feature is flagged; the real FeatureBuilder is clean |
 | M6-04 calibration metrics | PASS | Brier and ECE match hand computation |
-| M6-05 counterfactual tracking | **NOT YET** | outcome job for rejected candidates still to build |
+| M6-05 counterfactual tracking | PASS (automated) | `counterfactuals` job (every 5 min under discover/paper): first REJECT of every candidate gets +5m/15m/1h/6h/24h outcomes from same-pool observations, re-fetching due pools; unobservable pools are kept as NO_DATA (no survivorship); a deterministic 10% sample gets a round-trip quote check at 1 h. `desk counterfactuals` summarises |
 | M6-06 no-edge never promoted | PASS | 1,000 zero-mean heavy-tailed datasets: expectancy passes **4.7%** (≤ 7%); ELIGIBLE **0** (67 checked incl. controls) |
 | M6-07 real edge detected | PASS | +4%, σ 25%, n 600, 90 days: expectancy + reliability pass in **98%** of 200 runs |
 | M6-08 deterioration | PASS | +4% → −2% at trade 300: ≤ 10% false alarms before the change, ≥ 80% flagged within 300 trades (expected delay ≈ 176) |
 | M6-09 matrix cells | PASS | all 14 dimensions present with estimate/bounds/count/status; readiness from rules only |
 | M6-10 registry append-only | PASS | report stored; delete refused |
-| M6-11 champion/challenger | **NOT YET** | |
+| M6-11 champion/challenger | PASS (automated) | `desk champion evaluate/approve`: own expectancy + reliability PASS and Holm-adjusted p < 0.05 vs the champion, then typed `PROMOTE <version>`; approvals and history append-only; a stale comparison is refused |
 | M6-12 Holm | PASS | matches reference |
-| M6-13/14 local models | **NOT APPLICABLE YET** | no local model exists; calibration cell reports NOT_APPLICABLE (model_influence = none) |
+| M6-13/14 local models | PASS (automated) | L2 logistic model (`desk model score/report`) scores every recorded decision using only labels known before it (≥ 100 trades, refit every 25), logs model version, training window, feature-set version and inputs hash; out-of-sample benchmark vs B0/B1/B2 with Brier skill and ECE. Zero influence: decision hash identical whether the model says 0, 1 or fails; no trading package imports `desk.models` (AST test); `research.model_influence` accepts only "none" |
 
-Validation: **463 offline tests passed**, Ruff clean, strict mypy clean (87 files). The first CUSUM setting
+Validation: **478 offline tests passed** after the M6 completion, Ruff clean, strict mypy clean (92 files). The first CUSUM setting
 (h = 12) gave 35% false alarms on healthy data — consistent with its theoretical run length — so h was raised
 to 20 and the documented detection delay updated rather than loosening the test.
 

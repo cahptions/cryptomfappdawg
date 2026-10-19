@@ -101,3 +101,6 @@ renewed_after_seconds = 21600
 sol_reference_pool = "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"  # Orca SOL/USDC, verified 2026-10-19 (m3_* evidence)
 interval_seconds = 60
 hazard_followup_interval_seconds = 300
+
+[research]                      # M6: local statistical models are logged and benchmarked only
+model_influence = "none"        # the only accepted value until a model is validated and the operator approves

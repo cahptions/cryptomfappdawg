@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -149,6 +149,12 @@ class ContextSection(_Section):
         return value
 
 
+class ResearchSection(_Section):
+    # M6-14: local model scores have zero influence until they beat the baselines out of sample AND a new,
+    # operator-approved configuration value exists; today "none" is the only accepted value.
+    model_influence: Literal["none"] = "none"
+
+
 class DeskConfig(_Section):
     desk: DeskSection
     paper: PaperSection
@@ -160,6 +166,7 @@ class DeskConfig(_Section):
     storage: StorageSection
     discovery: DiscoverySection
     context: ContextSection
+    research: ResearchSection = ResearchSection()
 
 
 @dataclass(frozen=True)

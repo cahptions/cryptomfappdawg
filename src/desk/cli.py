@@ -193,6 +193,63 @@ def cmd_confidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_champion(args: argparse.Namespace) -> int:
+    from desk.stats import champion
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    dbs = Databases.open(paths)
+    try:
+        if args.action == "status":
+            print(json.dumps({"champion": champion.current_champion(dbs.research),
+                              "history": champion.history(dbs.research)}, indent=1))
+            return 0
+        if args.action == "evaluate":
+            print(json.dumps(champion.record_evaluation(dbs.paper_ledger, dbs.research, utc_now()), indent=1, default=str))
+            return 0
+        if not args.version:
+            print("  usage: desk champion approve VERSION")
+            return 2
+        typed = input(f"Type PROMOTE {args.version} to make it the champion: ").strip()
+        approval = champion.approve(dbs.research, args.version, typed, utc_now(), note=args.note or "")
+        print(f"  champion is now {args.version} (approval {approval})")
+        return 0
+    except ValueError as exc:
+        print(f"  refused: {exc}")
+        return 1
+    finally:
+        dbs.close()
+
+
+def cmd_model(args: argparse.Namespace) -> int:
+    from desk.models.research import benchmark, score_decisions
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    dbs = Databases.open(paths)
+    try:
+        if args.action == "score":
+            print(json.dumps(score_decisions(dbs.paper_ledger, dbs.research, utc_now()), indent=1))
+        else:
+            print(json.dumps(benchmark(dbs.paper_ledger, dbs.research), indent=1, default=str))
+        return 0
+    finally:
+        dbs.close()
+
+
+def cmd_counterfactuals(args: argparse.Namespace) -> int:
+    from desk.discovery.counterfactual import summary
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    dbs = Databases.open(paths)
+    try:
+        print(json.dumps(summary(dbs.market), indent=1))
+        return 0
+    finally:
+        dbs.close()
+
+
 def cmd_discovery_report(args: argparse.Namespace) -> int:
     from desk.ops.acceptance import discovery_run_failures
     from desk.storage.databases import Databases
@@ -384,6 +441,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_confidence)
+
+    p = sub.add_parser("champion", help="champion/challenger status, evaluation and typed approval (M6)")
+    p.add_argument("action", choices=["status", "evaluate", "approve"])
+    p.add_argument("version", nargs="?")
+    p.add_argument("--note")
+    p.set_defaults(func=cmd_champion)
+
+    p = sub.add_parser("model", help="local model: point-in-time scores and out-of-sample benchmark (no influence)")
+    p.add_argument("action", choices=["score", "report"])
+    p.set_defaults(func=cmd_model)
+
+    sub.add_parser("counterfactuals", help="what happened to rejected candidates (M6-05)").set_defaults(
+        func=cmd_counterfactuals)
 
     p = sub.add_parser("discovery-report", help="candidate outcomes, rejection reasons and audit completeness")
     p.add_argument("--run-id", help="run to check; defaults to the latest run")
