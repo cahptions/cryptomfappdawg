@@ -21,6 +21,8 @@ from desk.contracts.observed import DataStatus
 from desk.contracts.tokens import TokenClaims
 from desk.core.clock import ensure_utc, to_iso
 from desk.features.registry import FEATURE_REGISTRY, FEATURE_SET_VERSION
+from desk.regime.context import INPUTS as CONTEXT_INPUTS
+from desk.regime.context import latest_context
 from desk.security.policy import roundtrip_cost
 
 ZERO = Decimal(0)
@@ -203,8 +205,21 @@ class FeatureBuilder:
 
         refs.update(self._holder_growth(mint, claim, as_of, put))
         refs.update(self._security_features(mint, pool_address, as_of, put))
+        refs.update(self._context_features(as_of, put))
         return FeatureSnapshot(mint=mint, pool_address=pool_address, as_of=as_of,
                                feature_set_version=FEATURE_SET_VERSION, values=values, raw_refs=tuple(sorted(refs)))
+
+    def _context_features(self, as_of: datetime, put: Any) -> set[str]:
+        """Market-wide context from the latest stored measurement; NULL inputs keep their recorded reason."""
+        row = latest_context(self.conn, as_of)
+        if row is None:
+            return set()
+        at = ensure_utc(datetime.fromisoformat(row["observed_at"]))
+        reasons = json.loads(row["coverage_json"]).get("reasons", {})
+        for name in CONTEXT_INPUTS:
+            put(name, _decimal(row[name]), at, "market_context:" + row["version"],
+                reason=None if row[name] is not None else reasons.get(name))
+        return {row["raw_sha256"]} if row["raw_sha256"] else set()
 
     @staticmethod
     def _market_features(samples: list[_Sample], as_of: datetime, put: Any) -> None:

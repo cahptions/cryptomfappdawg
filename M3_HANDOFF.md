@@ -77,7 +77,7 @@ uv run desk db check
 
 If no collector supplies fresh observations, decisions remain stale/missing and NO_TRADE; the SHADOW runner
 does not fetch replacements. Current global-context collection/reference import is not wired to this runner,
-so measured regime history is insufficient by default. There is no shortcut that treats missing thirty-day
+so measured regime history is insufficient by default (context collection now exists; see below). There is no shortcut that treats missing thirty-day
 history as validated. Exact migration and event chronology also remain unavailable unless separately captured.
 
 A copied threshold experiment accepts `desk replay --specs-file specifications.json`, where the file is an array
@@ -95,6 +95,14 @@ systemd-inhibit --what=idle:sleep --mode=block \
 
 Keep that terminal open and the laptop plugged in. The inhibitor exits once discovery finishes. Display
 blanking is allowed; suspending is blocked. If discovery is not running, the monitor exits immediately.
+
+## Market context (added after the other agent stopped)
+
+`desk collect` and `desk discover` now record a market-context row every 60 s and re-observe 24-hour hazard
+cohorts every 5 minutes. Use `desk discover` for the long-running process: migrations/hour is only measured
+while discovery has run continuously for the preceding hour. The regime classifier needs 30 measured days of
+these rows (gaps ≤ 1 day); until then SHADOW correctly chooses NO_TRADE with `INSUFFICIENT_HISTORY`. See
+PROGRESS.md "M3 market-context collection".
 
 ## Outstanding milestones
 

@@ -1,0 +1,115 @@
+{
+ "command": "desk collect --minutes 3",
+ "environment": "cloud container, no provider keys (keyless GeckoTerminal/Jupiter lite/public RPC)",
+ "hazard_cohort_rows": 66,
+ "kind": "M3 market-context cloud smoke (not laptop evidence)",
+ "market_context_rows": [
+  {
+   "coverage_json": "{\"counts\":{\"hazard_cohort\":0,\"hazard_events\":0,\"hazard_resolved\":0,\"watchlist_pools\":0},\"reasons\":{\"hazard_rate_24h\":\"HAZARD_COHORT_TOO_SMALL\",\"migrations_per_hour\":\"DISCOVERY_NOT_RUNNING\",\"watchlist_volume_usd_1h\":\"WATCHLIST_COVERAGE_INSUFFICIENT\"}}",
+   "hazard_rate_24h": null,
+   "migrations_per_hour": null,
+   "observed_at": "2026-10-19T04:00:28.267698+00:00",
+   "raw_sha256": "1d6b6e6b99b3746b52daf230491a0bc0a64bf4cf8446fe32165c441f02a90c5d",
+   "sol_return_1h": "-0.002398181715699601137043896260",
+   "sol_volatility_1h": "0.01600365353147747538690228892",
+   "version": "context-v1-68ede20613c6f54f",
+   "watchlist_volume_usd_1h": null
+  },
+  {
+   "coverage_json": "{\"counts\":{\"hazard_cohort\":0,\"hazard_events\":0,\"hazard_resolved\":0,\"watchlist_pools\":0},\"reasons\":{\"hazard_rate_24h\":\"HAZARD_COHORT_TOO_SMALL\",\"migrations_per_hour\":\"DISCOVERY_NOT_RUNNING\",\"watchlist_volume_usd_1h\":\"WATCHLIST_COVERAGE_INSUFFICIENT\"}}",
+   "hazard_rate_24h": null,
+   "migrations_per_hour": null,
+   "observed_at": "2026-10-19T04:01:28.300375+00:00",
+   "raw_sha256": "1d6b6e6b99b3746b52daf230491a0bc0a64bf4cf8446fe32165c441f02a90c5d",
+   "sol_return_1h": "-0.002398181715699601137043896260",
+   "sol_volatility_1h": "0.01600365353147747538690228892",
+   "version": "context-v1-68ede20613c6f54f",
+   "watchlist_volume_usd_1h": null
+  },
+  {
+   "coverage_json": "{\"counts\":{\"hazard_cohort\":0,\"hazard_events\":0,\"hazard_resolved\":0,\"watchlist_pools\":67},\"reasons\":{\"hazard_rate_24h\":\"HAZARD_COHORT_TOO_SMALL\",\"migrations_per_hour\":\"DISCOVERY_NOT_RUNNING\"}}",
+   "hazard_rate_24h": null,
+   "migrations_per_hour": null,
+   "observed_at": "2026-10-19T04:02:28.300926+00:00",
+   "raw_sha256": "62d79e29f8b0cd931245cc37796770de8b8a23373a483b07f7ea30e58d09ce8d",
+   "sol_return_1h": "-0.002566440088953034115306642945",
+   "sol_volatility_1h": "0.01600371713681357970817093583",
+   "version": "context-v1-68ede20613c6f54f",
+   "watchlist_volume_usd_1h": "6046856.35"
+  }
+ ],
+ "note": "Rate-limit warnings in this run came from keyless public endpoints (GeckoTerminal new_pools, Jupiter tokens_recent, public RPC getSlot); every poll succeeded after backoff.",
+ "peak_rss_mb": 59.4,
+ "run": {
+  "ended_at": "2026-10-19T04:03:28.308720+00:00",
+  "id": "run_01M5952S2SBVRDYZPRQRNRKVYN",
+  "started_at": "2026-10-19T04:00:28.249966+00:00"
+ },
+ "tasks": {
+  "dexscreener_refresh": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 134,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "geckoterminal_new_pools": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 120,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "geckoterminal_trending": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 40,
+   "last_error": null,
+   "scheduled": 2,
+   "succeeded": 2
+  },
+  "hazard_followup": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 0,
+   "last_error": null,
+   "scheduled": 1,
+   "succeeded": 1
+  },
+  "jupiter_recent": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 90,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "jupiter_trending": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 50,
+   "last_error": null,
+   "scheduled": 1,
+   "succeeded": 1
+  },
+  "market_context": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 3,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "rpc_slot": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 3,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  }
+ },
+ "unhandled_exceptions": 0
+}

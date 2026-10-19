@@ -13,8 +13,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from desk.core.base58 import is_solana_address
 from desk.core.errors import ConfigError
 from desk.core.hashing import fingerprint
 
@@ -122,6 +123,19 @@ class DiscoverySection(_Section):
     renewed_after_seconds: int = Field(ge=60)
 
 
+class ContextSection(_Section):
+    sol_reference_pool: str
+    interval_seconds: int = Field(ge=30, le=90)                     # regime inputs must be <= 120 s old
+    hazard_followup_interval_seconds: int = Field(ge=60, le=600)    # within the 20-minute follow-up window
+
+    @field_validator("sol_reference_pool")
+    @classmethod
+    def _address(cls, value: str) -> str:
+        if not is_solana_address(value):
+            raise ValueError("sol_reference_pool must be a Solana address")
+        return value
+
+
 class DeskConfig(_Section):
     desk: DeskSection
     paper: PaperSection
@@ -132,6 +146,7 @@ class DeskConfig(_Section):
     collector: CollectorSection
     storage: StorageSection
     discovery: DiscoverySection
+    context: ContextSection
 
 
 @dataclass(frozen=True)

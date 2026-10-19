@@ -15,11 +15,13 @@ from desk.core.clock import to_iso, utc_now
 from desk.features.builder import FeatureBuilder
 from desk.ops.system import process_rss_mb
 from desk.regime.classifier import classify_regime
+from desk.regime.context import ReferenceCache
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import builtin_specs, evaluate_decision
 
 
-def decision_context(conn: sqlite3.Connection, candidate_id: str, as_of: datetime) -> DecisionContext:
+def decision_context(conn: sqlite3.Connection, candidate_id: str, as_of: datetime,
+                     references: ReferenceCache | None = None) -> DecisionContext:
     """Only append-only evidence received at or before as_of may determine historical eligibility."""
     iso = to_iso(as_of)
     candidate = conn.execute(
@@ -55,7 +57,8 @@ def decision_context(conn: sqlite3.Connection, candidate_id: str, as_of: datetim
         elif outcome is Outcome.PASS:
             outcome = Outcome.DEFER
     features = FeatureBuilder(conn).build(candidate["mint"], candidate["pool_address"], as_of)
-    regime = classify_regime(features)
+    reference = (references or ReferenceCache(conn)).get(as_of)
+    regime = classify_regime(features, reference)
     # parse_iso8601 rejects naive values and preserves the canonical time boundary.
     from desk.core.clock import parse_iso8601
 
@@ -73,6 +76,7 @@ class ShadowRunner:
         self.conn, self.seed, self.interval_seconds = conn, seed, interval_seconds
         self.max_candidates, self.specs = max_candidates, builtin_specs() if specs is None else specs
         self.repo, self.stopped, self.cursor = ShadowRepository(conn), False, ""
+        self.references = ReferenceCache(conn)
 
     def stop(self) -> None:
         self.stopped = True
@@ -88,7 +92,7 @@ class ShadowRunner:
                 (to_iso(as_of), self.max_candidates)).fetchall()
         counts = {"decisions": 0, "signals": 0, "no_trade": 0}
         for row in rows:
-            context = decision_context(self.conn, row["id"], as_of)
+            context = decision_context(self.conn, row["id"], as_of, self.references)
             decision = evaluate_decision(row["id"], context, self.specs, seed=self.seed)
             self.repo.save(run_id, context, decision)
             counts["decisions"] += 1

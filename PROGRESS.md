@@ -228,6 +228,46 @@ production are not implemented by this foundation. M7–M9 also remain pending. 
 Delivery branch: `codex/m3-strategy-engine`; see `M3_HANDOFF.md`. Let an already-running laptop test finish
 before switching the code it is using. Publishing code does not update the laptop process automatically.
 
+## M3 market-context collection (Claude, resumed 2026-10-19 UTC)
+
+The other agent stopped after M3's software foundation (`4bc063e`). Its handoff listed "measured global-context
+collection" as missing: the regime classifier needs fresh context plus a measured trailing 30-day reference, and no
+code recorded either, so every SHADOW decision was NO_TRADE by construction and the 30-day clock could not start.
+Operator confirmed on 2026-10-19 that the per-trade cap is meant to be a percentage of account capital (15%), with
+no fixed SOL cap.
+
+Implemented (versioned definition `regime/context.py`, `CONTEXT_VERSION`):
+- `market_context` collector job every 60 s (both `desk collect` and `desk discover`), one append-only row per
+  measurement in market migration 0005. Unknown inputs are NULL with a recorded reason, never 0.
+  - SOL 1 h log return and realized volatility from GeckoTerminal 1-minute OHLCV of the Orca SOL/USDC pool
+    `Czfq3x…u44zE` (verified live: wSOL/USDC, $28.7M reserve, $2.4M h1 volume; evidence
+    `m3_geckoterminal_sol_usdc_reference_pools.json`, `m3_geckoterminal_ohlcv_sol_usdc_1m.json`). One extra GT
+    request per minute (≤ 3.5/min total vs the 8/min self-limit).
+  - Watchlist volume: sum of DexScreener h1 volume, latest row per pool within 180 s, ≥ 20 pools, refresh current.
+  - Migrations/hour: distinct mints with a MIGRATION discovery observation in the last hour; only measured when
+    `desk discover` has run continuously (no suspend) for that hour. `desk collect` records it as missing.
+  - 24 h hazard: cohort = pools whose first positive DexScreener liquidity (≥ $5,000) was 24–25 h earlier; event =
+    first observation ≥ 24 h later shows ≤ 20% of entry liquidity (explicit zero counts). Needs ≥ 20 resolved and
+    ≥ 80% of the cohort. A `hazard_followup` job (every 5 min, ≈ 1 DexScreener call) re-observes cohort pools at
+    24 h so tokens evicted from the 300-token refresh set don't look like survivors. Existing snapshots are
+    back-filled into the cohort by the migration.
+- Feature builder fills the five context features from the latest stored row (max age 120 s; stale/missing keep
+  their reason). SHADOW builds the 30-day reference from stored rows only (one sample per hour, anchored at the
+  decision hour, cached per hour), so the regime stays MISSING until 30 measured days exist.
+
+Validation (cloud): **391 offline tests passed** (15 new in `tests/unit/test_market_context.py`: hand-computed SOL
+metrics on the recorded response, stale/future/missing-anchor/gap rejection, watchlist window, migration window,
+hazard events incl. explicit zero, early/future outcomes and coverage, follow-up selection, cohort back-fill on
+upgrade, append-only rows, 30-day/gap/point-in-time reference, feature staleness, collector job incl. provider
+failure), Ruff clean, strict mypy clean (74 files). Live 3-minute cloud smoke `run_01M5952S2SBVRDYZPRQRNRKVYN`:
+all 8 jobs 100%, 0 unhandled exceptions, 59.4 MB peak; 3 context rows with SOL return/volatility recorded,
+watchlist volume measured on the third row (67 pools), hazard correctly missing (no 24 h history), migrations
+correctly missing under `collect`; 66 cohort entries. Evidence: `m3_context_cloud_smoke.json`. Cloud, not laptop.
+
+**Operator action:** after the current 24-hour M2 run finishes, update to this branch and keep `desk discover`
+running as continuously as practical. Regime labels (and therefore any non-NO_TRADE SHADOW signal) need 30 days of
+measured context with no gap longer than a day; there is no shortcut.
+
 ## Key measurements from M0 (details + evidence in RESEARCH.md)
 
 - Jupiter quote round-trip cost on memecoins with $22k–$59k liquidity: **2.2%–4.1%** (0.1–1 SOL tickets).

@@ -15,6 +15,8 @@ from desk.contracts.tokens import MintAccount, TokenClaims
 from desk.core.clock import to_epoch_millis, to_iso, utc_now
 from desk.storage.db import StorageError, transaction
 
+HAZARD_SOURCE = "dexscreener.tokens_v1"  # the only source whose liquidity the hazard cohort compares
+
 
 def _dec(value: Decimal | None) -> str | None:
     return None if value is None else str(value)
@@ -87,6 +89,12 @@ class MarketRepository:
              _dec(snap.locked_liquidity_pct), json.dumps(windows, sort_keys=True), ",".join(snap.flags),
              snap.raw_sha256, _dec(snap.liquidity_base_amount), _dec(snap.liquidity_quote_amount)),
         )
+        if snap.source == HAZARD_SOURCE and liq_status == "ok" and liq is not None and Decimal(liq) > 0:
+            # hazard cohort entry: the first positive-liquidity observation of a pool is never overwritten
+            self.conn.execute(
+                "INSERT OR IGNORE INTO hazard_cohort(pool_address, base_mint, entry_at, entry_at_ms, entry_liquidity_usd)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (snap.pool_address, snap.base_mint, to_iso(snap.observed_at), to_epoch_millis(snap.observed_at), liq))
 
     # ── token claims, quotes, mint accounts ────────────────────────────────────────────────────────
     def save_token_claims(self, claims: Iterable[TokenClaims]) -> int:

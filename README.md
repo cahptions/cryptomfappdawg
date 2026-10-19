@@ -114,7 +114,8 @@ uv run desk replay --require-hours 6
 The unchanged replay uses stored inputs and specifications; copied threshold experiments are written separately
 to the append-only research registry. A short or interrupted run cannot satisfy the six-hour acceptance gate.
 Cold-start regime history and unverified provider claims remain insufficient; the engine may correctly choose
-NO_TRADE throughout. See the handoff for the currently missing live evidence and provenance limits.
+NO_TRADE throughout. Regime labels need 30 days of market context, which `desk discover` records every minute —
+keep it running. See the handoff for the currently missing live evidence and provenance limits.
 
 Profit-based sizing is a standalone M5/M6 foundation: it compounds realized net profit only with matching, fresh
 PAPER confidence evidence, and caps each ticket at 15% of eligible account capital plus the other risk limits.

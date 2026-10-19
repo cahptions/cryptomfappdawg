@@ -601,7 +601,7 @@ receive its own fresh exact-size round-trip quote; smaller-ticket costs cannot j
 deterioration reduces eligible size or rejects the entry. The initial evidence gate uses §14.1's complete matrix,
 300 trades, ESS 150 and 60 days, not an invented score. This policy is a tested foundation until M5/M6 connect it to
 the reconciled PAPER ledger and statistical producer. Operator refinement later in the same session replaces the
-fixed 0.15 SOL default with a hard cap of 15% of eligible account capital. The percentage cap stays fixed while
+fixed 0.15 SOL default with a hard cap of 15% of eligible account capital (re-confirmed by the operator to Claude, 2026-10-19). The percentage cap stays fixed while
 the qualified capital base grows or shrinks. An optional absolute SOL limit may additionally tighten a profile.
 
 ### 13.2 Default limits — $100 small-account profile (operator answer Q3, 2026-10-18)

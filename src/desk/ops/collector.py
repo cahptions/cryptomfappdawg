@@ -15,6 +15,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 
 from desk.contracts.market import PoolSnapshot
 from desk.core.clock import parse_iso8601, to_iso, utc_now
@@ -24,6 +25,16 @@ from desk.core.hashing import canonical_json
 from desk.core.ids import new_id
 from desk.ops import system
 from desk.providers.factory import ProviderSuite
+from desk.regime.context import INPUTS as CONTEXT_INPUTS
+from desk.regime.context import (
+    ContextRecord,
+    hazard_followup_mints,
+    hazard_rate,
+    migrations_last_hour,
+    save_context,
+    sol_reference_metrics,
+    watchlist_volume,
+)
 from desk.storage.databases import Databases
 from desk.storage.market_repo import MarketRepository
 
@@ -93,6 +104,8 @@ class Collector:
         self.stats = CollectorStats(run_id=new_id("run"), started_at=to_iso(utc_now()))
         self._stop = asyncio.Event()
         self._run_started_mono = time.monotonic()
+        self._coverage_since_mono = self._run_started_mono   # continuous observation since start or last suspend
+        self._last_success_mono: dict[str, float] = {}
         from desk.discovery.engine import DiscoveryEngine
 
         self.discovery_engine = DiscoveryEngine(suite, dbs, loaded) if discovery else None
@@ -176,6 +189,54 @@ class Collector:
             (os.getpid(), to_iso(utc_now())),
         )
 
+    async def market_context(self) -> None:
+        """Record one context measurement; every unknown input is stored as NULL with its reason."""
+        now, ctx = utc_now(), self.loaded.settings.context
+        reasons: dict[str, str] = {}
+        coverage: dict[str, int] = {}
+        values: dict[str, Decimal | None] = dict.fromkeys(CONTEXT_INPUTS)
+        raw: str | None = None
+        failure: ProviderError | None = None
+        try:
+            fetched = await self.suite.geckoterminal.ohlcv(ctx.sol_reference_pool, "minute", aggregate=1, limit=70)
+            raw = fetched.raw_sha256
+            values["sol_return_1h"], values["sol_volatility_1h"], reason = sol_reference_metrics(fetched.items, now)
+            if reason:
+                reasons.update({n: reason for n in ("sol_return_1h", "sol_volatility_1h") if values[n] is None})
+        except ProviderError as exc:
+            failure = exc
+            reasons.update(sol_return_1h="SOL_REFERENCE_UNAVAILABLE", sol_volatility_1h="SOL_REFERENCE_UNAVAILABLE")
+        market = self.dbs.market
+        refreshed = self._last_success_mono.get("dexscreener_refresh")
+        if refreshed is None or time.monotonic() - refreshed > 150:
+            reasons["watchlist_volume_usd_1h"] = "WATCHLIST_REFRESH_NOT_CURRENT"
+        else:
+            values["watchlist_volume_usd_1h"], coverage["watchlist_pools"], reason = watchlist_volume(market, now)
+            if reason:
+                reasons["watchlist_volume_usd_1h"] = reason
+        if self.discovery_engine is None:
+            reasons["migrations_per_hour"] = "DISCOVERY_NOT_RUNNING"
+        elif time.monotonic() - self._coverage_since_mono < 3600:
+            reasons["migrations_per_hour"] = "DISCOVERY_COVERAGE_UNDER_ONE_HOUR"
+        else:
+            values["migrations_per_hour"] = Decimal(migrations_last_hour(market, now))
+        values["hazard_rate_24h"], counts, reason = hazard_rate(market, now)
+        coverage.update(counts)
+        if reason:
+            reasons["hazard_rate_24h"] = reason
+        save_context(market, ContextRecord(observed_at=now, reasons=reasons, coverage=coverage, raw_sha256=raw,
+                                           **values))
+        self.stats.tasks["market_context"].items += 1
+        if failure is not None:
+            raise failure
+
+    async def hazard_followup(self) -> None:
+        """Re-observe hazard-cohort pools at 24 h; evicted tokens would otherwise look like survivors."""
+        mints = hazard_followup_mints(self.dbs.market, utc_now())
+        for i in range(0, len(mints), 30):
+            fetched = await self.suite.dexscreener.tokens(mints[i:i + 30])
+            self._save_pools("hazard_followup", fetched.items, fetched.errors, fetched.raw_sha256, lambda s: False)
+
     async def evaluate_discovery(self) -> None:
         assert self.discovery_engine is not None
         self.stats.tasks["discovery_evaluation"].items += await self.discovery_engine.evaluate_cycle()
@@ -189,6 +250,7 @@ class Collector:
             try:
                 await job()
                 stats.succeeded += 1
+                self._last_success_mono[name] = time.monotonic()
             except ProviderError as exc:
                 stats.failed += 1
                 stats.last_error = str(exc)[:300]
@@ -202,6 +264,7 @@ class Collector:
             # laptop sleep shows up as wall time jumping far ahead of monotonic time
             if (time.time() - started_wall) - elapsed > max(30.0, interval):
                 self.stats.suspend_gaps += 1
+                self._coverage_since_mono = time.monotonic()
                 log.warning("suspend/resume gap detected; data before the gap is stale", extra={"job": name})
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=max(0.0, interval - elapsed))
@@ -218,6 +281,8 @@ class Collector:
             ("jupiter_trending", s.jupiter_trending_interval_seconds, self.jupiter_trending),
             ("dexscreener_refresh", s.dexscreener_refresh_interval_seconds, self.dexscreener_refresh),
             ("rpc_slot", s.rpc_slot_interval_seconds, self.rpc_slot),
+            ("market_context", self.loaded.settings.context.interval_seconds, self.market_context),
+            ("hazard_followup", self.loaded.settings.context.hazard_followup_interval_seconds, self.hazard_followup),
         ]
         if self.discovery_engine is not None:
             jobs.append(("discovery_evaluation", self.loaded.settings.discovery.evaluation_interval_seconds,

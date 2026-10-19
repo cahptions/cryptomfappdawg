@@ -83,3 +83,8 @@ min_dev_migration_fraction = "0.01"
 volume_expansion_ratio = "2"
 acceleration_ratio = "1.5"
 renewed_after_seconds = 21600
+
+[context]                       # M3: measured market context for regime labels; read-only
+sol_reference_pool = "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"  # Orca SOL/USDC, verified 2026-10-19 (m3_* evidence)
+interval_seconds = 60
+hazard_followup_interval_seconds = 300
