@@ -400,7 +400,7 @@ Implications are handled in PLAN.md §2 and §15.
 | R-03 | Definitions of Jupiter `topHoldersPercentage`, `devMints`, `numTraders`, organic metrics | M2 (compare with on-chain) |
 | R-04 | Max mints per Jupiter `tokens/v2/search` call (comma-separated lists work: 3 verified) | M2 |
 | R-05 | `/swap/v2/execute` contract, status codes, requestId validity | M8 |
-| R-06 | `/order` with read-only `taker`: are fee/priority/rent fields populated without funds? | M5 |
+| ~~R-06~~ | **Resolved 2026-10-19:** `/order` reports `signatureFeeLamports`, `prioritizationFeeLamports` and `rentFeeLamports` only for a funded `taker`; a public funded address works without our funds or signatures. Measured priority fees 332–12,113 lamports; PAPER now charges probe measurements (PLAN §12.3). The platform fee is already inside Ultra `outAmount` (`m5_jupiter_fee_embedding.json`) | — |
 | R-07 | Cheap migration detector via `programSubscribe` on PumpSwap | M2 (optional) |
 | R-08 | LP lock/burn verifiability per venue (PumpSwap, Meteora DAMM v2, Raydium) | M2 |
 | ~~R-09~~ | ~~Anthropic model list & prices~~ — closed: AI judge removed by operator decision | — |

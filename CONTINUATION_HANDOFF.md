@@ -1,51 +1,59 @@
 # Continuing Claude's work
 
-Branch: `codex/continue-claude`, based on Claude's `c29501a` from `claude/funny-rubin-gq99vj`.
-The earlier parallel prototype is preserved on local branch `codex/paper-engine` at `d58bd83`; its incompatible
-ledger/context migrations were not merged. This branch preserves Claude's database migration history and
-later PAPER research decisions.
+Branch: **`claude/funny-rubin-gq99vj`**. It contains all of Codex's `codex/continue-claude` (through `32344da`)
+plus the Paper trading tab, measured paper fees, the H8 moonshot hypothesis with evidence-gated conviction sizing,
+hypotheses-before-baselines ranking (`shadow-rules-v3`) and replay of every recorded evaluator version. Details:
+the last section of [PROGRESS.md](PROGRESS.md).
 
-Validation: **672 offline tests passed**, 5 opt-in live checks deselected; Ruff, strict mypy (120 source files),
-TypeScript/build, contrast checks and empty/populated browser smoke checks passed. Browser reports and fixture
-screenshots are in [docs/evidence/m7/](docs/evidence/m7/). These checks ran in the cloud environment.
+Validation in the cloud: the offline suite, Ruff, strict mypy, the TypeScript build, contrast checks and a headless
+Chromium check of the new tab at 1920×1080 and 390×844 passed. Nothing here used a wallet, signature or transaction.
 
 ## Get this version on the laptop
 
-The dashboard reads `~/desk-data` as collection happens; there is no import step and no 24-hour prerequisite.
-For an active collector, open a second terminal and use a separate checkout and virtual environment:
+The dashboard reads `~/desk-data` as collection happens; there is no import step. If the 24-hour discovery run is
+still going, let it finish before updating the folder it runs from (a restart would end that acceptance run).
 
 ```bash
-git clone --single-branch --branch codex/continue-claude https://github.com/cahptions/cryptomfappdawg.git ~/kestrel-dashboard
-cd ~/kestrel-dashboard
-uv sync --frozen
-DESK_HOME="$HOME/desk-data" uv run desk dashboard
-```
-
-Open **http://127.0.0.1:8765**. Keep the original collector terminal running; do not start a second collector.
-The separate checkout leaves `~/kestrel` and its environment alone. First dashboard startup applies compatible
-additive database migrations; SQLite serializes that brief setup with ongoing writes. The dashboard then reads
-committed records and refreshes summaries every two seconds. An integration test starts from M2 schemas while
-an older-style writer continues, verifies new records appear, and checks database integrity afterward.
-The existing private keys stay at their existing path. The 24-hour duration is an acceptance test only.
-
-For the original checkout, let its collector finish before switching that checkout or replacing its environment.
-These commands update that original folder; they do not replace `~/desk-data` or private keys:
-
-```bash
-cd ~/kestrel
-git status --short
-git fetch origin
-git switch codex/continue-claude
-git pull --ff-only origin codex/continue-claude
+cd ~/kestrel                     # or ~/kestrel-dashboard, if that is the folder you use for the dashboard
+git status --short               # should print nothing; if it lists files, stop and keep them
+git fetch origin claude/funny-rubin-gq99vj
+git checkout -B claude/funny-rubin-gq99vj FETCH_HEAD
 uv sync --frozen
 uv run desk db check
 uv run desk doctor
-uv run desk dashboard
 ```
 
-If `git switch` reports local edits, keep that output and preserve those edits before switching; do not reset
-or force checkout. Open **http://127.0.0.1:8765** in Firefox. The dashboard command stays running in its terminal.
+Running processes keep the code they started with. Stop them (`Ctrl+C` in their terminals, or `uv run desk down`
+if you use the services) and start them again from the updated folder:
+
+```bash
+uv run desk paper --minutes 4320     # terminal 1: collection + discovery + paper trading + fee probes
+uv run desk dashboard                # terminal 2: then open http://127.0.0.1:8765 → Paper trading (g t)
+```
+
+The first start applies one additive database migration (`fee_observations`). Existing paper positions, strategy
+versions and evidence are unchanged: every existing strategy version hash is identical, so open positions keep
+their exact exit rules. A SHADOW session recorded before the update still replays (`desk replay`) with the
+evaluator version that recorded it. Paper fees start on the conservative model and switch to measured fees by
+themselves once the collector has stored six fee reports (about 30 minutes of running). The private keys stay in
+`~/.config/desk/secrets.env`; nothing here asks for them.
+
 Built assets are included; Node is needed only when changing UI source, via `scripts/build_ui.sh`.
+
+## What changed in this update
+
+- **Paper trading tab.** Plain-English activity (every look, skip, buy and sell with its reason), filters, the
+  signal-to-trade funnel, skip reasons, open positions with stop/trailing/time-limit levels, closed trades after
+  fees with observed/stress results, the realized curve, the $100 replica, fees and the moonshot watch. Reads are
+  bounded and decision contexts never reach the browser.
+- **Fees.** Jupiter's swap fee is inside every quote (verified) and never charged twice. Each round trip pays three
+  network transactions, including closing the token account; network fees come from real Jupiter fee reports
+  (p90 × 1.5) once six exist in 24 hours, else from the conservative model.
+- **H8 moonshot.** A rare, fully confirmed explosive run, built to exit before the dump. It sizes up (1.5×, never
+  above 15%) only after its own closed paper trades show PASS net expectancy and the signal has extra confirmation.
+- **Ranking v3.** A qualifying hypothesis outranks the baselines; before this, B2's score scale crowded out every
+  hypothesis. NO_TRADE still wins ties and whenever nothing qualifies.
+- **Layout fix.** Hidden table labels no longer widen pages on a phone-width window.
 
 ## What changed after Claude
 

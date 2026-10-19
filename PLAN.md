@@ -524,12 +524,20 @@ Small and plausible on purpose. Each is a fully specified, versioned `StrategySp
 | **H4** | Pullback after verified volume expansion | ≤ 6 h | A3 |
 | **H5** | Breakout retest after consolidation | ≤ 8 h | A1 |
 | **H6** | Renewed activity in tokens > 24 h old | ≤ 24 h | A4 |
+| **H8** | Moonshot continuation (operator request 2026-10-19): an early explosive run — +50% in 1 h and still rising (15 m ≥ +5%, 5 m ≥ 0, acceleration ≥ 0), 5 m volume ≥ 3× the hourly pace, ≥ 400 buys/h, buy/sell ≥ 1.2, liquidity +25% in 1 h, top-10 ≤ 25%, developer ≤ 2% — continues long enough to bank a multiple of the stop before the typical dump. Rare by design; 15% stop, trailing stop arms at +25% and gives back 12% | ≤ 2 h | A1, A2 |
 | H7 | Momentum-exhaustion avoidance — an **overlay filter**, not a standalone strategy | — | A2 |
 | R1 | Short-lived volume acceleration — **SHADOW research only** (latency-sensitive) | ≤ 1 h | — |
 
 Every spec defines eligible regimes, required features, entry/rejection conditions, sizing method, initial stop,
 trailing behaviour, max hold, liquidity exits, execution requirements, and invalidation conditions. Modifying any of
 these creates a **new version**; old versions and their records are immutable.
+
+**Ranking (evaluator `shadow-rules-v3`, 2026-10-19).** An eligible hypothesis with a positive score outranks every
+baseline; an eligible baseline outranks NO-TRADE; within a tier the higher score wins, and NO-TRADE wins every tie
+and every case where nothing qualifies. Before v3 a single ranking let B2's score (100 × 1 h log return) crowd out
+every hypothesis, so hypotheses never collected PAPER evidence. Baselines still trade whenever no hypothesis wants a
+candidate, and B1/B2 keep their SHADOW comparisons for every eligible candidate (§11.5). A recorded run is always
+replayed with the evaluator version that recorded it (v1, v2 or v3), so earlier SHADOW evidence stays reproducible.
 
 ### 11.5 Champion / challenger
 - Exactly **one champion** trades in PAPER with full quote-based simulation.
@@ -555,8 +563,10 @@ uses decision-time information and executable feasibility — "it went up later"
 - Marking: **executable-side** — a sell quote for the exact quantity held, refreshed by the guardian every 20–30 s.
   Between quotes, marks use DexScreener price × calibrated impact and are labelled `ESTIMATED`.
 - Exit: a sell quote for the exact quantity at the exit decision time. **Never** "entry quote vs displayed price".
-- Fee fields (`signatureFeeLamports`, `prioritizationFeeLamports`, `rentFeeLamports`) are taken from `/order` when
-  requested with a read-only `taker` public key (open item R-06); otherwise from a documented conservative model.
+- Fee fields (`signatureFeeLamports`, `prioritizationFeeLamports`, `rentFeeLamports`) are reported by `/order` only
+  when it is requested for a funded `taker` (R-06, answered 2026-10-19). Every 10 minutes the collector requests
+  real orders for a public funded address (never ours, nothing is signed) on SOL→USDC and SOL→a token PAPER holds or
+  could buy, and stores the reported fees in `fee_observations`. PAPER charges those measurements (§12.3).
 
 ### 12.2 Three execution profiles (computed for every paper trade)
 | Profile | Latency | Price | Failures | Purpose |
@@ -570,9 +580,19 @@ accountings so the gap between them is tracked. A strategy is never considered r
 profitable.
 
 ### 12.3 Costs accounted per trade
-Jupiter platform fee (from quote), pool fees and price impact (embedded in quotes), signature fee, priority fee,
-token-account rent (locked, refunded on close), failed-transaction costs, transfer fees (rejected tokens only), and
-attributable operating costs (API spend) at the reporting level.
+- **Inside every quote:** Jupiter's platform fee, pool fees and price impact. Verified 2026-10-19 on one route: the
+  Ultra `outAmount` equals the fee-free route output × (1 − `feeBps`), to one raw unit
+  (`research/evidence/2026-10-19/m5_jupiter_fee_embedding.json`). It is never deducted a second time.
+- **Network fees, three transactions per round trip:** buy, sell, and closing the token account (the only way its
+  rent comes back). Each transaction is charged the largest reported signature fee (at least 5,000 lamports) plus
+  the 90th-percentile reported priority fee of the last 24 hours × 1.5, once at least six fee reports exist in that
+  window. Otherwise the conservative configured model applies (5,000 + 100,000 lamports per transaction; the
+  ceilings keep that model from being made cheaper). A quote that itself reports fees is charged the larger of its
+  own fees and the estimate. Each trade records which source priced it.
+- **Failures:** a simulated failed transaction still pays its fee (conservative and stress profiles).
+- **Rent:** token-account rent (2,039,280 lamports) is locked while the position is open and refunded on close; it
+  is shown separately and is not a cost.
+- Transfer fees (rejected tokens only) and attributable operating costs (API spend) at the reporting level.
 
 ### 12.4 Impairment policy
 If no sell route exists for > 5 minutes, or the best executable quote implies < 50% of the last executable mark, the
@@ -617,6 +637,13 @@ PAPER exists to learn, so it is not throttled like the real account:
 - **$100-account replica.** The same signals are also replayed through the real account's constraints (cash $100,
   2 positions, first come first served, losses shrink equity, §13.1 evidence-gated growth) so its realistic path is
   reported separately. LIVE sizing follows §13.1 and §13.2 only.
+- **Conviction sizing for moonshots (operator request 2026-10-19).** Only H8 may size up, to 1.5 × the normal
+  fraction capped by the 15% ticket ceiling, and only when both hold: (1) evidence — the latest confidence report,
+  at most 7 days old, shows PASS on net expectancy (one-sided 95% stationary-bootstrap lower bound above zero) for
+  that exact H8 version, earned by its own closed PAPER trades; (2) signal — beyond H8's own entry rules, 5-minute
+  volume ≥ 5 × the hourly pace and ≥ 1.5 buys per sell. Otherwise the normal fraction is used. Every entry records
+  the policy version, the evidence and signal checks, and what conviction size would have been, so the effect of the
+  rule is measurable. A single exciting chart never qualifies, and nothing here touches LIVE sizing.
 
 ### 13.2 Default limits — $100 small-account profile (operator answer Q3, 2026-10-18)
 
@@ -661,8 +688,10 @@ At 10% tickets (~$10, 0.098 SOL) the same fees are **0.05%–1.0%** and the rent
   The security filters exist to make that rare, not impossible.
 - Even a genuinely good strategy earns small absolute amounts: e.g. +3% net per trade × 5 trades/day on $10 tickets
   ≈ **$1.50/day** before variance. At this size the desk is a validation instrument, not an income source.
-- Measured priority fees (M5, open item R-06) may push the fee floor up; if fixed costs exceed 1% of a $10 ticket,
-  the desk will refuse those trades rather than pay them.
+- Fixed network costs are three transactions per round trip (§12.3). Measured priority fees so far are 332–12,113
+  lamports per transaction, so they fit comfortably; under the conservative 105,000-lamport model a round trip costs
+  0.000315 SOL, about 0.6% of a 0.05 SOL ticket. If fixed costs ever exceed 1% of the ticket, the desk refuses the
+  trade rather than pay them.
 - Operator-authorized conditional compounding uses the account-relative ceiling and confidence gates above.
   LIVE activation remains separately authorized after its validation gates.
 
@@ -962,9 +991,10 @@ package, Telegram bot frameworks, any paid data provider.
 
 **Trading costs (only once LIVE is approved), measured/derived:** Jupiter platform fee 10 bps per side on memecoins;
 pool fees and price impact embedded in quotes (measured round-trip 2.2–4.1% in $22k–$59k pools); base fee ~5,000
-lamports per signature; priority fee chosen by Jupiter (to be measured, R-06); token-account rent 0.0015 SOL per new
-token (refunded on close). Example at a 0.1 SOL (~$10) ticket: rent is ~1.5% of the ticket while held and fees add
-further fixed cost → the **fee floor** rule will block tickets that are too small to be economical.
+lamports per signature; priority fee chosen by Jupiter (measured 332–12,113 lamports per transaction, R-06); token-
+account rent 0.00203928 SOL per new token (refunded on close). Example at a 0.1 SOL (~$10) ticket: rent is ~2% of the
+ticket while held (locked, not spent) and three transactions add fixed cost → the **fee floor** rule blocks tickets
+that are too small to be economical.
 
 ---
 

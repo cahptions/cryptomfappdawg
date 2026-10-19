@@ -58,10 +58,13 @@ def test_engine_kill9_leaves_no_partial_position_and_guardian_supervises_alone(t
     price = tmp_path / "price"
     price.write_text("1")
     guardian = _spawn("guardian", str(home), str(price))
-    engine = _spawn("engine", str(home))
+    engine: subprocess.Popen[str] | None = None
     try:
         _wait(lambda: (age := heartbeat_age(dbs_.runtime, "guardian", utc_now())) is not None and age < 5, 30,
               "the guardian heartbeat")
+        # Start writing only once the guardian supervises: the book then holds ~15 positions however slowly the
+        # guardian started, so the marking deadline below does not depend on machine load.
+        engine = _spawn("engine", str(home))
         assert engine.stdout is not None
         committed = [engine.stdout.readline().strip() for _ in range(15)]
         os.kill(engine.pid, signal.SIGKILL)                       # mid-loop: possibly inside a transaction
@@ -90,7 +93,7 @@ def test_engine_kill9_leaves_no_partial_position_and_guardian_supervises_alone(t
         assert ledger.reconcile()["difference_lamports"] == 0
     finally:
         for proc in (engine, guardian):
-            if proc.poll() is None:
+            if proc is not None and proc.poll() is None:
                 proc.send_signal(signal.SIGTERM)
         guardian.wait(timeout=20)
     assert guardian.returncode == 0, guardian.stderr.read() if guardian.stderr else ""

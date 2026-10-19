@@ -94,7 +94,7 @@ Rules that apply to every milestone:
 | M3-08 | Strategy versioning immutability | U | Modifying a used version raises; a change creates a new version with `parent_version` |
 | M3-09 | NO-TRADE always present | U | Ranking output always contains NO-TRADE; with no candidate clearing thresholds, NO-TRADE is chosen; ties go to NO-TRADE |
 | M3-10 | Decision determinism | P | Same snapshot + config ⇒ byte-identical decision hash across 1,000 randomized runs |
-| M3-11 | Replay reproduces SHADOW decisions | E2E | Replaying a recorded 6-hour SHADOW session reproduces 100% of decisions; changing one threshold in a copy changes only the expected decisions and never alters source data |
+| M3-11 | Replay reproduces SHADOW decisions | E2E | Replaying a recorded 6-hour SHADOW session reproduces 100% of decisions; changing one threshold in a copy changes only the expected decisions and never alters source data. A run is replayed with the evaluator version that recorded it (v1, v2 or v3); an unknown version fails explicitly |
 | M3-12 | Baselines | U | B0 returns no trades; B1 is seeded and reproducible; B2 deterministic |
 
 ---
@@ -139,6 +139,8 @@ of M4 that still matter were moved, not deleted:
 | M5-20 | 72-hour live PAPER run | L/R | Report trades, rejections, costs by item, halts, quote-budget usage, RSS; zero unreconciled positions |
 | M5-21 | Learning-book sizing (operator 2026-10-19) | U | Ticket = 10% × ($100 base + realized PAPER profit); losses never shrink it; 15% cap, fee floor, liquidity cap and cash still bind |
 | M5-22 | $100-account replica | U | The same entries replayed under the real account's limits (2 positions, daily loss, trades/day, cumulative drawdown, fee floor) are reported separately |
+| M5-23 | Fee realism (operator 2026-10-19) | U/L | Jupiter's platform fee is never deducted twice (recorded live comparison); network fees use ≥ 6 measured taker orders in 24 h at p90 × 1.5, else the conservative model; a round trip pays three transactions (buy, sell, close the token account); every closed trade records its fee breakdown and source |
+| M5-24 | Conviction sizing (operator 2026-10-19) | U | Only H8 sizes up (1.5×, never above the 15% cap) and only with PASS net-expectancy evidence ≤ 7 days old for its exact version plus the extra signal; every entry records the policy, checks and the size it would have used |
 
 Operator decisions of 2026-10-19 (PLAN §13.1.1) change how M5-02 and M5-14 apply: the absolute SOL cap was replaced
 by the 15% percentage cap; the §13.2 account limits (2 positions, daily loss, drawdown, trades/day) bind the $100
@@ -185,6 +187,7 @@ mint, order rate, consecutive-failure pause, stale-data and kill-switch halts, c
 | M7-11 | Backups and recovery | FI/R | Hourly ledger backup + daily market/research backups rotate; restore procedure from RUNBOOK reproduces an identical ledger (checksum) |
 | M7-12 | **Beginner operability** | M | Operator completes the scripted checklist (start paper, find why a token was rejected, read confidence status, stop entries, export trades, restore a backup) without editing code |
 | M7-13 | Sleep inhibitor on the real laptop | M/R | With an open paper position, closing the lid / idle timeout does not suspend (or, if Cinnamon ignores the inhibitor, this is documented and the resume path of M5-18 is shown working) |
+| M7-14 | Paper trading tab (operator 2026-10-19) | U/E2E | Every recorded look, skip, buy and sell appears in plain English with its reason; open positions show hard stop, trailing stop and time limit; closed trades show fees and observed/stress results; reads are bounded (latest 100 trade/skip events + 50 decisions, 200 trades) and decision contexts never reach the browser; no horizontal scroll at 390 px |
 
 ---
 

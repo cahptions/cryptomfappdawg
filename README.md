@@ -44,7 +44,7 @@ uv --version
 ```bash
 git clone https://github.com/cahptions/cryptomfappdawg.git ~/kestrel
 cd ~/kestrel
-git checkout codex/continue-claude
+git checkout claude/funny-rubin-gq99vj
 ```
 For the current handoff, follow [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md). An existing collection process
 does not automatically update when a branch is published; let the running test finish before switching its code.
@@ -133,6 +133,12 @@ Paper cash is $100,000 but every ticket is sized as your $100 account (10% of $1
 losing streaks don't stop the learning. Up to 10 paper positions at once (free quote budget). The report also shows
 what the real $100 account would have done (2 positions, its loss limits). Use your keyed laptop setup.
 
+Every paper trade pays realistic fees: Jupiter's swap fee, pool fees and price impact are already inside each quote
+(verified), and three network transactions per round trip (buy, sell, close the token account) are charged from
+real Jupiter fee reports once enough exist, or a conservative estimate before that. The moonshot hypothesis H8
+looks for rare explosive runs and exits fast; it may use a larger ticket (up to 15%) only after its own paper trades
+prove a positive net edge in the confidence report. See PLAN §11.4, §12.3 and §13.1.1.
+
 ### M8: real-money infrastructure (never used until you decide)
 
 ```bash
@@ -160,6 +166,10 @@ uv run desk up                      # opt-in systemd user dashboard and backup t
 uv run desk up --paper               # also start independent guardian and PAPER engine
 uv run desk down                     # stop engine/dashboard; guardian continues supervising
 ```
+
+The **Paper trading** tab (`g` then `t`) shows what the paper book is doing in plain English: every look, skip,
+buy and sell with its reason, open positions with their stop, trailing stop and time limit, closed trades after
+fees, the signal-to-trade funnel, fees, the moonshot watch and the $100-account replica.
 
 Built UI assets ship with the repository, so running the dashboard needs Python only. To rebuild UI source,
 run `scripts/build_ui.sh` with Node/npm or Docker installed. No remote fonts, token images, or chart CDN are used.

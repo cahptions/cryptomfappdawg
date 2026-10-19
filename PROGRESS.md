@@ -12,9 +12,9 @@
 | M2 Discovery & on-chain safety | 🟡 **implemented; 24-hour acceptance pending** | 2026-10-18 Eastern / Oct 19 UTC | automated checks and short cloud discovery runs passed; see M2 results and M2_HANDOFF.md |
 | M3 Features & strategy engine | 🟡 implemented; forward acceptance pending | 2026-10-19 | measured context, SHADOW and replay; six-hour laptop run still needed |
 | ~~M4 AI judge~~ | ❌ **Dropped** | 2026-10-18 | Operator declined paid API; desk is deterministic-only (PLAN §15) |
-| M5 Full PAPER trading | 🟡 implemented; 72-hour acceptance pending | 2026-10-19 | $100,000 learning book, $100 replica; post-quote and exit-concurrency fixes |
+| M5 Full PAPER trading | 🟡 implemented; 72-hour acceptance pending | 2026-10-19 | $100,000 learning book, $100 replica; measured fees; H8 moonshot with evidence-gated conviction sizing |
 | M6 Statistical learning & confidence | 🟡 methods implemented; forward evidence pending | 2026-10-19 | confidence matrices, counterfactuals, champion review, zero-influence local models |
-| M7 Dashboard & operations | 🟡 implementation and automated checks | 2026-10-19 | React/FastAPI, services, backups; real-laptop acceptance pending |
+| M7 Dashboard & operations | 🟡 implementation and automated checks | 2026-10-19 | React/FastAPI, Paper trading tab, services, backups; real-laptop acceptance pending |
 | M8 LIVE infrastructure | 🟡 incomplete; production BUY disabled | 2026-10-19 | signer infrastructure present; per-entry production gate integration missing; no real funds used |
 | M9 Forward validation | ⏸ | — | ≥ 60 days calendar time |
 
@@ -441,8 +441,9 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
 
 ## Next step
 1. Finish an existing laptop acceptance run before switching its checkout. Preserve local changes.
-2. Follow [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md) to fetch `codex/continue-claude`, install frozen
-   dependencies and open `desk dashboard`; the checked-in UI needs no Node runtime.
+2. Follow [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md) to fetch `claude/funny-rubin-gq99vj` (it contains
+   all of `codex/continue-claude`), install frozen dependencies, restart the workers and open `desk dashboard`; the
+   checked-in UI needs no Node runtime.
 3. Record actual M2 24-hour discovery, M3 six-hour SHADOW/replay and M5 72-hour PAPER acceptance separately.
    Do the dashboard, service, backup recovery, lid/power and memory checks on the Dell laptop.
 4. Complete M8 production per-entry authorization; BUY remains disabled meanwhile. Continue M9 forward
@@ -519,3 +520,57 @@ Operator's latest report: run_01M590ZRP2PPM8G96ZZRXB08XR started 2026-10-19T02:4
 at the supplied 17:21 UTC status. Providers had recovered to OK, ingest_errors=0, orphans=0; duration acceptance
 was false because the run had not finished cleanly yet. Lid closure was reported; suspend gaps cannot be
 determined from that report. Do not mark 24-hour acceptance complete or discard the captured data.
+
+## Paper trading tab, realistic fees and the moonshot hypothesis (2026-10-19 UTC, Claude)
+
+Continued on `claude/funny-rubin-gq99vj` after fast-forwarding Codex's `codex/continue-claude` (`32344da`), so the
+branch now carries everything above. Operator requests: a tab showing what paper trading is doing; paper trades
+must pay fees ("if not accurate then good estimates"); look for rare moonshots and size up only with great
+confidence.
+
+**Fees (PLAN §12.3, M5-23).** A recorded live comparison on one route shows Jupiter's Ultra `outAmount` already
+equals the fee-free output × (1 − `feeBps`) to one raw unit, so the swap fee is never deducted twice
+(`research/evidence/2026-10-19/m5_jupiter_fee_embedding.json`). Network costs are now three transactions per round
+trip — buy, sell and closing the token account, which is how rent comes back; the close transaction was missing
+before. Every 10 minutes the collector asks Jupiter for real orders built for a public funded address (nothing is
+signed or sent) and stores the reported fees (`fee_observations`, market migration 0008). With six or more reports in
+24 hours each transaction is charged the p90 priority fee × 1.5 plus the largest signature fee; otherwise the
+conservative 105,000-lamport model. Measured priority fees so far: 332–12,113 lamports. Each trade records its fee
+source and a breakdown (entry, sell, close, failed, rent locked/refunded). R-06 is resolved.
+
+**H8 moonshot and ranking (PLAN §11.4, §13.1.1, M5-24).** H8 requires +50% in 1 h and still rising, accelerating
+volume, heavy buying, liquidity +25%, top-10 ≤ 25% and developer ≤ 2%; it exits through a 15% stop, a trailing stop
+that arms at +25% and gives back 12%, and a 2-hour limit. Conviction sizing: 1.5× the normal fraction (15% cap) only
+with PASS net-expectancy evidence for H8's exact version in a confidence report at most 7 days old plus extra
+volume and buy-pressure confirmation; otherwise normal size. The finding that mattered most: under the previous
+single ranking B2's score scale (100 × log return) beat every hypothesis, so hypotheses could not earn PAPER
+evidence. Evaluator `shadow-rules-v3` ranks an eligible hypothesis above any baseline; NO_TRADE still wins ties.
+Existing strategy version hashes are unchanged (verified), so open positions keep their exact specifications.
+
+**Replay across evaluator versions (M3-11).** Replay now reproduces a run with the evaluator that recorded it.
+Runs recorded by the real v1 and v2 code (separate worktrees at `0b038bf` and `32344da`) replayed 5/5 identical
+under the new code, including the uncalibrated and RISK_OFF cases where those versions differ. A six-hour SHADOW
+session recorded before this update still counts.
+
+**Paper trading tab (M7-14).** `/api/paper` plus a React tab (`g` then `t`): status banner with guardian/engine
+heartbeats; cash, next ticket, realized P&L (observed/stress), open count and win rate; a plain-English activity
+feed with filters (trades, signals, skipped, passed on); the signal-to-trade funnel for 24 h and all time; why
+entries were skipped; open positions with exit ladder, hard stop, trailing stop and time left; closed trades after
+fees; realized P&L curve; $100 replica; fees; moonshot watch; per-strategy and exit-reason tables. Reads are bounded:
+the latest 100 trade/skip events plus 50 decisions, 200 closed trades and 400 curve points; decision contexts are
+stripped in SQL and counts use the `(kind, at)` index without parsing payloads. A pre-existing layout bug was fixed:
+visually hidden table labels widened every page at phone width (the Overview overflowed by 259 px).
+
+Browser checks: the repository harness (`tests/browser/smoke.mjs`) now covers nine views and the Paper trading
+tab; empty and populated fixtures pass every check in Chromium 141 (evidence and labelled fixture screenshots in
+`docs/evidence/m7/`). A separate seeded book from the real engine and guardian rendered without console, page or
+CSP errors at 1920×1080 and 390×844, with zero horizontal overflow on all nine views. Two test races were fixed
+rather than retried: the harness checked search focus before the app's zero-delay focus task ran (failed 1 of 3
+empty runs; now waits up to 2 s), and the kill -9 fault test let the engine open an unbounded number of positions
+while the guardian was still starting (failed once in a loaded full run; the engine now starts once the guardian
+supervises). These are short cloud checks, not the laptop's M7 acceptance.
+
+Checks: **721 passed, 5 opt-in live tests deselected**; Ruff and strict mypy (115 source files) clean; strict
+TypeScript build and Prettier; all seven contrast tokens pass on four surfaces. No live provider test, wallet,
+signature or transaction was used for this work.
+
