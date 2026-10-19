@@ -507,3 +507,15 @@ service startup, power/lid behavior, accessibility review and timed forward runs
 Final offline suite: **672 passed, 5 opt-in live tests deselected**, 147.89 seconds. One test-client deprecation
 warning comes from Starlette's existing httpx adapter; it did not fail a check. No live provider check was rerun
 or real transaction attempted during this continuation.
+
+Subsequent requested chart addition: actual 5-minute OHLCV storage/backfill, candlestick/volume charts,
+EMA20/50 and Wilder RSI14 in candidate/position dossiers. Bounded two-pool-per-minute collection shares the
+existing free quota; it does not alter trade approvals. Chart ingestion/indicator tests passed (21), affected
+storage/API/context/PAPER checks passed (45), Ruff and strict mypy (122 files) passed, and Chromium rendered
+80 fixture candles, all three indicator paths and 4h/All controls. Synthetic chart screenshot is labelled under
+docs/evidence/m7; short checks do not close laptop or timed acceptance.
+
+Operator's latest report: run_01M590ZRP2PPM8G96ZZRXB08XR started 2026-10-19T02:48:55Z and was still active
+at the supplied 17:21 UTC status. Providers had recovered to OK, ingest_errors=0, orphans=0; duration acceptance
+was false because the run had not finished cleanly yet. Lid closure was reported; suspend gaps cannot be
+determined from that report. Do not mark 24-hour acceptance complete or discard the captured data.

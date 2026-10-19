@@ -262,6 +262,16 @@ class Collector:
         result = await self.counterfactual_tracker.run_once(utc_now())
         self.stats.tasks["counterfactuals"].items += result["recorded"] + result["no_data"]
 
+    async def token_candles(self) -> None:
+        from desk.ops.candles import candle_targets, collect_candles
+
+        for pool, mint in candle_targets(self.dbs):
+            result = await collect_candles(self.suite, self.dbs, pool, mint, utc_now())
+            self.stats.tasks["token_candles"].items += result.inserted
+            self.stats.tasks["token_candles"].item_errors += len(result.errors)
+            if result.errors:
+                self.repo.record_ingest_errors("token_candles", result.errors, None)
+
     async def evaluate_discovery(self) -> None:
         assert self.discovery_engine is not None
         self.stats.tasks["discovery_evaluation"].items += await self.discovery_engine.evaluate_cycle()
@@ -319,6 +329,7 @@ class Collector:
                          self.dexscreener_promotions))
             jobs.append(("jupiter_categories", s.jupiter_trending_interval_seconds, self.jupiter_categories))
             jobs.append(("counterfactuals", 300, self.counterfactuals))
+            jobs.append(("token_candles", 60, self.token_candles))
         for name, _, _ in jobs:
             self.stats.tasks[name] = TaskStats()
         if self.paper_engine is not None:

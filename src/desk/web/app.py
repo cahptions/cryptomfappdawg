@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -148,6 +148,16 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
         if value is None:
             raise HTTPException(404, "candidate not found")
         return value
+
+    @app.get("/api/charts/{mint}")
+    def chart(mint: str, pool_address: Annotated[str | None, Query(max_length=44)] = None,
+              limit: Annotated[int, Query(ge=1, le=500)] = 200) -> dict[str, Any]:
+        from desk.web.charts import chart_data
+
+        try:
+            return chart_data(paths, mint, pool_address=pool_address, limit=limit)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/api/positions/{position_id}")
     def position(position_id: str) -> dict[str, Any]:

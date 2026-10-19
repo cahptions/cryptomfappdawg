@@ -21,6 +21,8 @@
   --mode-live: #ff3d7f;
   --series: #009fc8;
   --series-2: #9b70f3;
+  --candle-up: #74b6aa;
+  --candle-down: #d77f95;
   --grid: #1a222c;
   --font-ui:
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -2519,5 +2521,201 @@ dialog::backdrop {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Price history is separate from account returns; indicators use recorded bars only. */
+.token-chart {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #090e15;
+  margin-bottom: 24px;
+  min-width: 0;
+  overflow: hidden;
+}
+.token-chart-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 13px 10px;
+}
+.token-chart-top h3 {
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 3px;
+}
+.token-chart-top h3 > span {
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 400;
+  margin-left: 6px;
+}
+.chart-periods {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  gap: 2px;
+}
+.chart-periods button {
+  color: var(--text-3);
+  font-size: 9px;
+  border-radius: 3px;
+  padding: 4px 7px;
+}
+.chart-periods button[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--hover);
+}
+.token-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 12px;
+  padding: 0 13px 12px;
+  font-family: var(--font-num);
+  font-size: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ema20-label {
+  color: var(--info);
+}
+.ema50-label {
+  color: #b49ae9;
+}
+.chart-history-status {
+  margin-left: auto;
+  font-size: 7px;
+  letter-spacing: 0.03em;
+}
+.token-chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 25px;
+}
+.token-chart-empty > svg {
+  width: 37px;
+  height: 37px;
+  fill: none;
+  stroke: var(--text-3);
+  stroke-width: 1.2;
+  margin-bottom: 14px;
+}
+.token-chart-empty h4 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 8px 0;
+}
+.token-chart-empty p {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.8;
+  max-width: 330px;
+}
+.candle-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  font-size: 8px;
+  color: var(--text-3);
+  padding: 10px 13px 0;
+}
+.candle-readout b {
+  font-weight: 450;
+  color: var(--text-2);
+}
+.candle-readout > span:first-child {
+  margin-right: auto;
+}
+.token-chart-scroll {
+  overflow-x: auto;
+  min-width: 0;
+  overscroll-behavior-x: contain;
+}
+.candlestick-chart {
+  display: block;
+  width: 100%;
+  min-width: 520px;
+  touch-action: pan-y;
+}
+.candlestick-chart .chart-label {
+  font-size: 10px;
+}
+.candle-up {
+  fill: var(--candle-up);
+  stroke: var(--candle-up);
+  stroke-width: 1;
+}
+.candle-down {
+  fill: var(--candle-down);
+  stroke: var(--candle-down);
+  stroke-width: 1;
+}
+.ema20-line,
+.ema50-line,
+.rsi-line {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ema20-line {
+  stroke: var(--series);
+}
+.ema50-line {
+  stroke: var(--series-2);
+}
+.rsi-line {
+  stroke: #b49ae9;
+}
+.rsi-threshold {
+  stroke: #3c344a;
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
+.volume-up {
+  fill: var(--candle-up);
+  opacity: 0.4;
+}
+.volume-down {
+  fill: var(--candle-down);
+  opacity: 0.4;
+}
+.token-chart-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 13px;
+  color: var(--text-3);
+  font-size: 8px;
+  line-height: 1.6;
+  border-top: 1px solid var(--border);
+}
+.chart-error {
+  color: var(--warn);
+  font-size: 10px;
+  padding: 10px 13px 0;
+}
+@media (max-width: 760px) {
+  .token-chart-top {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .token-chart-legend {
+    font-size: 7px;
+    gap: 6px 9px;
+  }
+  .chart-history-status {
+    margin-left: 0;
+  }
+  .token-chart-top h3 > span {
+    display: block;
+    margin: 4px 0 0;
   }
 }

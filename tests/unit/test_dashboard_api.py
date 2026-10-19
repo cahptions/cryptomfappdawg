@@ -29,6 +29,10 @@ def test_empty_api_and_reads_do_not_initialize_paper(paths: DeskPaths) -> None:
         assert snapshot["paper"]["initialized"] is False
         assert snapshot["live"]["buy_enabled"] is False
         assert snapshot["scanner"] == []
+        mint = "So11111111111111111111111111111111111111112"
+        assert client.get(f"/api/charts/{mint}").json()["points"] == []
+        assert client.get(f"/api/charts/{mint}?limit=501").status_code == 422
+        assert client.get("/api/charts/not-a-mint").status_code == 422
         assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
         assert response.headers["cache-control"] == "no-store"
         for route in ("candidates", "positions", "strategies"):

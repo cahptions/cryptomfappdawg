@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "fixture": true,
+  "candles": 80,
+  "indicators": [
+    "EMA20",
+    "EMA50",
+    "Wilder RSI14"
+  ],
+  "window_controls": true,
+  "javascript_errors": []
+}

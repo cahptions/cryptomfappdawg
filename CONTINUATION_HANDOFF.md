@@ -61,6 +61,14 @@ Built assets are included; Node is needed only when changing UI source, via `scr
 
 ## Operation
 
+Token dossiers now include recorded 5-minute candlesticks, USD volume, EMA20/EMA50 and Wilder RSI14.
+The collector backfills at most two pools per minute through the existing shared free GeckoTerminal quota,
+prioritizing held positions, then a bounded recent candidate set. Charts are descriptive and do not change
+entry approval. Missing history and indicator warm-up remain explicit; gaps restart indicator warm-up.
+Closed bars and pool/base-mint identities are checked before storage. No data is fetched on chart GETs.
+The chart addition passed 21 indicator/ingestion tests, 45 affected integration/API/storage tests, strict mypy
+(122 source files), Ruff, TypeScript/build, and a real Chromium check of 80 candles and all indicator paths.
+
 The learning book still has $100,000 simulated cash, with tickets based on $100 plus realized PAPER profit and
 up to ten concurrent positions within the quote budget. Its $100-account replica remains separate, conservative,
 and an estimate. Research book growth is not evidence to increase real position sizes; confidence-qualified

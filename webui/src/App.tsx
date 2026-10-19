@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { control, loadDetail, useDashboard } from "./api";
+import TokenChart from "./TokenChart";
 import type {
   AuditEvent,
   Candidate,
@@ -601,6 +602,20 @@ function Scanner({
               {visible.slice(0, compact ? 6 : 200).map((c) => (
                 <tr key={c.id}>
                   <td>
+                    <button
+                      className="icon-button"
+                      title={`Chart ${c.symbol || short(c.mint)}`}
+                      aria-label={`Chart ${c.symbol || short(c.mint)}`}
+                      onClick={() =>
+                        onDetail({
+                          kind: "candidate",
+                          title: c.symbol || short(c.mint),
+                          endpoint: `/api/candidates/${encodeURIComponent(c.id)}`,
+                        })
+                      }
+                    >
+                      <Icon name="chart" />
+                    </button>
                     <button
                       className="token-button"
                       onClick={() =>
@@ -1224,7 +1239,25 @@ function DetailDrawer({
             {error}
           </div>
         ) : (
-          <Evidence value={value} />
+          <>
+            {detail &&
+            (detail.kind === "candidate" || detail.kind === "position") &&
+            value &&
+            typeof value === "object" &&
+            "mint" in value &&
+            typeof value.mint === "string" ? (
+              <TokenChart
+                mint={value.mint}
+                poolAddress={
+                  "pool_address" in value &&
+                  typeof value.pool_address === "string"
+                    ? value.pool_address
+                    : undefined
+                }
+              />
+            ) : null}
+            <Evidence value={value} />
+          </>
         )}
       </div>
       <div className="drawer-footer">
