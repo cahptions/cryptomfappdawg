@@ -322,6 +322,37 @@ keyless public RPC cannot return holder lists (R-01), so no candidate passes sec
 real bugs, both fixed with tests: USD→lamport conversion at a live rate, and the guardian idling out before the
 engine's first heartbeat.
 
+## M6 statistics and confidence matrix (2026-10-19 UTC, Claude)
+
+`desk confidence` builds PLAN §14.1's matrix per strategy version from the PAPER ledger and gives the §14.3
+readiness state; every report is stored append-only in the research registry with an inputs hash. Cells carry
+estimate, bounds, evidence count and status; no weighted score exists and no model output enters. Methods
+(`stats/core.py`, numpy 2.3.4 added, pinned): Politis–Romano stationary bootstrap with Politis–White block length
+(chunked to stay laptop-sized), Geyer ESS on hour-clustered trades, drawdown with bootstrap p95, ES95, Wilson,
+lower CUSUM (k = 0.12, h = 20) and Page–Hinkley, Holm, Brier/ECE, walk-forward folds with purge + embargo, and a
+point-in-time leakage audit. Baselines (B0–B2) are reported but never promoted. "ELIGIBLE FOR MANUAL LIVE REVIEW"
+only permits your review; it never arms LIVE.
+
+| Criteria | Status | Actual result |
+|---|---|---|
+| M6-01 bootstrap coverage | PASS | 500 AR(1) φ=0.2 Student-t(3) series, n=300: **93.6%** coverage of the true mean |
+| M6-02 walk-forward purge/embargo | PASS | no training label window reaches an embargo before the test; embargo < max hold refused |
+| M6-03 leakage detector | PASS | a deliberately leaky "latest value" feature is flagged; the real FeatureBuilder is clean |
+| M6-04 calibration metrics | PASS | Brier and ECE match hand computation |
+| M6-05 counterfactual tracking | **NOT YET** | outcome job for rejected candidates still to build |
+| M6-06 no-edge never promoted | PASS | 1,000 zero-mean heavy-tailed datasets: expectancy passes **4.7%** (≤ 7%); ELIGIBLE **0** (67 checked incl. controls) |
+| M6-07 real edge detected | PASS | +4%, σ 25%, n 600, 90 days: expectancy + reliability pass in **98%** of 200 runs |
+| M6-08 deterioration | PASS | +4% → −2% at trade 300: ≤ 10% false alarms before the change, ≥ 80% flagged within 300 trades (expected delay ≈ 176) |
+| M6-09 matrix cells | PASS | all 14 dimensions present with estimate/bounds/count/status; readiness from rules only |
+| M6-10 registry append-only | PASS | report stored; delete refused |
+| M6-11 champion/challenger | **NOT YET** | |
+| M6-12 Holm | PASS | matches reference |
+| M6-13/14 local models | **NOT APPLICABLE YET** | no local model exists; calibration cell reports NOT_APPLICABLE (model_influence = none) |
+
+Validation: **463 offline tests passed**, Ruff clean, strict mypy clean (87 files). The first CUSUM setting
+(h = 12) gave 35% false alarms on healthy data — consistent with its theoretical run length — so h was raised
+to 20 and the documented detection delay updated rather than loosening the test.
+
 ## Key measurements from M0 (details + evidence in RESEARCH.md)
 
 - Jupiter quote round-trip cost on memecoins with $22k–$59k liquidity: **2.2%–4.1%** (0.1–1 SOL tickets).

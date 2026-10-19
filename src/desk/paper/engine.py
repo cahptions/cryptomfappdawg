@@ -30,6 +30,7 @@ from desk.storage.databases import Databases
 from desk.storage.market_repo import MarketRepository
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import builtin_specs, evaluate_decision
+from desk.strategies.evaluate import EVALUATOR_VERSION
 from desk.strategies.specs import paper_specs
 
 log = logging.getLogger(__name__)
@@ -151,7 +152,8 @@ class PaperEngine:
         context = decision_context(self.dbs.market, candidate_id, now, self.references)
         decision = evaluate_decision(candidate_id, context, self.specs, seed=self.seed)
         mint, pool = context.features.mint, context.features.pool_address
-        self.ledger.event(now, "DECISION", {"mode": "PAPER", "decision_hash": decision.decision_hash,
+        self.ledger.event(now, "DECISION", {"mode": "PAPER", "evaluator_version": EVALUATOR_VERSION,
+                                            "seed": self.seed, "decision_hash": decision.decision_hash,
                                             "inputs_hash": decision.inputs_hash, "chosen": decision.chosen,
                                             "regime_label": context.regime_label, "regime_status": context.regime_status.value,
                                             "ranking": [{"id": r.strategy_id, "eligible": r.eligible, "score": str(r.score),
@@ -183,6 +185,7 @@ class PaperEngine:
             return "REJECTED_SIZE"
         intent_id = "intent_" + decision.decision_hash[:32]
         self.ledger.event(now, "ENTRY_ATTEMPT", {"intent_id": intent_id, "ticket_lamports": ticket.lamports,
+                                                 "strategy_version": spec.version_id,
                                                  "sizing_capital_lamports": ticket.sizing_capital_lamports},
                           candidate_id=candidate_id)
         result = await enter(self.execution, self._quote, self.sleep, intent_id=intent_id, mint=mint,
@@ -192,6 +195,7 @@ class PaperEngine:
         if result.status != "FILLED" or result.profiles is None:
             kind = "ENTRY_FAILED" if result.status == "ENTRY_FAILED" else "ENTRY_REJECTED_COST"
             self.ledger.event(done, kind, {"intent_id": intent_id, "reason": result.reason, "quotes": result.quotes,
+                                           "strategy_version": spec.version_id,
                                            "failed_fees_lamports": result.failed_fees_lamports,
                                            "roundtrip_cost_fraction": str(result.roundtrip_cost_fraction)},
                               candidate_id=candidate_id)

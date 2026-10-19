@@ -122,6 +122,7 @@ keep it running. See the handoff for the currently missing live evidence and pro
 ```bash
 uv run desk paper --minutes 4320     # 72 h: collection + discovery + paper entries; starts the guardian itself
 uv run desk paper-report             # results, reconciliation, $100-account replica
+uv run desk confidence               # confidence matrix + readiness per strategy (M6)
 uv run desk stop                     # kill switch: no new entries (open positions stay supervised)
 uv run desk resume                   # clear it (type RESUME)
 ```

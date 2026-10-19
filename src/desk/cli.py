@@ -179,6 +179,20 @@ def cmd_paper_report(args: argparse.Namespace) -> int:
     return 1 if reconciliation.get("difference_lamports") else 0
 
 
+def cmd_confidence(args: argparse.Namespace) -> int:
+    from desk.stats.evidence import confidence_report, render
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    dbs = Databases.open(paths)
+    try:
+        report = confidence_report(dbs.paper_ledger, dbs.research, utc_now(), seed=args.seed)
+    finally:
+        dbs.close()
+    print(json.dumps(report, indent=1, default=str) if args.json else render(report))
+    return 0
+
+
 def cmd_discovery_report(args: argparse.Namespace) -> int:
     from desk.ops.acceptance import discovery_run_failures
     from desk.storage.databases import Databases
@@ -365,6 +379,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("paper-report", help="PAPER results, reconciliation and the $100-account replica").set_defaults(
         func=cmd_paper_report)
+
+    p = sub.add_parser("confidence", help="confidence matrix and readiness per strategy from PAPER evidence (M6)")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_confidence)
 
     p = sub.add_parser("discovery-report", help="candidate outcomes, rejection reasons and audit completeness")
     p.add_argument("--run-id", help="run to check; defaults to the latest run")
