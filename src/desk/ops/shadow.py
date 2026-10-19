@@ -18,6 +18,7 @@ from desk.regime.classifier import classify_regime
 from desk.regime.context import ReferenceCache
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import builtin_specs, evaluate_decision
+from desk.strategies.evaluate import EVALUATOR_VERSION
 
 
 def decision_context(conn: sqlite3.Connection, candidate_id: str, as_of: datetime,
@@ -104,7 +105,7 @@ class ShadowRunner:
         if not math.isfinite(minutes) or minutes <= 0:
             raise ValueError("duration must be finite and positive")
         self.repo.register_specs(self.specs, utc_now())
-        settings = {"seed": self.seed, "interval_seconds": self.interval_seconds,
+        settings = {"seed": self.seed, "interval_seconds": self.interval_seconds, "evaluator_version": EVALUATOR_VERSION,
                     "max_candidates": self.max_candidates, "requested_minutes": minutes,
                     "specs": [spec.model_dump(mode="json") for spec in self.specs]}
         run_id = self.repo.start_run(utc_now(), settings)

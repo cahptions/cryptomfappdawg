@@ -604,6 +604,20 @@ the reconciled PAPER ledger and statistical producer. Operator refinement later 
 fixed 0.15 SOL default with a hard cap of 15% of eligible account capital (re-confirmed by the operator to Claude, 2026-10-19). The percentage cap stays fixed while
 the qualified capital base grows or shrinks. An optional absolute SOL limit may additionally tighten a profile.
 
+### 13.1.1 PAPER learning book (operator decisions, 2026-10-19)
+PAPER exists to learn, so it is not throttled like the real account:
+- **Cash $100,000; trade sizes as the $100 account.** Ticket = fixed fraction (10%) × sizing capital, where sizing
+  capital = **$100 + realized net PAPER profit** (closed trades). Sizes grow as a percentage of profit made, at once,
+  with no evidence gate; losses never shrink the sizing capital below $100 (the cash cushion absorbs them). The 15%
+  per-ticket ceiling, fee floor, liquidity cap, quote-based cost cap and reserve rules still apply per ticket.
+- **Many concurrent positions.** The 2-position limit belongs to the real $100 account. The learning book's limit is
+  set by the free quote budget (each open position needs exit quotes); one position per mint, no averaging down.
+- **No 30-day wait.** Decisions proceed with an uncalibrated regime (recorded as such) while context accumulates; the
+  catastrophic-market rule (SOL −8% in 1 h ⇒ no entries) applies from day one.
+- **$100-account replica.** The same signals are also replayed through the real account's constraints (cash $100,
+  2 positions, first come first served, losses shrink equity, §13.1 evidence-gated growth) so its realistic path is
+  reported separately. LIVE sizing follows §13.1 and §13.2 only.
+
 ### 13.2 Default limits — $100 small-account profile (operator answer Q3, 2026-10-18)
 
 The operator will start with **$100** (≈ 0.98 SOL at the research-time price). Paper trading simulates exactly that
@@ -806,6 +820,8 @@ liquidity, and AMM program behaviour under different future state.
 4. Manually configured max capital allocation > 0 and ≤ ceiling.
 5. Signer unlocked (passphrase entered in a terminal).
 6. Fee-balance preflight, quote freshness, token-program validation, guardian heartbeat fresh, no halts.
+7. A **calibrated** regime (measured 30-day reference, status OK) whose label is eligible for the strategy.
+   PAPER and research decisions do not wait for calibration (operator decision 2026-10-19, §13.1.1); LIVE does.
 
 The dashboard displays every gate's status and offers **Disarm**; it cannot arm. The system never promotes itself.
 

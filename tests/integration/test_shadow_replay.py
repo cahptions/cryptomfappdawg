@@ -24,6 +24,7 @@ from desk.storage.discovery_repo import DiscoveryRepository
 from desk.storage.market_repo import MarketRepository
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import builtin_specs, evaluate_decision, revise_spec
+from desk.strategies.evaluate import EVALUATOR_VERSION
 from tests.unit.test_discovery import pool_snapshot
 from tests.unit.test_strategies import NOW, _context
 
@@ -44,7 +45,7 @@ def _register(dbs: Databases, context: DecisionContext) -> tuple[ShadowRepositor
                                   reason=DiscoveryReason.MIGRATION)
     repo = ShadowRepository(dbs.market)
     repo.register_specs(builtin_specs(), NOW)
-    run = repo.start_run(NOW, {"seed": 7, "interval_seconds": 30,
+    run = repo.start_run(NOW, {"seed": 7, "interval_seconds": 30, "evaluator_version": EVALUATOR_VERSION,
                               "specs": [spec.model_dump(mode="json") for spec in builtin_specs()]})
     return repo, candidate, run
 
@@ -88,7 +89,7 @@ def test_changed_threshold_affects_expected_inputs_and_preserves_originals(dbs: 
     repo, candidate, _ = _register(dbs, context)
     b0, _, b2, *_ = builtin_specs()
     specs = (b0, b2)
-    run = repo.start_run(NOW, {"seed": 7, "interval_seconds": 30,
+    run = repo.start_run(NOW, {"seed": 7, "interval_seconds": 30, "evaluator_version": EVALUATOR_VERSION,
                               "specs": [spec.model_dump(mode="json") for spec in specs]})
     for seconds, momentum in ((0, "0.1"), (30, "0.2"), (60, "0.4")):
         shifted = _shift(context, seconds, momentum)
@@ -212,7 +213,7 @@ def test_runner_reads_collector_records_and_streams_no_trade_without_provider_or
     runner = ShadowRunner(dbs.market, max_candidates=1)
     repo = runner.repo
     repo.register_specs(runner.specs, snapshot.observed_at)
-    run = repo.start_run(snapshot.observed_at, {"seed": 0, "interval_seconds": 30,
+    run = repo.start_run(snapshot.observed_at, {"seed": 0, "interval_seconds": 30, "evaluator_version": EVALUATOR_VERSION,
                                               "specs": [spec.model_dump(mode="json") for spec in runner.specs]})
     result = runner.cycle(run, snapshot.observed_at)
     assert result == {"decisions": 1, "signals": 0, "no_trade": 1}
@@ -240,7 +241,7 @@ def test_collector_writes_and_shadow_share_wal_with_independent_connections(dbs:
     runner = ShadowRunner(dbs.market, max_candidates=1)
     repo = runner.repo
     repo.register_specs(runner.specs, snapshot.observed_at)
-    run = repo.start_run(snapshot.observed_at, {"seed": 0, "interval_seconds": 30,
+    run = repo.start_run(snapshot.observed_at, {"seed": 0, "interval_seconds": 30, "evaluator_version": EVALUATOR_VERSION,
                                               "specs": [spec.model_dump(mode="json") for spec in runner.specs]})
     failures: list[BaseException] = []
     barrier = threading.Barrier(2)
@@ -269,3 +270,12 @@ def test_collector_writes_and_shadow_share_wal_with_independent_connections(dbs:
     assert dbs.market.execute("SELECT COUNT(*) FROM market_snapshots").fetchone()[0] == 41
     assert repo.report(run)["decisions"] == 10
     assert replay_run(dbs.market, dbs.research, run)["identical"] == 10
+
+
+def test_replay_refuses_runs_recorded_by_another_evaluator_version(dbs: Databases) -> None:
+    repo = ShadowRepository(dbs.market)
+    run = repo.start_run(NOW, {"seed": 0, "interval_seconds": 30, "max_candidates": 1, "requested_minutes": 1,
+                               "specs": [spec.model_dump(mode="json") for spec in builtin_specs()]})
+    result = replay_run(dbs.market, dbs.research, run)
+    assert not result["passed"]
+    assert any("shadow-rules-v1" in failure for failure in result["failures"])

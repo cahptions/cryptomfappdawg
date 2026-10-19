@@ -124,14 +124,28 @@ def test_no_trade_wins_zero_signal_ties_and_b0_never_trades() -> None:
     _context(security_assessed_at=None),
     _context(security_assessed_at=NOW - timedelta(seconds=301)),
     _context(security_assessed_at=NOW + timedelta(seconds=1)),
-    _context(regime_status=DataStatus.MISSING, regime_label=None),
+    _replace_feature(_context(), "sol_return_1h", _feature("-0.0834")),
+    _replace_feature(_context(regime_status=DataStatus.MISSING, regime_label=None), "sol_return_1h", _feature("-0.2")),
     _context(regime_label="RISK_OFF"),
 ])
-def test_higher_scores_never_override_security_or_missing_regime(context: DecisionContext) -> None:
+def test_higher_scores_never_override_security_market_crash_or_excluded_regime(context: DecisionContext) -> None:
     decision = evaluate_decision("candidate-1", context, builtin_specs())
     assert decision.chosen == "NO_TRADE"
     assert all(row.score == 0 for row in decision.ranking)
     assert all(not row.eligible for row in decision.ranking if row.strategy_id != "NO_TRADE")
+
+
+def test_uncalibrated_regime_does_not_block_research_decisions() -> None:
+    """Operator decision 2026-10-19: PAPER/research learning starts before 30 days of context exist."""
+    warmup = _context(regime_status=DataStatus.MISSING, regime_label=None)
+    decision = evaluate_decision("candidate-1", warmup, builtin_specs())
+    assert decision.chosen != "NO_TRADE"
+    assert all("REGIME" not in reason for row in decision.ranking for reason in row.reasons)
+    assert evaluate_decision("candidate-1", warmup, builtin_specs()) == decision
+    # a calibrated label still excludes; an uncalibrated SOL move just above -8% does not halt
+    assert evaluate_decision("candidate-1", _context(regime_label="RISK_OFF"), builtin_specs()).chosen == "NO_TRADE"
+    near = _replace_feature(warmup, "sol_return_1h", _feature("-0.0833"))
+    assert evaluate_decision("candidate-1", near, builtin_specs()).chosen == decision.chosen
 
 
 @pytest.mark.parametrize("status", [DataStatus.UNVERIFIED, DataStatus.CONFLICT, DataStatus.ESTIMATED, DataStatus.STALE])

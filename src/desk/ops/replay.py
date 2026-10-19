@@ -62,6 +62,10 @@ def replay_run(market: sqlite3.Connection, research: sqlite3.Connection, run_id:
             maximum_gap = max(maximum_gap, (context.features.as_of - last_as_of).total_seconds())
         last_as_of = context.features.as_of
     failures = []
+    recorded_evaluator = run["settings"].get("evaluator_version", "shadow-rules-v1")
+    if recorded_evaluator != EVALUATOR_VERSION:
+        failures.append(f"run was recorded by evaluator {recorded_evaluator}; the current {EVALUATOR_VERSION} "
+                        "cannot reproduce it")
     if not checked:
         failures.append("no recorded decisions")
     if not experiment and mismatches:

@@ -268,6 +268,20 @@ correctly missing under `collect`; 66 cohort entries. Evidence: `m3_context_clou
 running as continuously as practical. Regime labels (and therefore any non-NO_TRADE SHADOW signal) need 30 days of
 measured context with no gap longer than a day; there is no shortcut.
 
+## Operator decisions for PAPER learning (2026-10-19, Claude session)
+
+Recorded in PLAN §13.1.1 and §16.5 gate 7:
+1. Don't wait 30 days to learn. Research/PAPER decisions now proceed with an **uncalibrated** regime (recorded);
+   only a calibrated label can exclude a strategy. Evaluator bumped to `shadow-rules-v2`; replay refuses runs
+   recorded by a different evaluator version instead of reporting them as integrity failures. The catastrophic
+   rule (SOL ≤ −8% in 1 h ⇒ no entries) applies from day one. LIVE requires a calibrated regime.
+2. PAPER cash **$100,000**, trade sizes as the **$100 account** (10% of $100 + realized net profit; grows as a
+   percentage of profit immediately; never below the $100-account size).
+3. Many concurrent PAPER positions, limited by the free quote budget instead of the real account's 2.
+4. A separate $100-account replica reports what the real account would have done with the same signals.
+
+Tests after (1): **394 passed**, Ruff and strict mypy clean. Items (2)–(4) are implemented in M5.
+
 ## Key measurements from M0 (details + evidence in RESEARCH.md)
 
 - Jupiter quote round-trip cost on memecoins with $22k–$59k liquidity: **2.2%–4.1%** (0.1–1 SOL tickets).

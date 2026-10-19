@@ -14,7 +14,11 @@ from desk.contracts.strategy import Decision, DecisionContext, FeatureCondition,
 from desk.core.hashing import fingerprint
 from desk.strategies.specs import builtin_specs
 
-EVALUATOR_VERSION = "shadow-rules-v1"
+EVALUATOR_VERSION = "shadow-rules-v2"
+# v2 (operator decision 2026-10-19): research and PAPER decisions do not wait for a calibrated regime; an
+# uncalibrated regime is recorded and only a calibrated label can exclude a strategy. LIVE (M8) separately
+# requires a calibrated regime. PLAN §13 catastrophic-market halt applies regardless of calibration.
+SOL_CRASH_LOG_RETURN_1H = Decimal("0.92").ln()   # SOL -8% in one hour
 
 
 def _matches(value: Decimal, condition: FeatureCondition) -> bool:
@@ -43,15 +47,17 @@ def _global_reasons(context: DecisionContext) -> tuple[str, ...]:
             reasons.append("SECURITY_OBSERVED_AFTER_DECISION")
         elif age > context.security_max_age_seconds:
             reasons.append("SECURITY_STALE")
-    if context.regime_status is not DataStatus.OK or context.regime_label is None:
-        reasons.append("REGIME_INSUFFICIENT_OR_UNVERIFIED")
+    sol = context.features.usable("sol_return_1h")
+    if sol is not None and sol <= SOL_CRASH_LOG_RETURN_1H:
+        reasons.append("MARKET_SOL_CRASH_1H")
     return tuple(reasons)
 
 
 def _spec_reasons(spec: StrategySpec, context: DecisionContext) -> tuple[str, ...]:
     reasons: list[str] = []
     eligibility = spec.eligibility
-    if context.regime_label not in eligibility.regimes:
+    calibrated = context.regime_status is DataStatus.OK and context.regime_label is not None
+    if calibrated and context.regime_label not in eligibility.regimes:
         reasons.append("REGIME_NOT_ELIGIBLE")
     if eligibility.discovery_reasons and context.discovery_reason not in eligibility.discovery_reasons:
         reasons.append("DISCOVERY_REASON_NOT_ELIGIBLE")
