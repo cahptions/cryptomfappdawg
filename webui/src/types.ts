@@ -157,8 +157,9 @@ export interface Snapshot {
     [key: string]: unknown;
   };
   live?: {
-    armed?: boolean;
+    armed?: boolean | null;
     buy_enabled?: boolean;
+    signer_status?: string;
     reason?: string;
     gates?: {
       name: string;
@@ -168,6 +169,10 @@ export interface Snapshot {
       detail?: string;
     }[];
     max_capital_sol?: string;
+    capital_ceiling_sol?: string;
+    guardian_age_seconds?: number | null;
+    engine_age_seconds?: number | null;
+    book?: LiveBookSummary | null;
   };
   regime?: { status?: string; label?: string; reason?: string };
   readiness?: {
@@ -366,4 +371,27 @@ export interface PaperTab {
     rule?: string;
   };
   notes?: string[];
+}
+
+/** Read-only summary of the LIVE ledger; amounts are what the wallet's balances changed by. */
+export interface LiveBookSummary {
+  started: boolean;
+  error?: string;
+  deposits_sol?: string;
+  cash_sol?: string;
+  equity_sol?: string;
+  realized_sol?: string;
+  closed_trades?: number;
+  halted?: string | null;
+  pending_requests?: number;
+  open?: {
+    id: string;
+    mint: string;
+    state: string;
+    strategy: string;
+    opened_at: string;
+    ticket_sol: string;
+    value_sol: string | null;
+    exit_reason: string | null;
+  }[];
 }

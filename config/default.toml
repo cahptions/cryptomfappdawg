@@ -111,5 +111,7 @@ model_influence = "none"        # the only accepted value until a model is valid
 max_capital_sol = "0"           # 0 = LIVE impossible. You set this yourself when you decide; ceiling 2 SOL
 max_priority_fee_lamports = 1000000   # the signer refuses transactions paying more (0.001 SOL)
 intent_max_age_seconds = 30
+entry_slippage_bps = 100        # a BUY's guaranteed minimum is 1% below its fresh quote
+exit_slippage_bps = 300         # a SELL accepts up to 3% below its fresh quote: exiting matters more than price
 withdraw_address = ""           # your own cold wallet; empty = withdrawals impossible (typed confirmation each time)
 allowed_fee_destinations = []

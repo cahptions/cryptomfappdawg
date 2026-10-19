@@ -5,12 +5,19 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import tomllib
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
 ELIGIBLE = "ELIGIBLE FOR MANUAL LIVE REVIEW"
 LIVE_GUARDIAN = "guardian-live"                 # heartbeat name of the LIVE guardian process
+
+
+def capital_ceiling(paths: Any) -> Decimal:
+    """The approved ceiling for ``live.max_capital_sol`` (config/safety_ceilings.toml)."""
+    with (paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
+        return Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
 
 
 def live_halt(paths: Any) -> str | None:

@@ -111,13 +111,12 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
         value = dict(await cache.get())
         value["live"] = dict(value.get("live", {}))
         value["live"]["gates"] = [dict(gate) for gate in value["live"].get("gates", [])]
-        from desk.signer.main import socket_path
         from desk.signer.server import request as signer_request
 
         value["live"].update(armed=False, signer_status="offline", buy_enabled=False)
-        if socket_path(paths).exists():
+        if paths.signer_socket.exists():
             try:
-                state = await signer_request(socket_path(paths), {"op": "status"}, timeout=0.5)
+                state = await signer_request(paths.signer_socket, {"op": "status"}, timeout=0.5)
             except (OSError, TimeoutError, ValueError, asyncio.IncompleteReadError):
                 value["live"].update(armed=None, signer_status="unavailable")
             else:
@@ -185,13 +184,12 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
             if action == "stop":
                 result = await asyncio.to_thread(workers.stop_entries)
             elif action == "disarm":
-                from desk.signer.main import socket_path
                 from desk.signer.server import request as signer_request
 
-                if not socket_path(paths).exists():
+                if not paths.signer_socket.exists():
                     result = {"armed": False, "reason": "signer is not running"}
                 else:
-                    result = await signer_request(socket_path(paths), {"op": "disarm"}, timeout=5)
+                    result = await signer_request(paths.signer_socket, {"op": "disarm"}, timeout=5)
             else:
                 kind = {"start-shadow": "shadow", "start-paper": "paper", "report": "report"}[action]
                 result = await asyncio.to_thread(workers.start, kind, (body or ControlBody()).minutes)

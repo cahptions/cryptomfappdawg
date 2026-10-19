@@ -27,10 +27,9 @@ from desk.core.config import Mode, load_config
 from desk.core.hashing import canonical_json
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.live.authorize import LiveAuthorizer
-from desk.live.gates import ELIGIBLE, LIVE_GUARDIAN
+from desk.live.gates import ELIGIBLE, LIVE_GUARDIAN, capital_ceiling
 from desk.paper.ledger import PaperLedger
 from desk.signer.journal import Journal
-from desk.signer.main import capital_ceiling
 from desk.signer.service import Signer
 from desk.storage.databases import Databases, open_ledger
 from desk.storage.shadow_repo import ShadowRepository

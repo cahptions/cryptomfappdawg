@@ -6,7 +6,6 @@ import contextlib
 import dataclasses
 import json
 import sqlite3
-import tomllib
 from collections.abc import Iterator
 from datetime import datetime
 from decimal import Decimal
@@ -176,22 +175,54 @@ class DashboardData:
                 **{name: context[name] for name in INPUTS}}
 
     def _live(self, dbs: Databases, now: datetime) -> dict[str, Any]:
-        from desk.live.gates import LIVE_GUARDIAN, evaluate_gates, live_halt, status_context
+        from desk.live.gates import LIVE_GUARDIAN, capital_ceiling, evaluate_gates, live_halt, status_context
         from desk.paper.engine import heartbeat_age
         from desk.stats.champion import current_champion
 
-        with (self.paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
-            ceiling = Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
+        ceiling = capital_ceiling(self.paths)
         version = current_champion(dbs.research) or "none"
         age = heartbeat_age(dbs.runtime, LIVE_GUARDIAN, now)
+        engine_age = heartbeat_age(dbs.runtime, "live-engine", now)
         context = status_context(dbs.research, self.loaded, version, signer_unlocked=False, ceiling=ceiling,
                                  halted=live_halt(self.paths), guardian_fresh=age is not None and 0 <= age <= 20)
         return {"armed": False, "buy_enabled": False, "strategy_version": version,
                 "max_capital_sol": str(self.loaded.settings.live.max_capital_sol),
                 "capital_ceiling_sol": str(ceiling),
                 "gates": [dataclasses.asdict(gate) for gate in evaluate_gates(context)],
-                "reason": "An armed signer re-checks all seven gates for each BUY immediately before signing; "
-                          "a missing gate refuses it. Arming stays CLI-only and nothing here can arm LIVE."}
+                "guardian_age_seconds": age, "engine_age_seconds": engine_age, "book": self._live_book(now),
+                "reason": "`desk live run` sends each BUY to the armed signer, which re-checks all seven gates "
+                          "immediately before signing; the LIVE guardian exits through the same signer. Arming stays "
+                          "CLI-only and nothing here can arm LIVE."}
+
+    def _live_book(self, now: datetime) -> dict[str, Any] | None:
+        """Read-only summary of the LIVE ledger (None until `desk live run` has created it)."""
+        from desk.core.units import sol_to_lamports
+        from desk.live import risk
+        from desk.live.book import LiveBook
+
+        path = self.paths.db_dir / "ledger-live.db"
+        if not path.is_file():
+            return None
+        conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)
+        conn.row_factory = sqlite3.Row
+        try:
+            book = LiveBook(conn)
+            if not book.initialized():
+                return {"started": False}
+            account = risk.account(book, sol_to_lamports(self.loaded.settings.live.max_capital_sol), now)
+            closed = conn.execute("SELECT COUNT(*) FROM positions WHERE state = 'CLOSED'").fetchone()[0]
+            return {"started": True, "deposits_sol": _sol(book.deposits()), "cash_sol": _sol(account.cash_lamports),
+                    "equity_sol": _sol(account.equity_lamports), "realized_sol": _sol(book.realized_pnl_lamports()),
+                    "closed_trades": closed, "halted": book.halted(), "pending_requests": len(book.pending()),
+                    "open": [{"id": row["id"], "mint": row["mint"], "state": row["state"],
+                              "strategy": row["strategy_id"], "opened_at": row["opened_at"],
+                              "ticket_sol": _sol(row["ticket_lamports"]),
+                              "value_sol": None if row["last_mark_lamports"] is None else _sol(row["last_mark_lamports"]),
+                              "exit_reason": row["exit_reason"]} for row in book.open_positions()]}
+        except sqlite3.Error:
+            return {"started": False, "error": "LIVE ledger unreadable"}
+        finally:
+            conn.close()
 
     def snapshot(self) -> dict[str, Any]:
         now = utc_now()
@@ -202,8 +233,8 @@ class DashboardData:
             "scanner": [], "funnel": {"by_state": {}, "by_reason": {}, "rejection_reasons": {}},
             "health": [], "workers": [], "confidence": {"generated_at": None, "closed_trades": 0, "matrices": []},
             "audit": [], "equity": [], "system": self._system(),
-            "live": {"armed": False, "buy_enabled": False, "gates": [],
-                     "reason": "LIVE entry execution is unavailable. Arming remains CLI-only."},
+            "live": {"armed": False, "buy_enabled": False, "gates": [], "book": None,
+                     "reason": "No local databases yet. Arming remains CLI-only."},
             "regime": {"label": None, "status": "missing", "reason": "No recorded market context."},
         }
         with self._databases() as dbs:
@@ -317,3 +348,7 @@ class DashboardData:
                 "ticket_lamports, tokens_raw, entry_fees_lamports, exit_lamports, exit_fees_lamports, "
                 "realized_pnl_lamports, exit_reason FROM positions ORDER BY opened_at DESC, id DESC LIMIT 10000")]
             return _safe(result)  # type: ignore[no-any-return]
+
+
+def _sol(lamports: int) -> str:
+    return f"{Decimal(lamports) / Decimal(10 ** 9):.6f}"

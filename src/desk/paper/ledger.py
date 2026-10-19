@@ -89,25 +89,37 @@ class PaperLedger:
                       at: datetime, ticket_lamports: int, tokens_raw: int, entry_fees_lamports: int,
                       failed_fees_lamports: int, rent_lamports: int, entry: dict[str, Any]) -> None:
         """Atomic: the position, its cash debits and its audit event all exist, or none do."""
-        iso = to_iso(at)
         with transaction(self.conn):
-            self.conn.execute(
-                "INSERT INTO positions(id, intent_id, candidate_id, mint, pool_address, strategy_id, strategy_version,"
-                " decision_hash, regime_label, state, opened_at, ticket_lamports, tokens_raw, entry_fees_lamports,"
-                " rent_lamports, entry_json, peak_value_lamports, last_route_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?)",
-                (position_id, intent_id, candidate_id, mint, pool_address, strategy_id, strategy_version, decision_hash,
-                 regime_label, iso, ticket_lamports, tokens_raw, entry_fees_lamports + failed_fees_lamports,
-                 rent_lamports, canonical_json(entry), None, iso))
-            rows = [("ENTRY_TICKET", -ticket_lamports), ("ENTRY_FEES", -entry_fees_lamports), ("RENT_LOCK", -rent_lamports)]
-            if failed_fees_lamports:
-                rows.append(("FAILED_TX_FEE", -failed_fees_lamports))
-            self.conn.executemany(
-                "INSERT INTO cash_entries(at, kind, amount_lamports, position_id) VALUES (?, ?, ?, ?)",
-                [(iso, kind, amount, position_id) for kind, amount in rows])
-            self.event(at, "OPENED", {"ticket_lamports": ticket_lamports, "tokens_raw": tokens_raw,
-                                      "strategy": strategy_id, "decision_hash": decision_hash},
-                       position_id=position_id, candidate_id=candidate_id)
+            self._insert_position(
+                position_id=position_id, intent_id=intent_id, candidate_id=candidate_id, mint=mint,
+                pool_address=pool_address, strategy_id=strategy_id, strategy_version=strategy_version,
+                decision_hash=decision_hash, regime_label=regime_label, at=at, ticket_lamports=ticket_lamports,
+                tokens_raw=tokens_raw, entry_fees_lamports=entry_fees_lamports,
+                failed_fees_lamports=failed_fees_lamports, rent_lamports=rent_lamports, entry=entry)
+
+    def _insert_position(self, *, position_id: str, intent_id: str, candidate_id: str, mint: str, pool_address: str,
+                         strategy_id: str, strategy_version: str, decision_hash: str, regime_label: str | None,
+                         at: datetime, ticket_lamports: int, tokens_raw: int, entry_fees_lamports: int,
+                         failed_fees_lamports: int, rent_lamports: int, entry: dict[str, Any]) -> None:
+        """The rows of ``open_position``; the caller holds the write transaction."""
+        iso = to_iso(at)
+        self.conn.execute(
+            "INSERT INTO positions(id, intent_id, candidate_id, mint, pool_address, strategy_id, strategy_version,"
+            " decision_hash, regime_label, state, opened_at, ticket_lamports, tokens_raw, entry_fees_lamports,"
+            " rent_lamports, entry_json, peak_value_lamports, last_route_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?)",
+            (position_id, intent_id, candidate_id, mint, pool_address, strategy_id, strategy_version, decision_hash,
+             regime_label, iso, ticket_lamports, tokens_raw, entry_fees_lamports + failed_fees_lamports,
+             rent_lamports, canonical_json(entry), None, iso))
+        rows = [("ENTRY_TICKET", -ticket_lamports), ("ENTRY_FEES", -entry_fees_lamports), ("RENT_LOCK", -rent_lamports)]
+        if failed_fees_lamports:
+            rows.append(("FAILED_TX_FEE", -failed_fees_lamports))
+        self.conn.executemany(
+            "INSERT INTO cash_entries(at, kind, amount_lamports, position_id) VALUES (?, ?, ?, ?)",
+            [(iso, kind, amount, position_id) for kind, amount in rows])
+        self.event(at, "OPENED", {"ticket_lamports": ticket_lamports, "tokens_raw": tokens_raw,
+                                  "strategy": strategy_id, "decision_hash": decision_hash},
+                   position_id=position_id, candidate_id=candidate_id)
 
     def record_mark(self, position_id: str, at: datetime, kind: str, value_lamports: int | None,
                     quote_sha256: str | None) -> None:
@@ -130,41 +142,52 @@ class PaperLedger:
         if state not in OPEN_STATES:
             raise ValueError("use close_position to close")
         with transaction(self.conn):
-            self.conn.execute(
-                "UPDATE positions SET state = ?, exit_attempts = ?, exit_reason = COALESCE(?, exit_reason),"
-                " exit_failed_fees_lamports = exit_failed_fees_lamports + ? WHERE id = ?",
-                (state, int(payload.get("attempts", 0)), payload.get("reason"), failed_fee_lamports, position_id))
-            if failed_fee_lamports:
-                self.conn.execute("INSERT INTO cash_entries(at, kind, amount_lamports, position_id, note)"
-                                  " VALUES (?, 'FAILED_TX_FEE', ?, ?, 'simulated failed exit')",
-                                  (to_iso(at), -failed_fee_lamports, position_id))
-            self.event(at, state, payload, position_id=position_id)
+            self._state_rows(position_id, state, at, payload, failed_fee_lamports=failed_fee_lamports)
+
+    def _state_rows(self, position_id: str, state: str, at: datetime, payload: dict[str, Any], *,
+                    failed_fee_lamports: int = 0, note: str = "simulated failed exit") -> None:
+        """The rows of ``set_state``; the caller holds the write transaction."""
+        self.conn.execute(
+            "UPDATE positions SET state = ?, exit_attempts = ?, exit_reason = COALESCE(?, exit_reason),"
+            " exit_failed_fees_lamports = exit_failed_fees_lamports + ? WHERE id = ?",
+            (state, int(payload.get("attempts", 0)), payload.get("reason"), failed_fee_lamports, position_id))
+        if failed_fee_lamports:
+            self.conn.execute("INSERT INTO cash_entries(at, kind, amount_lamports, position_id, note)"
+                              " VALUES (?, 'FAILED_TX_FEE', ?, ?, ?)",
+                              (to_iso(at), -failed_fee_lamports, position_id, note))
+        self.event(at, state, payload, position_id=position_id)
 
     def close_position(self, position_id: str, at: datetime, *, reason: str, exit_lamports: int, exit_fees_lamports: int,
                        profiles: dict[str, Any]) -> int:
         """Atomic close: proceeds, fees and rent refund journaled; realized P&L follows the conservative profile."""
-        iso = to_iso(at)
         with transaction(self.conn):
-            # Read state only after obtaining the write lock. Independent processes must never
-            # both observe an open position and then each credit its proceeds and rent refund.
-            row = self.position(position_id)
-            if row["state"] == "CLOSED":
-                raise ValueError("position already closed")
-            failed_fees_lamports = int(row["exit_failed_fees_lamports"])
-            realized = int(exit_lamports - exit_fees_lamports - failed_fees_lamports
-                        - row["ticket_lamports"] - row["entry_fees_lamports"])
-            self.conn.executemany(
-                "INSERT INTO cash_entries(at, kind, amount_lamports, position_id) VALUES (?, ?, ?, ?)",
-                [(iso, kind, amount, position_id) for kind, amount in (
-                    ("EXIT_PROCEEDS", exit_lamports), ("EXIT_FEES", -exit_fees_lamports),
-                    ("RENT_REFUND", row["rent_lamports"])) if amount])
-            self.conn.execute(
-                "UPDATE positions SET state = 'CLOSED', closed_at = ?, exit_reason = ?, exit_lamports = ?,"
-                " exit_fees_lamports = ?, realized_pnl_lamports = ?, profiles_json = ? WHERE id = ?",
-                (iso, reason, exit_lamports, exit_fees_lamports, realized,
-                 canonical_json(profiles), position_id))
-            self.event(at, "CLOSED", {"reason": reason, "realized_pnl_lamports": realized, "profiles": profiles},
-                       position_id=position_id)
+            return self._close_rows(position_id, at, reason=reason, exit_lamports=exit_lamports,
+                                    exit_fees_lamports=exit_fees_lamports, profiles=profiles)
+
+    def _close_rows(self, position_id: str, at: datetime, *, reason: str, exit_lamports: int,
+                    exit_fees_lamports: int, profiles: dict[str, Any]) -> int:
+        """The rows of ``close_position``; the caller holds the write transaction."""
+        iso = to_iso(at)
+        # Read state only after obtaining the write lock. Independent processes must never
+        # both observe an open position and then each credit its proceeds and rent refund.
+        row = self.position(position_id)
+        if row["state"] == "CLOSED":
+            raise ValueError("position already closed")
+        failed_fees_lamports = int(row["exit_failed_fees_lamports"])
+        realized = int(exit_lamports - exit_fees_lamports - failed_fees_lamports
+                       - row["ticket_lamports"] - row["entry_fees_lamports"])
+        self.conn.executemany(
+            "INSERT INTO cash_entries(at, kind, amount_lamports, position_id) VALUES (?, ?, ?, ?)",
+            [(iso, kind, amount, position_id) for kind, amount in (
+                ("EXIT_PROCEEDS", exit_lamports), ("EXIT_FEES", -exit_fees_lamports),
+                ("RENT_REFUND", row["rent_lamports"])) if amount])
+        self.conn.execute(
+            "UPDATE positions SET state = 'CLOSED', closed_at = ?, exit_reason = ?, exit_lamports = ?,"
+            " exit_fees_lamports = ?, realized_pnl_lamports = ?, profiles_json = ? WHERE id = ?",
+            (iso, reason, exit_lamports, exit_fees_lamports, realized,
+             canonical_json(profiles), position_id))
+        self.event(at, "CLOSED", {"reason": reason, "realized_pnl_lamports": realized, "profiles": profiles},
+                   position_id=position_id)
         return realized
 
     # ── reconciliation (M5-01) ─────────────────────────────────────────────────────────────────────

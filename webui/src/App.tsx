@@ -3385,7 +3385,9 @@ export default function App() {
               <Panel
                 title={
                   snapshot.live?.armed
-                    ? "Signer armed · entries unavailable"
+                    ? snapshot.live?.buy_enabled
+                      ? "Signer armed · each BUY re-checks all seven gates"
+                      : "Signer armed · entries unavailable"
                     : "Real trading is disarmed"
                 }
                 eyebrow="REAL CAPITAL BOUNDARY"
@@ -3401,17 +3403,38 @@ export default function App() {
                     <Icon name="shield" />
                   </span>
                   <div>
-                    <h3>LIVE entry execution is unavailable.</h3>
+                    <h3>
+                      {snapshot.live?.book?.started
+                        ? `LIVE book: ${snapshot.live.book.open?.length ?? 0} open · ${snapshot.live.book.closed_trades ?? 0} closed · realized ${signed(snapshot.live.book.realized_sol, 6)} SOL`
+                        : "No LIVE trades yet."}
+                    </h3>
                     <p>
                       {snapshot.live?.reason ||
-                        "Per-entry execution preflight has not been connected. Passing contextual gates does not authorize a BUY."}{" "}
+                        "Every BUY is re-checked by the armed signer against all seven gates immediately before signing."}{" "}
                       This terminal can inspect readiness and disarm LIVE.
                       Arming remains CLI-only.
                     </p>
                     <span className="subtle-chip">
                       Configured capital allocation:{" "}
                       {snapshot.live?.max_capital_sol ?? "not available"} SOL
-                    </span>
+                    </span>{" "}
+                    {snapshot.live?.book?.started && (
+                      <span className="subtle-chip">
+                        Equity {snapshot.live.book.equity_sol} SOL · cash{" "}
+                        {snapshot.live.book.cash_sol} SOL
+                      </span>
+                    )}{" "}
+                    {snapshot.live?.book?.halted && (
+                      <span className="subtle-chip">
+                        Entries halted: {words(snapshot.live.book.halted)}
+                      </span>
+                    )}{" "}
+                    {(snapshot.live?.book?.pending_requests ?? 0) > 0 && (
+                      <span className="subtle-chip">
+                        {snapshot.live?.book?.pending_requests} signer
+                        request(s) awaiting their recorded outcome
+                      </span>
+                    )}
                   </div>
                   <button
                     className="button danger-button"
@@ -3422,6 +3445,45 @@ export default function App() {
                     Disarm LIVE
                   </button>
                 </div>
+                {snapshot.live?.book?.open?.length ? (
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Token</th>
+                          <th>Strategy</th>
+                          <th>State</th>
+                          <th className="numeric">Ticket SOL</th>
+                          <th className="numeric">Executable value SOL</th>
+                          <th>Opened</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {snapshot.live.book.open.map((row) => (
+                          <tr key={row.id}>
+                            <td>
+                              <strong>{short(row.mint)}</strong>
+                            </td>
+                            <td>{row.strategy}</td>
+                            <td>
+                              {words(row.state)}
+                              {row.exit_reason && (
+                                <small> · {words(row.exit_reason)}</small>
+                              )}
+                            </td>
+                            <td className="numeric num">{row.ticket_sol}</td>
+                            <td className="numeric num">
+                              {row.value_sol ?? "not marked yet"}
+                            </td>
+                            <td>
+                              {row.opened_at.slice(0, 19).replace("T", " ")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
                 <div className="live-gates">
                   {snapshot.live?.gates?.length ? (
                     snapshot.live.gates.map((gate) => (

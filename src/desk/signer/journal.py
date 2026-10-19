@@ -83,6 +83,13 @@ class Journal:
         self.conn.execute("INSERT INTO journal_events(at, intent_id, state, detail) VALUES (?, ?, ?, ?)",
                           (to_iso(at), intent_id, state, json.dumps(detail, sort_keys=True, default=str)))
 
+    def signed_detail(self, intent_id: str) -> dict[str, Any]:
+        """What was journaled when the intent was signed (empty if it never was)."""
+        row = self.conn.execute("SELECT detail FROM journal_events WHERE intent_id = ? AND state = 'SIGNED'"
+                                " ORDER BY id DESC LIMIT 1", (intent_id,)).fetchone()
+        detail: dict[str, Any] = {} if row is None else json.loads(row["detail"])
+        return detail
+
     def unresolved(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM intents WHERE state IN ('RECEIVED', 'SIGNED', 'SUBMITTED') ORDER BY received_at")]

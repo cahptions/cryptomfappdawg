@@ -172,7 +172,9 @@ class Signer:
         signed = VersionedTransaction(unsigned.message, [self._keypair])
         signature = str(signed.signatures[0])
         last_valid = int(order["lastValidBlockHeight"])
-        self.journal.update(intent.intent_id, "SIGNED", self.clock(), {"request_id": order.get("requestId")},
+        # the pre-signing balances let a restarted signer still measure what landed (recover)
+        self.journal.update(intent.intent_id, "SIGNED", self.clock(),
+                            {"request_id": order.get("requestId"), "tracked": tracked, "pre": pre},
                             signature=signature, last_valid_block_height=last_valid)
         response: dict[str, Any] | None = None
         try:
@@ -181,10 +183,11 @@ class Signer:
             response = {"status": "UNKNOWN", "error": type(exc).__name__}
         self.journal.update(intent.intent_id, "SUBMITTED", self.clock(), {"execute": response})
         result = await self.settle(intent.intent_id, signature, last_valid)
-        if result.get("state") == "CONFIRMED":
-            # what actually changed on-chain: the LIVE ledger books these amounts, never the quote
+        if result.get("state") in ("CONFIRMED", "FAILED"):
+            # what actually changed on-chain (a failed transaction still paid its fee): the LIVE ledger books
+            # these amounts, never the quote
             result["balances"] = await self._balance_changes(tracked, pre)
-            self.journal.update(intent.intent_id, "CONFIRMED", self.clock(), {"balances": result["balances"]})
+            self.journal.update(intent.intent_id, str(result["state"]), self.clock(), {"balances": result["balances"]})
         return result
 
     async def _balance_changes(self, tracked: list[str], pre: list[dict[str, Any] | None]) -> dict[str, Any] | None:
@@ -269,15 +272,37 @@ class Signer:
             await self.sleep(POLL_SECONDS)
 
     async def recover(self) -> list[dict[str, Any]]:
-        """After a crash: resolve signed/submitted intents by polling; never sign anything again."""
+        """After a crash: resolve signed/submitted intents by polling; never sign anything again.
+
+        A request that landed gets its balance changes measured against the balances journaled at signing, so the
+        desk can book it exactly as if the answer had arrived.
+        """
         results = []
         for row in self.journal.unresolved():
             if row["state"] == "RECEIVED" or not row["signature"]:
                 self.journal.update(row["intent_id"], "REFUSED", self.clock(), {"problems": ["CRASHED_BEFORE_SIGNING"]})
                 results.append({"intent_id": row["intent_id"], "state": "REFUSED"})
-            else:
-                results.append(await self.settle(row["intent_id"], row["signature"], int(row["last_valid_block_height"])))
+                continue
+            result = await self.settle(row["intent_id"], row["signature"], int(row["last_valid_block_height"]))
+            signed = self.journal.signed_detail(row["intent_id"])
+            if result.get("state") in ("CONFIRMED", "FAILED") and signed.get("pre"):
+                if row["kind"] == "SWAP":
+                    result["balances"] = await self._balance_changes(signed["tracked"], signed["pre"])
+                else:
+                    result["balances"] = await self._wallet_change(signed["pre"][0])
+                self.journal.update(row["intent_id"], str(result["state"]), self.clock(),
+                                    {"balances": result["balances"], "recovered": True})
+            results.append(result)
         return results
+
+    async def _wallet_change(self, before: dict[str, Any] | None) -> dict[str, Any] | None:
+        try:
+            after = (await self.rpc.accounts([self.wallet]))[0]
+        except Exception:  # unknown is reported as unknown; the caller reconciles
+            return None
+        if after is None or before is None:
+            return None
+        return {"sol_lamports": int(after["lamports"]) - int(before["lamports"])}
 
     def lookup(self, intent_id: Any) -> dict[str, Any]:
         """Read-only: an intent's journaled outcome, so a restarted engine never repeats a trade that landed."""
@@ -337,7 +362,8 @@ class Signer:
             return self._refuse(request.intent_id, [f"PRE_SIGNING_FAILURE:{type(exc).__name__}"])
         signed = VersionedTransaction(message, [self._keypair])
         signature = str(signed.signatures[0])
-        self.journal.update(request.intent_id, "SIGNED", self.clock(), {"account": address, "rent_lamports": rent},
+        self.journal.update(request.intent_id, "SIGNED", self.clock(),
+                            {"account": address, "rent_lamports": rent, "pre": [wallet_before]},
                             signature=signature, last_valid_block_height=last_valid)
         try:
             await self.rpc.send(base64.b64encode(bytes(signed)).decode())
@@ -346,14 +372,9 @@ class Signer:
         else:
             self.journal.update(request.intent_id, "SUBMITTED", self.clock(), {})
         result = await self.settle(request.intent_id, signature, last_valid)
-        if result.get("state") == "CONFIRMED":
-            try:
-                after = (await self.rpc.accounts([self.wallet]))[0]
-                result["balances"] = None if after is None else {
-                    "sol_lamports": int(after["lamports"]) - int(wallet_before["lamports"])}
-            except Exception:
-                result["balances"] = None
-            self.journal.update(request.intent_id, "CONFIRMED", self.clock(), {"balances": result["balances"]})
+        if result.get("state") in ("CONFIRMED", "FAILED"):
+            result["balances"] = await self._wallet_change(wallet_before)
+            self.journal.update(request.intent_id, str(result["state"]), self.clock(), {"balances": result["balances"]})
         return result
 
     # ── the single transfer capability ────────────────────────────────────────────────────────────

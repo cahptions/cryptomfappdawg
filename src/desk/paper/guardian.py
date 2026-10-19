@@ -53,6 +53,10 @@ def _feature(features: Any, name: str, *, allow_unverified: bool = False) -> Dec
 
 
 class Guardian:
+    heartbeat_name = "guardian"
+    lock_name = "paper-guardian.lock"
+    display_name = "independent PAPER guardian"
+
     def __init__(self, suite: ProviderSuite, dbs: Databases, loaded: LoadedConfig, *,
                  clock: Callable[[], datetime] = utc_now, sleep: Callable[[float], Any] = asyncio.sleep) -> None:
         self.suite, self.dbs, self.loaded, self.clock, self.sleep = suite, dbs, loaded, clock, sleep
@@ -71,8 +75,9 @@ class Guardian:
 
     def heartbeat(self) -> None:
         self.dbs.runtime.execute(
-            "INSERT INTO heartbeats(process, pid, at) VALUES ('guardian', ?, ?) "
-            "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at", (os.getpid(), to_iso(self.clock())))
+            "INSERT INTO heartbeats(process, pid, at) VALUES (?, ?, ?) "
+            "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at",
+            (self.heartbeat_name, os.getpid(), to_iso(self.clock())))
 
     async def _quote(self, input_mint: str, output_mint: str, amount: int) -> QuoteObservation | QuoteUnavailable:
         quote = await self.suite.jupiter.order(input_mint, output_mint, amount)
@@ -211,11 +216,11 @@ class Guardian:
         # The kernel releases this lock on normal exit and SIGKILL. A heartbeat alone cannot
         # prevent simultaneous starts or distinguish a paused existing guardian from a dead one.
         self.dbs.paths.home.mkdir(parents=True, exist_ok=True)
-        with (self.dbs.paths.home / "paper-guardian.lock").open("a") as lock:
+        with (self.dbs.paths.home / self.lock_name).open("a") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
-                raise DeskError("The independent PAPER guardian is already running for this data directory") from exc
+                raise DeskError(f"The {self.display_name} is already running for this data directory") from exc
             return await self._run(minutes)
 
     async def _run(self, minutes: float | None = None) -> dict[str, int]:

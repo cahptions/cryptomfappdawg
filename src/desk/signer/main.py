@@ -6,8 +6,6 @@ import asyncio
 import contextlib
 import getpass
 import signal
-import tomllib
-from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -15,6 +13,7 @@ import httpx
 from desk.core.config import LoadedConfig
 from desk.core.paths import DeskPaths
 from desk.core.secrets import Secrets
+from desk.live.gates import capital_ceiling
 from desk.signer import keystore
 from desk.signer.journal import Journal
 from desk.signer.net import JupiterSwap, SolanaRpc
@@ -29,7 +28,7 @@ def keystore_path(paths: DeskPaths) -> Path:
 
 
 def socket_path(paths: DeskPaths) -> Path:
-    return paths.home / "run" / "signer.sock"
+    return paths.signer_socket
 
 
 def keygen(paths: DeskPaths) -> int:
@@ -56,9 +55,6 @@ def public_address(paths: DeskPaths) -> str | None:
     return keystore.public_key(path) if path.exists() else None
 
 
-def capital_ceiling(paths: DeskPaths) -> Decimal:
-    with (paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
-        return Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
 
 
 def arm(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets) -> int:

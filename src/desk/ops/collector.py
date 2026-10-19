@@ -16,6 +16,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal
+from typing import Any
 
 from desk.contracts.market import PoolSnapshot
 from desk.core.clock import parse_iso8601, to_iso, utc_now
@@ -96,7 +97,7 @@ class TrackedSet:
 
 class Collector:
     def __init__(self, suite: ProviderSuite, dbs: Databases, loaded: LoadedConfig, *, discovery: bool = False,
-                 paper: bool = False) -> None:
+                 paper: bool = False, live_engine: Any = None) -> None:
         self.suite = suite
         self.dbs = dbs
         self.repo = MarketRepository(dbs.market)
@@ -124,6 +125,12 @@ class Collector:
             self.paper_engine = PaperEngine(suite, dbs, loaded, suspended_recently=self._suspended_recently)
             assert self.discovery_engine is not None
             self.discovery_engine.on_pass = self.paper_engine.consider
+        # LIVE (desk live run) decides on the same PASS as PAPER, concurrently; PAPER keeps learning beside it
+        self.live_engine = live_engine
+        if live_engine is not None:
+            if self.paper_engine is None or self.discovery_engine is None:
+                raise ValueError("LIVE runs alongside PAPER and discovery")
+            self.discovery_engine.on_pass = self._paper_and_live
         self._initial_db_bytes = sum(p.stat().st_size for p in dbs.paths.db_dir.glob("*.db*"))
         self._initial_budget = {r[0]: int(r[1]) for r in dbs.runtime.execute("SELECT bucket, allocated FROM rate_totals")}
 
@@ -203,12 +210,13 @@ class Collector:
             "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at",
             (os.getpid(), to_iso(utc_now())),
         )
-        if self.paper_engine is not None:
-            self.dbs.runtime.execute(
-                "INSERT INTO heartbeats(process, pid, at) VALUES ('paper-engine', ?, ?) "
-                "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at",
-                (os.getpid(), to_iso(utc_now())),
-            )
+        for name, engine in (("paper-engine", self.paper_engine), ("live-engine", self.live_engine)):
+            if engine is not None:
+                self.dbs.runtime.execute(
+                    "INSERT INTO heartbeats(process, pid, at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at",
+                    (name, os.getpid(), to_iso(utc_now())),
+                )
 
     async def market_context(self) -> None:
         """Record one context measurement; every unknown input is stored as NULL with its reason."""
@@ -342,6 +350,14 @@ class Collector:
     def stop(self) -> None:
         self._stop.set()
 
+    async def _paper_and_live(self, candidate_id: str) -> None:
+        assert self.paper_engine is not None and self.live_engine is not None
+        results = await asyncio.gather(self.paper_engine.consider(candidate_id), self.live_engine.consider(candidate_id),
+                                       return_exceptions=True)
+        for name, result in zip(("PAPER", "LIVE"), results, strict=True):
+            if isinstance(result, BaseException):     # one book's failure never stops the other
+                log.error("%s entry hook failed", name, exc_info=result, extra={"candidate_id": candidate_id})
+
     def _suspended_recently(self) -> bool:
         return self._last_gap_mono is not None and time.monotonic() - self._last_gap_mono < 300
 
@@ -372,6 +388,8 @@ class Collector:
             self.stats.tasks[name] = TaskStats()
         if self.paper_engine is not None:
             await self.paper_engine.ensure_book()
+        if self.live_engine is not None:
+            await self.live_engine.start()
         self.dbs.market.execute("INSERT INTO collector_runs(id, started_at, config_hash) VALUES (?, ?, ?)",
                                 (self.stats.run_id, self.stats.started_at, self.loaded.snapshot_hash))
         loops = [asyncio.create_task(self._loop(n, i, j), name=n) for n, i, j in jobs]

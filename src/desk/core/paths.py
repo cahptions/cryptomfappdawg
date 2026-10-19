@@ -39,6 +39,10 @@ class DeskPaths:
         return self.home / "backups"
 
     @property
+    def signer_socket(self) -> Path:
+        return self.home / "run" / "signer.sock"
+
+    @property
     def stop_file(self) -> Path:
         return self.home / "STOP"
 

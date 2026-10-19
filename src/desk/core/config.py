@@ -165,6 +165,8 @@ class LiveSection(_Section):
     max_capital_sol: Decimal = Field(ge=0)
     max_priority_fee_lamports: int = Field(ge=0)
     intent_max_age_seconds: int = Field(ge=5, le=120)
+    entry_slippage_bps: int = Field(default=100, ge=1, le=300)    # BUY min-out below the fresh quote
+    exit_slippage_bps: int = Field(default=300, ge=1, le=300)     # SELL: exiting matters more than price
     withdraw_address: str = ""                       # empty = withdrawals impossible
     allowed_fee_destinations: tuple[str, ...] = ()
 

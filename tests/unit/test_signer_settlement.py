@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
 from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction
 
@@ -181,3 +182,50 @@ def test_lookup_reads_the_journal_without_signing(tmp_path: Path) -> None:
     assert found["detail"]["balances"]["output_token_raw"] == MIN_OUT + 5_000
     assert asyncio.run(signer.handle({"op": "lookup", "intent_id": "never-seen"})) == {"ok": True, "found": False}
     assert asyncio.run(signer.handle({"op": "lookup", "intent_id": "x", "extra": 1}))["error"] == "UNKNOWN_FIELDS"
+
+
+class FailingRpc(LandingRpc):
+    """The transaction lands but fails on-chain: only its fee leaves the wallet; no token moves."""
+
+    async def accounts(self, addresses: list[str]) -> list[dict[str, Any] | None]:
+        self.account_requests.append(addresses)
+        return [{"lamports": self.balance - (5_000 if self.landed else 0)} if address == self.wallet
+                else (None if i == len(addresses) - 1 else token_account(0)) for i, address in enumerate(addresses)]
+
+
+def test_a_swap_that_fails_on_chain_reports_the_fee_it_paid(tmp_path: Path) -> None:
+    wallet = Keypair()
+    swap = FakeSwap(order_for(wallet.pubkey(), MINT, jupiter_buy(wallet.pubkey(), MINT)))
+    rpc = FailingRpc(wallet.pubkey(), statuses=[{"confirmationStatus": "confirmed",
+                                                 "err": {"InstructionError": [2, {"Custom": 6001}]}}])
+    signer = make_signer(tmp_path, swap, rpc, wallet)
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent()}))
+    assert result["state"] == "FAILED" and result["balances"]["sol_lamports"] == -5_000
+    assert result["balances"]["output_token_raw"] == 0
+    assert signer.journal.get("intent-0001")["detail"]["balances"] == result["balances"]
+
+
+def test_recovery_measures_what_landed_against_the_balances_journaled_at_signing(tmp_path: Path) -> None:
+    """A signer that dies after submitting still lets the desk book the exact amounts once it is re-armed."""
+    wallet = Keypair()
+    swap = FakeSwap(order_for(wallet.pubkey(), MINT, jupiter_buy(wallet.pubkey(), MINT)))
+    rpc = LandingRpc(wallet.pubkey())
+    crashed = make_signer(tmp_path, swap, rpc, wallet)
+
+    async def die(*_: Any) -> dict[str, Any]:
+        raise RuntimeError("signer process killed")
+
+    crashed.settle = die  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        asyncio.run(crashed.handle({"op": "intent", "intent": intent()}))
+    assert crashed.journal.get("intent-0001")["state"] == "SUBMITTED"
+    signed = crashed.journal.signed_detail("intent-0001")
+    assert signed["tracked"][0] == str(wallet.pubkey()) and signed["pre"][0]["lamports"] == rpc.balance
+    crashed.journal.close()
+    restarted = make_signer(tmp_path, swap, rpc, wallet)
+    (result,) = asyncio.run(restarted.recover())
+    assert result["state"] == "CONFIRMED" and result["balances"]["sol_lamports"] == -(AMOUNT + 20_000)
+    assert result["balances"]["output_token_raw"] == MIN_OUT + 5_000
+    found = asyncio.run(restarted.handle({"op": "lookup", "intent_id": "intent-0001"}))
+    assert found["state"] == "CONFIRMED" and found["detail"]["balances"] == result["balances"]
+    assert found["detail"]["recovered"] is True and len(swap.executions) == 1      # never signed or sent again

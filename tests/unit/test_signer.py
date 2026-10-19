@@ -25,13 +25,10 @@ from solders.signature import Signature
 from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
-from desk.contracts.quotes import QuoteObservation
 from desk.core.config import LiveSection, load_config
 from desk.core.paths import REPO_ROOT
 from desk.live.gates import LiveContext, evaluate_gates, live_allowed
-from desk.live.liquidate import liquidate_all
 from desk.live.validate import validate_path
-from desk.paper.ledger import PaperLedger
 from desk.signer import keystore
 from desk.signer import programs as p
 from desk.signer.inspect import SwapExpectation, associated_token_address, inspect_swap
@@ -39,7 +36,6 @@ from desk.signer.intents import Intent
 from desk.signer.journal import Journal
 from desk.signer.server import request, serve
 from desk.signer.service import BuyAuthorizer, Signer
-from desk.storage.db import DbKind, connect, migrate
 
 NOW = datetime(2026, 11, 3, 12, tzinfo=UTC)
 LOADED = load_config(REPO_ROOT / "config")
@@ -603,42 +599,6 @@ def test_m8_09_live_zero_cost_path_validation() -> None:
                                        output_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", amount_lamports=10 ** 7)
     result = asyncio.run(run())
     assert result["inspection_problems"] == [] and result["simulation_error"] is None
-
-
-# ── M8-10 emergency liquidation ───────────────────────────────────────────────────────────────────────
-def test_m8_10_liquidation_attempts_every_exit_and_reports_truthfully(tmp_path: Path) -> None:
-    conn = connect(tmp_path / "ledger-live.db", DbKind.LEDGER)
-    migrate(conn, DbKind.LEDGER)
-    ledger = PaperLedger(conn)
-    ledger.init_book(NOW, Decimal(100), Decimal(100), Decimal(100))
-    mints = [str(Pubkey.new_unique()) for _ in range(3)]
-    for i, mint in enumerate(mints):
-        ledger.open_position(position_id=f"pos{i}", intent_id=f"buy{i}", candidate_id="c", mint=mint, pool_address="p",
-                             strategy_id="H3", strategy_version="H3-v2", decision_hash=f"d{i}", regime_label="RISK_ON",
-                             at=NOW, ticket_lamports=10 ** 7, tokens_raw=10 ** 6, entry_fees_lamports=5000,
-                             failed_fees_lamports=0, rent_lamports=0, entry={})
-    stopped = []
-
-    async def quote(input_mint: str, output_mint: str, amount: int) -> QuoteObservation:
-        out = 0 if input_mint == mints[2] else 9_000_000
-        return QuoteObservation(source="fake", input_mint=input_mint, output_mint=output_mint, in_amount_raw=amount,
-                                out_amount_raw=out, swap_mode="ExactIn", requested_at=NOW, received_at=NOW,
-                                latency_ms=Decimal(1))
-
-    async def send(payload: dict[str, Any]) -> dict[str, Any]:
-        if payload["intent"]["mint"] == mints[1]:
-            return {"ok": False, "error": "REFUSED", "problems": ["SIMULATION_FAILED:slippage"]}
-        return {"ok": True, "state": "CONFIRMED", "signature": "sig0"}
-
-    report = asyncio.run(liquidate_all(ledger, quote=quote, send_intent=send, stop_entries=lambda: stopped.append(1),
-                                       clock=lambda: NOW))
-    assert stopped == [1]
-    assert [r["result"] for r in report] == ["CONFIRMED", "FAILED", "FAILED"]
-    assert report[1]["reason"] == "REFUSED" and report[2]["reason"] == "NO_SELL_ROUTE"
-    states = {r["id"]: r["state"] for r in conn.execute("SELECT id, state FROM positions")}
-    assert states == {"pos0": "CLOSED", "pos1": "EXIT_BLOCKED", "pos2": "EXIT_BLOCKED"}   # failures stay supervised
-    assert ledger.reconcile()["difference_lamports"] == 0
-    conn.close()
 
 
 # ── restricted withdrawal ─────────────────────────────────────────────────────────────────────────────

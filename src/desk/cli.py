@@ -56,14 +56,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_collect(args: argparse.Namespace) -> int:
+    paths, _ = _bootstrap(args.verbose)
+    return _run_collector(paths, load_config(paths.config_dir), load_secrets(paths.secrets_file), args)
+
+
+def _run_collector(paths: Any, loaded: Any, secrets: Any, args: argparse.Namespace, *, live: bool = False) -> int:
     from desk.core.worker_lock import WorkerLock
     from desk.ops.collector import Collector, render_stats
     from desk.providers.factory import build_suite
     from desk.storage.databases import Databases
-
-    paths, _ = _bootstrap(args.verbose)
-    loaded = load_config(paths.config_dir)
-    secrets = load_secrets(paths.secrets_file)
 
     async def main() -> int:
         dbs = Databases.open(paths)
@@ -71,16 +72,26 @@ def cmd_collect(args: argparse.Namespace) -> int:
         paper = bool(getattr(args, "paper", False))
         if paper:
             _ensure_guardian(dbs, loaded)
-        collector = Collector(suite, dbs, loaded, discovery=bool(getattr(args, "discovery", False)), paper=paper)
+        live_book = live_conn = engine = None
+        if live:
+            from desk.live.runtime import live_engine, open_book
+
+            _ensure_guardian(dbs, loaded, live=True)
+            live_book, live_conn = open_book(paths)
+            engine = live_engine(paths, loaded, suite, dbs, live_book)
+        collector = Collector(suite, dbs, loaded, discovery=bool(getattr(args, "discovery", False)), paper=paper,
+                              live_engine=engine)
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(NotImplementedError):
                 loop.add_signal_handler(sig, collector.stop)
-        log.info("collection started", extra={"minutes": args.minutes, "run_id": collector.stats.run_id})
+        log.info("collection started", extra={"minutes": args.minutes, "run_id": collector.stats.run_id, "live": live})
         try:
             stats = await collector.run(args.minutes)
         finally:
             await suite.aclose()
+            if live_conn is not None:
+                live_conn.close()
             dbs.close()
         print(render_stats(stats))
         return 1 if stats.unhandled_exceptions else 0
@@ -89,18 +100,23 @@ def cmd_collect(args: argparse.Namespace) -> int:
         return asyncio.run(main())
 
 
-def _ensure_guardian(dbs: Any, loaded: Any) -> None:
-    """Start the independent guardian as its own process (own session) unless one is already supervising."""
+def _ensure_guardian(dbs: Any, loaded: Any, *, live: bool = False) -> None:
+    """Start an independent guardian as its own process (own session) unless one is already supervising."""
     import subprocess
 
+    from desk.live.gates import LIVE_GUARDIAN
     from desk.paper.engine import heartbeat_age
 
-    age = heartbeat_age(dbs.runtime, "guardian", utc_now())
+    age = heartbeat_age(dbs.runtime, LIVE_GUARDIAN if live else "guardian", utc_now())
     if age is not None and 0 <= age <= loaded.settings.paper.guardian_heartbeat_max_age_seconds:
         return
-    subprocess.Popen([sys.executable, "-m", "desk", "guardian"], start_new_session=True,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print("  started the independent guardian process (log: ~/desk-data/logs/desk.jsonl)")
+    if live:
+        subprocess.Popen([sys.executable, "-m", "desk", "live", "guardian"], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.Popen([sys.executable, "-m", "desk", "guardian"], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print(f"  started the independent {'LIVE ' if live else ''}guardian process (log: ~/desk-data/logs/desk.jsonl)")
 
 
 def cmd_guardian(args: argparse.Namespace) -> int:
@@ -291,6 +307,20 @@ def cmd_live(args: argparse.Namespace) -> int:
         from desk.signer.main import arm
 
         return arm(paths, loaded, secrets)
+    if action in ("run", "guardian"):
+        from desk.live.runtime import start_problems
+
+        problems = start_problems(paths, loaded)
+        if problems and action == "run":
+            print("  LIVE run not started:\n" + "\n".join(f"    - {p}" for p in problems))
+            return 2
+        if action == "run":
+            args.discovery, args.paper = True, True       # LIVE always runs beside PAPER, which keeps learning
+            args.minutes = args.minutes or 1440.0
+            return _run_collector(paths, loaded, secrets, args, live=True)
+        return _live_guardian(paths, loaded, secrets, args)
+    if action == "resume":
+        return _live_resume(paths, args)
     if action in ("disarm", "withdraw"):
         return asyncio.run(_live_socket_action(paths, loaded, args))
     if action == "validate":
@@ -320,11 +350,59 @@ def cmd_live(args: argparse.Namespace) -> int:
         dbs.close()
 
 
-async def _live_status(paths: Any, loaded: Any, dbs: Any, version: str | None) -> int:
-    import tomllib
-    from decimal import Decimal
+def _live_guardian(paths: Any, loaded: Any, secrets: Any, args: argparse.Namespace) -> int:
+    """Supervise and exit LIVE positions through the signer. It runs even when entries are not allowed."""
+    from desk.core.worker_lock import WorkerLock
+    from desk.live.guardian import LiveGuardian
+    from desk.live.runtime import open_book, signer_link
+    from desk.providers.factory import build_suite
+    from desk.storage.databases import Databases
 
-    from desk.live.gates import LIVE_GUARDIAN, evaluate_gates, live_allowed, live_halt, status_context
+    async def main() -> int:
+        dbs = Databases.open(paths)
+        book, conn = open_book(paths)
+        suite = build_suite(paths, loaded, secrets, dbs)
+        guardian = LiveGuardian(suite, dbs, loaded, book, signer_link(paths))
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(sig, guardian.stop)
+        log.info("LIVE guardian started", extra={"minutes": args.minutes})
+        try:
+            stats = await guardian.run(args.minutes)
+        finally:
+            await suite.aclose()
+            conn.close()
+            dbs.close()
+        print(json.dumps({"live_guardian": stats}, indent=1))
+        return 1 if stats["unhandled_exceptions"] else 0
+
+    with WorkerLock(paths, "guardian-live"):
+        return asyncio.run(main())
+
+
+def _live_resume(paths: Any, args: argparse.Namespace) -> int:
+    from desk.live.runtime import open_book
+
+    book, conn = open_book(paths)
+    try:
+        halted = book.halted()
+        if halted is None:
+            print("  LIVE entries are not halted")
+            return 0
+        if not args.yes and input(f"LIVE entries are halted ({halted}). Type RESUME LIVE to allow them again: "
+                                  ).strip() != "RESUME LIVE":
+            print("  not resumed")
+            return 1
+        book.resume(utc_now())
+    finally:
+        conn.close()
+    print("  LIVE entries allowed again (the STOP file, if any, is cleared separately with: desk resume)")
+    return 0
+
+
+async def _live_status(paths: Any, loaded: Any, dbs: Any, version: str | None) -> int:
+    from desk.live.gates import LIVE_GUARDIAN, capital_ceiling, evaluate_gates, live_allowed, live_halt, status_context
     from desk.paper.engine import heartbeat_age
     from desk.signer.main import public_address, socket_path
     from desk.signer.server import request
@@ -334,8 +412,7 @@ async def _live_status(paths: Any, loaded: Any, dbs: Any, version: str | None) -
     if socket_path(paths).exists():
         with contextlib.suppress(OSError, TimeoutError, ValueError):
             unlocked = bool((await request(socket_path(paths), {"op": "status"}, timeout=5)).get("unlocked"))
-    with (paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
-        ceiling = Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
+    ceiling = capital_ceiling(paths)
     target = version or current_champion(dbs.research) or "none"
     age = heartbeat_age(dbs.runtime, LIVE_GUARDIAN, utc_now())
     ctx = status_context(dbs.research, loaded, target, signer_unlocked=unlocked, ceiling=ceiling,
@@ -428,31 +505,44 @@ def cmd_liquidate(args: argparse.Namespace) -> int:
 
 
 async def _liquidate_live(paths: Any) -> int:
-    from desk.core.config import Mode
+    import fcntl
+
+    from desk.live.guardian import LiveGuardian
     from desk.live.liquidate import liquidate_all
-    from desk.paper.ledger import PaperLedger
+    from desk.live.runtime import open_book, signer_link
     from desk.providers.factory import build_suite
-    from desk.signer.main import socket_path
-    from desk.signer.server import request
-    from desk.storage.databases import Databases, open_ledger
+    from desk.storage.databases import Databases
 
     loaded = load_config(paths.config_dir)
     dbs = Databases.open(paths)
-    live_ledger = open_ledger(paths.db_dir, Mode.LIVE)
-    suite = build_suite(paths, loaded, load_secrets(paths.secrets_file), dbs)
+    book, conn = open_book(paths)
     try:
-        ledger = PaperLedger(live_ledger)
-        report = await liquidate_all(ledger, quote=suite.jupiter.order,
-                                     send_intent=lambda payload: request(socket_path(paths), payload),
-                                     stop_entries=lambda: ledger.halt("STOP", utc_now()), clock=utc_now)
+        with (paths.home / LiveGuardian.lock_name).open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                # the running LIVE guardian owns exits: hand every position to it rather than racing it
+                book.halt("STOP", utc_now())
+                rows = book.open_positions()
+                for row in rows:
+                    if row["state"] == "OPEN":
+                        book.set_state(row["id"], "EXITING", utc_now(), {"reason": "EMERGENCY_LIQUIDATION",
+                                                                         "attempts": row["exit_attempts"]})
+                print(f"  entries stopped; {len(rows)} LIVE positions handed to the running LIVE guardian for exit")
+                return 0
+            suite = build_suite(paths, loaded, load_secrets(paths.secrets_file), dbs)
+            try:
+                guardian = LiveGuardian(suite, dbs, loaded, book, signer_link(paths))
+                report = await liquidate_all(guardian, stop_entries=lambda: book.halt("STOP", utc_now()))
+            finally:
+                await suite.aclose()
     finally:
-        await suite.aclose()
-        live_ledger.close()
+        conn.close()
         dbs.close()
-    for row in report:
-        print(f"  {row['result']:<10} {row['position_id']}  {row.get('reason') or row.get('signature') or ''}")
-    print("  positions not CONFIRMED remain open and supervised.")
-    return 0 if all(r["result"] == "CONFIRMED" for r in report) else 1
+    for item in report:
+        print(f"  {item['result']:<10} {item['position_id']}  {item.get('reason') or ''}")
+    print("  positions not CLOSED remain open and supervised by the LIVE guardian.")
+    return 0 if all(r["result"] == "CLOSED" for r in report) else 1
 
 
 def cmd_discovery_report(args: argparse.Namespace) -> int:
@@ -796,8 +886,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("counterfactuals", help="what happened to rejected candidates (M6-05)").set_defaults(
         func=cmd_counterfactuals)
 
-    p = sub.add_parser("live", help="LIVE infrastructure (M8): keygen, arm, disarm, status, approve, validate, withdraw")
-    p.add_argument("action", choices=["keygen", "arm", "disarm", "status", "approve", "validate", "withdraw"])
+    p = sub.add_parser("live", help="LIVE (M8): keygen, arm, disarm, status, approve, validate, withdraw, run, guardian,"
+                                    " resume")
+    p.add_argument("action", choices=["keygen", "arm", "disarm", "status", "approve", "validate", "withdraw", "run",
+                                      "guardian", "resume"])
+    p.add_argument("--minutes", type=_positive_minutes, default=None,
+                   help="run/guardian: run time (run default 1440; guardian default until idle)")
+    p.add_argument("--yes", action="store_true", help="resume: skip the typed confirmation")
     p.add_argument("version", nargs="?", help="strategy version id (status/approve)")
     p.add_argument("--taker", default="5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
                    help="validate: a funded PUBLIC address used read-only for simulation")
