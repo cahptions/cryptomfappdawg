@@ -13,6 +13,7 @@ import pytest
 
 from desk.contracts.discovery import DiscoveryReason, Outcome, SecurityAssessment, StageResult
 from desk.contracts.features import FeatureSnapshot
+from desk.contracts.observed import DataStatus
 from desk.contracts.strategy import DecisionContext, FeatureCondition
 from desk.core.config import load_config
 from desk.core.paths import REPO_ROOT, DeskPaths
@@ -24,7 +25,7 @@ from desk.storage.discovery_repo import DiscoveryRepository
 from desk.storage.market_repo import MarketRepository
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import builtin_specs, evaluate_decision, revise_spec
-from desk.strategies.evaluate import EVALUATOR_VERSION
+from desk.strategies.evaluate import EVALUATOR_VERSION, EVALUATORS
 from tests.unit.test_discovery import pool_snapshot
 from tests.unit.test_strategies import NOW, _context
 
@@ -272,10 +273,40 @@ def test_collector_writes_and_shadow_share_wal_with_independent_connections(dbs:
     assert replay_run(dbs.market, dbs.research, run)["identical"] == 10
 
 
-def test_replay_refuses_runs_recorded_by_another_evaluator_version(dbs: Databases) -> None:
+@pytest.mark.parametrize("version", EVALUATORS)
+def test_replay_reproduces_a_run_with_the_evaluator_that_recorded_it(dbs: Databases, version: str) -> None:
+    context = _context()
+    repo, candidate, _ = _register(dbs, context)
+    settings = {"seed": 7, "interval_seconds": 30, "specs": [spec.model_dump(mode="json") for spec in builtin_specs()]}
+    if version != "shadow-rules-v1":                       # v1 runs predate the setting; replay assumes v1
+        settings["evaluator_version"] = version
+    run = repo.start_run(NOW, settings)
+    uncalibrated = _context(regime_status=DataStatus.MISSING, regime_label=None)
+    for seconds, base in ((0, context), (30, uncalibrated), (60, _context(regime_label="RISK_OFF"))):
+        shifted = _shift(base, seconds, "0.6")
+        repo.save(run, shifted, evaluate_decision(candidate, shifted, builtin_specs(), seed=7, evaluator_version=version))
+    result = replay_run(dbs.market, dbs.research, run)
+    assert result["passed"] and result["checked"] == result["identical"] == 3
+    payload = json.loads(dbs.research.execute("SELECT payload_json FROM experiments WHERE kind = 'REPLAY'").fetchone()[0])
+    assert payload["evaluator_version"] == version and payload["current_evaluator_version"] == EVALUATOR_VERSION
+
+
+def test_evaluator_versions_differ_only_where_documented() -> None:
+    uncalibrated = _context(regime_status=DataStatus.MISSING, regime_label=None)
+    choose = {version: evaluate_decision("c", uncalibrated, builtin_specs(), evaluator_version=version).chosen
+              for version in EVALUATORS}
+    assert choose["shadow-rules-v1"] == "NO_TRADE"            # v1 waited for a calibrated regime
+    assert choose["shadow-rules-v2"] == "B2"                  # v2 learns before calibration; B2's score ranks first
+    assert choose["shadow-rules-v3"] not in ("NO_TRADE", "B2")  # v3: a qualifying hypothesis outranks baselines
+    with pytest.raises(ValueError, match="unknown evaluator"):
+        evaluate_decision("c", uncalibrated, builtin_specs(), evaluator_version="shadow-rules-v0")
+
+
+def test_replay_refuses_runs_recorded_by_an_unknown_evaluator_version(dbs: Databases) -> None:
     repo = ShadowRepository(dbs.market)
     run = repo.start_run(NOW, {"seed": 0, "interval_seconds": 30, "max_candidates": 1, "requested_minutes": 1,
+                               "evaluator_version": "shadow-rules-v9",
                                "specs": [spec.model_dump(mode="json") for spec in builtin_specs()]})
     result = replay_run(dbs.market, dbs.research, run)
     assert not result["passed"]
-    assert any("shadow-rules-v1" in failure for failure in result["failures"])
+    assert any("shadow-rules-v9" in failure and "can only reproduce" in failure for failure in result["failures"])

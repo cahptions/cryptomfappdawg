@@ -119,7 +119,7 @@ class StrategySpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    strategy_id: str = Field(pattern=r"^(B[0-2]|H[1-7]|R1)$")
+    strategy_id: str = Field(pattern=r"^(B[0-2]|H[1-8]|R1)$")
     version: int = Field(ge=1)
     parent_version: str | None
     kind: StrategyKind

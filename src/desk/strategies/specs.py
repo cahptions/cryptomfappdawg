@@ -53,6 +53,8 @@ def _spec(
     discovery_age: tuple[int, int] | None = None,
     max_hold_seconds: int = 21600,
     signal_score: SignalScorePolicy | None = None,
+    stop: str = "0.10",
+    trail: tuple[str, str] = ("0.15", "0.10"),
 ) -> StrategySpec:
     no_trade = strategy_id == "B0"
     names = set() if no_trade else set(_COMMON_FEATURES)
@@ -92,8 +94,8 @@ def _spec(
                 "Signal only in M3. Future sizing must pass independent fee-floor, capital, liquidity and risk caps."
             ),
         ),
-        initial_stop=StopPolicy(loss_fraction=Decimal("0") if no_trade else Decimal("0.10")),
-        trailing=TrailingPolicy(activation_gain_fraction=Decimal("0.15"), drawdown_fraction=Decimal("0.10")),
+        initial_stop=StopPolicy(loss_fraction=Decimal("0") if no_trade else Decimal(stop)),
+        trailing=TrailingPolicy(activation_gain_fraction=Decimal(trail[0]), drawdown_fraction=Decimal(trail[1])),
         max_hold_seconds=0 if no_trade else max_hold_seconds,
         liquidity_exits=LiquidityExitPolicy(minimum_verified_liquidity_usd=Decimal("40000"), drop_fraction=Decimal("0.20")),
         execution_requirements=ExecutionRequirements(
@@ -195,6 +197,25 @@ def builtin_specs() -> tuple[StrategySpec, ...]:
             signal_score=_score("zero"),
         ),
         _spec(
+            "H8", "Moonshot continuation: an early explosive run (+50% in 1 h, still rising, volume x3, heavy buying, "
+                  "liquidity growing with price, healthy holder distribution) continues long enough to bank a "
+                  "multiple of the stop before the typical dump. Rare by design.",
+            max_hold_seconds=7200, stop="0.15", trail=("0.25", "0.12"),
+            conditions=(
+                _condition("log_return_1h", "gte", "0.405"),            # ln(1.5): +50% in the last hour
+                _condition("log_return_15m", "gte", "0.05"),            # still climbing
+                _condition("log_return_5m", "gte", "0"),                # not reversing right now
+                _condition("return_acceleration", "gte", "0"),          # momentum not fading
+                _condition("volume_acceleration", "gte", "3"),          # 5 m volume >= 3x the hourly pace
+                _condition("buy_transactions_1h", "gte", "400"),        # transactions, not distinct wallets
+                _condition("buy_sell_ratio", "gte", "1.2"),
+                _condition("liquidity_change_1h", "gte", "0.25"),       # real liquidity growing with the price
+                _condition("top10_pct", "lte", "25"),                   # stricter than the safety gate (35)
+                _condition("dev_holdings_pct", "lte", "2"),
+            ),
+            signal_score=_score("constant", offset="2"),               # outranks the other hypotheses
+        ),
+        _spec(
             "R1", "Latency-sensitive short volume acceleration, SHADOW research only.",
             max_hold_seconds=3600,
             conditions=(
@@ -207,7 +228,7 @@ def builtin_specs() -> tuple[StrategySpec, ...]:
     )
 
 
-PAPER_STRATEGIES = ("B1", "B2", "H1", "H2", "H3", "H4", "H5", "H6")
+PAPER_STRATEGIES = ("B1", "B2", "H1", "H2", "H3", "H4", "H5", "H6", "H8")
 
 
 def paper_specs() -> tuple[StrategySpec, ...]:

@@ -8,6 +8,7 @@ separation) and M5-19 (audit trail of every step).
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -147,12 +148,17 @@ def test_full_lifecycle_reconciles_and_every_step_is_audited(dbs: Databases, mon
     closed = dict(dbs.paper_ledger.execute("SELECT * FROM positions").fetchone())
     assert closed["exit_reason"] == "TRAILING_STOP" and closed["realized_pnl_lamports"] > 0
     # M5-15 by hand: both exit quotes return floor(tokens / 10 * price * 0.99); the conservative fill takes the
-    # worse quote less half the 0.2% impact; realized = proceeds - exit fee - ticket - entry fees (rent refunded)
+    # worse quote less half the 0.2% impact. Exit fees are two transactions at the conservative fallback rate
+    # (no fee probes recorded): the sell and the close-account transaction that returns the rent.
+    # realized = proceeds - exit fees - ticket - entry fees (rent refunded)
     quote_out = int(Decimal(closed["tokens_raw"]) / 10 * Decimal("1.3") * Decimal("0.88") * Decimal("0.99"))
     assert closed["exit_lamports"] == int(Decimal(quote_out) * Decimal("0.999"))
-    assert closed["exit_fees_lamports"] == 105_000
-    assert closed["realized_pnl_lamports"] == (closed["exit_lamports"] - 105_000 - 10 ** 8
+    assert closed["exit_fees_lamports"] == 105_000 + 105_000
+    assert closed["realized_pnl_lamports"] == (closed["exit_lamports"] - 210_000 - 10 ** 8
                                               - closed["entry_fees_lamports"])
+    breakdown = json.loads(closed["profiles_json"])["fee_breakdown"]
+    assert breakdown["sell_tx_lamports"] == breakdown["close_account_tx_lamports"] == 105_000
+    assert breakdown["exit_fee_source"] == "FALLBACK_MODEL" and breakdown["platform_fee_included_in_quote"]
     assert closed["entry_fees_lamports"] in (105_000, 210_000, 315_000)   # plus any simulated failed entry tx
     assert ledger.reconcile()["difference_lamports"] == 0
     kinds = [r["kind"] for r in dbs.paper_ledger.execute("SELECT kind FROM paper_events ORDER BY id")]

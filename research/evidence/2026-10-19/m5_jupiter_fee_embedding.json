@@ -1,0 +1,132 @@
+{
+ "also_measured": {
+  "bonk_priority_fee_lamports": 332,
+  "no_taker_quotes_report_fees": false,
+  "signature_fee_lamports": 5000,
+  "usdc_priority_fee_lamports": 557
+ },
+ "conclusion": "Ultra outAmount equals the fee-free route output x (1 - feeBps): the platform fee is already inside the quote. PAPER fills use Ultra quotes and must not deduct it again.",
+ "kind": "Jupiter platform fee embedding check (2026-10-19, cloud, read-only)",
+ "method": "same pair, same size (0.1 SOL), same single-hop route (Whirlpool) via Ultra /swap/v2/order and the fee-free legacy /swap/v1/quote; compare outAmount with legacy x (1 - feeBps/10000)",
+ "question": "Is Ultra /swap/v2/order outAmount already net of feeBps, or must PAPER deduct it again?",
+ "raw": {
+  "bonk": {
+   "legacy": {
+    "inAmount": "100000000",
+    "otherAmountThreshold": "355474320179",
+    "outAmount": "357260623295",
+    "platformFee": null,
+    "priceImpactPct": "0.0009987625142855274190559828"
+   },
+   "legacy_route": [
+    [
+     "Whirlpool",
+     null,
+     null
+    ]
+   ],
+   "ultra_no_taker": {
+    "feeBps": 10,
+    "feeMint": "So11111111111111111111111111111111111111112",
+    "inAmount": "100000000",
+    "mode": "ultra",
+    "outAmount": "356903243843",
+    "platformFee": {
+     "feeBps": 10,
+     "feeMint": "So11111111111111111111111111111111111111112"
+    },
+    "priceImpact": -0.2007715063877415,
+    "prioritizationFeeLamports": 0,
+    "rentFeeLamports": 0,
+    "router": "metis",
+    "signatureFeeLamports": 0
+   },
+   "ultra_route": [
+    [
+     "Whirlpool",
+     null,
+     null,
+     100
+    ]
+   ],
+   "ultra_taker": {
+    "feeBps": 10,
+    "feeMint": "So11111111111111111111111111111111111111112",
+    "inAmount": "100000000",
+    "outAmount": "356903362672",
+    "platformFee": {
+     "feeBps": 10,
+     "feeMint": "So11111111111111111111111111111111111111112"
+    },
+    "priceImpact": -0.1879870577892505,
+    "prioritizationFeeLamports": 332,
+    "rentFeeLamports": 0,
+    "router": "metis",
+    "signatureFeeLamports": 5000
+   }
+  },
+  "usdc": {
+   "legacy": {
+    "inAmount": "100000000",
+    "otherAmountThreshold": "10350188",
+    "outAmount": "10402198",
+    "platformFee": null,
+    "priceImpactPct": "0"
+   },
+   "legacy_route": [
+    [
+     "Kipseli",
+     null,
+     null
+    ]
+   ],
+   "ultra_no_taker": {
+    "feeBps": 2,
+    "feeMint": "So11111111111111111111111111111111111111112",
+    "inAmount": "100000000",
+    "mode": "ultra",
+    "outAmount": "10400893",
+    "platformFee": {
+     "feeBps": 2,
+     "feeMint": "So11111111111111111111111111111111111111112"
+    },
+    "priceImpact": -0.012617023299742961,
+    "prioritizationFeeLamports": 0,
+    "rentFeeLamports": 0,
+    "router": "metis",
+    "signatureFeeLamports": 0
+   },
+   "ultra_route": [
+    [
+     "ZeroFi",
+     null,
+     null,
+     100
+    ]
+   ],
+   "ultra_taker": {
+    "feeBps": 2,
+    "feeMint": "So11111111111111111111111111111111111111112",
+    "inAmount": "100000000",
+    "outAmount": "10397849",
+    "platformFee": {
+     "feeBps": 2,
+     "feeMint": "So11111111111111111111111111111111111111112"
+    },
+    "priceImpact": -0.030481096558865235,
+    "prioritizationFeeLamports": 557,
+    "rentFeeLamports": 0,
+    "router": "metis",
+    "signatureFeeLamports": 5000
+   }
+  }
+ },
+ "result": {
+  "bonk_route": "Whirlpool (both)",
+  "difference_raw": 1,
+  "feeBps": 10,
+  "legacy_outAmount": 357260623295,
+  "legacy_x_(1-0.001)": "356903362671.705",
+  "ultra_taker_outAmount": 356903362672
+ }
+}

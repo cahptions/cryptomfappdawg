@@ -12,7 +12,7 @@ from desk.core.hashing import canonical_json, fingerprint
 from desk.core.ids import new_id
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import evaluate_decision
-from desk.strategies.evaluate import EVALUATOR_VERSION
+from desk.strategies.evaluate import EVALUATOR_VERSION, EVALUATORS
 
 
 def replay_run(market: sqlite3.Connection, research: sqlite3.Connection, run_id: str | None = None, *,
@@ -26,6 +26,9 @@ def replay_run(market: sqlite3.Connection, research: sqlite3.Connection, run_id:
     original = tuple(StrategySpec.model_validate(spec) for spec in run["settings"]["specs"])
     chosen_specs = original if specs is None else specs
     seed = int(run["settings"]["seed"])
+    recorded_evaluator = run["settings"].get("evaluator_version", "shadow-rules-v1")
+    # a run is reproduced with the evaluator that recorded it; an experiment changes only the specs
+    evaluator = recorded_evaluator if recorded_evaluator in EVALUATORS else EVALUATOR_VERSION
     experiment = specs is not None
     checked, mismatches = 0, 0
     action_changes = 0
@@ -35,9 +38,10 @@ def replay_run(market: sqlite3.Connection, research: sqlite3.Connection, run_id:
     input_failures = 0
     for row in repo.decisions(run["id"]):
         context = DecisionContext.model_validate_json(row["context_json"])
-        original_decision = evaluate_decision(row["candidate_id"], context, original, seed=seed)
+        original_decision = evaluate_decision(row["candidate_id"], context, original, seed=seed,
+                                              evaluator_version=evaluator)
         decision = original_decision if not experiment else evaluate_decision(
-            row["candidate_id"], context, chosen_specs, seed=seed)
+            row["candidate_id"], context, chosen_specs, seed=seed, evaluator_version=evaluator)
         recorded = Decision.model_validate_json(row["result_json"])
         if (recorded.decision_hash != row["decision_hash"] or recorded.inputs_hash != row["inputs_hash"]
                 or recorded.config_hash != row["config_hash"]):
@@ -62,10 +66,9 @@ def replay_run(market: sqlite3.Connection, research: sqlite3.Connection, run_id:
             maximum_gap = max(maximum_gap, (context.features.as_of - last_as_of).total_seconds())
         last_as_of = context.features.as_of
     failures = []
-    recorded_evaluator = run["settings"].get("evaluator_version", "shadow-rules-v1")
-    if recorded_evaluator != EVALUATOR_VERSION:
-        failures.append(f"run was recorded by evaluator {recorded_evaluator}; the current {EVALUATOR_VERSION} "
-                        "cannot reproduce it")
+    if recorded_evaluator not in EVALUATORS:
+        failures.append(f"run was recorded by evaluator {recorded_evaluator}; this version of the desk can only "
+                        f"reproduce {', '.join(EVALUATORS)}")
     if not checked:
         failures.append("no recorded decisions")
     if not experiment and mismatches:
@@ -97,7 +100,7 @@ def replay_run(market: sqlite3.Connection, research: sqlite3.Connection, run_id:
                               "passed": not failures, "failures": failures}
     experiment_id = new_id("replay")
     result["experiment_id"] = experiment_id
-    payload = {**result, "seed": seed, "evaluator_version": EVALUATOR_VERSION,
+    payload = {**result, "seed": seed, "evaluator_version": evaluator, "current_evaluator_version": EVALUATOR_VERSION,
                "original_specs": [spec.model_dump(mode="json") for spec in original],
                "replay_specs": [spec.model_dump(mode="json") for spec in chosen_specs]}
     research.execute("INSERT INTO experiments(id, created_at, kind, payload_json) VALUES (?, ?, 'REPLAY', ?)",

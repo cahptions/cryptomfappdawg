@@ -52,6 +52,16 @@ class PaperSection(_Section):
     signature_fee_lamports: int = Field(ge=0)
     priority_fee_lamports: int = Field(ge=0)
     token_account_rent_lamports: int = Field(ge=0)
+    # read-only taker used to measure real network fees (nothing is signed or sent); a public funded address
+    fee_probe_taker: str = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9"
+    fee_probe_interval_seconds: int = Field(default=600, ge=300, le=3600)
+
+    @field_validator("fee_probe_taker")
+    @classmethod
+    def _probe_taker(cls, value: str) -> str:
+        if not is_solana_address(value):
+            raise ValueError("fee_probe_taker must be a Solana address")
+        return value
 
 
 class SizingSection(_Section):

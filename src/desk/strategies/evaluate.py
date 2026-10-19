@@ -14,10 +14,16 @@ from desk.contracts.strategy import Decision, DecisionContext, FeatureCondition,
 from desk.core.hashing import fingerprint
 from desk.strategies.specs import builtin_specs
 
-EVALUATOR_VERSION = "shadow-rules-v2"
+EVALUATOR_VERSION = "shadow-rules-v3"
+# v3 (2026-10-19): an eligible hypothesis outranks an eligible baseline for the same candidate, whatever their
+# score scales; baselines take only candidates no hypothesis wants. NO_TRADE still wins ties and beats any
+# non-positive score.
 # v2 (operator decision 2026-10-19): research and PAPER decisions do not wait for a calibrated regime; an
 # uncalibrated regime is recorded and only a calibrated label can exclude a strategy. LIVE (M8) separately
 # requires a calibrated regime. PLAN §13 catastrophic-market halt applies regardless of calibration.
+# v1: every strategy needed a calibrated, eligible regime; no market-crash rule.
+# Replay reproduces a recorded run with the version that recorded it, so every version stays available.
+EVALUATORS = ("shadow-rules-v1", "shadow-rules-v2", EVALUATOR_VERSION)
 SOL_CRASH_LOG_RETURN_1H = Decimal("0.92").ln()   # SOL -8% in one hour
 
 
@@ -35,7 +41,7 @@ def _matches(value: Decimal, condition: FeatureCondition) -> bool:
             return value == condition.threshold
 
 
-def _global_reasons(context: DecisionContext) -> tuple[str, ...]:
+def _global_reasons(context: DecisionContext, version: str) -> tuple[str, ...]:
     reasons: list[str] = []
     if context.security_outcome is not Outcome.PASS:
         reasons.append(f"SECURITY_{context.security_outcome.value}")
@@ -47,17 +53,21 @@ def _global_reasons(context: DecisionContext) -> tuple[str, ...]:
             reasons.append("SECURITY_OBSERVED_AFTER_DECISION")
         elif age > context.security_max_age_seconds:
             reasons.append("SECURITY_STALE")
+    if version == "shadow-rules-v1":
+        if context.regime_status is not DataStatus.OK or context.regime_label is None:
+            reasons.append("REGIME_INSUFFICIENT_OR_UNVERIFIED")
+        return tuple(reasons)
     sol = context.features.usable("sol_return_1h")
     if sol is not None and sol <= SOL_CRASH_LOG_RETURN_1H:
         reasons.append("MARKET_SOL_CRASH_1H")
     return tuple(reasons)
 
 
-def _spec_reasons(spec: StrategySpec, context: DecisionContext) -> tuple[str, ...]:
+def _spec_reasons(spec: StrategySpec, context: DecisionContext, version: str) -> tuple[str, ...]:
     reasons: list[str] = []
     eligibility = spec.eligibility
     calibrated = context.regime_status is DataStatus.OK and context.regime_label is not None
-    if calibrated and context.regime_label not in eligibility.regimes:
+    if (calibrated or version == "shadow-rules-v1") and context.regime_label not in eligibility.regimes:
         reasons.append("REGIME_NOT_ELIGIBLE")
     if eligibility.discovery_reasons and context.discovery_reason not in eligibility.discovery_reasons:
         reasons.append("DISCOVERY_REASON_NOT_ELIGIBLE")
@@ -150,23 +160,27 @@ def evaluate_decision(
     specs: tuple[StrategySpec, ...],
     *,
     seed: int = 0,
+    evaluator_version: str = EVALUATOR_VERSION,
 ) -> Decision:
     """Evaluate one candidate at ``as_of``; always include the cash baseline.
 
     A baseline's seeded priority is useful for comparing selection across a
     cohort. Every row is SHADOW evidence; chosen never submits an order.
+    ``evaluator_version`` exists for replay: new decisions always use the current version.
     """
+    if evaluator_version not in EVALUATORS:
+        raise ValueError(f"unknown evaluator version {evaluator_version!r}")
     strategy_ids = [spec.strategy_id for spec in specs]
     if len(strategy_ids) != len(set(strategy_ids)):
         raise ValueError("evaluate exactly one immutable version per strategy id")
     if "B0" not in strategy_ids:
         specs = (*specs, builtin_specs()[0])
     specs = tuple(sorted(specs, key=lambda spec: spec.strategy_id))
-    global_reasons = _global_reasons(context)
+    global_reasons = _global_reasons(context, evaluator_version)
     overlay_reasons = tuple(
         f"OVERLAY_{spec.strategy_id}:{reason}"
         for spec in specs if spec.kind is StrategyKind.OVERLAY
-        for reason in _spec_reasons(spec, context)
+        for reason in _spec_reasons(spec, context, evaluator_version)
     )
     ranking: list[RankedStrategy] = []
     for spec in specs:
@@ -177,24 +191,31 @@ def evaluate_decision(
             ))
             continue
         if spec.kind is StrategyKind.OVERLAY:
-            reasons = (*global_reasons, *_spec_reasons(spec, context), "OVERLAY_ONLY_NEVER_STANDALONE")
+            reasons = (*global_reasons, *_spec_reasons(spec, context, evaluator_version), "OVERLAY_ONLY_NEVER_STANDALONE")
             ranking.append(RankedStrategy(
                 strategy_id=spec.strategy_id, version=spec.version, spec_hash=spec.spec_hash,
                 eligible=False, score=Decimal(0), reasons=reasons,
             ))
             continue
-        reasons = (*global_reasons, *overlay_reasons, *_spec_reasons(spec, context))
+        reasons = (*global_reasons, *overlay_reasons, *_spec_reasons(spec, context, evaluator_version))
         eligible = not reasons
         ranking.append(RankedStrategy(
             strategy_id=spec.strategy_id, version=spec.version, spec_hash=spec.spec_hash,
             eligible=eligible, score=_signal_score(spec, context, candidate_id, seed) if eligible else Decimal(0),
             reasons=reasons if reasons else ("UNVALIDATED_RESEARCH_SIGNAL",),
         ))
-    ranking.sort(key=lambda row: (-row.score, 0 if row.strategy_id == "NO_TRADE" else 1, row.strategy_id))
+    kinds = {spec.strategy_id: spec.kind for spec in specs}
+
+    def tier(row: RankedStrategy) -> int:
+        if evaluator_version != "shadow-rules-v3" or not row.eligible or row.score <= 0 or row.strategy_id == "NO_TRADE":
+            return 0
+        return 2 if kinds.get(row.strategy_id) is StrategyKind.HYPOTHESIS else 1
+
+    ranking.sort(key=lambda row: (-tier(row), -row.score, 0 if row.strategy_id == "NO_TRADE" else 1, row.strategy_id))
     ranked = tuple(ranking)
     inputs_hash = fingerprint({"candidate_id": candidate_id, "context": context.model_dump(mode="python")})
     config_hash = fingerprint({
-        "evaluator_version": EVALUATOR_VERSION,
+        "evaluator_version": evaluator_version,
         "specs": [spec.model_dump(mode="python") for spec in specs],
         "seed": seed,
         "security_max_age_seconds": context.security_max_age_seconds,

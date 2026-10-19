@@ -56,7 +56,8 @@ class ExitResult:
 def _summary(quote: Quote) -> dict[str, object]:
     if isinstance(quote, QuoteObservation):
         return {"in": quote.in_amount_raw, "out": quote.out_amount_raw, "impact_pct": str(quote.price_impact_pct),
-                "router": quote.router, "received_at": quote.received_at.isoformat(), "latency_ms": str(quote.latency_ms),
+                "fee_bps": quote.fee_bps, "router": quote.router, "received_at": quote.received_at.isoformat(),
+                "latency_ms": str(quote.latency_ms),
                 "raw_sha256": quote.raw_sha256}
     return {"unavailable": quote.error_code or quote.error_message or "no route", "received_at": quote.received_at.isoformat()}
 

@@ -67,7 +67,11 @@ class ShadowRepository:
         if run is None or run["ended_at"] is not None:
             raise StorageError("decisions require an active SHADOW run")
         specs = tuple(StrategySpec.model_validate(spec) for spec in run["settings"]["specs"])
-        expected = evaluate_decision(decision.candidate_id, context, specs, seed=int(run["settings"]["seed"]))
+        try:
+            expected = evaluate_decision(decision.candidate_id, context, specs, seed=int(run["settings"]["seed"]),
+                                         evaluator_version=run["settings"].get("evaluator_version", "shadow-rules-v1"))
+        except ValueError as exc:
+            raise StorageError(f"the run's evaluator cannot be reproduced: {exc}") from exc
         if expected != decision:
             raise StorageError("decision does not reproduce from its recorded inputs and strategy settings")
         for ranked in decision.ranking:

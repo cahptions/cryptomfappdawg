@@ -16,6 +16,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -27,6 +28,7 @@ from desk.core.clock import parse_iso8601, to_iso, utc_now
 from desk.core.config import LoadedConfig
 from desk.core.errors import DeskError, ProviderError
 from desk.features.builder import FeatureBuilder
+from desk.paper import fees as paper_fees
 from desk.paper.engine import execution_model, heartbeat_age
 from desk.paper.executor import MAX_ATTEMPTS, exit_
 from desk.paper.ledger import PaperLedger, profile_pnl
@@ -124,27 +126,38 @@ class Guardian:
         attempt = int(row["exit_attempts"])
         if row["state"] != "EXITING":
             self.ledger.set_state(row["id"], "EXITING", now, {"reason": reason, "attempts": attempt})
-        result = await exit_(self.execution, self._quote, self.sleep, intent_id=row["intent_id"], mint=row["mint"],
-                             entry=profiles, attempt=attempt)
+        estimate = paper_fees.estimate(self.dbs.market, self.loaded, now)
+        result = await exit_(replace(self.execution, fees=estimate.model), self._quote, self.sleep,
+                             intent_id=row["intent_id"], mint=row["mint"], entry=profiles, attempt=attempt)
         done = self.clock()
         if result.status == "FILLED" and result.profiles is not None:
             stored = json.loads(row["entry_json"])
             failed = int(row["exit_failed_fees_lamports"])
-            fees = {"observed": row["entry_fees_lamports"] + result.fee_lamports,
-                    "conservative": row["entry_fees_lamports"] + result.fee_lamports + failed,
-                    "stress": row["entry_fees_lamports"] + result.fee_lamports + failed
+            # the rent comes back only through a separate close-account transaction, which also pays a fee
+            close_fee = estimate.per_transaction
+            exit_fees = result.fee_lamports + close_fee
+            fees = {"observed": row["entry_fees_lamports"] + exit_fees,
+                    "conservative": row["entry_fees_lamports"] + exit_fees + failed,
+                    "stress": row["entry_fees_lamports"] + exit_fees + failed
                     + int(stored.get("stress_extra_fees_lamports", 0)) + result.stress_extra_fees_lamports}
             pnl = profile_pnl(profiles, result.profiles, row["ticket_lamports"], fees)
             pnl["exit_quotes"] = result.quotes
+            pnl["fee_breakdown"] = {
+                "entry_tx_lamports": row["entry_fees_lamports"], "sell_tx_lamports": result.fee_lamports,
+                "close_account_tx_lamports": close_fee, "failed_exit_tx_lamports": failed,
+                "rent_locked_and_refunded_lamports": row["rent_lamports"], "exit_fee_source": estimate.source,
+                "exit_fee_observations": estimate.observations,
+                "platform_fee_bps_exit": next((q.get("fee_bps") for q in result.quotes if q.get("fee_bps") is not None), None),
+                "platform_fee_included_in_quote": True}
             realized = self.ledger.close_position(row["id"], done, reason=reason, exit_lamports=result.profiles.conservative,
-                                                  exit_fees_lamports=result.fee_lamports, profiles=pnl)
+                                                  exit_fees_lamports=exit_fees, profiles=pnl)
             self.stats["exits"] += 1
             log.info("paper position closed", extra={"position_id": row["id"], "reason": reason,
                                                       "realized_pnl_lamports": realized})
             return
         self.stats["exit_failures"] += 1
         attempts = attempt + 1
-        failed_fee = result.fee_lamports if result.status == "TX_FAILED" else 0
+        failed_fee = result.fee_lamports if result.status == "TX_FAILED" else 0       # estimate already applied
         state = "EXIT_BLOCKED" if attempts >= MAX_ATTEMPTS else "EXITING"
         self.ledger.set_state(row["id"], state, done, {"reason": reason, "attempts": attempts, "status": result.status,
                                                         "quotes": result.quotes}, failed_fee_lamports=failed_fee)

@@ -25,7 +25,8 @@ def test_report_from_a_real_paper_ledger_is_recorded_and_replays(dbs: Any, monke
     assert report["closed_trades"] == 1
     assert report["replay"] == {"checked": 1, "identical": 1}
     matrix = report["matrices"][0]
-    assert matrix["strategy_id"] == "B2" and matrix["readiness"].startswith("BASELINE")
+    # evaluator v3: the qualifying hypothesis (H1) takes the candidate ahead of the momentum baseline
+    assert matrix["strategy_id"] == "H1" and matrix["readiness"] == "INSUFFICIENT EVIDENCE"
     stored = dbs.research.execute("SELECT payload_json FROM experiments WHERE id = ?",
                                   (report["experiment_id"],)).fetchone()
     assert json.loads(stored[0])["inputs_hash"] == report["inputs_hash"]

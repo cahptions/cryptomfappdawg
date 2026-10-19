@@ -23,6 +23,8 @@ stress_failure_rate = "0.25"                 # stress profile
 signature_fee_lamports = 5000                # per transaction
 priority_fee_lamports = 100000               # conservative model until R-06 measures it (0.0001 SOL)
 token_account_rent_lamports = 2039280        # SPL token account; locked while open, refunded on close
+fee_probe_taker = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9"  # public funded address; read-only fee probes
+fee_probe_interval_seconds = 600             # real Jupiter orders for that taker report actual network fees
 
 [sizing]                        # PLAN.md §13.2 — $100 small-account profile
 fixed_fraction = "0.10"                      # ~$10 tickets

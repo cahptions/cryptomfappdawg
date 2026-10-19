@@ -10,6 +10,7 @@ import asyncio
 import logging
 import sqlite3
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -20,6 +21,8 @@ from desk.core.config import LoadedConfig
 from desk.core.ids import new_id
 from desk.core.units import sol_to_lamports
 from desk.ops.shadow import decision_context
+from desk.paper import conviction as paper_conviction
+from desk.paper import fees as paper_fees
 from desk.paper.executor import Execution, enter
 from desk.paper.ledger import PaperLedger
 from desk.paper.model import FeeModel, learning_ticket, usd_to_lamports
@@ -173,16 +176,19 @@ class PaperEngine:
                               candidate_id=candidate_id)
             return "BLOCKED"
         sizing = self.loaded.settings.sizing
-        fees = self.execution.fees
+        estimate = paper_fees.estimate(self.dbs.market, self.loaded, now)
+        execution = replace(self.execution, fees=estimate.model)
         sol_usd = self._sol_usd(now)
         liquidity = context.features.usable("verified_liquidity_usd")
         cap = None if sol_usd is None or liquidity is None else usd_to_lamports(
             liquidity * sizing.max_ticket_fraction_pool_liquidity, sol_usd)
+        conviction = paper_conviction.assess(self.dbs.research, spec, context.features, now)
         ticket = learning_ticket(
             base_lamports=self.ledger.base_lamports(), realized_pnl_lamports=self.ledger.realized_pnl_lamports(),
-            fixed_fraction=sizing.fixed_fraction, max_fraction=sizing.max_ticket_fraction_equity,
+            fixed_fraction=conviction.fraction(sizing.fixed_fraction, sizing.max_ticket_fraction_equity),
+            max_fraction=sizing.max_ticket_fraction_equity,
             min_ticket_lamports=sol_to_lamports(sizing.min_ticket_sol), max_fixed_cost_fraction=sizing.max_fixed_cost_fraction,
-            fixed_costs_lamports=2 * fees.per_transaction, rent_lamports=fees.token_account_rent_lamports,
+            fixed_costs_lamports=estimate.round_trip, rent_lamports=estimate.rent_lamports,
             cash_lamports=self.ledger.cash_lamports(), liquidity_cap_lamports=cap)
         if not ticket.lamports:
             self.ledger.event(now, "ENTRY_REJECTED_SIZE", {"reasons": list(ticket.reasons), "strategy": spec.strategy_id},
@@ -193,7 +199,7 @@ class PaperEngine:
                                                  "strategy_version": spec.version_id,
                                                  "sizing_capital_lamports": ticket.sizing_capital_lamports},
                           candidate_id=candidate_id)
-        result = await enter(self.execution, self._quote, self.sleep, intent_id=intent_id, mint=mint,
+        result = await enter(execution, self._quote, self.sleep, intent_id=intent_id, mint=mint,
                              ticket_lamports=ticket.lamports,
                              max_roundtrip_cost_fraction=spec.execution_requirements.max_roundtrip_cost_fraction)
         done = self.clock()
@@ -215,7 +221,14 @@ class PaperEngine:
                  "roundtrip_cost_fraction": str(result.roundtrip_cost_fraction),
                  "profiles": {"observed": result.profiles.observed, "conservative": result.profiles.conservative,
                               "stress": result.profiles.stress},
-                 "stress_extra_fees_lamports": result.stress_extra_fees_lamports}
+                 "stress_extra_fees_lamports": result.stress_extra_fees_lamports,
+                 "conviction": conviction.as_dict(sizing.fixed_fraction, sizing.max_ticket_fraction_equity),
+                 # network fees: measured estimate or conservative model; Jupiter's swap fee is inside the quotes
+                 "fees": {**estimate.as_dict(), "entry_tx_lamports": result.fee_lamports,
+                          "failed_entry_tx_lamports": result.failed_fees_lamports,
+                          "platform_fee_bps": next((q.get("fee_bps") for q in result.quotes
+                                                    if q.get("fee_bps") is not None), None),
+                          "platform_fee_included_in_quote": True}}
         # Quoting and the conservative fill delay yield to other processes. A STOP or lost guardian
         # during that time must cancel this simulated entry before any position or cash debit exists.
         blocked = self._safety_blocks(done)
@@ -230,7 +243,7 @@ class PaperEngine:
                 strategy_id=spec.strategy_id, strategy_version=spec.version_id, decision_hash=decision.decision_hash,
                 regime_label=context.regime_label, at=done, ticket_lamports=ticket.lamports,
                 tokens_raw=result.profiles.conservative, entry_fees_lamports=result.fee_lamports,
-                failed_fees_lamports=result.failed_fees_lamports, rent_lamports=fees.token_account_rent_lamports,
+                failed_fees_lamports=result.failed_fees_lamports, rent_lamports=estimate.rent_lamports,
                 entry=entry)
         except sqlite3.IntegrityError as exc:   # duplicate intent or a second open position on the same mint
             self.ledger.event(done, "ENTRY_DUPLICATE_REFUSED", {"intent_id": intent_id, "error": str(exc)},

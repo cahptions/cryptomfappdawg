@@ -272,6 +272,32 @@ class Collector:
             if result.errors:
                 self.repo.record_ingest_errors("token_candles", result.errors, None)
 
+    async def fee_probe(self) -> None:
+        """Real orders for a read-only public taker report the network fees a transaction would pay.
+
+        Nothing is signed or sent. A SOL->USDC route and, when one exists, the token of the most recent paper
+        position or security pass are probed so memecoin routes are represented.
+        """
+        from desk.contracts.quotes import QuoteObservation
+        from desk.core.units import sol_to_lamports
+        from desk.paper.fees import record
+        from desk.security.policy import SOL_MINT, USDC_MINT
+
+        taker = self.loaded.settings.paper.fee_probe_taker
+        amount = sol_to_lamports(self.loaded.settings.discovery.ticket_sol)
+        routes = [("SOL->USDC", USDC_MINT)]
+        recent = self.dbs.paper_ledger.execute("SELECT mint FROM positions ORDER BY opened_at DESC LIMIT 1").fetchone()
+        if recent is None:
+            recent = self.dbs.market.execute(
+                "SELECT d.mint FROM stage_results r JOIN discoveries d ON d.id = r.candidate_id "
+                "WHERE r.stage = 4 AND r.outcome = 'PASS' ORDER BY r.id DESC LIMIT 1").fetchone()
+        if recent is not None:
+            routes.append(("SOL->token", recent["mint"]))
+        for label, mint in routes:
+            quote = await self.suite.jupiter.order(SOL_MINT, mint, amount, taker=taker)
+            if isinstance(quote, QuoteObservation) and record(self.dbs.market, quote, label):
+                self.stats.tasks["fee_probe"].items += 1
+
     async def evaluate_discovery(self) -> None:
         assert self.discovery_engine is not None
         self.stats.tasks["discovery_evaluation"].items += await self.discovery_engine.evaluate_cycle()
@@ -329,6 +355,7 @@ class Collector:
                          self.dexscreener_promotions))
             jobs.append(("jupiter_categories", s.jupiter_trending_interval_seconds, self.jupiter_categories))
             jobs.append(("counterfactuals", 300, self.counterfactuals))
+            jobs.append(("fee_probe", self.loaded.settings.paper.fee_probe_interval_seconds, self.fee_probe))
             jobs.append(("token_candles", 60, self.token_candles))
         for name, _, _ in jobs:
             self.stats.tasks[name] = TaskStats()
