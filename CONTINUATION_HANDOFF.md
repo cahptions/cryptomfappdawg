@@ -11,9 +11,25 @@ screenshots are in [docs/evidence/m7/](docs/evidence/m7/). These checks ran in t
 
 ## Get this version on the laptop
 
-Let any existing collection or PAPER acceptance run finish before switching its checkout. Do not run a second
-collector against that data directory. These commands fetch code; they do not replace `~/desk-data` or your
-private keys.
+The dashboard reads `~/desk-data` as collection happens; there is no import step and no 24-hour prerequisite.
+For an active collector, open a second terminal and use a separate checkout and virtual environment:
+
+```bash
+git clone --single-branch --branch codex/continue-claude https://github.com/cahptions/cryptomfappdawg.git ~/kestrel-dashboard
+cd ~/kestrel-dashboard
+uv sync --frozen
+DESK_HOME="$HOME/desk-data" uv run desk dashboard
+```
+
+Open **http://127.0.0.1:8765**. Keep the original collector terminal running; do not start a second collector.
+The separate checkout leaves `~/kestrel` and its environment alone. First dashboard startup applies compatible
+additive database migrations; SQLite serializes that brief setup with ongoing writes. The dashboard then reads
+committed records and refreshes summaries every two seconds. An integration test starts from M2 schemas while
+an older-style writer continues, verifies new records appear, and checks database integrity afterward.
+The existing private keys stay at their existing path. The 24-hour duration is an acceptance test only.
+
+For the original checkout, let its collector finish before switching that checkout or replacing its environment.
+These commands update that original folder; they do not replace `~/desk-data` or private keys:
 
 ```bash
 cd ~/kestrel
