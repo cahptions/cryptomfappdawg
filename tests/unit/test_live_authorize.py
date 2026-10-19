@@ -35,7 +35,7 @@ from desk.signer.service import Signer
 from desk.storage.databases import Databases, open_ledger
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import builtin_specs
-from desk.strategies.specs import paper_specs
+from desk.strategies.specs import paper_specs, superseded_specs
 from tests.unit.test_signer import AMOUNT, MIN_OUT, FakeRpc, FakeSwap, jupiter_buy, order_for
 from tests.unit.test_strategies import NOW as CONTEXT_AT
 from tests.unit.test_strategies import _context
@@ -56,6 +56,7 @@ class World:
         dbs = Databases.open(self.paths)
         repo = ShadowRepository(dbs.market)
         repo.register_specs(builtin_specs(), AT)
+        repo.register_specs(superseded_specs(), AT)
         repo.register_specs(paper_specs(), AT)
         dbs.research.execute("INSERT INTO approvals(id, created_at, kind, subject, confirmation, payload_json) "
                              "VALUES ('appr-1', ?, 'LIVE_STRATEGY', ?, ?, '{}')",

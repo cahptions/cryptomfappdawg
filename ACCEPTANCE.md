@@ -96,6 +96,7 @@ Rules that apply to every milestone:
 | M3-10 | Decision determinism | P | Same snapshot + config ⇒ byte-identical decision hash across 1,000 randomized runs |
 | M3-11 | Replay reproduces SHADOW decisions | E2E | Replaying a recorded 6-hour SHADOW session reproduces 100% of decisions; changing one threshold in a copy changes only the expected decisions and never alters source data. A run is replayed with the evaluator version that recorded it (v1, v2 or v3); an unknown version fails explicitly |
 | M3-12 | Baselines | U | B0 returns no trades; B1 is seeded and reproducible; B2 deterministic |
+| M3-13 | Decisions on real builder output | U | Decisions built from the real feature builder (not hand-made contexts) can choose a strategy; every PAPER strategy's production input availability is asserted, so an always-NO_TRADE desk cannot pass unnoticed |
 
 ---
 

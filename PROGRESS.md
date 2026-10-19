@@ -585,3 +585,23 @@ unnoticed and the dashboard shows the current verdict (Overview, Research). Test
 sources, gaps, the empty book, the CLI, the collector job, the dashboard field and that an ELIGIBLE verdict leaves
 mode, approvals and LIVE gates unchanged (M9-05). The browser harness checks the verdict panel in both fixtures.
 
+**Production-input audit (later the same session).** A separate research branch (`codex/council-research`,
+documentation only, zero influence, no code changes) noted that H7's age-adjusted volume decay is unverified in
+the ordinary builder path and that H1 lacks a verified migration time. Both were confirmed against the code, and
+the audit was extended to every PAPER strategy, using the real feature builder instead of hand-made contexts:
+
+- **Every production decision was NO_TRADE.** The builder always labels `volume_decay_adj` UNVERIFIED (token age
+  is a provider claim); the H7 overlay required it OK, and an overlay's reasons veto every strategy. Fixed by
+  evaluator **v4**: an overlay may act on an UNVERIFIED value (it can only remove eligibility); MISSING, STALE and
+  CONFLICT still veto. v1–v4 all replay exactly.
+- **H8 could never qualify.** It required developer holdings, which are never produced (no caller supplies a
+  verified developer address). **H8 v3** requires the largest single holder ≤ 10% instead; it is a child of the
+  published v2, so laptops that registered v2 register v3 cleanly, and conviction evidence is per exact version.
+- **Remaining, documented gaps (not worked around):** H1 (verified migration time, verified organic share), H6
+  (verified token age) and H2/H5 (event-chronology features not produced) record NO_TRADE. B1, B2, H3, H4 and H8
+  can trade on real inputs. Trading on unverified claims for entries would contradict "unknown is never zero".
+
+New tests build decisions from real builder output, prove v3's universal veto and v4's behaviour (acts on the
+claim, still vetoes real exhaustion and missing inputs), and assert each strategy's input availability (M3-13).
+The council research branch itself remains research only and was not merged.
+

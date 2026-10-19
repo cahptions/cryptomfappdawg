@@ -231,15 +231,38 @@ def builtin_specs() -> tuple[StrategySpec, ...]:
 PAPER_STRATEGIES = ("B1", "B2", "H1", "H2", "H3", "H4", "H5", "H6", "H8")
 
 
+def _paper_revision(spec: StrategySpec) -> StrategySpec:
+    return revise_spec(spec, version=2, allowed_modes=("SHADOW", "PAPER"))
+
+
+def _h8_v3(v2: StrategySpec) -> StrategySpec:
+    """H8 v3 (2026-10-19): v2 required developer holdings <= 2%, a figure the desk never produces (no verified
+    developer address reaches the holder analysis), so it could never qualify. v3 requires the largest single
+    holder (verified top-20 accounts, pool vaults excluded) to hold <= 10% instead; nothing else changes."""
+    names = sorted({f.name for f in v2.features} - {"dev_holdings_pct"} | {"top1_pct"})
+    features = tuple(FeatureRequirement(name=name, max_age_seconds=10 if name == "roundtrip_cost_fraction" else 120)
+                     for name in names)
+    conditions = (*(c for c in v2.entry_conditions if c.feature != "dev_holdings_pct"),
+                  _condition("top1_pct", "lte", "10"))
+    return revise_spec(v2, version=3, features=features, entry_conditions=conditions)
+
+
+def superseded_specs() -> tuple[StrategySpec, ...]:
+    """Earlier PAPER versions a current version descends from; registered first so its lineage is verifiable."""
+    return tuple(_paper_revision(spec) for spec in builtin_specs() if spec.strategy_id == "H8")
+
+
 def paper_specs() -> tuple[StrategySpec, ...]:
-    """Version 2 of each tradeable spec, identical except that PAPER is allowed (operator decision 2026-10-19).
+    """The PAPER version of each tradeable spec (operator decision 2026-10-19): version 2, identical except that
+    PAPER is allowed, and H8 version 3 (see ``_h8_v3``).
 
     B0 and the H7 overlay keep version 1 (they never open positions); R1 stays SHADOW research only.
     """
     out = []
     for spec in builtin_specs():
         if spec.strategy_id in PAPER_STRATEGIES:
-            out.append(revise_spec(spec, version=2, allowed_modes=("SHADOW", "PAPER")))
+            revised = _paper_revision(spec)
+            out.append(_h8_v3(revised) if spec.strategy_id == "H8" else revised)
         elif spec.strategy_id in ("B0", "H7"):
             out.append(spec)
     return tuple(out)

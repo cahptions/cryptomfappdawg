@@ -24,7 +24,7 @@ SPECS = {spec.strategy_id: spec for spec in paper_specs()}
 H8 = SPECS["H8"]
 RUNNER = {"log_return_1h": "0.55", "log_return_15m": "0.12", "log_return_5m": "0.03", "return_acceleration": "0.01",
           "volume_acceleration": "6", "buy_transactions_1h": "900", "buy_sell_ratio": "1.8",
-          "liquidity_change_1h": "0.4", "top10_pct": "18", "dev_holdings_pct": "1"}
+          "liquidity_change_1h": "0.4", "top10_pct": "18", "top1_pct": "6"}
 
 
 def runner(**changes: str) -> Any:
@@ -41,7 +41,7 @@ def test_h8_fires_only_on_a_fully_confirmed_runner_and_outranks_momentum() -> No
     b2 = next(r for r in decision.ranking if r.strategy_id == "B2")
     assert b2.eligible and b2.score > 2
     for name, weak in (("log_return_1h", "0.30"), ("volume_acceleration", "2.9"), ("liquidity_change_1h", "0.1"),
-                       ("top10_pct", "30"), ("buy_sell_ratio", "1.1"), ("log_return_5m", "-0.01")):
+                       ("top10_pct", "30"), ("top1_pct", "12"), ("buy_sell_ratio", "1.1"), ("log_return_5m", "-0.01")):
         assert evaluate_decision("c1", runner(**{name: weak}), paper_specs()).chosen != "H8", name
 
 

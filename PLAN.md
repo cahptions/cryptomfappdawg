@@ -524,7 +524,7 @@ Small and plausible on purpose. Each is a fully specified, versioned `StrategySp
 | **H4** | Pullback after verified volume expansion | ≤ 6 h | A3 |
 | **H5** | Breakout retest after consolidation | ≤ 8 h | A1 |
 | **H6** | Renewed activity in tokens > 24 h old | ≤ 24 h | A4 |
-| **H8** | Moonshot continuation (operator request 2026-10-19): an early explosive run — +50% in 1 h and still rising (15 m ≥ +5%, 5 m ≥ 0, acceleration ≥ 0), 5 m volume ≥ 3× the hourly pace, ≥ 400 buys/h, buy/sell ≥ 1.2, liquidity +25% in 1 h, top-10 ≤ 25%, developer ≤ 2% — continues long enough to bank a multiple of the stop before the typical dump. Rare by design; 15% stop, trailing stop arms at +25% and gives back 12% | ≤ 2 h | A1, A2 |
+| **H8** | Moonshot continuation (operator request 2026-10-19): an early explosive run — +50% in 1 h and still rising (15 m ≥ +5%, 5 m ≥ 0, acceleration ≥ 0), 5 m volume ≥ 3× the hourly pace, ≥ 400 buys/h, buy/sell ≥ 1.2, liquidity +25% in 1 h, top-10 ≤ 25%, largest single holder ≤ 10% (v3) — continues long enough to bank a multiple of the stop before the typical dump. Rare by design; 15% stop, trailing stop arms at +25% and gives back 12% | ≤ 2 h | A1, A2 |
 | H7 | Momentum-exhaustion avoidance — an **overlay filter**, not a standalone strategy | — | A2 |
 | R1 | Short-lived volume acceleration — **SHADOW research only** (latency-sensitive) | ≤ 1 h | — |
 
@@ -537,7 +537,18 @@ baseline; an eligible baseline outranks NO-TRADE; within a tier the higher score
 and every case where nothing qualifies. Before v3 a single ranking let B2's score (100 × 1 h log return) crowd out
 every hypothesis, so hypotheses never collected PAPER evidence. Baselines still trade whenever no hypothesis wants a
 candidate, and B1/B2 keep their SHADOW comparisons for every eligible candidate (§11.5). A recorded run is always
-replayed with the evaluator version that recorded it (v1, v2 or v3), so earlier SHADOW evidence stays reproducible.
+replayed with the evaluator version that recorded it (v1–v4), so earlier SHADOW evidence stays reproducible.
+
+**Evaluator v4 (2026-10-19).** An overlay may act on an UNVERIFIED input. It can only remove eligibility, so a
+provider claim can only add caution relative to having no overlay (exits already act on the same unverified decay
+estimate). Before v4 the H7 overlay's age-adjusted volume decay — always UNVERIFIED, because token age is a
+provider claim — vetoed every strategy on real data, so every production decision was NO_TRADE. MISSING, STALE
+and CONFLICT inputs still veto, and trade hypotheses still need every input OK.
+
+**Production input availability (tested against the real feature builder).** B1, B2, H3, H4 and H8 can qualify.
+H1 needs a verified migration time and a verified organic-volume share, H6 a verified token age, and H2/H5 event-
+chronology features the builder does not produce yet; until those inputs exist these four record NO_TRADE rather
+than trading on claims.
 
 ### 11.5 Champion / challenger
 - Exactly **one champion** trades in PAPER with full quote-based simulation.

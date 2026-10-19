@@ -14,7 +14,11 @@ from desk.contracts.strategy import Decision, DecisionContext, FeatureCondition,
 from desk.core.hashing import fingerprint
 from desk.strategies.specs import builtin_specs
 
-EVALUATOR_VERSION = "shadow-rules-v3"
+EVALUATOR_VERSION = "shadow-rules-v4"
+# v4 (2026-10-19): an overlay may act on an UNVERIFIED input. It can only remove eligibility, so a provider claim
+# can only add caution relative to no overlay (exits already act on the same unverified decay estimate). Before
+# v4 the H7 overlay's age-adjusted volume decay - always UNVERIFIED, since token age is a provider claim - vetoed
+# every strategy, so production decisions were all NO_TRADE. MISSING, STALE and CONFLICT inputs still veto.
 # v3 (2026-10-19): an eligible hypothesis outranks an eligible baseline for the same candidate, whatever their
 # score scales; baselines take only candidates no hypothesis wants. NO_TRADE still wins ties and beats any
 # non-positive score.
@@ -23,7 +27,12 @@ EVALUATOR_VERSION = "shadow-rules-v3"
 # requires a calibrated regime. PLAN §13 catastrophic-market halt applies regardless of calibration.
 # v1: every strategy needed a calibrated, eligible regime; no market-crash rule.
 # Replay reproduces a recorded run with the version that recorded it, so every version stays available.
-EVALUATORS = ("shadow-rules-v1", "shadow-rules-v2", EVALUATOR_VERSION)
+EVALUATORS = ("shadow-rules-v1", "shadow-rules-v2", "shadow-rules-v3", EVALUATOR_VERSION)
+
+
+def _since(version: str, first: str) -> bool:
+    """True when ``version`` includes the rules introduced by ``first``."""
+    return EVALUATORS.index(version) >= EVALUATORS.index(first)
 SOL_CRASH_LOG_RETURN_1H = Decimal("0.92").ln()   # SOL -8% in one hour
 
 
@@ -93,7 +102,9 @@ def _spec_reasons(spec: StrategySpec, context: DecisionContext, version: str) ->
         if feature is None or feature.value is None:
             reasons.append(f"FEATURE_MISSING:{requirement.name}")
             continue
-        if feature.status is not DataStatus.OK:
+        overlay_claim = (feature.status is DataStatus.UNVERIFIED and spec.kind is StrategyKind.OVERLAY
+                         and _since(version, "shadow-rules-v4"))
+        if feature.status is not DataStatus.OK and not overlay_claim:
             reasons.append(f"FEATURE_{feature.status.value.upper()}:{requirement.name}")
             continue
         if feature.observed_at is None:
@@ -207,7 +218,8 @@ def evaluate_decision(
     kinds = {spec.strategy_id: spec.kind for spec in specs}
 
     def tier(row: RankedStrategy) -> int:
-        if evaluator_version != "shadow-rules-v3" or not row.eligible or row.score <= 0 or row.strategy_id == "NO_TRADE":
+        if not _since(evaluator_version, "shadow-rules-v3") or not row.eligible or row.score <= 0 \
+                or row.strategy_id == "NO_TRADE":
             return 0
         return 2 if kinds.get(row.strategy_id) is StrategyKind.HYPOTHESIS else 1
 

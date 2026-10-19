@@ -34,7 +34,7 @@ from desk.storage.market_repo import MarketRepository
 from desk.storage.shadow_repo import ShadowRepository
 from desk.strategies import builtin_specs, evaluate_decision
 from desk.strategies.evaluate import EVALUATOR_VERSION
-from desk.strategies.specs import paper_specs
+from desk.strategies.specs import paper_specs, superseded_specs
 
 log = logging.getLogger(__name__)
 FAILURE_PAUSE = timedelta(minutes=15)
@@ -85,6 +85,7 @@ class PaperEngine:
         # PAPER versions are children of the SHADOW v1 specs: register parents first (idempotent)
         repo = ShadowRepository(self.dbs.market)
         repo.register_specs(builtin_specs(), self.clock())
+        repo.register_specs(superseded_specs(), self.clock())
         repo.register_specs(self.specs, self.clock())
         if self.ledger.initialized():
             return
