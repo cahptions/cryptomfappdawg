@@ -38,7 +38,20 @@ class DeskSection(_Section):
 
 
 class PaperSection(_Section):
-    starting_capital_usd: Decimal = Field(gt=0)
+    starting_capital_usd: Decimal = Field(gt=0)        # the $100 account: sizing base and replica capital
+    # PLAN §13.1.1 learning book (operator decisions 2026-10-19)
+    learning_cash_usd: Decimal = Field(gt=0)
+    max_learning_positions: int = Field(ge=1)
+    learning_max_cumulative_loss_usd: Decimal = Field(gt=0)
+    mark_interval_seconds: int = Field(ge=10, le=60)
+    guardian_loop_seconds: int = Field(ge=1, le=10)
+    guardian_heartbeat_max_age_seconds: int = Field(ge=5, le=60)
+    conservative_wait_seconds: float = Field(ge=0, le=10)
+    simulated_failure_rate: Fraction = Field(ge=0, le=1)
+    stress_failure_rate: Fraction = Field(ge=0, le=1)
+    signature_fee_lamports: int = Field(ge=0)
+    priority_fee_lamports: int = Field(ge=0)
+    token_account_rent_lamports: int = Field(ge=0)
 
 
 class SizingSection(_Section):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 from pydantic import ValidationError
@@ -32,6 +33,8 @@ class DiscoveryEngine:
         self.repo = DiscoveryRepository(dbs.market, self.settings)
         self.market = MarketRepository(dbs.market)
         self.redactor = RedactionFilter(suite.rpc.http.secrets.all_secret_values())
+        # PAPER hook: called right after a security PASS is stored, while its exact-ticket quotes are fresh
+        self.on_pass: Callable[[str], Awaitable[object]] | None = None
 
     async def evaluate_cycle(self) -> int:
         self.repo.sync()
@@ -127,6 +130,12 @@ class DiscoveryEngine:
                                                 assessment.model_dump(mode="json"),
                                                 self.settings.model_dump(mode="json"), assessed_at, self.loaded))
                 self.repo.save_results(results, assessment, refs)
+                if self.on_pass is not None and assessment.outcome is Outcome.PASS:
+                    try:
+                        await self.on_pass(candidate["id"])
+                    except Exception:
+                        # a PAPER failure never changes or interrupts discovery evidence
+                        log.exception("paper entry hook failed", extra={"candidate_id": candidate["id"]})
             except (DeskError, ValueError, KeyError, TypeError, ValidationError) as exc:
                 # Expected unavailable/changed evidence is pending, never an eligibility pass.
                 decided = utc_now()

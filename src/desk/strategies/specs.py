@@ -207,6 +207,23 @@ def builtin_specs() -> tuple[StrategySpec, ...]:
     )
 
 
+PAPER_STRATEGIES = ("B1", "B2", "H1", "H2", "H3", "H4", "H5", "H6")
+
+
+def paper_specs() -> tuple[StrategySpec, ...]:
+    """Version 2 of each tradeable spec, identical except that PAPER is allowed (operator decision 2026-10-19).
+
+    B0 and the H7 overlay keep version 1 (they never open positions); R1 stays SHADOW research only.
+    """
+    out = []
+    for spec in builtin_specs():
+        if spec.strategy_id in PAPER_STRATEGIES:
+            out.append(revise_spec(spec, version=2, allowed_modes=("SHADOW", "PAPER")))
+        elif spec.strategy_id in ("B0", "H7"):
+            out.append(spec)
+    return tuple(out)
+
+
 def revise_spec(spec: StrategySpec, *, version: int, **changes: Any) -> StrategySpec:
     """A threshold change is a new child version; the supplied parent is untouched."""
     if version <= spec.version:

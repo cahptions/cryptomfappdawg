@@ -1,0 +1,126 @@
+{
+ "bugs_found_by_this_smoke": [
+  "USD->lamport conversion at a live rate exceeded 9 decimals (fixed: floor)",
+  "guardian idled out before the engine's first heartbeat (fixed: 5-minute grace)"
+ ],
+ "command": "desk paper --minutes 3",
+ "guardian": "spawned as its own process by `desk paper`; heartbeat 0.5 s old at report time; exited 0 on SIGTERM",
+ "kind": "M5 PAPER cloud smoke (not laptop evidence; keyless providers)",
+ "paper_report": {
+  "base_sol": "0.950951",
+  "cash_sol": "950.951283",
+  "closed_trades": 0,
+  "decisions": {},
+  "guardian_heartbeat_age_seconds": 0.5,
+  "initialized": true,
+  "jupiter_requests_allocated": {
+   "jupiter:default": 18
+  },
+  "open_positions": 0,
+  "reconciliation": {
+   "difference_lamports": 0,
+   "journal_lamports": 950951283165,
+   "recomputed_lamports": 950951283165
+  },
+  "sizing_capital_sol": "0.950951",
+  "sol_usd_at_start": "105.157858"
+ },
+ "peak_rss_mb": 63.7,
+ "run": {
+  "ended_at": "2026-10-19T04:33:50.549618+00:00",
+  "id": "run_01M596TC3AH94HC6SVQ2R8KR8F",
+  "started_at": "2026-10-19T04:30:49.962780+00:00"
+ },
+ "tasks": {
+  "dexscreener_promotions": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 25,
+   "last_error": null,
+   "scheduled": 1,
+   "succeeded": 1
+  },
+  "dexscreener_refresh": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 326,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "discovery_evaluation": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 9,
+   "last_error": null,
+   "scheduled": 6,
+   "succeeded": 6
+  },
+  "geckoterminal_new_pools": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 120,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "geckoterminal_trending": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 40,
+   "last_error": null,
+   "scheduled": 2,
+   "succeeded": 2
+  },
+  "hazard_followup": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 0,
+   "last_error": null,
+   "scheduled": 1,
+   "succeeded": 1
+  },
+  "jupiter_categories": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 200,
+   "last_error": null,
+   "scheduled": 1,
+   "succeeded": 1
+  },
+  "jupiter_recent": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 90,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "jupiter_trending": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 50,
+   "last_error": null,
+   "scheduled": 1,
+   "succeeded": 1
+  },
+  "market_context": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 3,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  },
+  "rpc_slot": {
+   "failed": 0,
+   "item_errors": 0,
+   "items": 3,
+   "last_error": null,
+   "scheduled": 3,
+   "succeeded": 3
+  }
+ },
+ "unhandled_exceptions": 0,
+ "why_no_trades": "keyless public RPC cannot return holder lists (R-01), so no candidate reaches security PASS in the cloud; the keyed laptop configuration is required for entries"
+}

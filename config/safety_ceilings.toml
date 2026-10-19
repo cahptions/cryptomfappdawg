@@ -26,8 +26,15 @@
 "limits.max_consecutive_failed_tx" = "3"
 "limits.stale_data_halt_seconds" = "120"
 "paper.starting_capital_usd" = "100000"
+"paper.learning_cash_usd" = "100000"          # operator decision 2026-10-19 (PLAN §13.1.1)
+"paper.max_learning_positions" = "20"
+"paper.learning_max_cumulative_loss_usd" = "5000"
 "providers.max_paid_cost_usd_month" = "0"     # operator decision: no paid APIs
 
 [min]
 "sizing.min_ticket_sol" = "0.05"
+"paper.conservative_wait_seconds" = "2"         # PAPER realism cannot be made more optimistic
+"paper.simulated_failure_rate" = "0.10"
+"paper.stress_failure_rate" = "0.25"
+"paper.priority_fee_lamports" = "100000"
 "limits.live_sol_reserve" = "0.05"

@@ -282,6 +282,46 @@ Recorded in PLAN §13.1.1 and §16.5 gate 7:
 
 Tests after (1): **394 passed**, Ruff and strict mypy clean. Items (2)–(4) are implemented in M5.
 
+## M5 PAPER learning book (2026-10-19 UTC, Claude)
+
+Implemented per PLAN §12, §13.1.1, §13.3, §13.4: ledger migration 0002 (positions with a one-open-per-mint unique
+index and unique intent ids, append-only cash journal and audit events, marks), pure rules (`paper/model.py`: fee
+model, observed/conservative/stress profiles, deterministic simulated failures, learning-book sizing, the eight exit
+policies, impairment), quote-only executor (buy → sell-back cost check → wait → second buy, worse quote used),
+entry engine hooked to discovery's security PASS (decides while the exact-ticket quotes are fresh), an independent
+guardian process (`desk guardian`, auto-started by `desk paper`, own provider clients, marks every 25 s, exits
+every 5 s loop, EXIT_BLOCKED after 3 failed exits with lock retained, re-quotes after suspend/resume), kill switch
+(`desk stop` / typed `desk resume`), and `desk paper-report` with reconciliation and the $100-account replica.
+Strategy specs v2 (B1, B2, H1–H6) allow PAPER; R1 stays SHADOW-only.
+
+| Criteria | Status | Evidence |
+|---|---|---|
+| M5-01 reconciliation | PASS (automated) | journal vs independently recomputed cash, 0 lamport difference in every lifecycle test |
+| M5-02/03/21 sizing, fee floor | PASS (automated) | `tests/unit/test_paper_model.py` table tests incl. exact 1% boundary, growth with profit, no shrink on loss |
+| M5-04 quote-only fills | PASS (automated) | lifecycle asserts the exact quote calls; the executor has no price input |
+| M5-05 three profiles | PASS (automated) | observed ≥ conservative ≥ stress by construction and per-trade results |
+| M5-07 failure handling | PASS (automated) | no route ⇒ ENTRY_FAILED, no position; failed exits ⇒ EXIT_BLOCKED, never closed |
+| M5-08 liquidity collapse / impairment | PASS (rules) | impairment and liquidity-exit boundary tests; no-route > 5 min ⇒ IMPAIRED |
+| M5-09 exit policies | PASS (automated) | 18-row boundary table + invalidation test |
+| M5-10 locks / duplicates | PASS (automated) | gate refusal and database unique index |
+| M5-11 restart recovery | PASS (automated, guardian) | a new guardian resumes an EXIT_BLOCKED position from the ledger and closes it |
+| M5-12 guardian independence | PARTIAL | separate process; entries refused while its heartbeat is stale; kill-the-engine fault test still to add |
+| M5-13 kill switch | PASS (automated) | STOP blocks the next entry check; `desk resume` needs typed RESUME |
+| M5-14/22 limits, replica | PASS (automated, learning book) / replica implemented | replica logic covered via report test; more replica edge tests to add |
+| M5-15 P&L by hand | PASS (automated) | trailing-stop trade checked to the lamport |
+| M5-17 mode separation | PASS (automated) | no LIVE ledger, no SHADOW rows written |
+| M5-18 sleep/resume | PARTIAL | guardian re-quotes after a wall-clock jump; entries blocked 5 min after a collector gap; fault test to add |
+| M5-19 lifecycle | PASS (fake provider) | decision → entry → marks → trailing exit → reconciliation → report, every step in the audit trail |
+| M5-20 72-hour PAPER run | **PENDING (laptop)** | needs the keyed laptop configuration |
+
+Validation (cloud): **432 offline tests passed**, Ruff clean, strict mypy clean (82 files). Live 3-minute cloud
+smoke `desk paper` (`m5_paper_cloud_smoke.json`): book created from a real 1 SOL quote (105.16 USD/SOL ⇒ 950.95 SOL
+cash, 0.951 SOL sizing base), all 11 jobs 100%, 0 unhandled exceptions, 63.7 MB peak, guardian spawned as its own
+process with a 0.5 s-old heartbeat and exited 0 on SIGTERM, reconciliation difference 0. No trades in the cloud:
+keyless public RPC cannot return holder lists (R-01), so no candidate passes security there. The smoke found two
+real bugs, both fixed with tests: USD→lamport conversion at a live rate, and the guardian idling out before the
+engine's first heartbeat.
+
 ## Key measurements from M0 (details + evidence in RESEARCH.md)
 
 - Jupiter quote round-trip cost on memecoins with $22k–$59k liquidity: **2.2%–4.1%** (0.1–1 SOL tickets).

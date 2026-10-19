@@ -94,7 +94,8 @@ class TrackedSet:
 
 
 class Collector:
-    def __init__(self, suite: ProviderSuite, dbs: Databases, loaded: LoadedConfig, *, discovery: bool = False) -> None:
+    def __init__(self, suite: ProviderSuite, dbs: Databases, loaded: LoadedConfig, *, discovery: bool = False,
+                 paper: bool = False) -> None:
         self.suite = suite
         self.dbs = dbs
         self.repo = MarketRepository(dbs.market)
@@ -108,7 +109,15 @@ class Collector:
         self._last_success_mono: dict[str, float] = {}
         from desk.discovery.engine import DiscoveryEngine
 
-        self.discovery_engine = DiscoveryEngine(suite, dbs, loaded) if discovery else None
+        self.discovery_engine = DiscoveryEngine(suite, dbs, loaded) if discovery or paper else None
+        self._last_gap_mono: float | None = None
+        self.paper_engine = None
+        if paper:
+            from desk.paper.engine import PaperEngine
+
+            self.paper_engine = PaperEngine(suite, dbs, loaded, suspended_recently=self._suspended_recently)
+            assert self.discovery_engine is not None
+            self.discovery_engine.on_pass = self.paper_engine.consider
         self._initial_db_bytes = sum(p.stat().st_size for p in dbs.paths.db_dir.glob("*.db*"))
         self._initial_budget = {r[0]: int(r[1]) for r in dbs.runtime.execute("SELECT bucket, allocated FROM rate_totals")}
 
@@ -264,13 +273,16 @@ class Collector:
             # laptop sleep shows up as wall time jumping far ahead of monotonic time
             if (time.time() - started_wall) - elapsed > max(30.0, interval):
                 self.stats.suspend_gaps += 1
-                self._coverage_since_mono = time.monotonic()
+                self._coverage_since_mono = self._last_gap_mono = time.monotonic()
                 log.warning("suspend/resume gap detected; data before the gap is stale", extra={"job": name})
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=max(0.0, interval - elapsed))
 
     def stop(self) -> None:
         self._stop.set()
+
+    def _suspended_recently(self) -> bool:
+        return self._last_gap_mono is not None and time.monotonic() - self._last_gap_mono < 300
 
     async def run(self, minutes: float) -> CollectorStats:
         s = self.settings
@@ -292,6 +304,8 @@ class Collector:
             jobs.append(("jupiter_categories", s.jupiter_trending_interval_seconds, self.jupiter_categories))
         for name, _, _ in jobs:
             self.stats.tasks[name] = TaskStats()
+        if self.paper_engine is not None:
+            await self.paper_engine.ensure_book()
         self.dbs.market.execute("INSERT INTO collector_runs(id, started_at, config_hash) VALUES (?, ?, ?)",
                                 (self.stats.run_id, self.stats.started_at, self.loaded.snapshot_hash))
         loops = [asyncio.create_task(self._loop(n, i, j), name=n) for n, i, j in jobs]

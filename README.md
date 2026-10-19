@@ -117,6 +117,19 @@ Cold-start regime history and unverified provider claims remain insufficient; th
 NO_TRADE throughout. Regime labels need 30 days of market context, which `desk discover` records every minute —
 keep it running. See the handoff for the currently missing live evidence and provenance limits.
 
+### M5: PAPER learning book (no wallet, no real money)
+
+```bash
+uv run desk paper --minutes 4320     # 72 h: collection + discovery + paper entries; starts the guardian itself
+uv run desk paper-report             # results, reconciliation, $100-account replica
+uv run desk stop                     # kill switch: no new entries (open positions stay supervised)
+uv run desk resume                   # clear it (type RESUME)
+```
+
+Paper cash is $100,000 but every ticket is sized as your $100 account (10% of $100 + realized paper profit), so
+losing streaks don't stop the learning. Up to 10 paper positions at once (free quote budget). The report also shows
+what the real $100 account would have done (2 positions, its loss limits). Use your keyed laptop setup.
+
 Profit-based sizing is a standalone M5/M6 foundation: it compounds realized net profit only with matching, fresh
 PAPER confidence evidence, and caps each ticket at 15% of eligible account capital plus the other risk limits.
 An optional absolute cap may further tighten older profiles. No runtime trade sizing,
