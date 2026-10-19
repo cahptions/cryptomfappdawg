@@ -1,0 +1,62 @@
+{
+  "scope": "Counterevidence and validation-method implications. Primary sources fetched from public GitHub mirrors using configured network policy. Mirrors do not establish authenticity beyond matching visible bibliographic front matter; no paywall/proxy bypass.",
+  "sources": [
+    {
+      "id": "V2",
+      "title": "Volatility-Managed Portfolio: Does It Really Work?",
+      "authors": [
+        "Fang Liu",
+        "Xiaoxiao Tang",
+        "Guofu Zhou"
+      ],
+      "year_of_read_version": 2018,
+      "version": "December 2018 working paper; mirror filename labels 2019 JPM, not used as evidence of published version",
+      "canonical_url": "https://ssrn.com/abstract=3283395",
+      "mirror_url": "https://github.com/coolgan/Volatility-Managed-Portfolios-Sometimes-it-Works/blob/057ac211dcbdc8564a81f626a59cdffa13322229/reference/%E3%80%90Liu%20et%20al.%2C%202019%2C%20JPM%E3%80%91Volatility%20Managed%20Portfolio_Does%20it%20Really%20Work_.pdf",
+      "sha256": "91e3b7ff20019aeddc363670fe999fdbeaa1218d83151c15dc41510e4bcd0fc5",
+      "read_scope": "Main text §§1–4, printed pp1–12; summary tables discussed in main text; Online Appendix not accessed",
+      "accessed_at": "2026-10-19",
+      "local_pdf_retained_in_repository": false
+    },
+    {
+      "id": "V1",
+      "title": "On the performance of volatility-managed portfolios",
+      "authors": [
+        "Scott Cederburg",
+        "Michael S. O’Doherty",
+        "Feifei Wang",
+        "Xuemin (Sterling) Yan"
+      ],
+      "year_of_read_version": 2020,
+      "version": "Published JFE 138 (2020), 95–117",
+      "canonical_url": "https://doi.org/10.1016/j.jfineco.2020.04.015",
+      "mirror_url": "https://github.com/coolgan/Volatility-Managed-Portfolios-Sometimes-it-Works/blob/057ac211dcbdc8564a81f626a59cdffa13322229/reference/%E3%80%90Cederburg%2C%202020%2C%20JFE%E3%80%91On%20the%20performance%20of%20volatility-managed%20portfolios.pdf",
+      "sha256": "cd25244d8a350f1fcf6c9851a69b55f489fe2d633f33420acc22625db6ac99c7",
+      "read_scope": "Partial substantive reading: §§1–4.3.3 and §5 conclusion, Table 2, Tables 5–7, Table 9, Appendix A opening; Internet Appendix not accessed",
+      "accessed_at": "2026-10-19",
+      "local_pdf_retained_in_repository": false
+    }
+  ],
+  "unread_requested_primary_sources": [
+    {
+      "title": "The Probability of Backtest Overfitting",
+      "authors": "Bailey, Borwein, López de Prado, Zhu",
+      "status": "No accessible primary PDF located in allotted research pass. Bibliographic references found in esvhd/pypbo and mrbcuda/pbo; not used as primary evidence."
+    },
+    {
+      "title": "The Deflated Sharpe Ratio",
+      "authors": "Bailey and López de Prado",
+      "status": "No primary document read; not used as evidence."
+    },
+    {
+      "title": "...and the Cross-Section of Expected Returns",
+      "authors": "Harvey, Liu, Zhu",
+      "status": "No primary document read; not used as evidence."
+    }
+  ],
+  "access_limitations": [
+    "Parent research pass reported nber.org, arxiv.org and api.github.com denied; these endpoints were not retried.",
+    "Unauthenticated GitHub code search requires sign-in; repository search later returned HTTP 429 and was discontinued.",
+    "No cross-check of publisher PDFs or Internet/Online Appendices."
+  ]
+}

@@ -1,0 +1,262 @@
+{
+  "schema_version": "1.0",
+  "created_date": "2026-10-19",
+  "scope": "Read-only cryptocurrency research; no production changes or market-data API calls.",
+  "sources": [
+    {
+      "id": "crypto_pairs",
+      "source_url": "https://raw.githubusercontent.com/jackywong1228/CTA-Quant-Papers/0c30ae8c0cdb2cc671f4a19a277633462f21cc2b/73_Cointegration_Pairs_Trading_Crypto_Tadi2021.pdf",
+      "browser_url": "https://github.com/jackywong1228/CTA-Quant-Papers/blob/0c30ae8c0cdb2cc671f4a19a277633462f21cc2b/73_Cointegration_Pairs_Trading_Crypto_Tadi2021.pdf",
+      "repository_commit": "0c30ae8c0cdb2cc671f4a19a277633462f21cc2b",
+      "sha256": "5ab7b697a7ad0787246fc7cb7da93cf13ba1a03ce12cce8498682ac4bb14cf46",
+      "bytes": 847504,
+      "unchanged_from_branch_fetch": true,
+      "title": "Evaluation of Dynamic Cointegration-Based Pairs Trading Strategy in the Cryptocurrency Market",
+      "authors": [
+        "Masood Tadi",
+        "Irina Kortchemski"
+      ],
+      "year": 2021,
+      "access_level": "full",
+      "read_scope": "Full 28-page preprint; methods, data, costs, results, and limitations examined.",
+      "primary_identifier": "arXiv:2109.10662v1",
+      "locators": [
+        "Table I p. 6",
+        "Section 3 pp. 5–8",
+        "Section 4 p. 8",
+        "Equations 19 and 26 pp. 13–14",
+        "Section 6 pp. 15–18",
+        "Section 7 pp. 18–22",
+        "Section 8 pp. 26–27"
+      ],
+      "claim_limit": "Single-exchange historical derivative backtest; not evidence of spot memecoin profitability.",
+      "accessed_at_date": "2026-10-19",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "uniswap_v2_master",
+      "source_url": "https://raw.githubusercontent.com/Uniswap/docs/1c7597d73be0e9a3a4e44aa75b8fb212b40ea136/archive/static/whitepaper.pdf",
+      "browser_url": "https://github.com/Uniswap/docs/blob/1c7597d73be0e9a3a4e44aa75b8fb212b40ea136/archive/static/whitepaper.pdf",
+      "repository_commit": "1c7597d73be0e9a3a4e44aa75b8fb212b40ea136",
+      "sha256": "32f8efd517767d8effb908e322df5ed1fe746ad0a3e642d49596cf2de1a6d21d",
+      "bytes": 316194,
+      "unchanged_from_branch_fetch": true,
+      "title": "Uniswap v2 Core",
+      "authors": [
+        "Hayden Adams",
+        "Noah Zinsmeister",
+        "Dan Robinson"
+      ],
+      "year": 2020,
+      "access_level": "full",
+      "read_scope": "Full 10-page March 2020 technical whitepaper.",
+      "locators": [
+        "Section 1 p. 1",
+        "Section 2.1 p. 2",
+        "Section 2.2 pp. 2–4, equations 1–3",
+        "Section 3.2.1 p. 7, equations 9–11",
+        "Section 3.3 pp. 7–8"
+      ],
+      "claim_limit": "Protocol mechanics, not an empirical alpha paper; Ethereum v2 mechanics and historical fee values cannot be assumed for Solana pools.",
+      "accessed_at_date": "2026-10-19",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "binance_readme",
+      "source_url": "https://raw.githubusercontent.com/binance/binance-public-data/d571690eb66760763b0bd6e27e8cd35603c7e244/README.md",
+      "browser_url": "https://github.com/binance/binance-public-data/blob/d571690eb66760763b0bd6e27e8cd35603c7e244/README.md",
+      "repository_commit": "d571690eb66760763b0bd6e27e8cd35603c7e244",
+      "sha256": "2e133d9945a9263a02781369078e72805eff074680f305cd5460016471c6caad",
+      "bytes": 5282,
+      "unchanged_from_branch_fetch": true,
+      "title": "Binance Public Data README",
+      "authors": [
+        "Binance"
+      ],
+      "year": null,
+      "access_level": "full",
+      "read_scope": "Full README.",
+      "locators": [
+        "Data Information > SPOT",
+        "SPOT > Klines",
+        "CHECKSUM",
+        "Updates",
+        "Dataset Terms"
+      ],
+      "claim_limit": "Documentation inspected; actual archive files, availability from laptop, and complete historical/delisted universe not verified.",
+      "accessed_at_date": "2026-10-19",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "binance_terms",
+      "source_url": "https://raw.githubusercontent.com/binance/binance-public-data/d571690eb66760763b0bd6e27e8cd35603c7e244/TERMS_AND_CONDITIONS.md",
+      "browser_url": "https://github.com/binance/binance-public-data/blob/d571690eb66760763b0bd6e27e8cd35603c7e244/TERMS_AND_CONDITIONS.md",
+      "repository_commit": "d571690eb66760763b0bd6e27e8cd35603c7e244",
+      "sha256": "99c4921dbe023cd68c1a447775707d621453cc78aec6ac0bfe2e6c06a5114ee0",
+      "bytes": 9807,
+      "unchanged_from_branch_fetch": true,
+      "title": "Binance Vision Dataset Terms",
+      "authors": [
+        "Binance"
+      ],
+      "year": 2026,
+      "access_level": "full",
+      "read_scope": "Full version 1.0, Last Updated August 26, 2026.",
+      "locators": [
+        "Sections 2.3–2.4",
+        "Sections 3.1–3.4",
+        "Sections 4.1–4.5",
+        "Sections 5.3 and 7"
+      ],
+      "claim_limit": "Documented terms; not a legal opinion. Free access does not imply permission for production/live proprietary trading.",
+      "accessed_at_date": "2026-10-19",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "binance_klines",
+      "source_url": "https://raw.githubusercontent.com/binance/binance-spot-api-docs/f0ee79c8ce24dbeda6645211b9504e237fddef19/rest-api.md",
+      "browser_url": "https://github.com/binance/binance-spot-api-docs/blob/f0ee79c8ce24dbeda6645211b9504e237fddef19/rest-api.md",
+      "repository_commit": "f0ee79c8ce24dbeda6645211b9504e237fddef19",
+      "sha256": "26929b1e149ca3847ff073aa956115bc98db3d4320a8dcb4841addbc6067291a",
+      "bytes": 207025,
+      "unchanged_from_branch_fetch": true,
+      "title": "Binance Spot REST API documentation",
+      "authors": [
+        "Binance"
+      ],
+      "year": null,
+      "access_level": "partial",
+      "read_scope": "Relevant General API Information, LIMITS, Kline/Candlestick data, and UIKlines sections read; entire file downloaded.",
+      "locators": [
+        "General API Information",
+        "LIMITS > IP Limits",
+        "Kline/Candlestick data",
+        "UIKlines"
+      ],
+      "claim_limit": "Documentation only; no authenticated call, trading eligibility, fee tier, archive, or market endpoint was tested.",
+      "accessed_at_date": "2026-10-19",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "pump_docs",
+      "source_url": "https://raw.githubusercontent.com/pump-fun/pump-public-docs/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/docs/PUMP_SWAP_README.md",
+      "browser_url": "https://github.com/pump-fun/pump-public-docs/blob/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/docs/PUMP_SWAP_README.md",
+      "repository_commit": "639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22",
+      "sha256": "58edc63278cf87ff464f8ff7efd55bed83f55045319e483454abd075c34956fa",
+      "bytes": 15523,
+      "unchanged_from_branch_fetch": true,
+      "title": "PumpSwap (Pump AMM) program",
+      "authors": [
+        "pump-fun"
+      ],
+      "year": null,
+      "access_level": "full",
+      "read_scope": "Full README; mechanics/state/quoting/administrative changes examined.",
+      "locators": [
+        "State > GlobalConfig",
+        "State > Pool",
+        "Quoting: effective quote reserves",
+        "Instructions > Liquidity instructions",
+        "Instructions > Admin instructions"
+      ],
+      "claim_limit": "README contains example and time-relative deployment statements; not a substitute for point-in-time on-chain reserves, flags, or total fee schedule.",
+      "accessed_at_date": "2026-10-19",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "pump_fee",
+      "source_url": "https://raw.githubusercontent.com/pump-fun/pump-public-docs/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/docs/PUMP_SWAP_CREATOR_FEE_README.md",
+      "browser_url": "https://github.com/pump-fun/pump-public-docs/blob/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/docs/PUMP_SWAP_CREATOR_FEE_README.md",
+      "repository_commit": "639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22",
+      "sha256": "ac9e4390e602e7a48af27b867ea0cae13c4fa619fce3917e6d175ce99e27b961",
+      "bytes": 4725,
+      "unchanged_from_branch_fetch": true,
+      "title": "PumpSwap creator-fee upgrade documentation",
+      "authors": [
+        "pump-fun"
+      ],
+      "year": null,
+      "access_level": "full",
+      "read_scope": "Full document.",
+      "locators": [
+        "Canonical Pump pools definition",
+        "GlobalConfig::coin_creator_fee_basis_points",
+        "Creator vault accounting"
+      ],
+      "claim_limit": "Upgrade narrative with relative dates, not proof of current fee values; preserve source date and obtain contemporaneous protocol metadata before any research execution assumptions.",
+      "accessed_at_date": "2026-10-19",
+      "third_party_pdf_committed": false
+    }
+  ],
+  "blocked_sources": [
+    {
+      "title": "Risks and Returns of Cryptocurrency",
+      "authors": [
+        "Yukun Liu",
+        "Aleh Tsyvinski"
+      ],
+      "proposed_year": 2021,
+      "url": "https://www.nber.org/system/files/working_papers/w24877/w24877.pdf",
+      "access_level": "not_read",
+      "failure": "Proxy CONNECT 403 Forbidden; no abstract or full text retrieved; no empirical claim based on this source."
+    },
+    {
+      "title": "Common Risk Factors in Cryptocurrency",
+      "authors": [
+        "Yukun Liu",
+        "Aleh Tsyvinski",
+        "Xi Wu"
+      ],
+      "proposed_year": 2022,
+      "url": "https://www.nber.org/system/files/working_papers/w25882/w25882.pdf",
+      "access_level": "not_read",
+      "failure": "Proxy CONNECT 403 Forbidden; metadata here is a research lead, not independently verified from the paper."
+    },
+    {
+      "title": "Trading and Arbitrage in Cryptocurrency Markets",
+      "authors": [
+        "Igor Makarov",
+        "Antoinette Schoar"
+      ],
+      "proposed_year": 2020,
+      "url": "https://personal.lse.ac.uk/makarov1/research/crypto.pdf",
+      "access_level": "not_read",
+      "failure": "Author host proxy CONNECT 403 Forbidden."
+    },
+    {
+      "title": "Crypto Wash Trading",
+      "authors": [
+        "Lin William Cong",
+        "Xi Li",
+        "Ke Tang",
+        "Yang Yang"
+      ],
+      "proposed_year": 2023,
+      "access_level": "not_read",
+      "failure": "No verified primary copy acquired; do not use quantitative wash-trading claims from memory."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2108.06999",
+      "access_level": "not_read",
+      "failure": "Initial host availability probe returned proxy CONNECT 403; not used as a citation."
+    }
+  ],
+  "excluded_mislabeled_copies": [
+    {
+      "url": "https://raw.githubusercontent.com/jackywong1228/CTA-Quant-Papers/main/85_Bitcoin_Volatility_Whale_Transformer_Herremans2022.pdf",
+      "actual_title": "Online Control of Adaptive Large Neighborhood Search Using Deep Reinforcement Learning",
+      "actual_authors": [
+        "Robbert Reijnen",
+        "Yingqian Zhang",
+        "Hoong Chuin Lau",
+        "Zaharah Bukhsh"
+      ],
+      "reason": "Title page identifies unrelated operations-research paper; filename is not reliable evidence."
+    }
+  ],
+  "network_notes": [
+    "Official NBER/arXiv/author/Uniswap website attempts were denied by the inherited proxy; no denial bypass or relay was used.",
+    "Legitimate official GitHub-hosted documents and a third-party deposited paper copy were acquired directly and identified by title page, exact commit, and SHA-256.",
+    "api.github.com was denied; public GitHub search returned HTTP 429 and was not pursued."
+  ]
+}

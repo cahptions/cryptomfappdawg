@@ -1,0 +1,40 @@
+{
+  "status": "PASS",
+  "scope": "Design arithmetic and contracts only; not a backtest",
+  "schema_validated_with_available_jsonschema": true,
+  "strategy_ids": [
+    "C1_BRC",
+    "C2_ECDR"
+  ],
+  "source_manifests": [
+    {
+      "file": "crypto_manifest.json",
+      "verified_document_records": 7
+    },
+    {
+      "file": "equity_manifest.json",
+      "verified_document_records": 5
+    },
+    {
+      "file": "validation_manifest.json",
+      "verified_document_records": 2
+    }
+  ],
+  "brc_closed_prices_meme": 306,
+  "brc_native_5m_bars_meme": 918,
+  "future_baseline_quote_requests_hour": 16,
+  "future_total_research_quote_requests_hour_max": 30,
+  "illustrative_independent_power_observations_ceil": 221,
+  "illustrative_arithmetic": {
+    "brc_residual_log_sum": "0.0568",
+    "brc_diagnostic_z": "2.366666666666666666666666666666666666667",
+    "brc_current_roundtrip_cost": "0.021",
+    "ecdr_shock_diagnostic_z": "-4.214420626313052049100039233572511932244",
+    "ecdr_depth_ratio": "0.9591663046625439083194876128325387839993",
+    "ecdr_current_roundtrip_cost": "0.016",
+    "ecdr_reference_target": "0.9591663046625439083194876128325387839993",
+    "ecdr_target_distance": "0.042572070285373813390747405252759547825"
+  },
+  "forward_strategy_trades_tested": 0,
+  "production_behavior_changed": false
+}
