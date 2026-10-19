@@ -15,13 +15,15 @@
 | M5 Full PAPER trading | 🟡 implemented; 72-hour acceptance pending | 2026-10-19 | $100,000 learning book, $100 replica; measured fees; H8 moonshot with evidence-gated conviction sizing |
 | M6 Statistical learning & confidence | 🟡 methods implemented; forward evidence pending | 2026-10-19 | confidence matrices, counterfactuals, champion review, zero-influence local models |
 | M7 Dashboard & operations | 🟡 implementation and automated checks | 2026-10-19 | React/FastAPI, Paper trading tab, services, backups; real-laptop acceptance pending |
-| M8 LIVE infrastructure | 🟡 incomplete; production BUY disabled | 2026-10-19 | signer infrastructure present; per-entry production gate integration missing; no real funds used |
+| M8 LIVE infrastructure | 🟡 implemented; tested against fakes only | 2026-10-19 | signer re-checks all seven gates per BUY; LIVE engine and guardian book from measured balances; no wallet funded |
 | M9 Forward validation | 🟡 report tooling implemented; forward evidence pending | 2026-10-19 | `desk report readiness`, 6-hourly refresh while PAPER runs; ≥ 60 days calendar time still required |
 
 **Mode of the system:** the configured default is SHADOW. Free provider keys remain private on the operator's
 laptop. PAPER uses a simulated **$100,000 learning book**, tickets based on a **$100 initial allocation plus
-realized paper profit**, and a separate conservative $100-account replica. Signer infrastructure exists, but
-production BUY requests are disabled pending trusted per-entry authorization. See the latest continuation below.
+realized paper profit**, and a separate conservative $100-account replica. LIVE trading is implemented (a signer
+that re-checks all seven gates for every BUY, a LIVE engine and an independent LIVE guardian) but stays impossible
+until you set `desk.mode = "LIVE"`, `DESK_LIVE_CONFIRM=yes` and an allocation, approve a version the readiness
+report calls ELIGIBLE, and arm the signer. No wallet has been funded. See the latest continuation below.
 
 ## M0 acceptance results (2026-10-18)
 
@@ -373,11 +375,11 @@ impossible until you set it (ceiling 2 SOL) and every other gate passes.
 | M8-03 intent-only | PASS | raw-transaction ops, unknown fields, string/float amounts, expired or far-future intents, amounts above the 15%-of-allocation cap and a zero allocation are refused before any order |
 | M8-04 inspection | PASS | 9 crafted attacks refused (foreign program, SOL to a stranger, wrong fee payer, output to a foreign account, token transfer, priority fee too high, two routes, close to a stranger, over-wrapping) + order/blockhash mismatches; the **real recorded Jupiter order passes** |
 | M8-05 simulation required | PASS | simulation failure, overspend or under-delivery ⇒ no signature (journal has none) |
-| M8-06 gate matrix | **INCOMPLETE — corrected on continuation** | original tests covered the display evaluator, which was disconnected from signer BUY. Production BUY now refuses by default; trusted per-entry integration remains missing. New signer tests verify refusal before order and before signing across awaited work. |
+| M8-06 gate matrix | **PASS (continuation)** | first found INCOMPLETE: the tests covered a display evaluator disconnected from signer BUY. `desk live arm` now builds the signer with the production `LiveAuthorizer`; with all seven gates the real signer orders, inspects, simulates, signs once and confirms; removing any single gate refuses before any order or signature (`tests/unit/test_live_authorize.py`) |
 | M8-07 no blind resubmit | PASS | execute timeout ⇒ polling only; one submission; EXPIRED after lastValidBlockHeight, or CONFIRMED if it lands |
 | M8-08 idempotency & recovery | PASS | duplicate id never re-signed; restart resolves SIGNED intents by polling and refuses RECEIVED ones (crashed before signing); no new intent while one is unresolved |
 | M8-09 zero-cost path | **PASS (live, cloud)** | `desk live validate`: real order for a public funded wallet passed inspection; simulation err = null, 76,169 CU; nothing signed or sent (`m8_zero_cost_validation.json`) |
-| M8-10 emergency halt | PASS (mocks) | STOP first; per-position truthful report; failures stay open as EXIT_BLOCKED; ledger reconciles |
+| M8-10 emergency halt | PASS (fakes) | STOP first; every exit runs the LIVE guardian's own path (wallet balance sold, sale booked from measured balances, account closed); per-position report CLOSED / SOLD / UNRESOLVED / FAILED with its reason; failures stay open and supervised; ledger reconciles |
 | M8-11 no real money moved | PASS | no hot wallet was funded; no transaction was ever sent |
 | M8-12 restricted withdrawal | PASS | only to the registered address with the exact phrase; single System transfer verified in the signed bytes |
 
@@ -446,9 +448,10 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
    checked-in UI needs no Node runtime.
 3. Record actual M2 24-hour discovery, M3 six-hour SHADOW/replay and M5 72-hour PAPER acceptance separately.
    Do the dashboard, service, backup recovery, lid/power and memory checks on the Dell laptop.
-4. Complete M8 production per-entry authorization; BUY remains disabled meanwhile. Continue M9 forward
-   evidence for the required calendar duration and trade count. M4 remains dropped. Do not promote a strategy
-   from fixtures, synthetic tests, short browser checks or uncalibrated research results.
+4. M8 is implemented and tested against fakes; nothing has been funded. Continue M9 forward evidence for the
+   required calendar duration and trade count. Real money only after the readiness verdict and your own decision,
+   following docs/RUNBOOK.md ("Going LIVE"). M4 remains dropped. Do not promote a strategy from fixtures,
+   synthetic tests, short browser checks or uncalibrated research results.
 
 ## Session log
 - **2026-10-18 (session 1):** M0 research (live read-only probes of GeckoTerminal, DexScreener, Solana public RPC/WS,
@@ -605,3 +608,54 @@ New tests build decisions from real builder output, prove v3's universal veto an
 claim, still vetoes real exhaustion and missing inputs), and assert each strategy's input availability (M3-13).
 The council research branch itself remains research only and was not merged.
 
+## M8 completed: per-intent authorization, settlement and the LIVE executor (2026-10-19 UTC, Claude)
+
+The gap Codex found in M8-06 is closed and the rest of the LIVE path is built. Tested only against fakes: no key
+was used, no wallet funded, nothing signed or sent (M8-11 holds).
+
+**Per-intent authorization (M8-06).** `desk live arm` builds the signer with `desk.live.authorize.LiveAuthorizer`.
+Synchronously before every check that can lead to a signature, it opens fresh read-only snapshots and
+re-establishes all seven gates for that exact intent: LIVE mode plus `DESK_LIVE_CONFIRM` in the signer's own
+environment, a typed approval of the intent's strategy version, an ELIGIBLE readiness report at most 7 days old (or
+a recorded override), the capital allocation within the ceiling, preflight (no STOP or LIVE halt, fresh LIVE
+guardian heartbeat, fresh market data, the intent's quote recorded seconds ago, a fresh security PASS, the LIVE
+position limit, one position per token) and a calibrated regime the strategy accepts. The approved strategy must
+still choose the candidate when its decision is re-evaluated on current data. Unreadable evidence is a refusal.
+
+**Settlement.** A landed swap reports what changed on-chain: the wallet's SOL and its own token-account changes,
+and whether the token account was created (its rent). A transaction that lands but fails reports the fee it paid.
+The balances read just before signing are journaled, so a signer restarted after a crash measures what landed and
+reports it too. The signer can close the wallet's own empty token account (rent back) and answers read-only
+lookups of any intent's journaled outcome.
+
+**LIVE executor (`desk live run`, `desk live guardian`).** `desk live run` refuses unless gates 1 and 4 hold; it runs
+discovery, PAPER and the LIVE engine together, and both books decide on the same security PASS concurrently. The
+LIVE engine decides with typed-approved hypotheses only (baselines never trade LIVE), applies the §13.2 account
+limits (2 positions, 10 trades a day, 6 requests a minute, 5% daily realized loss, 8% daily drawdown, 25% drawdown
+from peak and 3 consecutive failed transactions — the last two persist until a typed `desk live resume`, which
+restarts the peak and the count), sizes 10% of min(equity, allocation) within every cap, takes a fresh exact-size
+quote and its sell-back against the strategy's round-trip cost limit, and checks the same authorization the signer
+will apply, so refused intents are never sent. LIVE never compounds by itself: the signer caps each BUY at 15% of
+the allocation, so the account grows only when the operator raises `live.max_capital_sol` (ceiling 2 SOL).
+
+The independent LIVE guardian (heartbeat `guardian-live`, its own lock) reuses PAPER's marks, impairment and exit
+rules. An exit sells the wallet's on-chain token balance (read from the chain, so an estimated booking never leaves
+tokens behind), sells any remainder, then closes the token account; the position closes at exactly what the wallet
+received. Refused, failed or expired exits are retried, become EXIT_BLOCKED after three and stay supervised;
+tokens missing from the wallet halt LIVE entries (`RECONCILE_REQUIRED`). Every request is journaled in the LIVE
+ledger before it is sent; a lost answer is resolved from the signer's journal before that position or any new
+entry proceeds, and nothing is ever resent; a request that never arrived is closed only after it expires. Each
+booking also resolves its request in one transaction, so a recovered outcome can never be booked twice.
+`desk liquidate --all --live` now uses the guardian's exit path (or hands positions to the running LIVE guardian).
+The dashboard's Live page shows the LIVE book read-only. New settings: `live.entry_slippage_bps = 100`,
+`live.exit_slippage_bps = 300`.
+
+**Discovery-to-PAPER audit.** Suspected: PAPER sizing needs a SOL/USD quote at most 120 s old, which every PAPER
+test seeded itself. Verified not a bug: discovery records that quote seconds before it hands a PASS to PAPER. A new
+test runs the real discovery engine into the real PAPER engine (real feature builder and decision, network mocked)
+with the book's own quote an hour old; removing discovery's quote save makes it fail.
+
+Checks: **795 passed, 5 opt-in live tests deselected**; Ruff and strict mypy (130 source files) clean; TypeScript
+build and Prettier; Chromium smoke (empty and populated fixtures, all nine views) passed. Two halts that re-applied
+themselves the moment `desk live resume` lifted them were found by the new tests and fixed (the peak and failure
+count now restart at the resume).

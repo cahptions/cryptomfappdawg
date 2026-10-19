@@ -881,6 +881,28 @@ Before any real-money use, M8 validates the full path (order → inspect → sim
 A tiny real-money calibration trade (e.g. 0.01 SOL) to measure true execution costs is **optional** and requires its
 own explicit approval.
 
+### 16.7 LIVE executor (built 2026-10-19; tested against fakes only)
+- **`desk live run`** refuses unless gates 1 and 4 hold. It runs discovery, PAPER and the LIVE engine together; both
+  books decide on the same security PASS, concurrently, and PAPER keeps learning. It starts the LIVE guardian.
+- **LIVE engine** (`desk.live.engine`): typed-approved hypotheses only, with the overlays every decision uses; the
+  §13.2 account limits; ticket = 10% × min(equity, allocation) within the equity, free-capital, liquidity and
+  exposure caps (no compounding: the signer caps each BUY at 15% of `live.max_capital_sol`, so growth is the
+  operator raising the allocation); a fresh exact-size quote and its sell-back within the strategy's round-trip cost
+  limit; then the same per-intent authorization the signer applies, so refused intents are not sent. The BUY's
+  minimum output is the quote less `live.entry_slippage_bps`.
+- **LIVE guardian** (`desk live guardian`; heartbeat `guardian-live`, its own lock): PAPER's marks, impairment and
+  exit rules on the LIVE book. An exit sells the wallet's on-chain token balance (less `live.exit_slippage_bps`),
+  sells any remainder, then closes the token account; halts never stop exits.
+- **Booking** (`desk.live.book`, ledger-live.db): every amount comes from the balance changes the signer measured
+  (else the intent's guaranteed bounds, flagged); a position closes at exactly what the wallet received, so the
+  ledger's cash moves as the wallet does. Fees of failed transactions are booked too.
+- **Lost answers:** each request is journaled before it is sent; an unanswered one is resolved from the signer's
+  journal (`lookup`) before that position or any new entry proceeds and is never resent; one that never arrived is
+  closed only after its expiry. Each booking resolves its request in the same transaction.
+- **Persistent halts:** cumulative drawdown (25% from peak), consecutive failed transactions (3) and tokens missing
+  from the wallet (`RECONCILE_REQUIRED`) stop LIVE entries until a typed `desk live resume`, which restarts the peak
+  and the failure count from that moment.
+
 ---
 
 ## 17. Dashboard: stack, design system, and branding

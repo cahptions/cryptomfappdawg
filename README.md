@@ -151,7 +151,7 @@ observed/conservative/stress results, the $100-account replica, every strategy's
 risks, the disclosures and the query behind every figure. While `desk paper` runs it is rewritten every 6 hours and
 the verdict appears on the dashboard (Overview and Research). ELIGIBLE only permits your review; it changes nothing.
 
-### M8: real-money infrastructure (never used until you decide)
+### M8: real money (never used until you decide)
 
 ```bash
 uv run desk live keygen          # creates YOUR hot wallet locally; prints only the public address
@@ -159,15 +159,25 @@ uv run desk live validate        # zero-cost check of the whole order → inspec
 uv run desk live status          # the seven LIVE gates and which are missing
 ```
 
-The seven-gate display reports requirements: `desk.mode = "LIVE"` plus `DESK_LIVE_CONFIRM=yes`, a typed
-`desk live approve <strategy version>`, a confidence verdict of ELIGIBLE FOR MANUAL LIVE REVIEW, your own
-`live.max_capital_sol` (> 0, ceiling 2 SOL), the signer armed with your passphrase (`desk live arm`), fresh
-preflight checks and a calibrated market regime. Those checks still need production per-entry integration;
-BUY requests are refused even if the signer is unlocked. Never paste the passphrase or any key into a chat.
+LIVE stays impossible until all seven gates hold: `desk.mode = "LIVE"` plus `DESK_LIVE_CONFIRM=yes`, a typed
+`desk live approve <strategy version>`, a readiness verdict of ELIGIBLE FOR MANUAL LIVE REVIEW at most seven days
+old, your own `live.max_capital_sol` (> 0, ceiling 2 SOL), the signer armed with your passphrase (`desk live arm`),
+fresh preflight checks and a calibrated market regime. The signer re-checks all seven for every BUY immediately
+before signing. When you decide, the steps are in [docs/RUNBOOK.md](docs/RUNBOOK.md) ("Going LIVE"):
 
-The conservative real-account sizing foundation requires qualified realized profit and fresh confidence evidence
-before increasing exposure, with a relative 15% hard cap and other limits. The separate PAPER learning book follows
-the later research policy described above; its simulated profit growth does not authorize a larger real trade.
+```bash
+uv run desk live arm             # terminal 1: unlock the signer (type the passphrase here, nowhere else)
+uv run desk live run             # terminal 2: PAPER keeps learning; LIVE decides on the same candidates
+```
+
+Both terminals need `DESK_LIVE_CONFIRM=yes` and the private configuration copy (`DESK_CONFIG_DIR`) described there.
+
+`desk live run` also starts the independent LIVE guardian, which exits LIVE positions through the signer. LIVE
+tickets are 10% of min(equity, allocation), so the 0.05 SOL minimum ticket needs at least 0.5 SOL of allocation.
+LIVE never compounds by itself: it grows only when you raise `live.max_capital_sol`. Fund the hot wallet with the
+allocation plus the 0.05 SOL reserve plus about 0.01 SOL for fees. Never paste the passphrase or any key into a chat.
+
+The PAPER learning book's profit-based growth is research; it does not authorize a larger real trade.
 
 ### M7: local dashboard and operations
 

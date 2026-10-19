@@ -2,8 +2,9 @@
 
 Branch: **`claude/funny-rubin-gq99vj`**. It contains all of Codex's `codex/continue-claude` (through `32344da`)
 plus the Paper trading tab, measured paper fees, the H8 moonshot hypothesis with evidence-gated conviction sizing,
-hypotheses-before-baselines ranking (`shadow-rules-v3`) and replay of every recorded evaluator version. Details:
-the last section of [PROGRESS.md](PROGRESS.md).
+hypotheses-before-baselines ranking, replay of every recorded evaluator version, the M9 readiness report, the fix
+for always-NO_TRADE production decisions (`shadow-rules-v4`) and the completed M8 LIVE path. Details: the last
+sections of [PROGRESS.md](PROGRESS.md).
 
 Validation in the cloud: the offline suite, Ruff, strict mypy, the TypeScript build, contrast checks and a headless
 Chromium check of the new tab at 1920×1080 and 390×844 passed. Nothing here used a wallet, signature or transaction.
@@ -58,6 +59,13 @@ Built assets are included; Node is needed only when changing UI source, via `scr
   with one verdict from recorded data. While `desk paper` runs it is refreshed every 6 hours and the verdict shows
   on Overview and Research. This is the signal to watch before considering real money; ELIGIBLE only permits a
   review, and LIVE still needs every gate.
+- **Decisions on real inputs.** Every production decision had been NO_TRADE (an overlay vetoed on a value the
+  builder always marks unverified) and H8 could never qualify (it needed an input never produced). Fixed by
+  evaluator `shadow-rules-v4` and H8 v3; older runs still replay with their own evaluator.
+- **LIVE (M8) completed, never used.** The signer re-checks all seven gates for every BUY just before signing.
+  `desk live run` (PAPER plus LIVE) and the LIVE guardian trade only through the signer and book every amount from
+  the wallet's measured balance changes; lost answers are looked up, never resent. Nothing runs LIVE until you set
+  the mode, capital and approval and arm the signer: see the runbook's "Going LIVE". No wallet was funded.
 
 ## What changed after Claude
 
@@ -82,10 +90,9 @@ Built assets are included; Node is needed only when changing UI source, via `scr
   using the same role/data directory refuses startup. Guardian operation remains independent of the engine.
 - PAPER now rechecks STOP, halts, guardian freshness and context after a delayed quote and before opening.
   Concurrent exit attempts settle cash only once. Blocked exits retry independently of mark updates.
-- Corrected a material M8 gap: the seven-gate report was disconnected from signer BUY processing. Production
-  BUY now refuses with `LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE` before ordering/signing. The internal policy
-  callback used by isolated tests is not exposed through configuration, HTTP or signer JSON. SELL recovery
-  and restricted withdrawal paths remain available. M8 is incomplete until production authorization exists.
+- Corrected a material M8 gap: the seven-gate report was disconnected from signer BUY processing, so production
+  BUY was made to refuse before ordering/signing. Claude has since connected the production per-intent
+  authorizer (see "What changed in this update"); a signer without it still refuses every BUY.
 
 ## Operation
 
@@ -138,7 +145,8 @@ these requirements:
 3. Complete 72 hours of PAPER with reconciliation, guardian/failure evidence and provider-budget checks.
 4. Run the dashboard on the Dell Ryzen 7/16 GiB Mint laptop; check responsiveness, memory over time,
    accessibility, power/lid behavior and the beginner operations checklist.
-5. Connect and validate trusted production LIVE entry authorization before considering M8 complete.
+5. LIVE was tested only against fakes. Before real money: the M9 verdict, your approval, `desk live validate` on
+   the laptop, and optionally one tiny calibration trade with its own approval (PLAN §16.6).
 6. Collect the required forward-validation calendar time and sufficient closed trades for M9. No profitability
    or LIVE readiness follows from implementation tests or simulated examples.
 

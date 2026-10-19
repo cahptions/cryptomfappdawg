@@ -37,8 +37,8 @@ uv run desk dashboard
 ```
 
 Open `http://127.0.0.1:8765` in Firefox. Keep that terminal open. `Ctrl+C` stops the dashboard process; it does not
-close PAPER positions. The mode badge must say PAPER or SHADOW for the corresponding data. LIVE infrastructure
-tests do not authorize real entries; live buying remains disabled until its authorization gates are connected.
+close PAPER positions. The mode badge must say PAPER or SHADOW for the corresponding data. The Live page shows the
+seven gates and, once `desk live run` has created it, the LIVE book; it can disarm the signer but never arm it.
 
 ## Collect and verify the 24-hour discovery run
 
@@ -171,6 +171,63 @@ Only `/status` and `/stop` are accepted, only from the configured chat. Other ch
 There is no Telegram resume, arbitrary command execution, signing or LIVE arm command. `/stop` stops PAPER entries
 and leaves the guardian supervising. If its reply says the halt could not be confirmed, run `desk stop` locally.
 The local daily-report builder does not send anything by itself.
+
+## Going LIVE (only after the readiness report and your own decision)
+
+Nothing here happens by itself, and every step is yours. The readiness report must say ELIGIBLE FOR MANUAL LIVE
+REVIEW for the version you approve; that verdict only permits this review.
+
+1. **Wallet.** `uv run desk live keygen` once. It prints the public address only; the encrypted keystore is
+   `~/.config/desk/hot-wallet.json`. Keep a backup of that file and remember the passphrase. Never paste either
+   anywhere.
+2. **Zero-cost check.** `uv run desk live validate` builds a real order for a public address, inspects and
+   simulates it, and sends nothing.
+3. **Capital, in a private copy of the configuration** (so a code update never overwrites it):
+
+   ```bash
+   mkdir -p ~/.config/desk && cp -r ~/kestrel/config ~/.config/desk/config
+   ```
+
+   In `~/.config/desk/config/default.toml` set `mode = "LIVE"` under `[desk]` and `max_capital_sol = "0.5"` (your
+   amount; ceiling 2 SOL) under `[live]`. After each code update copy the folder again and re-apply those two lines;
+   a setting the copy lacks makes the desk refuse to start rather than guess. Send the hot wallet the allocation
+   plus the 0.05 SOL reserve plus about 0.01 SOL for fees. Tickets are 10% of min(equity, allocation): 0.5 SOL is the
+   smallest allocation that clears the 0.05 SOL minimum ticket.
+4. **Approve one version.** `uv run desk live approve <version>` with the typed confirmation.
+5. **Arm.** Terminal 1:
+
+   ```bash
+   export DESK_CONFIG_DIR=~/.config/desk/config DESK_LIVE_CONFIRM=yes
+   uv run desk live arm             # type the passphrase; leave this terminal open (closing it disarms)
+   ```
+
+   The signer checks gate 1 in its own environment, so both variables belong in this terminal too.
+6. **Run.** Terminal 2, after stopping any `desk paper` run (LIVE runs PAPER in the same process):
+
+   ```bash
+   export DESK_CONFIG_DIR=~/.config/desk/config DESK_LIVE_CONFIRM=yes
+   uv run desk live run             # refuses to start unless the mode and capital are set
+   ```
+
+   The LIVE guardian starts by itself and inherits these settings.
+7. **Watch.** `uv run desk live status` (with the same `DESK_CONFIG_DIR`) and the dashboard's Live page. Every BUY is
+   re-checked against all seven gates by the signer immediately before signing; a missing gate refuses it.
+
+Stopping and recovering:
+
+- `uv run desk stop` stops new PAPER and LIVE entries; open positions stay supervised and keep their exits.
+- `uv run desk live disarm` locks the signer. Exits then cannot be signed either, so stop entries first and disarm
+  when no LIVE position is open, unless you mean to freeze everything.
+- `uv run desk liquidate --all --live` sells every LIVE position now and reports each result. A position that is not
+  CLOSED stays open and supervised.
+- A LIVE halt (`CUMULATIVE_DRAWDOWN`, `CONSECUTIVE_FAILED_TX`, `RECONCILE_REQUIRED`) stops LIVE entries until you
+  have looked at why and typed `uv run desk live resume`. `RECONCILE_REQUIRED` means the wallet no longer holds a
+  position's tokens: check the wallet on a block explorer before resuming.
+- After a crash, re-arm and restart. Requests whose answers were lost are looked up in the signer's journal and
+  booked once; nothing is resent.
+
+LIVE amounts are booked from what the wallet's balances actually changed by. Results so far were tested only
+against fakes; the first real trades are the first real measurement.
 
 ## Failure recovery
 
