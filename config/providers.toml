@@ -143,6 +143,12 @@ path = "/tokens/v2/{category}/{interval}"
 status = "verified"
 verified_fields = ["same as tokens_search"]
 
+[providers.jupiter.endpoints.shield]
+path = "/ultra/v1/shield"
+status = "verified"
+notes = "Measured on lite-api in M0; keyed route remains subject to verification. Missing mint is insufficient data."
+verified_fields = ["warnings.{mint}[].{type,severity}"]
+
 # ── Solana RPC ───────────────────────────────────────────────────────────────
 [providers.solana_rpc]
 display_name = "Solana RPC"

@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 
 from desk.contracts.market import PoolSnapshot
-from desk.core.clock import to_iso, utc_now
+from desk.core.clock import parse_iso8601, to_iso, utc_now
 from desk.core.config import LoadedConfig
 from desk.core.errors import ProviderError
 from desk.core.hashing import canonical_json
@@ -56,6 +56,9 @@ class CollectorStats:
     rss_mb: float | None = None
     peak_rss_mb: float | None = None
     db_counts: dict[str, int] = field(default_factory=dict)
+    discovery: dict[str, object] | None = None
+    elapsed_monotonic_seconds: float | None = None
+    completed_requested_duration: bool = False
 
 
 class TrackedSet:
@@ -80,7 +83,7 @@ class TrackedSet:
 
 
 class Collector:
-    def __init__(self, suite: ProviderSuite, dbs: Databases, loaded: LoadedConfig) -> None:
+    def __init__(self, suite: ProviderSuite, dbs: Databases, loaded: LoadedConfig, *, discovery: bool = False) -> None:
         self.suite = suite
         self.dbs = dbs
         self.repo = MarketRepository(dbs.market)
@@ -89,6 +92,12 @@ class Collector:
         self.tracked = TrackedSet(self.settings.max_tracked_tokens)
         self.stats = CollectorStats(run_id=new_id("run"), started_at=to_iso(utc_now()))
         self._stop = asyncio.Event()
+        self._run_started_mono = time.monotonic()
+        from desk.discovery.engine import DiscoveryEngine
+
+        self.discovery_engine = DiscoveryEngine(suite, dbs, loaded) if discovery else None
+        self._initial_db_bytes = sum(p.stat().st_size for p in dbs.paths.db_dir.glob("*.db*"))
+        self._initial_budget = {r[0]: int(r[1]) for r in dbs.runtime.execute("SELECT bucket, allocated FROM rate_totals")}
 
     # ── individual collection jobs ─────────────────────────────────────────────────────────────────
     def _save_pools(self, name: str, snapshots: list[PoolSnapshot], errors: list[str], raw: str,
@@ -138,6 +147,26 @@ class Collector:
             self._save_pools("dexscreener_refresh", fetched.items, fetched.errors, fetched.raw_sha256,
                              lambda s: False)
 
+    async def dexscreener_promotions(self) -> None:
+        fetched = await self.suite.dexscreener.profiles()
+        self.repo.save_token_claims(fetched.items)
+        self.repo.record_ingest_errors("dexscreener_promotions", fetched.errors, fetched.raw_sha256)
+        for claim in fetched.items:
+            self.tracked.add(claim.mint)
+        self.stats.tasks["dexscreener_promotions"].items += len(fetched.items)
+        self.stats.tasks["dexscreener_promotions"].item_errors += len(fetched.errors)
+
+    async def jupiter_categories(self) -> None:
+        for category in ("toptraded", "toporganicscore"):
+            for interval in ("5m", "1h"):
+                fetched = await self.suite.jupiter.tokens_category(category, interval, 50)
+                self.repo.save_token_claims(fetched.items)
+                self.repo.record_ingest_errors("jupiter_categories", fetched.errors, fetched.raw_sha256)
+                for claim in fetched.items:
+                    self.tracked.add(claim.mint)
+                self.stats.tasks["jupiter_categories"].items += len(fetched.items)
+                self.stats.tasks["jupiter_categories"].item_errors += len(fetched.errors)
+
     async def rpc_slot(self) -> None:
         await self.suite.rpc.get_slot()
         self.stats.tasks["rpc_slot"].items += 1
@@ -146,6 +175,10 @@ class Collector:
             "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at",
             (os.getpid(), to_iso(utc_now())),
         )
+
+    async def evaluate_discovery(self) -> None:
+        assert self.discovery_engine is not None
+        self.stats.tasks["discovery_evaluation"].items += await self.discovery_engine.evaluate_cycle()
 
     # ── scheduling ─────────────────────────────────────────────────────────────────────────────────
     async def _loop(self, name: str, interval: float, job: Callable[[], Awaitable[None]]) -> None:
@@ -186,6 +219,12 @@ class Collector:
             ("dexscreener_refresh", s.dexscreener_refresh_interval_seconds, self.dexscreener_refresh),
             ("rpc_slot", s.rpc_slot_interval_seconds, self.rpc_slot),
         ]
+        if self.discovery_engine is not None:
+            jobs.append(("discovery_evaluation", self.loaded.settings.discovery.evaluation_interval_seconds,
+                         self.evaluate_discovery))
+            jobs.append(("dexscreener_promotions", s.dexscreener_promotions_interval_seconds,
+                         self.dexscreener_promotions))
+            jobs.append(("jupiter_categories", s.jupiter_trending_interval_seconds, self.jupiter_categories))
         for name, _, _ in jobs:
             self.stats.tasks[name] = TaskStats()
         self.dbs.market.execute("INSERT INTO collector_runs(id, started_at, config_hash) VALUES (?, ?, ?)",
@@ -194,7 +233,7 @@ class Collector:
         try:
             await asyncio.wait_for(self._stop.wait(), timeout=minutes * 60)
         except TimeoutError:
-            pass
+            self.stats.completed_requested_duration = True
         finally:
             self._stop.set()
             await asyncio.gather(*loops, return_exceptions=True)
@@ -202,11 +241,26 @@ class Collector:
 
     def finish(self) -> CollectorStats:
         self.stats.ended_at = to_iso(utc_now())
+        self.stats.elapsed_monotonic_seconds = time.monotonic() - self._run_started_mono
         self.stats.tracked_tokens = len(self.tracked)
         rss = system.process_rss_mb()
         if rss is not None:
             self.stats.rss_mb, self.stats.peak_rss_mb = round(rss[0], 1), round(rss[1], 1)
         self.stats.db_counts = self.repo.counts()
+        if self.discovery_engine is not None:
+            self.stats.discovery = self.discovery_engine.repo.report()
+            self.stats.discovery["during_run"] = self.discovery_engine.repo.window_report(
+                parse_iso8601(self.stats.started_at))
+            self.stats.discovery["database_growth_bytes"] = (
+                sum(p.stat().st_size for p in self.dbs.paths.db_dir.glob("*.db*")) - self._initial_db_bytes)
+            totals = {r[0]: int(r[1]) for r in self.dbs.runtime.execute("SELECT bucket, allocated FROM rate_totals")}
+            budget = {}
+            for client in (self.suite.geckoterminal, self.suite.dexscreener, self.suite.jupiter, self.suite.rpc):
+                for bucket in client.http.spec.buckets:
+                    key = client.http.limiter_key(bucket)
+                    budget[key] = {"shared_allocations_during_run": totals.get(key, 0) - self._initial_budget.get(key, 0),
+                                   "configured_windows": client.http.windows(bucket)}
+            self.stats.discovery["provider_budget"] = budget
         self.dbs.market.execute("UPDATE collector_runs SET ended_at = ?, stats_json = ? WHERE id = ?",
                                 (self.stats.ended_at, canonical_json(asdict(self.stats)), self.stats.run_id))
         return self.stats
@@ -224,4 +278,6 @@ def render_stats(stats: CollectorStats) -> str:
               f"  tracked tokens: {stats.tracked_tokens}",
               f"  memory: {stats.rss_mb} MB now, {stats.peak_rss_mb} MB peak",
               f"  database rows: {stats.db_counts}"]
+    if stats.discovery is not None:
+        lines.append("\nDiscovery report (cumulative database evidence):\n" + canonical_json(stats.discovery))
     return "\n".join(lines)

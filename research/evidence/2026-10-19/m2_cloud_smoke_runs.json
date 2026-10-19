@@ -1,0 +1,1060 @@
+{
+  "source": "Executed in the Codex cloud environment, not the operator laptop",
+  "scope": "Short read-only smoke runs; do not satisfy M2-14 24-hour acceptance",
+  "runs": [
+    {
+      "id": "run_01M58YRY48QMVTY7BE03JR41PS",
+      "started_at": "2026-10-19T02:10:14.280028+00:00",
+      "ended_at": "2026-10-19T02:12:21.090620+00:00",
+      "config_hash": "731938132cc7bcf6ede3105148e07673f4c02c19648c4207cbfae66cd49a05d8",
+      "stats": {
+        "db_counts": {
+          "ingest_errors": 0,
+          "market_snapshots": 171,
+          "mint_accounts": 4,
+          "pools": 112,
+          "quotes": 4,
+          "raw_responses": 27,
+          "token_claims": 110,
+          "tokens": 165
+        },
+        "discovery": {
+          "by_reason": {
+            "MIGRATION": 13,
+            "NEW_POOL": 48,
+            "NEW_TOKEN": 159
+          },
+          "by_source": {
+            "dexscreener.tokens_v1": 71,
+            "geckoterminal.new_pools": 40,
+            "geckoterminal.trending_pools": 20,
+            "jupiter.tokens_recent": 58,
+            "jupiter.toptrending_1h": 50
+          },
+          "by_state": {
+            "DEFER": 127,
+            "REJECT": 93
+          },
+          "candidates": 220,
+          "database_growth_bytes": 5994800,
+          "observations_by_reason": {
+            "ACCELERATION": 44,
+            "MIGRATION": 13,
+            "NEW_POOL": 51,
+            "NEW_TOKEN": 173
+          },
+          "orphans": 0,
+          "provider_budget": {
+            "dexscreener:default": {
+              "configured_windows": [
+                [
+                  120,
+                  60.0
+                ],
+                [
+                  10,
+                  1.0
+                ]
+              ],
+              "shared_allocations_during_run": 3
+            },
+            "dexscreener:promotions": {
+              "configured_windows": [
+                [
+                  10,
+                  60.0
+                ]
+              ],
+              "shared_allocations_during_run": 0
+            },
+            "geckoterminal:default": {
+              "configured_windows": [
+                [
+                  8,
+                  60.0
+                ],
+                [
+                  2,
+                  15.0
+                ]
+              ],
+              "shared_allocations_during_run": 3
+            },
+            "jupiter:default": {
+              "configured_windows": [
+                [
+                  4,
+                  10.0
+                ],
+                [
+                  25,
+                  60.0
+                ]
+              ],
+              "shared_allocations_during_run": 7
+            },
+            "solana_rpc:default": {
+              "configured_windows": [
+                [
+                  8,
+                  10.0
+                ]
+              ],
+              "shared_allocations_during_run": 20
+            }
+          },
+          "rejection_reasons": [
+            {
+              "count": 108,
+              "rule_id": "AWAITING_POOL"
+            },
+            {
+              "count": 32,
+              "rule_id": "BONDING_CURVE"
+            },
+            {
+              "count": 23,
+              "rule_id": "FDV_RANGE"
+            },
+            {
+              "count": 16,
+              "rule_id": "QUOTE_TOKEN"
+            },
+            {
+              "count": 13,
+              "rule_id": "VOLUME_H1"
+            },
+            {
+              "count": 10,
+              "rule_id": "BUDGET_QUEUE"
+            },
+            {
+              "count": 8,
+              "rule_id": "DISTINCT_TRADERS_H1"
+            },
+            {
+              "count": 5,
+              "rule_id": "POOL_AGE"
+            },
+            {
+              "count": 4,
+              "rule_id": "LIQUIDITY_RANGE"
+            },
+            {
+              "count": 4,
+              "rule_id": "INSUFFICIENT_DATA:SECURITY_DOSSIER"
+            },
+            {
+              "count": 2,
+              "rule_id": "INSUFFICIENT_DATA:FDV"
+            }
+          ],
+          "stage_results": [
+            {
+              "count": 225,
+              "outcome": "PASS",
+              "stage": 0
+            },
+            {
+              "count": 113,
+              "outcome": "DEFER",
+              "stage": 1
+            },
+            {
+              "count": 468,
+              "outcome": "PASS",
+              "stage": 1
+            },
+            {
+              "count": 90,
+              "outcome": "REJECT",
+              "stage": 1
+            },
+            {
+              "count": 5,
+              "outcome": "DEFER",
+              "stage": 2
+            },
+            {
+              "count": 14,
+              "outcome": "PASS",
+              "stage": 2
+            },
+            {
+              "count": 3,
+              "outcome": "REJECT",
+              "stage": 2
+            },
+            {
+              "count": 14,
+              "outcome": "DEFER",
+              "stage": 3
+            }
+          ]
+        },
+        "ended_at": "2026-10-19T02:12:21.090620+00:00",
+        "peak_rss_mb": 55.3,
+        "rss_mb": 55.3,
+        "run_id": "run_01M58YRY48QMVTY7BE03JR41PS",
+        "started_at": "2026-10-19T02:10:14.280028+00:00",
+        "suspend_gaps": 0,
+        "tasks": {
+          "dexscreener_refresh": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 71,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          },
+          "discovery_evaluation": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 4,
+            "last_error": null,
+            "scheduled": 3,
+            "succeeded": 3
+          },
+          "geckoterminal_new_pools": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 80,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          },
+          "geckoterminal_trending": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 20,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "jupiter_recent": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 60,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          },
+          "jupiter_trending": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 50,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "rpc_slot": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 2,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          }
+        },
+        "tracked_tokens": 72,
+        "unhandled_exceptions": 0
+      }
+    },
+    {
+      "id": "run_01M58Z30H2CRFBK1Q5WFHDYX97",
+      "started_at": "2026-10-19T02:15:44.418360+00:00",
+      "ended_at": "2026-10-19T02:17:44.462859+00:00",
+      "config_hash": "12c89309ae45312901cf7c0c5393a9ed4b605930442560ce5a12eb4724c5fa64",
+      "stats": {
+        "db_counts": {
+          "ingest_errors": 0,
+          "market_snapshots": 422,
+          "mint_accounts": 8,
+          "pools": 237,
+          "quotes": 8,
+          "raw_responses": 62,
+          "token_claims": 447,
+          "tokens": 325
+        },
+        "discovery": {
+          "by_reason": {
+            "MIGRATION": 45,
+            "NEW_POOL": 119,
+            "NEW_TOKEN": 322
+          },
+          "by_source": {
+            "dexscreener.promotions": 27,
+            "dexscreener.tokens_v1": 164,
+            "geckoterminal.new_pools": 80,
+            "geckoterminal.trending_pools": 22,
+            "jupiter.tokens_recent": 110,
+            "jupiter.toporganicscore_1h": 50,
+            "jupiter.toporganicscore_5m": 50,
+            "jupiter.toptraded_1h": 50,
+            "jupiter.toptraded_5m": 50,
+            "jupiter.toptrending_1h": 59
+          },
+          "by_state": {
+            "DEFER": 381,
+            "REJECT": 105
+          },
+          "candidates": 486,
+          "database_growth_bytes": 7171280,
+          "observations_by_reason": {
+            "ACCELERATION": 99,
+            "MIGRATION": 56,
+            "NEW_POOL": 176,
+            "NEW_TOKEN": 538
+          },
+          "orphans": 0,
+          "provider_budget": {
+            "dexscreener:default": {
+              "configured_windows": [
+                [
+                  120,
+                  60.0
+                ],
+                [
+                  10,
+                  1.0
+                ]
+              ],
+              "shared_allocations_during_run": 6
+            },
+            "dexscreener:promotions": {
+              "configured_windows": [
+                [
+                  10,
+                  60.0
+                ]
+              ],
+              "shared_allocations_during_run": 1
+            },
+            "geckoterminal:default": {
+              "configured_windows": [
+                [
+                  8,
+                  60.0
+                ],
+                [
+                  2,
+                  15.0
+                ]
+              ],
+              "shared_allocations_during_run": 3
+            },
+            "jupiter:default": {
+              "configured_windows": [
+                [
+                  4,
+                  10.0
+                ],
+                [
+                  25,
+                  60.0
+                ]
+              ],
+              "shared_allocations_during_run": 11
+            },
+            "solana_rpc:default": {
+              "configured_windows": [
+                [
+                  8,
+                  10.0
+                ]
+              ],
+              "shared_allocations_during_run": 14
+            }
+          },
+          "rejection_reasons": [
+            {
+              "count": 357,
+              "rule_id": "AWAITING_POOL"
+            },
+            {
+              "count": 104,
+              "rule_id": "SNAPSHOT_FRESHNESS"
+            },
+            {
+              "count": 71,
+              "rule_id": "BONDING_CURVE"
+            },
+            {
+              "count": 35,
+              "rule_id": "QUOTE_TOKEN"
+            },
+            {
+              "count": 32,
+              "rule_id": "FDV_RANGE"
+            },
+            {
+              "count": 29,
+              "rule_id": "VOLUME_H1"
+            },
+            {
+              "count": 22,
+              "rule_id": "POOL_AGE"
+            },
+            {
+              "count": 21,
+              "rule_id": "LIQUIDITY_RANGE"
+            },
+            {
+              "count": 20,
+              "rule_id": "BUDGET_QUEUE"
+            },
+            {
+              "count": 11,
+              "rule_id": "DISTINCT_TRADERS_H1"
+            },
+            {
+              "count": 4,
+              "rule_id": "UNSUPPORTED_POOL_FEATURE"
+            },
+            {
+              "count": 4,
+              "rule_id": "INSUFFICIENT_DATA:SHIELD"
+            },
+            {
+              "count": 4,
+              "rule_id": "INSUFFICIENT_DATA:SECURITY_DOSSIER"
+            },
+            {
+              "count": 4,
+              "rule_id": "INSUFFICIENT_DATA:QUOTES"
+            },
+            {
+              "count": 4,
+              "rule_id": "INSUFFICIENT_DATA:HOLDERS"
+            },
+            {
+              "count": 3,
+              "rule_id": "INSUFFICIENT_DATA:FDV"
+            }
+          ],
+          "stage_results": [
+            {
+              "count": 713,
+              "outcome": "PASS",
+              "stage": 0
+            },
+            {
+              "count": 483,
+              "outcome": "DEFER",
+              "stage": 1
+            },
+            {
+              "count": 949,
+              "outcome": "PASS",
+              "stage": 1
+            },
+            {
+              "count": 191,
+              "outcome": "REJECT",
+              "stage": 1
+            },
+            {
+              "count": 8,
+              "outcome": "DEFER",
+              "stage": 2
+            },
+            {
+              "count": 28,
+              "outcome": "PASS",
+              "stage": 2
+            },
+            {
+              "count": 3,
+              "outcome": "REJECT",
+              "stage": 2
+            },
+            {
+              "count": 24,
+              "outcome": "DEFER",
+              "stage": 3
+            },
+            {
+              "count": 4,
+              "outcome": "PASS",
+              "stage": 3
+            },
+            {
+              "count": 16,
+              "outcome": "REJECT",
+              "stage": 4
+            }
+          ]
+        },
+        "ended_at": "2026-10-19T02:17:44.462859+00:00",
+        "peak_rss_mb": 57.3,
+        "rss_mb": 57.3,
+        "run_id": "run_01M58Z30H2CRFBK1Q5WFHDYX97",
+        "started_at": "2026-10-19T02:15:44.418360+00:00",
+        "suspend_gaps": 0,
+        "tasks": {
+          "dexscreener_promotions": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 27,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "dexscreener_refresh": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 151,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          },
+          "discovery_evaluation": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 4,
+            "last_error": null,
+            "scheduled": 4,
+            "succeeded": 4
+          },
+          "geckoterminal_new_pools": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 80,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          },
+          "geckoterminal_trending": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 20,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "jupiter_categories": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 200,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "jupiter_recent": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 60,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          },
+          "jupiter_trending": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 50,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "rpc_slot": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 2,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          }
+        },
+        "tracked_tokens": 151,
+        "unhandled_exceptions": 0
+      }
+    },
+    {
+      "id": "run_01M58ZJZM6894S8CR4MQTTP7QC",
+      "started_at": "2026-10-19T02:24:27.782156+00:00",
+      "ended_at": "2026-10-19T02:25:27.826240+00:00",
+      "config_hash": "12c89309ae45312901cf7c0c5393a9ed4b605930442560ce5a12eb4724c5fa64",
+      "stats": {
+        "db_counts": {
+          "ingest_errors": 0,
+          "market_snapshots": 482,
+          "mint_accounts": 10,
+          "pools": 277,
+          "quotes": 10,
+          "raw_responses": 81,
+          "token_claims": 754,
+          "tokens": 412
+        },
+        "discovery": {
+          "by_reason": {
+            "MIGRATION": 45,
+            "NEW_POOL": 119,
+            "NEW_TOKEN": 409
+          },
+          "by_source": {
+            "dexscreener.promotions": 30,
+            "dexscreener.tokens_v1": 164,
+            "geckoterminal.new_pools": 120,
+            "geckoterminal.trending_pools": 25,
+            "jupiter.tokens_recent": 140,
+            "jupiter.toporganicscore_1h": 52,
+            "jupiter.toporganicscore_5m": 54,
+            "jupiter.toptraded_1h": 53,
+            "jupiter.toptraded_5m": 63,
+            "jupiter.toptrending_1h": 68
+          },
+          "by_state": {
+            "DEFER": 533,
+            "REJECT": 40
+          },
+          "candidates": 573,
+          "database_growth_bytes": 6305440,
+          "during_run": {
+            "rejection_reasons": [
+              {
+                "count": 296,
+                "rule_id": "AWAITING_POOL"
+              },
+              {
+                "count": 230,
+                "rule_id": "SNAPSHOT_FRESHNESS"
+              },
+              {
+                "count": 31,
+                "rule_id": "BONDING_CURVE"
+              },
+              {
+                "count": 6,
+                "rule_id": "QUOTE_TOKEN"
+              },
+              {
+                "count": 4,
+                "rule_id": "POOL_AGE"
+              },
+              {
+                "count": 3,
+                "rule_id": "BUDGET_QUEUE"
+              },
+              {
+                "count": 2,
+                "rule_id": "UNSUPPORTED_POOL_FEATURE"
+              },
+              {
+                "count": 2,
+                "rule_id": "INSUFFICIENT_DATA:SHIELD"
+              },
+              {
+                "count": 2,
+                "rule_id": "INSUFFICIENT_DATA:QUOTES"
+              },
+              {
+                "count": 2,
+                "rule_id": "INSUFFICIENT_DATA:HOLDERS"
+              },
+              {
+                "count": 1,
+                "rule_id": "FDV_RANGE"
+              }
+            ],
+            "since": "2026-10-19T02:24:27.782156+00:00",
+            "source_observations": [
+              {
+                "count": 27,
+                "reason": "NEW_TOKEN",
+                "source": "dexscreener.promotions"
+              },
+              {
+                "count": 40,
+                "reason": "NEW_TOKEN",
+                "source": "geckoterminal.new_pools"
+              },
+              {
+                "count": 1,
+                "reason": "ACCELERATION",
+                "source": "geckoterminal.trending_pools"
+              },
+              {
+                "count": 2,
+                "reason": "MIGRATION",
+                "source": "geckoterminal.trending_pools"
+              },
+              {
+                "count": 2,
+                "reason": "NEW_POOL",
+                "source": "geckoterminal.trending_pools"
+              },
+              {
+                "count": 15,
+                "reason": "NEW_TOKEN",
+                "source": "geckoterminal.trending_pools"
+              },
+              {
+                "count": 30,
+                "reason": "NEW_TOKEN",
+                "source": "jupiter.tokens_recent"
+              },
+              {
+                "count": 8,
+                "reason": "NEW_POOL",
+                "source": "jupiter.toporganicscore_1h"
+              },
+              {
+                "count": 42,
+                "reason": "NEW_TOKEN",
+                "source": "jupiter.toporganicscore_1h"
+              },
+              {
+                "count": 7,
+                "reason": "NEW_POOL",
+                "source": "jupiter.toporganicscore_5m"
+              },
+              {
+                "count": 43,
+                "reason": "NEW_TOKEN",
+                "source": "jupiter.toporganicscore_5m"
+              },
+              {
+                "count": 8,
+                "reason": "NEW_POOL",
+                "source": "jupiter.toptraded_1h"
+              },
+              {
+                "count": 42,
+                "reason": "NEW_TOKEN",
+                "source": "jupiter.toptraded_1h"
+              },
+              {
+                "count": 6,
+                "reason": "NEW_POOL",
+                "source": "jupiter.toptraded_5m"
+              },
+              {
+                "count": 44,
+                "reason": "NEW_TOKEN",
+                "source": "jupiter.toptraded_5m"
+              },
+              {
+                "count": 1,
+                "reason": "NEW_POOL",
+                "source": "jupiter.toptrending_1h"
+              },
+              {
+                "count": 49,
+                "reason": "NEW_TOKEN",
+                "source": "jupiter.toptrending_1h"
+              }
+            ],
+            "stage_results": [
+              {
+                "count": 573,
+                "outcome": "PASS",
+                "stage": 0
+              },
+              {
+                "count": 530,
+                "outcome": "DEFER",
+                "stage": 1
+              },
+              {
+                "count": 120,
+                "outcome": "PASS",
+                "stage": 1
+              },
+              {
+                "count": 38,
+                "outcome": "REJECT",
+                "stage": 1
+              },
+              {
+                "count": 5,
+                "outcome": "PASS",
+                "stage": 2
+              },
+              {
+                "count": 3,
+                "outcome": "DEFER",
+                "stage": 3
+              },
+              {
+                "count": 2,
+                "outcome": "PASS",
+                "stage": 3
+              },
+              {
+                "count": 8,
+                "outcome": "REJECT",
+                "stage": 4
+              }
+            ]
+          },
+          "observations_by_reason": {
+            "ACCELERATION": 100,
+            "MIGRATION": 58,
+            "NEW_POOL": 208,
+            "NEW_TOKEN": 870
+          },
+          "orphans": 0,
+          "provider_budget": {
+            "dexscreener:default": {
+              "configured_windows": [
+                [
+                  120,
+                  60.0
+                ],
+                [
+                  10,
+                  1.0
+                ]
+              ],
+              "shared_allocations_during_run": 0
+            },
+            "dexscreener:promotions": {
+              "configured_windows": [
+                [
+                  10,
+                  60.0
+                ]
+              ],
+              "shared_allocations_during_run": 1
+            },
+            "geckoterminal:default": {
+              "configured_windows": [
+                [
+                  8,
+                  60.0
+                ],
+                [
+                  2,
+                  15.0
+                ]
+              ],
+              "shared_allocations_during_run": 3
+            },
+            "jupiter:default": {
+              "configured_windows": [
+                [
+                  4,
+                  10.0
+                ],
+                [
+                  25,
+                  60.0
+                ]
+              ],
+              "shared_allocations_during_run": 8
+            },
+            "solana_rpc:default": {
+              "configured_windows": [
+                [
+                  8,
+                  10.0
+                ]
+              ],
+              "shared_allocations_during_run": 7
+            }
+          },
+          "rejection_reasons": [
+            {
+              "count": 653,
+              "rule_id": "AWAITING_POOL"
+            },
+            {
+              "count": 334,
+              "rule_id": "SNAPSHOT_FRESHNESS"
+            },
+            {
+              "count": 102,
+              "rule_id": "BONDING_CURVE"
+            },
+            {
+              "count": 41,
+              "rule_id": "QUOTE_TOKEN"
+            },
+            {
+              "count": 33,
+              "rule_id": "FDV_RANGE"
+            },
+            {
+              "count": 29,
+              "rule_id": "VOLUME_H1"
+            },
+            {
+              "count": 26,
+              "rule_id": "POOL_AGE"
+            },
+            {
+              "count": 23,
+              "rule_id": "BUDGET_QUEUE"
+            },
+            {
+              "count": 21,
+              "rule_id": "LIQUIDITY_RANGE"
+            },
+            {
+              "count": 11,
+              "rule_id": "DISTINCT_TRADERS_H1"
+            },
+            {
+              "count": 6,
+              "rule_id": "UNSUPPORTED_POOL_FEATURE"
+            },
+            {
+              "count": 6,
+              "rule_id": "INSUFFICIENT_DATA:SHIELD"
+            },
+            {
+              "count": 6,
+              "rule_id": "INSUFFICIENT_DATA:QUOTES"
+            },
+            {
+              "count": 6,
+              "rule_id": "INSUFFICIENT_DATA:HOLDERS"
+            },
+            {
+              "count": 4,
+              "rule_id": "INSUFFICIENT_DATA:SECURITY_DOSSIER"
+            },
+            {
+              "count": 3,
+              "rule_id": "INSUFFICIENT_DATA:FDV"
+            }
+          ],
+          "stage_results": [
+            {
+              "count": 1286,
+              "outcome": "PASS",
+              "stage": 0
+            },
+            {
+              "count": 1013,
+              "outcome": "DEFER",
+              "stage": 1
+            },
+            {
+              "count": 1069,
+              "outcome": "PASS",
+              "stage": 1
+            },
+            {
+              "count": 229,
+              "outcome": "REJECT",
+              "stage": 1
+            },
+            {
+              "count": 8,
+              "outcome": "DEFER",
+              "stage": 2
+            },
+            {
+              "count": 33,
+              "outcome": "PASS",
+              "stage": 2
+            },
+            {
+              "count": 3,
+              "outcome": "REJECT",
+              "stage": 2
+            },
+            {
+              "count": 27,
+              "outcome": "DEFER",
+              "stage": 3
+            },
+            {
+              "count": 6,
+              "outcome": "PASS",
+              "stage": 3
+            },
+            {
+              "count": 24,
+              "outcome": "REJECT",
+              "stage": 4
+            }
+          ]
+        },
+        "ended_at": "2026-10-19T02:25:27.826240+00:00",
+        "peak_rss_mb": 57.6,
+        "rss_mb": 57.6,
+        "run_id": "run_01M58ZJZM6894S8CR4MQTTP7QC",
+        "started_at": "2026-10-19T02:24:27.782156+00:00",
+        "suspend_gaps": 0,
+        "tasks": {
+          "dexscreener_promotions": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 27,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "dexscreener_refresh": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 0,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "discovery_evaluation": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 2,
+            "last_error": null,
+            "scheduled": 2,
+            "succeeded": 2
+          },
+          "geckoterminal_new_pools": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 40,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "geckoterminal_trending": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 20,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "jupiter_categories": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 200,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "jupiter_recent": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 30,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "jupiter_trending": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 50,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          },
+          "rpc_slot": {
+            "failed": 0,
+            "item_errors": 0,
+            "items": 1,
+            "last_error": null,
+            "scheduled": 1,
+            "succeeded": 1
+          }
+        },
+        "tracked_tokens": 146,
+        "unhandled_exceptions": 0
+      }
+    }
+  ]
+}

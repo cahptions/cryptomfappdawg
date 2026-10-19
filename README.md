@@ -4,8 +4,9 @@ A locally operated research and trading desk for Solana memecoins that discovers
 tokens, paper trades under realistic execution costs, measures whether any strategy has a statistically defensible
 net edge — and stays in PAPER mode indefinitely if it doesn't.
 
-> **Status:** M0 (plan) approved. **M1 (infrastructure & read-only data collection) implemented** — see
-> [PROGRESS.md](PROGRESS.md) for test results. Nothing here can trade: there is no wallet code at all yet.
+> **Status:** M0 approved; **M1 passed**. **M2 discovery and safety implemented; 24-hour acceptance pending** — see
+> [PROGRESS.md](PROGRESS.md) for test results, including the successful laptop 60-minute run. M2 is in progress.
+> Nothing here can trade: there is no wallet code at all yet.
 > No AI/LLM and no paid services are used (operator decision).
 
 ## Documents
@@ -74,6 +75,27 @@ uv run desk db check         # database integrity check
 uv run desk db backup        # consistent copies into ~/desk-data/backups/
 uv run desk doctor --offline # machine checks only, no network
 ```
+
+### M2: discovery and safety
+
+Your existing free keys in `~/.config/desk/secrets.env` are reused. No new key creation is needed if the keyed
+doctor already passed. Update dependencies with `uv sync --frozen`; databases upgrade automatically without
+resetting your collected data.
+
+```bash
+uv run desk discover --minutes 1440          # 24 hours, read-only; no wallet or trades
+uv run desk discovery-report --require-hours 24
+uv run desk console                         # optional read-only status console, second terminal
+```
+
+The duration check exits nonzero for a short or unfinished run. To check a specific recorded run, add
+`--run-id RUN_ID` alongside `--require-hours 24`. Short cloud smoke tests are recorded separately and do not
+close M2. See [M2_HANDOFF.md](M2_HANDOFF.md) for checks, supported security coverage and the next milestone.
+
+Discovery is bounded by configured provider budgets and two expensive assessments per cycle. Unknown authority,
+holder, liquidity, Shield or quote evidence never produces a security pass. Token identities, pool identities,
+creation timestamps and source claims remain separate. The early console is read-only; the full React dashboard
+is M7.
 
 ---
 

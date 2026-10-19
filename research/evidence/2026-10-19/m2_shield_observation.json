@@ -1,0 +1,16 @@
+{
+  "mint": "ArpPsesHXKbGeJsHdquM6acT3uNs7BChyetJjiNYpump",
+  "warnings": [
+    {
+      "type": "NOT_VERIFIED",
+      "severity": "info"
+    },
+    {
+      "type": "NEW_LISTING",
+      "severity": "info"
+    }
+  ],
+  "observed_at": "2026-10-19T02:13:45.158442Z",
+  "source": "jupiter.ultra_shield",
+  "raw_sha256": "2b3d76b4dbec93f265438447ad7b2797b5f9e79ff8d8d15dbff3fe83ea999809"
+}

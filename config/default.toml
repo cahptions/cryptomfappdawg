@@ -52,8 +52,34 @@ geckoterminal_trending_interval_seconds = 120
 jupiter_recent_interval_seconds = 60
 jupiter_trending_interval_seconds = 180
 dexscreener_refresh_interval_seconds = 60
+dexscreener_promotions_interval_seconds = 300
 rpc_slot_interval_seconds = 60
 max_tracked_tokens = 300
 
 [storage]
 raw_retention_days = 14
+
+[discovery]                     # M2: bounded, read-only evaluation; no trades
+evaluation_interval_seconds = 30
+max_assessments_per_cycle = 2
+reassess_after_seconds = 300
+min_pool_age_seconds = 900
+min_liquidity_usd = "40000"
+min_volume_h1_usd = "20000"
+min_fdv_usd = "100000"
+max_fdv_usd = "50000000"
+max_snapshot_age_seconds = 120
+min_distinct_traders_h1 = 100
+ticket_sol = "0.10"
+max_quote_age_seconds = 10
+max_roundtrip_cost_fraction = "0.03"
+max_top1_pct = "10"
+max_top10_pct = "35"
+max_dev_pct = "5"
+max_holder_conflict_pp = "10"
+max_source_conflict_fraction = "0.30"
+extreme_dev_mints = 500
+min_dev_migration_fraction = "0.01"
+volume_expansion_ratio = "2"
+acceleration_ratio = "1.5"
+renewed_after_seconds = 21600

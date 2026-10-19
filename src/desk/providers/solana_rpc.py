@@ -8,7 +8,7 @@ from typing import Any
 from desk.contracts.tokens import MintAccount, MintExtension
 from desk.core.errors import DeskError, ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import HttpResponse, ProviderHttp
-from desk.providers.parsing import expect_dict, expect_list, load_json, opt_str, strict_int
+from desk.providers.parsing import ITEM_ERRORS, expect_dict, expect_list, load_json, opt_str, strict_int
 
 PROVIDER = "solana_rpc"
 TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"  # noqa: S105 - public program id, verified on-chain
@@ -60,6 +60,10 @@ def parse_mint_account(result: Any, mint: str, observed_at: datetime, raw_sha256
     if program not in ("spl-token", "spl-token-2022") or _PROGRAM_NAMES.get(owner) != program:
         raise SchemaError(f"unexpected token program {program!r} / owner {owner!r}")
     info = expect_dict(parsed["info"], "info")
+    if not {"mintAuthority", "freezeAuthority", "isInitialized", "decimals", "supply"} <= info.keys():
+        raise SchemaError("mint authority/initialization fields missing; absence is not a null on-chain authority")
+    if not isinstance(info["isInitialized"], bool):
+        raise SchemaError("mint isInitialized must be a boolean")
     extensions = tuple(
         MintExtension(name=str(expect_dict(ext, "extension")["extension"]), state=dict(ext.get("state") or {}))
         for ext in expect_list(info.get("extensions") or [], "extensions")
@@ -70,8 +74,8 @@ def parse_mint_account(result: Any, mint: str, observed_at: datetime, raw_sha256
         token_program=program,
         decimals=strict_int(info["decimals"]),
         supply_raw=strict_int(info["supply"]),
-        mint_authority=opt_str(info.get("mintAuthority")),
-        freeze_authority=opt_str(info.get("freezeAuthority")),
+        mint_authority=info["mintAuthority"],
+        freeze_authority=info["freezeAuthority"],
         is_initialized=bool(info.get("isInitialized")),
         extensions=extensions,
         slot=slot,
@@ -125,12 +129,25 @@ class SolanaRpcClient:
 
     async def get_mint_account(self, mint: str) -> MintAccount | None:
         result, resp = await self.call("getAccountInfo", [mint, {"encoding": "jsonParsed", "commitment": "confirmed"}])
-        return parse_mint_account(result, mint, resp.received_at, resp.sha256)
+        try:
+            return parse_mint_account(result, mint, resp.received_at, resp.sha256)
+        except ITEM_ERRORS as exc:
+            self.http.health.record_failure(PROVIDER, ProviderErrorKind.SCHEMA.value, str(exc))
+            raise ProviderError(PROVIDER, ProviderErrorKind.SCHEMA, str(exc)) from exc
 
     async def get_account_owner(self, address: str) -> str | None:
         result, _ = await self.call("getAccountInfo", [address, {"encoding": "base64", "dataSlice": {"offset": 0, "length": 0}}])
         value = expect_dict(result, "result").get("value")
         return None if value is None else opt_str(expect_dict(value, "value").get("owner"))
+
+    async def get_multiple_accounts(self, addresses: list[str], *, encoding: str = "jsonParsed",
+                                    min_context_slot: int | None = None) -> tuple[Any, HttpResponse]:
+        if not 1 <= len(addresses) <= 100:
+            raise ValueError("getMultipleAccounts requires 1-100 addresses")
+        options: dict[str, Any] = {"encoding": encoding, "commitment": "confirmed"}
+        if min_context_slot is not None:
+            options["minContextSlot"] = min_context_slot
+        return await self.call("getMultipleAccounts", [addresses, options])
 
     async def get_token_largest_accounts(self, mint: str) -> list[dict[str, Any]]:
         result, _ = await self.call("getTokenLargestAccounts", [mint, {"commitment": "confirmed"}])

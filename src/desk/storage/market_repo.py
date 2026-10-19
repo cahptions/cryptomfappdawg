@@ -13,7 +13,7 @@ from desk.contracts.observed import Observed
 from desk.contracts.quotes import QuoteObservation, QuoteUnavailable
 from desk.contracts.tokens import MintAccount, TokenClaims
 from desk.core.clock import to_epoch_millis, to_iso, utc_now
-from desk.storage.db import transaction
+from desk.storage.db import StorageError, transaction
 
 
 def _dec(value: Decimal | None) -> str | None:
@@ -46,16 +46,24 @@ class MarketRepository:
         self.conn.execute(
             "INSERT INTO tokens(mint, first_seen_at, last_seen_at, symbol, name) VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(mint) DO UPDATE SET last_seen_at = MAX(last_seen_at, excluded.last_seen_at), "
+            "first_seen_at = MIN(first_seen_at, excluded.first_seen_at), "
             "symbol = COALESCE(excluded.symbol, symbol), name = COALESCE(excluded.name, name)",
             (mint, iso, iso, symbol, name),
         )
 
     def _upsert_pool(self, snap: PoolSnapshot) -> None:
         iso = to_iso(snap.observed_at)
+        existing = self.conn.execute("SELECT base_mint, quote_mint FROM pools WHERE address = ?",
+                                     (snap.pool_address,)).fetchone()
+        if existing is not None and (existing["base_mint"] != snap.base_mint or (
+                existing["quote_mint"] is not None and snap.quote_mint is not None
+                and existing["quote_mint"] != snap.quote_mint)):
+            raise StorageError("pool identity conflict: an existing pool cannot change its token mints")
         self.conn.execute(
             "INSERT INTO pools(address, base_mint, quote_mint, venue, venue_raw, pool_created_at, first_seen_at,"
             " first_seen_source, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(address) DO UPDATE SET last_seen_at = MAX(last_seen_at, excluded.last_seen_at), "
+            "quote_mint = COALESCE(quote_mint, excluded.quote_mint), "
             "pool_created_at = COALESCE(pool_created_at, excluded.pool_created_at)",
             (snap.pool_address, snap.base_mint, snap.quote_mint, snap.venue, snap.venue_raw,
              None if snap.pool_created_at is None else to_iso(snap.pool_created_at), iso, snap.source, iso),

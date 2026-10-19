@@ -1,0 +1,7 @@
+{
+  "source": "https://raw.githubusercontent.com/solana-labs/solana/master/sdk/program/src/incinerator.rs",
+  "retrieved_at": "2026-10-19",
+  "sha256": "41f8178091d73232974a470fbbf5b6f23b9f428e02c54c3bf1c05a2df0cd8ca6",
+  "text": "//! A designated address for burning lamports.\n//!\n//! Lamports credited to this address will be removed from the total supply\n//! (burned) at the end of the current block.\n\ncrate::declare_id!(\"1nc1nerator11111111111111111111111111111111\");\n",
+  "policy": "Only token accounts with the verified incinerator owner and no spending delegate are excluded. This address is off the Ed25519 curve; token supply is not renormalized."
+}

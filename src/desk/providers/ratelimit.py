@@ -71,6 +71,8 @@ class RateLimiter:
                         wait = max(wait, oldest + seconds - now + 0.001)
                 if wait <= 0:
                     conn.execute("INSERT INTO rate_events(bucket, ts) VALUES (?, ?)", (bucket, now))
+                    conn.execute("INSERT INTO rate_totals(bucket, allocated) VALUES (?, 1) "
+                                 "ON CONFLICT(bucket) DO UPDATE SET allocated = allocated + 1", (bucket,))
                 conn.execute("COMMIT")
             except BaseException:
                 conn.execute("ROLLBACK")

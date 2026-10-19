@@ -85,12 +85,39 @@ class CollectorSection(_Section):
     jupiter_recent_interval_seconds: int = Field(ge=30)
     jupiter_trending_interval_seconds: int = Field(ge=60)
     dexscreener_refresh_interval_seconds: int = Field(ge=30)
+    dexscreener_promotions_interval_seconds: int = Field(ge=300)
     rpc_slot_interval_seconds: int = Field(ge=10)
     max_tracked_tokens: int = Field(ge=1, le=5000)
 
 
 class StorageSection(_Section):
     raw_retention_days: int = Field(ge=1)
+
+
+class DiscoverySection(_Section):
+    evaluation_interval_seconds: int = Field(ge=10)
+    max_assessments_per_cycle: int = Field(ge=1, le=10)
+    reassess_after_seconds: int = Field(ge=60)
+    min_pool_age_seconds: int = Field(ge=0)
+    min_liquidity_usd: Decimal = Field(gt=0)
+    min_volume_h1_usd: Decimal = Field(ge=0)
+    min_fdv_usd: Decimal = Field(gt=0)
+    max_fdv_usd: Decimal = Field(gt=0)
+    max_snapshot_age_seconds: int = Field(gt=0)
+    min_distinct_traders_h1: int = Field(ge=1)
+    ticket_sol: Decimal = Field(gt=0)
+    max_quote_age_seconds: int = Field(gt=0)
+    max_roundtrip_cost_fraction: Decimal = Field(gt=0, le=1)
+    max_top1_pct: Decimal = Field(gt=0, le=100)
+    max_top10_pct: Decimal = Field(gt=0, le=100)
+    max_dev_pct: Decimal = Field(gt=0, le=100)
+    max_holder_conflict_pp: Decimal = Field(gt=0, le=100)
+    max_source_conflict_fraction: Decimal = Field(gt=0, le=1)
+    extreme_dev_mints: int = Field(ge=1)
+    min_dev_migration_fraction: Decimal = Field(ge=0, le=1)
+    volume_expansion_ratio: Decimal = Field(gt=1)
+    acceleration_ratio: Decimal = Field(gt=1)
+    renewed_after_seconds: int = Field(ge=60)
 
 
 class DeskConfig(_Section):
@@ -102,6 +129,7 @@ class DeskConfig(_Section):
     health: HealthSection
     collector: CollectorSection
     storage: StorageSection
+    discovery: DiscoverySection
 
 
 @dataclass(frozen=True)

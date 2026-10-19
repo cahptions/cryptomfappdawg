@@ -1,6 +1,6 @@
 # PLAN.md — Solana Quant Desk (working brand: **KESTREL**)
 
-**Status:** Plan **approved 2026-10-18**; M1 in progress. Operator answers are recorded in §24 and PROGRESS.md.
+**Status:** Plan **approved 2026-10-18**; M1 passed; M2 in progress. Operator answers and acceptance evidence are recorded in §24 and PROGRESS.md.
 **Companion documents:** `RESEARCH.md` (verified facts + evidence), `ACCEPTANCE.md` (milestone tests),
 `PROGRESS.md` (session-to-session state), `research/provider_registry.yaml` (machine-readable provider registry).
 

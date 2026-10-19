@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from desk.contracts.discovery import ShieldObservation, ShieldWarning
 from desk.contracts.quotes import QuoteObservation, QuoteUnavailable
 from desk.contracts.tokens import TokenAudit, TokenClaims, TokenStatsWindow
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
@@ -183,6 +184,21 @@ def parse_tokens(body: bytes, source: str, observed_at: datetime, raw_sha256: st
 class JupiterClient:
     def __init__(self, http: ProviderHttp) -> None:
         self.http = http
+
+    async def shield(self, mint: str) -> ShieldObservation:
+        """Use the measured Ultra route; never guess the unverified Swap-v2 shield endpoint."""
+        resp = await self.http.request("shield", params={"mints": mint}, prefer_keyless_host=True, cache_ttl=30.0)
+        try:
+            warnings = expect_dict(expect_dict(load_json(resp.body), "shield").get("warnings"), "warnings")
+            if mint not in warnings:
+                raise SchemaError("Shield did not report the requested mint; missing is not an empty warning list")
+            return ShieldObservation(mint=mint, warnings=tuple(
+                ShieldWarning.model_validate({"type": expect_dict(w, "warning")["type"], "severity": w["severity"]})
+                for w in expect_list(warnings[mint], "warnings for mint")),
+                observed_at=resp.received_at, raw_sha256=resp.sha256)
+        except ITEM_ERRORS as exc:
+            self.http.health.record_failure(PROVIDER, ProviderErrorKind.SCHEMA.value, str(exc))
+            raise ProviderError(PROVIDER, ProviderErrorKind.SCHEMA, str(exc)) from exc
 
     async def order(self, input_mint: str, output_mint: str, amount_raw: int, *, taker: str | None = None,
                     slippage_bps: int | None = None) -> QuoteObservation | QuoteUnavailable:

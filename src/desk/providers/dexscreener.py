@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from desk.contracts.market import PoolSnapshot, WindowMetrics
+from desk.contracts.tokens import TokenClaims
 from desk.core.base58 import is_solana_address
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
@@ -107,6 +108,27 @@ def parse_pairs(body: bytes, source: str, observed_at: datetime, raw_sha256: str
 class DexScreenerClient:
     def __init__(self, http: ProviderHttp) -> None:
         self.http = http
+
+    async def profiles(self) -> Fetched[TokenClaims]:
+        """Profile/promotional discovery is explicitly tagged; metadata URLs and images are never fetched."""
+        resp = await self.http.request("token_profiles_latest", cache_ttl=300.0)
+        try:
+            doc = expect_list(load_json(resp.body), "profiles")
+        except SchemaError as exc:
+            self.http.health.record_failure(PROVIDER, ProviderErrorKind.SCHEMA.value, str(exc))
+            raise ProviderError(PROVIDER, ProviderErrorKind.SCHEMA, str(exc)) from exc
+        result: ParseResult[TokenClaims] = ParseResult()
+        for item in doc:
+            try:
+                profile = expect_dict(item, "profile")
+                if profile.get("chainId") != "solana":
+                    continue
+                result.items.append(TokenClaims(source="dexscreener.promotions", mint=profile["tokenAddress"],
+                                                observed_at=resp.received_at, raw_sha256=resp.sha256,
+                                                flags=("PROMOTED",)))
+            except ITEM_ERRORS as exc:
+                result.errors.append(f"profile: {type(exc).__name__}: {exc}")
+        return Fetched(result.items, result.errors, resp.sha256, resp.status, resp.latency_ms)
 
     async def tokens(self, mints: list[str]) -> Fetched[PoolSnapshot]:
         """All pairs for up to 30 mints. Mints DexScreener has not indexed yet are simply absent (not zero)."""

@@ -9,6 +9,7 @@ license = { text = "Proprietary - owned by the operator" }
 dependencies = [
     "pydantic==2.13.5",
     "httpx==0.28.1",
+    "solders==0.29.0",
 ]
 
 [project.scripts]

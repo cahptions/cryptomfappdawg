@@ -25,9 +25,9 @@ class QuoteObservation(BaseModel):
     route_labels: tuple[str, ...] = ()
     fee_bps: int | None = None
     fee_mint: SolAddress | None = None
-    signature_fee_lamports: int | None = None
-    prioritization_fee_lamports: int | None = None
-    rent_fee_lamports: int | None = None
+    signature_fee_lamports: int | None = Field(default=None, ge=0)
+    prioritization_fee_lamports: int | None = Field(default=None, ge=0)
+    rent_fee_lamports: int | None = Field(default=None, ge=0)
     gasless: bool | None = None
     transaction_included: bool = False
     request_id: str | None = None
