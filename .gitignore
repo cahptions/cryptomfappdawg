@@ -30,6 +30,8 @@ build/
 # UI
 ui/node_modules/
 ui/dist/
+webui/node_modules/
+webui/dist/
 
 # OS / editors
 .DS_Store

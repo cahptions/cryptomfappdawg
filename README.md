@@ -6,9 +6,9 @@ net edge — and stays in PAPER mode indefinitely if it doesn't.
 
 > **Status:** M0 approved; **M1 passed**. **M2 discovery and safety implemented; 24-hour acceptance pending** — see
 > [PROGRESS.md](PROGRESS.md) for test results, including the successful laptop 60-minute run.
-> M3 feature/strategy/replay software and a conditional sizing foundation pass offline checks; live acceptance
-> stays separate from development. See [M3_HANDOFF.md](M3_HANDOFF.md).
-> Nothing here can trade: there is no wallet code at all yet.
+> M3 features, M5 PAPER, M6 statistics, and M7 dashboard/operations are implemented; timed and real-laptop
+> acceptance stays separate. See [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md).
+> M8 has signer infrastructure, but production BUY authorization is incomplete and BUY requests are disabled.
 > No AI/LLM and no paid services are used (operator decision).
 
 ## Documents
@@ -18,6 +18,8 @@ net edge — and stays in PAPER mode indefinitely if it doesn't.
 | [RESEARCH.md](RESEARCH.md) | Verified facts about every data source, with evidence tags and source URLs |
 | [ACCEPTANCE.md](ACCEPTANCE.md) | Objective tests each milestone must pass |
 | [PROGRESS.md](PROGRESS.md) | Current status, measured results, and the exact next step |
+| [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md) | Latest Claude continuation, update commands and checks |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Dashboard, services, backups and recovery on the laptop |
 | [config/](config/) | `default.toml` (all settings), `safety_ceilings.toml` (hard limits), `providers.toml` (data sources) |
 | [docs/design/kestrel-concept.html](docs/design/kestrel-concept.html) | Static visual concept of the dashboard (sample data only) |
 
@@ -42,9 +44,9 @@ uv --version
 ```bash
 git clone https://github.com/cahptions/cryptomfappdawg.git ~/kestrel
 cd ~/kestrel
-git checkout claude/funny-rubin-gq99vj
+git checkout codex/continue-claude
 ```
-For the newer implementation branches, follow [M3_HANDOFF.md](M3_HANDOFF.md). An existing collection process
+For the current handoff, follow [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md). An existing collection process
 does not automatically update when a branch is published; let the running test finish before switching its code.
 
 ### 3. Install
@@ -139,15 +141,30 @@ uv run desk live validate        # zero-cost check of the whole order → inspec
 uv run desk live status          # the seven LIVE gates and which are missing
 ```
 
-LIVE stays impossible until every gate passes: `desk.mode = "LIVE"` plus `DESK_LIVE_CONFIRM=yes`, a typed
+The seven-gate display reports requirements: `desk.mode = "LIVE"` plus `DESK_LIVE_CONFIRM=yes`, a typed
 `desk live approve <strategy version>`, a confidence verdict of ELIGIBLE FOR MANUAL LIVE REVIEW, your own
 `live.max_capital_sol` (> 0, ceiling 2 SOL), the signer armed with your passphrase (`desk live arm`), fresh
-preflight checks and a calibrated market regime. Never paste the passphrase or any key into a chat.
+preflight checks and a calibrated market regime. Those checks still need production per-entry integration;
+BUY requests are refused even if the signer is unlocked. Never paste the passphrase or any key into a chat.
 
-Profit-based sizing is a standalone M5/M6 foundation: it compounds realized net profit only with matching, fresh
-PAPER confidence evidence, and caps each ticket at 15% of eligible account capital plus the other risk limits.
-An optional absolute cap may further tighten older profiles. No runtime trade sizing,
-wallet, full PAPER ledger or confidence-matrix producer is connected yet.
+The conservative real-account sizing foundation requires qualified realized profit and fresh confidence evidence
+before increasing exposure, with a relative 15% hard cap and other limits. The separate PAPER learning book follows
+the later research policy described above; its simulated profit growth does not authorize a larger real trade.
+
+### M7: local dashboard and operations
+
+```bash
+uv run desk dashboard                # open http://127.0.0.1:8765 in Firefox
+uv run desk backups run              # online backups; existing ledgers only
+uv run desk up                      # opt-in systemd user dashboard and backup timer
+uv run desk up --paper               # also start independent guardian and PAPER engine
+uv run desk down                     # stop engine/dashboard; guardian continues supervising
+```
+
+Built UI assets ship with the repository, so running the dashboard needs Python only. To rebuild UI source,
+run `scripts/build_ui.sh` with Node/npm or Docker installed. No remote fonts, token images, or chart CDN are used.
+Controls cannot arm LIVE or resume stopped entries; `desk resume` remains a terminal confirmation.
+Exports include the latest 10,000 positions. See [the runbook](docs/RUNBOOK.md) for service and restore details.
 
 ---
 

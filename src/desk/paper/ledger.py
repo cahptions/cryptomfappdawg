@@ -143,14 +143,16 @@ class PaperLedger:
     def close_position(self, position_id: str, at: datetime, *, reason: str, exit_lamports: int, exit_fees_lamports: int,
                        profiles: dict[str, Any]) -> int:
         """Atomic close: proceeds, fees and rent refund journaled; realized P&L follows the conservative profile."""
-        row = self.position(position_id)
-        if row["state"] == "CLOSED":
-            raise ValueError("position already closed")
-        failed_fees_lamports = int(row["exit_failed_fees_lamports"])
-        realized = int(exit_lamports - exit_fees_lamports - failed_fees_lamports
-                    - row["ticket_lamports"] - row["entry_fees_lamports"])
         iso = to_iso(at)
         with transaction(self.conn):
+            # Read state only after obtaining the write lock. Independent processes must never
+            # both observe an open position and then each credit its proceeds and rent refund.
+            row = self.position(position_id)
+            if row["state"] == "CLOSED":
+                raise ValueError("position already closed")
+            failed_fees_lamports = int(row["exit_failed_fees_lamports"])
+            realized = int(exit_lamports - exit_fees_lamports - failed_fees_lamports
+                        - row["ticket_lamports"] - row["entry_fees_lamports"])
             self.conn.executemany(
                 "INSERT INTO cash_entries(at, kind, amount_lamports, position_id) VALUES (?, ?, ?, ?)",
                 [(iso, kind, amount, position_id) for kind, amount in (

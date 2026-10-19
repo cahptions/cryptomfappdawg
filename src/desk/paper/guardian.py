@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import json
 import logging
 import os
@@ -24,7 +25,7 @@ from desk.contracts.quotes import QuoteObservation, QuoteUnavailable
 from desk.contracts.strategy import StrategySpec
 from desk.core.clock import parse_iso8601, to_iso, utc_now
 from desk.core.config import LoadedConfig
-from desk.core.errors import ProviderError
+from desk.core.errors import DeskError, ProviderError
 from desk.features.builder import FeatureBuilder
 from desk.paper.engine import execution_model, heartbeat_age
 from desk.paper.executor import MAX_ATTEMPTS, exit_
@@ -147,6 +148,8 @@ class Guardian:
         state = "EXIT_BLOCKED" if attempts >= MAX_ATTEMPTS else "EXITING"
         self.ledger.set_state(row["id"], state, done, {"reason": reason, "attempts": attempts, "status": result.status,
                                                         "quotes": result.quotes}, failed_fee_lamports=failed_fee)
+        self.ledger.event(done, "EXIT_FAILED", {"reason": reason, "attempts": attempts, "status": result.status},
+                          position_id=row["id"])
         if state == "EXIT_BLOCKED":
             log.critical("paper exit blocked; position remains supervised", extra={"position_id": row["id"]})
 
@@ -156,7 +159,12 @@ class Guardian:
             await self.mark(row, now)
             row = self.ledger.position(row["id"])
         if row["state"] == "EXIT_BLOCKED":
-            if last is not None and (now - last).total_seconds() < BLOCKED_RETRY_SECONDS:
+            # Marks have their own cadence and may refresh forever while an exit remains blocked.
+            # Throttle from the persisted attempt, never from the continually refreshed mark.
+            attempt = self.dbs.paper_ledger.execute(
+                "SELECT at FROM paper_events WHERE position_id = ? AND kind IN ('EXIT_FAILED', 'EXIT_BLOCKED') "
+                "ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+            if attempt is not None and (now - parse_iso8601(attempt["at"])).total_seconds() < BLOCKED_RETRY_SECONDS:
                 return
             await self.try_exit(row, row["exit_reason"] or "RETRY", now)
             return
@@ -187,6 +195,17 @@ class Guardian:
         self.stats["loops"] += 1
 
     async def run(self, minutes: float | None = None) -> dict[str, int]:
+        # The kernel releases this lock on normal exit and SIGKILL. A heartbeat alone cannot
+        # prevent simultaneous starts or distinguish a paused existing guardian from a dead one.
+        self.dbs.paths.home.mkdir(parents=True, exist_ok=True)
+        with (self.dbs.paths.home / "paper-guardian.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise DeskError("The independent PAPER guardian is already running for this data directory") from exc
+            return await self._run(minutes)
+
+    async def _run(self, minutes: float | None = None) -> dict[str, int]:
         started = time.monotonic()
         while not self._stop.is_set():
             wall, mono = time.time(), time.monotonic()

@@ -35,9 +35,10 @@ from desk.paper.ledger import PaperLedger
 from desk.signer import keystore
 from desk.signer import programs as p
 from desk.signer.inspect import SwapExpectation, associated_token_address, inspect_swap
+from desk.signer.intents import Intent
 from desk.signer.journal import Journal
 from desk.signer.server import request, serve
-from desk.signer.service import Signer
+from desk.signer.service import BuyAuthorizer, Signer
 from desk.storage.db import DbKind, connect, migrate
 
 NOW = datetime(2026, 11, 3, 12, tzinfo=UTC)
@@ -118,15 +119,19 @@ class FakeRpc:
         self.heights = heights or [HEIGHT]
         self.simulate_error = simulate_error
         self.sent: list[str] = []
+        self.simulations: list[str] = []
+        self.account_requests: list[list[str]] = []
         self.balance = 5 * 10 ** 9
 
     async def block_height(self) -> int:
         return self.heights.pop(0) if len(self.heights) > 1 else self.heights[0]
 
     async def accounts(self, addresses: list[str]) -> list[dict[str, Any] | None]:
+        self.account_requests.append(addresses)
         return [{"lamports": self.balance} if a == self.wallet else token_account(0) for a in addresses]
 
     async def simulate(self, transaction_b64: str, addresses: list[str]) -> dict[str, Any]:
+        self.simulations.append(transaction_b64)
         if self.simulate_error:
             raise self.simulate_error
         out = []
@@ -148,12 +153,17 @@ class FakeRpc:
         return "sig"
 
 
+def allow_test_buy(_intent: Intent, _now: datetime) -> list[str]:
+    """Offline fixture only: exercise inspection/signing using throwaway keys and fake transports."""
+    return []
+
+
 def make_signer(tmp_path: Path, swap: FakeSwap, rpc: FakeRpc, keypair: Keypair, live: LiveSection = LIVE,
-                journal: Journal | None = None) -> Signer:
+                journal: Journal | None = None, buy_authorizer: BuyAuthorizer | None = allow_test_buy) -> Signer:
     async def no_sleep(_: float) -> None:
         return None
     return Signer(keypair, journal or Journal(tmp_path / "journal.db"), swap, rpc, live, LOADED.settings.limits,
-                  LOADED.settings.sizing, clock=lambda: NOW, sleep=no_sleep)
+                  LOADED.settings.sizing, clock=lambda: NOW, sleep=no_sleep, buy_authorizer=buy_authorizer)
 
 
 def intent(**changes: Any) -> dict[str, Any]:
@@ -411,6 +421,164 @@ def test_m8_06_each_single_missing_gate_refuses_live(gate: int, changes: dict[st
     assert [g.number for g in gates if not g.ok] == [gate]
 
 
+def test_production_default_refuses_buy_before_any_network_or_signature(tmp_path: Path) -> None:
+    wallet = Keypair()
+    swap, rpc = FakeSwap({}), FakeRpc(wallet.pubkey())
+    # Deliberately omit the authorizer, exactly as the production CLI constructor does.
+    signer = Signer(wallet, Journal(tmp_path / "journal.db"), swap, rpc, LIVE,
+                    LOADED.settings.limits, LOADED.settings.sizing, clock=lambda: NOW)
+    status = asyncio.run(signer.handle({"op": "status"}))
+    assert not status["buy_enabled"] and status["reason"] == "LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE"
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent()}))
+    assert result["problems"] == ["LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE"]
+    assert LIVE.max_capital_sol > 0
+    assert not swap.orders and not swap.executions and not rpc.account_requests and not rpc.simulations and not rpc.sent
+    row = signer.journal.get("intent-0001")
+    assert row["state"] == "REFUSED" and row["signature"] is None
+
+
+@pytest.mark.parametrize("gate,changes", SINGLE_MISSING, ids=[f"gate{g}-{next(iter(c))}" for g, c in SINGLE_MISSING])
+def test_each_gate_refusal_reaches_signer_before_order(tmp_path: Path, gate: int, changes: dict[str, Any]) -> None:
+    wallet = Keypair()
+    swap, rpc = FakeSwap({}), FakeRpc(wallet.pubkey())
+
+    def authorize(pending: Intent, at: datetime) -> list[str]:
+        assert pending.intent_id == "intent-0001" and at == NOW
+        return [f"LIVE_GATE_{g.number}_CLOSED" for g in evaluate_gates(replace(ALL_OK, **changes)) if not g.ok]
+
+    signer = make_signer(tmp_path, swap, rpc, wallet, buy_authorizer=authorize)
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent()}))
+    assert result["problems"] == [f"LIVE_GATE_{gate}_CLOSED"]
+    assert not swap.orders and not swap.executions and not rpc.simulations and not rpc.account_requests
+    assert signer.journal.get("intent-0001")["signature"] is None
+
+
+@pytest.mark.parametrize("change_during", ["balance", "simulation"])
+def test_entry_policy_is_rechecked_after_await_before_order_and_sign(tmp_path: Path, change_during: str) -> None:
+    wallet = Keypair()
+    permitted = True
+    checks = []
+
+    def authorize(pending: Intent, at: datetime) -> list[str]:
+        checks.append((pending.intent_id, at, permitted))
+        return [] if permitted else ["LIVE_GATE_6_CLOSED:STOP"]
+
+    class ChangingRpc(FakeRpc):
+        async def accounts(self, addresses: list[str]) -> list[dict[str, Any] | None]:
+            nonlocal permitted
+            result = await super().accounts(addresses)
+            if change_during == "balance":
+                await asyncio.sleep(0)
+                permitted = False
+            return result
+
+        async def simulate(self, transaction_b64: str, addresses: list[str]) -> dict[str, Any]:
+            nonlocal permitted
+            result = await super().simulate(transaction_b64, addresses)
+            await asyncio.sleep(0)
+            permitted = False
+            return result
+
+    swap = FakeSwap(order_for(wallet.pubkey(), MINT, jupiter_buy(wallet.pubkey(), MINT)))
+    rpc = ChangingRpc(wallet.pubkey())
+    signer = make_signer(tmp_path, swap, rpc, wallet, buy_authorizer=authorize)
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent()}))
+    assert result["problems"] == ["LIVE_GATE_6_CLOSED:STOP"]
+    assert checks[0][2] and not checks[-1][2]
+    assert len(swap.orders) == (0 if change_during == "balance" else 1)
+    assert len(rpc.simulations) == (0 if change_during == "balance" else 1)
+    assert not swap.executions and not rpc.sent
+    assert signer.journal.get("intent-0001")["signature"] is None
+
+
+@pytest.mark.parametrize("change,problem", [("expire", "INTENT_EXPIRED"), ("disarm", "DISARMED")])
+def test_intent_expiry_and_disarm_are_rechecked_after_simulation(tmp_path: Path, change: str, problem: str) -> None:
+    wallet = Keypair()
+    clock_now = NOW
+
+    class ChangingRpc(FakeRpc):
+        async def simulate(self, transaction_b64: str, addresses: list[str]) -> dict[str, Any]:
+            nonlocal clock_now
+            result = await super().simulate(transaction_b64, addresses)
+            await asyncio.sleep(0)
+            if change == "expire":
+                clock_now = NOW + timedelta(seconds=21)
+            else:
+                signer.disarmed = True
+            return result
+
+    swap = FakeSwap(order_for(wallet.pubkey(), MINT, jupiter_buy(wallet.pubkey(), MINT)))
+    rpc = ChangingRpc(wallet.pubkey())
+    signer = make_signer(tmp_path, swap, rpc, wallet)
+    signer.clock = lambda: clock_now
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent()}))
+    assert result["problems"] == [problem] and rpc.simulations and not swap.executions
+    assert signer.journal.get("intent-0001")["signature"] is None
+
+
+@pytest.mark.parametrize("bad_result", [None, True, "approved", [None], [""]])
+def test_invalid_authorizer_result_cannot_enable_buy(tmp_path: Path, bad_result: Any) -> None:
+    wallet = Keypair()
+    swap, rpc = FakeSwap({}), FakeRpc(wallet.pubkey())
+
+    def invalid_authorizer(_pending: Intent, _at: datetime) -> Any:
+        return bad_result
+
+    signer = make_signer(tmp_path, swap, rpc, wallet, buy_authorizer=invalid_authorizer)
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent()}))
+    assert result["problems"] == ["LIVE_ENTRY_AUTHORIZATION_INVALID"] and not swap.orders
+    assert signer.journal.get("intent-0001")["signature"] is None
+
+
+def test_authorizer_error_cannot_enable_buy(tmp_path: Path) -> None:
+    wallet = Keypair()
+    swap, rpc = FakeSwap({}), FakeRpc(wallet.pubkey())
+
+    def broken_authorizer(_pending: Intent, _at: datetime) -> list[str]:
+        raise RuntimeError("policy database unavailable")
+
+    signer = make_signer(tmp_path, swap, rpc, wallet, buy_authorizer=broken_authorizer)
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent()}))
+    assert result["problems"] == ["LIVE_ENTRY_AUTHORIZATION_FAILED"] and not swap.orders
+    assert signer.journal.get("intent-0001")["signature"] is None
+
+
+@pytest.mark.parametrize("field", ["authorized", "buy_authorizer", "live_allowed", "gates"])
+def test_intent_cannot_claim_its_own_live_authorization(tmp_path: Path, field: str) -> None:
+    wallet = Keypair()
+    swap, rpc = FakeSwap({}), FakeRpc(wallet.pubkey())
+    signer = make_signer(tmp_path, swap, rpc, wallet, buy_authorizer=None)
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent(**{field: True})}))
+    assert result["error"] == "INVALID_INTENT" and not swap.orders and not swap.executions
+
+
+def test_sell_recovery_does_not_require_buy_authorization_or_new_capital(tmp_path: Path) -> None:
+    wallet = Keypair()
+    route = Instruction(pk(p.JUPITER_V6), bytes(12), [meta(wallet.pubkey(), True),
+                        meta(associated_token_address(str(wallet.pubkey()), MINT))])
+    message = MessageV0.try_compile(wallet.pubkey(), [*compute(), route], [], Hash.default())
+    transaction = base64.b64encode(bytes(VersionedTransaction.populate(message, [Signature.default()]))).decode()
+    order = {**order_for(wallet.pubkey(), MINT, transaction), "inputMint": MINT, "outputMint": p.WSOL}
+
+    class ExitRpc(FakeRpc):
+        async def accounts(self, addresses: list[str]) -> list[dict[str, Any] | None]:
+            result = await super().accounts(addresses)
+            result[1] = token_account(AMOUNT)
+            return result
+
+        async def simulate(self, transaction_b64: str, addresses: list[str]) -> dict[str, Any]:
+            self.simulations.append(transaction_b64)
+            return {"err": None, "accounts": [{"lamports": self.balance + MIN_OUT}, token_account(0),
+                                              {"lamports": self.balance + MIN_OUT}]}
+
+    swap, rpc = FakeSwap(order), ExitRpc(wallet.pubkey())
+    no_capital = LIVE.model_copy(update={"max_capital_sol": Decimal(0)})
+    signer = make_signer(tmp_path, swap, rpc, wallet, no_capital, buy_authorizer=None)
+    result = asyncio.run(signer.handle({"op": "intent", "intent": intent(side="SELL")}))
+    assert result["ok"] and result["state"] == "CONFIRMED"
+    assert len(swap.executions) == 1 and len(rpc.simulations) == 1
+
+
 # ── M8-09 zero-cost validation (offline) ──────────────────────────────────────────────────────────────
 def test_m8_09_zero_cost_validation_signs_and_sends_nothing() -> None:
     wallet = Keypair().pubkey()
@@ -477,7 +645,7 @@ def test_withdrawal_only_to_the_registered_address_with_exact_confirmation(tmp_p
     wallet, cold = Keypair(), str(Pubkey.new_unique())
     live = LIVE.model_copy(update={"withdraw_address": cold})
     rpc = FakeRpc(wallet.pubkey(), spend=10 ** 8 + 5000)
-    signer = make_signer(tmp_path, FakeSwap({}), rpc, wallet, live)
+    signer = make_signer(tmp_path, FakeSwap({}), rpc, wallet, live, buy_authorizer=None)
 
     def ask(intent_id: str, destination: str, lamports: int, confirmation: str | None = None) -> dict[str, Any]:
         return asyncio.run(signer.handle({"op": "withdraw", "withdrawal": {

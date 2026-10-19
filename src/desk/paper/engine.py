@@ -94,7 +94,7 @@ class PaperEngine:
                               paper.starting_capital_usd, paper.learning_cash_usd)
 
     # ── gates ─────────────────────────────────────────────────────────────────────────────────────
-    def blocked(self, mint: str, now: datetime) -> list[str]:
+    def _safety_blocks(self, now: datetime) -> list[str]:
         paper, limits = self.loaded.settings.paper, self.loaded.settings.limits
         reasons = []
         if stop_file_set(self.dbs):
@@ -110,6 +110,11 @@ class PaperEngine:
         context = latest_context(self.dbs.market, now)
         if context is None or (now - parse_iso8601(context["observed_at"])).total_seconds() > limits.stale_data_halt_seconds:
             reasons.append("STALE_MARKET_CONTEXT")
+        return reasons
+
+    def blocked(self, mint: str, now: datetime) -> list[str]:
+        paper, limits = self.loaded.settings.paper, self.loaded.settings.limits
+        reasons = self._safety_blocks(now)
         open_rows = self.ledger.open_positions()
         if len(open_rows) >= paper.max_learning_positions:
             reasons.append("POSITION_LIMIT")
@@ -127,7 +132,7 @@ class PaperEngine:
                 and now - parse_iso8601(outcomes[0]["at"]) < FAILURE_PAUSE):
             reasons.append("CONSECUTIVE_FAILURES_PAUSE")
         loss_limit = usd_to_lamports(paper.learning_max_cumulative_loss_usd, Decimal(self.ledger.meta()["sol_usd_at_start"]))
-        if self.ledger.realized_pnl_lamports() <= -loss_limit and not halted:
+        if self.ledger.realized_pnl_lamports() <= -loss_limit and not self.ledger.halted():
             self.ledger.halt("LEARNING_LOSS_LIMIT", now)
             reasons.append("HALTED:LEARNING_LOSS_LIMIT")
         return reasons
@@ -211,6 +216,14 @@ class PaperEngine:
                  "profiles": {"observed": result.profiles.observed, "conservative": result.profiles.conservative,
                               "stress": result.profiles.stress},
                  "stress_extra_fees_lamports": result.stress_extra_fees_lamports}
+        # Quoting and the conservative fill delay yield to other processes. A STOP or lost guardian
+        # during that time must cancel this simulated entry before any position or cash debit exists.
+        blocked = self._safety_blocks(done)
+        if blocked:
+            self.ledger.event(done, "ENTRY_ABORTED_AFTER_FILL", {"intent_id": intent_id, "reasons": blocked,
+                                                               "strategy_version": spec.version_id,
+                                                               "quotes": result.quotes}, candidate_id=candidate_id)
+            return "BLOCKED"
         try:
             self.ledger.open_position(
                 position_id=position_id, intent_id=intent_id, candidate_id=candidate_id, mint=mint, pool_address=pool,

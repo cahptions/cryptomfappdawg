@@ -55,7 +55,7 @@ def public_address(paths: DeskPaths) -> str | None:
 
 
 def arm(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets) -> int:
-    """Unlock the key in this process only and serve intents until disarmed or interrupted."""
+    """Unlock for recovery/restricted exits; new BUYs remain disabled pending per-entry gate wiring."""
     if loaded.settings.live.max_capital_sol <= 0:
         print("  live.max_capital_sol is 0: LIVE is not allowed, so the signer will not be armed")
         return 1
@@ -78,7 +78,9 @@ def arm(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets) -> int:
                             loaded.settings.limits, loaded.settings.sizing)
             for result in await signer.recover():
                 print(f"  recovered intent {result.get('intent_id')}: {result.get('state')}")
-            print(f"  signer armed for {signer.wallet}; socket {socket_path(paths)} (Ctrl-C or `desk live disarm`)")
+            print("  new BUY entries disabled: LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE; "
+                  "the seven LIVE gates are not wired to per-entry authorization")
+            print(f"  signer unlocked for {signer.wallet}; socket {socket_path(paths)} (Ctrl-C or `desk live disarm`)")
             await serve(signer, socket_path(paths), stop)
         journal.close()
 

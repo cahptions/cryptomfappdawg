@@ -1,0 +1,42 @@
+{
+  "scenario": "empty",
+  "viewport": "1920x1080",
+  "checks": [
+    "Production assets load with a connected SSE snapshot and local CSP.",
+    "1920×1080 desktop has no horizontal page overflow.",
+    "Empty state shows missing evidence and no invented balance/performance curve.",
+    "1366px and 390px layouts render without horizontal page overflow.",
+    "All eight navigation views render without a full page reload.",
+    "g/s and / shortcuts navigate and focus search; filtering is functional.",
+    "CSV and JSON links create real downloads matching fixture trades, with exact raw quantities encoded as strings.",
+    "Shift+S opens confirmation; cancel sends no POST; confirming STOP halts fixture entries.",
+    "Keyboard help opens and Escape dismisses it.",
+    "24 view changes retain one EventSource and bounded JS heap during the short sample.",
+    "No JavaScript errors, CSP violations, or unexpected failed requests.",
+    "Leaving the dashboard closes the SSE transport; healthy SSE does not also poll snapshots."
+  ],
+  "memory": {
+    "sample_seconds": 12,
+    "navigation_cycles": 24,
+    "before_used_bytes": 3738736,
+    "after_used_bytes": 3906220,
+    "retained_growth_bytes": 167484,
+    "streams": {
+      "sourcesCreated": 1,
+      "sourcesClosed": 0,
+      "sourcesActive": 1,
+      "maxSourcesActive": 1,
+      "csp": []
+    },
+    "note": "Short Chromium sample only; does not establish a long-duration absence of memory leaks."
+  },
+  "requests": {
+    "total": 44,
+    "sse": 1,
+    "snapshots": 2,
+    "posts": 1,
+    "streams_after_leaving_document": 0
+  },
+  "browser": "154.0.8037.57",
+  "ok": true
+}

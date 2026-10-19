@@ -202,6 +202,12 @@ class Collector:
             "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at",
             (os.getpid(), to_iso(utc_now())),
         )
+        if self.paper_engine is not None:
+            self.dbs.runtime.execute(
+                "INSERT INTO heartbeats(process, pid, at) VALUES ('paper-engine', ?, ?) "
+                "ON CONFLICT(process) DO UPDATE SET pid = excluded.pid, at = excluded.at",
+                (os.getpid(), to_iso(utc_now())),
+            )
 
     async def market_context(self) -> None:
         """Record one context measurement; every unknown input is stored as NULL with its reason."""

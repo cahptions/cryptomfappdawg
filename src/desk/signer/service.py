@@ -3,6 +3,8 @@
 Refusals are final: a refused or expired intent is never retried by the signer. After a submission it never
 resubmits blindly; it polls the signature until ``lastValidBlockHeight`` has passed. While any earlier intent is
 unresolved, new intents are refused. Withdrawals go only to the single pre-registered address.
+BUYs are disabled by default: the production entry point does not yet supply the trusted per-entry LIVE
+authorizer. An unlocked key, positive capital setting, or displayed gate report cannot authorize a BUY.
 """
 
 from __future__ import annotations
@@ -33,6 +35,13 @@ from desk.signer.journal import Journal
 
 SIGNATURE_FEE = 5000
 POLL_SECONDS = 2.0
+LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE = "LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE"
+
+# This is an internal dependency, never a request field, environment switch, or UI capability.
+# A production implementation must independently establish all seven LIVE gates for this exact
+# intent using fresh evidence. None is the safe default until that implementation exists.
+# Synchronous evaluation keeps the final check and signing in one event-loop turn.
+BuyAuthorizer = Callable[[Intent, datetime], list[str]]
 
 
 class SwapApi(Protocol):
@@ -56,12 +65,14 @@ def refusal(error: str, **detail: Any) -> dict[str, Any]:
 class Signer:
     def __init__(self, keypair: Keypair, journal: Journal, swap: SwapApi, rpc: RpcApi, live: LiveSection,
                  limits: LimitsSection, sizing: SizingSection, *, clock: Callable[[], datetime] = utc_now,
-                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
+                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+                 buy_authorizer: BuyAuthorizer | None = None) -> None:
         self._keypair = keypair
         self.wallet = str(keypair.pubkey())
         self.journal, self.swap, self.rpc = journal, swap, rpc
         self.live, self.limits, self.sizing = live, limits, sizing
         self.clock, self.sleep = clock, sleep
+        self._buy_authorizer = buy_authorizer
         self.disarmed = False
 
     @property
@@ -81,7 +92,9 @@ class Signer:
         op = request.get("op")
         if op == "status":
             return {"ok": True, "wallet": self.wallet, "unlocked": True, "unresolved": len(self.journal.unresolved()),
-                    "ticket_cap_lamports": self.ticket_cap_lamports}
+                    "ticket_cap_lamports": self.ticket_cap_lamports, "buy_enabled": False,
+                    "reason": LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE if self._buy_authorizer is None
+                    else "PER_INTENT_AUTHORIZATION_REQUIRED"}
         if op == "intent" and set(request) == {"op", "intent"}:
             return await self.intent(request["intent"])
         if op == "withdraw" and set(request) == {"op", "withdrawal"}:
@@ -119,6 +132,10 @@ class Signer:
                     - sol_to_lamports(self.limits.live_sol_reserve) - self.fee_budget_lamports
                 if intent.amount_raw > spendable:
                     return self._refuse(intent.intent_id, ["INSUFFICIENT_BALANCE_ABOVE_RESERVE"])
+            # Account retrieval can await while a STOP, approval, or readiness condition changes.
+            problems = self._precheck(intent, self.clock(), self._other_unresolved(intent.intent_id))
+            if problems:
+                return self._refuse(intent.intent_id, problems)
             order = await self.swap.order(input_mint, output_mint, intent.amount_raw, self.wallet, intent.max_slippage_bps)
             transaction = order.get("transaction")
             if not transaction or order.get("errorCode") or order.get("error"):
@@ -135,6 +152,11 @@ class Signer:
         except Exception as exc:  # any failure before signing is a refusal, never a signature
             return self._refuse(intent.intent_id, [f"PRE_SIGNING_FAILURE:{type(exc).__name__}"])
         unsigned = VersionedTransaction.from_bytes(base64.b64decode(transaction))
+        # Re-establish permission after every network wait. No await may separate this check
+        # from signing: an entry permission established before simulation is not sufficient.
+        problems = self._precheck(intent, self.clock(), self._other_unresolved(intent.intent_id))
+        if problems:
+            return self._refuse(intent.intent_id, problems)
         signed = VersionedTransaction(unsigned.message, [self._keypair])
         signature = str(signed.signatures[0])
         last_valid = int(order["lastValidBlockHeight"])
@@ -150,17 +172,35 @@ class Signer:
 
     def _precheck(self, intent: Intent, now: datetime, others: list[dict[str, Any]]) -> list[str]:
         problems = []
+        if self.disarmed:
+            problems.append("DISARMED")
         if others:
             problems.append("PREVIOUS_INTENT_UNRESOLVED")
         if intent.expires_at <= now:
             problems.append("INTENT_EXPIRED")
         elif intent.expires_at > now + timedelta(seconds=self.live.intent_max_age_seconds):
             problems.append("INTENT_EXPIRY_TOO_FAR")
-        if self.live.max_capital_sol <= 0:
-            problems.append("NO_CAPITAL_ALLOCATION")
-        if intent.side == "BUY" and intent.amount_raw > self.ticket_cap_lamports:
-            problems.append("AMOUNT_ABOVE_CAP")
+        if intent.side == "BUY":
+            if self.live.max_capital_sol <= 0:
+                problems.append("NO_CAPITAL_ALLOCATION")
+            if intent.amount_raw > self.ticket_cap_lamports:
+                problems.append("AMOUNT_ABOVE_CAP")
+            problems.extend(self._authorize_buy(intent, now))
         return problems
+
+    def _authorize_buy(self, intent: Intent, now: datetime) -> list[str]:
+        if self._buy_authorizer is None:
+            return [LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE]
+        try:
+            problems = self._buy_authorizer(intent, now)
+        except Exception:
+            return ["LIVE_ENTRY_AUTHORIZATION_FAILED"]
+        if not isinstance(problems, list) or any(not isinstance(p, str) or not p for p in problems):
+            return ["LIVE_ENTRY_AUTHORIZATION_INVALID"]
+        return problems
+
+    def _other_unresolved(self, intent_id: str) -> list[dict[str, Any]]:
+        return [row for row in self.journal.unresolved() if row["intent_id"] != intent_id]
 
     def _own_account(self, transaction_b64: str, mint: str) -> str:
         if mint == p.WSOL:

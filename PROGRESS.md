@@ -10,17 +10,18 @@
 | **M0** Architecture & feasibility | ✅ **Approved by operator** | 2026-10-18 | PLAN.md, RESEARCH.md, ACCEPTANCE.md, provider registry draft, evidence |
 | **M1** Infrastructure & data collection | ✅ **PASS** | 2026-10-18 Eastern / 2026-10-19 UTC | laptop doctor and 60-minute collection reported; 139 offline tests, ruff and strict mypy rechecked on resumption |
 | M2 Discovery & on-chain safety | 🟡 **implemented; 24-hour acceptance pending** | 2026-10-18 Eastern / Oct 19 UTC | automated checks and short cloud discovery runs passed; see M2 results and M2_HANDOFF.md |
-| M3 Features & strategy engine | ⏸ | — | |
+| M3 Features & strategy engine | 🟡 implemented; forward acceptance pending | 2026-10-19 | measured context, SHADOW and replay; six-hour laptop run still needed |
 | ~~M4 AI judge~~ | ❌ **Dropped** | 2026-10-18 | Operator declined paid API; desk is deterministic-only (PLAN §15) |
-| M5 Full PAPER trading | ⏸ | — | |
-| M6 Statistical learning & confidence | ⏸ | — | |
-| M7 Dashboard & operations | ⏸ | — | |
-| M8 LIVE infrastructure | ⏸ | — | no real funds ever used in M8 |
+| M5 Full PAPER trading | 🟡 implemented; 72-hour acceptance pending | 2026-10-19 | $100,000 learning book, $100 replica; post-quote and exit-concurrency fixes |
+| M6 Statistical learning & confidence | 🟡 methods implemented; forward evidence pending | 2026-10-19 | confidence matrices, counterfactuals, champion review, zero-influence local models |
+| M7 Dashboard & operations | 🟡 implementation and automated checks | 2026-10-19 | React/FastAPI, services, backups; real-laptop acceptance pending |
+| M8 LIVE infrastructure | 🟡 incomplete; production BUY disabled | 2026-10-19 | signer infrastructure present; per-entry production gate integration missing; no real funds used |
 | M9 Forward validation | ⏸ | — | ≥ 60 days calendar time |
 
-**Mode of the system:** read-only collection has run. Free provider keys are configured on the operator's laptop;
-they are not stored in this repository. There is no wallet or trading implementation yet. Paper capital will be a
-simulated **$100**.
+**Mode of the system:** the configured default is SHADOW. Free provider keys remain private on the operator's
+laptop. PAPER uses a simulated **$100,000 learning book**, tickets based on a **$100 initial allocation plus
+realized paper profit**, and a separate conservative $100-account replica. Signer infrastructure exists, but
+production BUY requests are disabled pending trusted per-entry authorization. See the latest continuation below.
 
 ## M0 acceptance results (2026-10-18)
 
@@ -372,7 +373,7 @@ impossible until you set it (ceiling 2 SOL) and every other gate passes.
 | M8-03 intent-only | PASS | raw-transaction ops, unknown fields, string/float amounts, expired or far-future intents, amounts above the 15%-of-allocation cap and a zero allocation are refused before any order |
 | M8-04 inspection | PASS | 9 crafted attacks refused (foreign program, SOL to a stranger, wrong fee payer, output to a foreign account, token transfer, priority fee too high, two routes, close to a stranger, over-wrapping) + order/blockhash mismatches; the **real recorded Jupiter order passes** |
 | M8-05 simulation required | PASS | simulation failure, overspend or under-delivery ⇒ no signature (journal has none) |
-| M8-06 gate matrix | PASS | each of 14 single-gate failures across all 7 gates refuses LIVE; readiness override recorded separately |
+| M8-06 gate matrix | **INCOMPLETE — corrected on continuation** | original tests covered the display evaluator, which was disconnected from signer BUY. Production BUY now refuses by default; trusted per-entry integration remains missing. New signer tests verify refusal before order and before signing across awaited work. |
 | M8-07 no blind resubmit | PASS | execute timeout ⇒ polling only; one submission; EXPIRED after lastValidBlockHeight, or CONFIRMED if it lands |
 | M8-08 idempotency & recovery | PASS | duplicate id never re-signed; restart resolves SIGNED intents by polling and refuses RECEIVED ones (crashed before signing); no new intent while one is unresolved |
 | M8-09 zero-cost path | **PASS (live, cloud)** | `desk live validate`: real order for a public funded wallet passed inspection; simulation err = null, 76,169 CU; nothing signed or sent (`m8_zero_cost_validation.json`) |
@@ -439,18 +440,14 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
 | Q7 Telegram, Q9 uptime/wired | not answered — defaults apply | — | non-blocking |
 
 ## Next step
-1. (Done) Operator approved the plan.
-2. M1 complete. On resumption, `uv sync --frozen` succeeded; `uv run pytest`: **139 passed, 4 live tests
-   deselected**; `uv run ruff check src tests`: clean; `uv run mypy`: **46 source files clean**. These new checks
-   were offline in the Codex cloud machine; previous live and laptop evidence is identified above.
-3. Fetch the `codex/m2-discovery` delivery branch into the existing laptop checkout (see `M2_HANDOFF.md`);
-   `uv sync --frozen`; keep using the already
-   configured free keys. Run `uv run desk discover --minutes 1440`, then
-   `uv run desk discovery-report --require-hours 24` and `uv run desk db check`. Record the actual results.
-4. Record M2's actual acceptance when it finishes. M3 development has proceeded in parallel; after updating,
-   collect real SHADOW/replay evidence and complete context/event provenance integrations. Continue M5, M6,
-   M7, M8 (zero funds), then M9. Development need not wait for earlier timers; acceptance still requires every
-   criterion. M4 remains dropped. Do not claim later milestones complete from smoke tests.
+1. Finish an existing laptop acceptance run before switching its checkout. Preserve local changes.
+2. Follow [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md) to fetch `codex/continue-claude`, install frozen
+   dependencies and open `desk dashboard`; the checked-in UI needs no Node runtime.
+3. Record actual M2 24-hour discovery, M3 six-hour SHADOW/replay and M5 72-hour PAPER acceptance separately.
+   Do the dashboard, service, backup recovery, lid/power and memory checks on the Dell laptop.
+4. Complete M8 production per-entry authorization; BUY remains disabled meanwhile. Continue M9 forward
+   evidence for the required calendar duration and trade count. M4 remains dropped. Do not promote a strategy
+   from fixtures, synthetic tests, short browser checks or uncalibrated research results.
 
 ## Session log
 - **2026-10-18 (session 1):** M0 research (live read-only probes of GeckoTerminal, DexScreener, Solana public RPC/WS,
@@ -465,3 +462,48 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
   (§1, §3.1, §4 diagram and pipeline, §5, §6, §7, §8, §9, §13, §15, §19, §20, §22, §24), dropped M4 in ACCEPTANCE
   (moved its surviving intents to M1-20, M6-13, M6-14, M7-04), marked Anthropic EXCLUDED in the registry and RESEARCH,
   removed the judge from the design concept. Still awaiting Q1 (plan approval).
+
+
+## Claude continuation: M7 and backend fixes (2026-10-19 UTC, Codex)
+
+Continued from Claude commit `c29501a` on `codex/continue-claude`. The current handoff is
+[CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md); laptop operations are in [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+M7 now includes a built React/TypeScript interface and a loopback FastAPI server. Eight views display recorded
+book/replica results, candidates, positions, confidence, research, audit, resources and LIVE requirements.
+Explicit controls start SHADOW/PAPER, stop entries, generate reports, export and disarm. Resume/arm/approval/
+withdrawal are not dashboard operations. Host/Origin checks, session CSRF, CSP and inert text rendering protect
+the browser boundary. Assets are local, dependencies locked, no paid service is introduced.
+
+Overview history is bounded. PAPER summaries aggregate in SQLite; replica history is cursor-streamed with
+bounded active-position state. It matches the original full report on profit/loss, concurrency, drawdown and
+fixed-fee fixtures. A 12,000-event payload test retained under 1 MB peak Python allocation for the summary.
+Historical scans still take time proportional to database history; laptop long-duration performance is pending.
+
+PAPER rechecks STOP/halts/guardian/context after quote delays and before committing entries, serializes cash
+settlement on close, retries blocked exits independently of mark refreshes, and prevents duplicate guardians.
+New entry/dashboard/guardian/Telegram lifetime locks cover supervised startup and guarded restore.
+
+User service units carry independent engine/guardian sleep inhibitors and memory caps. Hourly ledger/daily
+market+research backups verify checksums, SQLite integrity and ledger mode, rotate, and preserve a pre-restore
+copy. Position-state-change backup hooks remain unconnected. Telegram status/stop is optional and off by
+default; tests injected HTTP and no external message was sent.
+
+M8-06 was corrected above: previous tests exercised a disconnected seven-gate evaluator. Production signer
+BUY now fails closed before ordering/signing; a real per-entry authorization producer is still missing. SELL
+recovery and restricted withdrawal remain. No wallet was funded and no transaction signed or submitted here.
+
+Browser evidence: production app with empty/populated offline fixtures in Chromium 154, all eight views,
+dossiers, actual CSV/JSON downloads, STOP cancel/confirm, keyboard, 1920/1366/390 layouts, zero JavaScript/CSP/
+request errors. One SSE remained through 24 view changes and closed after leaving; healthy SSE did not also
+poll. A 12-second post-GC sample retained about 164–167 KiB. This is a brief regression check, not a long-term
+leak test or a Dell/Firefox measurement. Reports and labelled fixture screenshots: [docs/evidence/m7/](docs/evidence/m7/).
+
+Checks: strict TypeScript/Vite build, all seven foreground contrast tokens across four surfaces, zero npm audit
+vulnerabilities, systemd unit syntax verification, Ruff and strict mypy (120 source files) passed. Cloud offline
+doctor had zero failures (keyless isolated test home); this does not retest private laptop keys. Actual user
+service startup, power/lid behavior, accessibility review and timed forward runs remain pending.
+
+Final offline suite: **672 passed, 5 opt-in live tests deselected**, 147.89 seconds. One test-client deprecation
+warning comes from Starlette's existing httpx adapter; it did not fail a check. No live provider check was rerun
+or real transaction attempted during this continuation.

@@ -56,6 +56,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_collect(args: argparse.Namespace) -> int:
+    from desk.core.worker_lock import WorkerLock
     from desk.ops.collector import Collector, render_stats
     from desk.providers.factory import build_suite
     from desk.storage.databases import Databases
@@ -84,7 +85,8 @@ def cmd_collect(args: argparse.Namespace) -> int:
         print(render_stats(stats))
         return 1 if stats.unhandled_exceptions else 0
 
-    return asyncio.run(main())
+    with WorkerLock(paths):
+        return asyncio.run(main())
 
 
 def _ensure_guardian(dbs: Any, loaded: Any) -> None:
@@ -102,6 +104,7 @@ def _ensure_guardian(dbs: Any, loaded: Any) -> None:
 
 
 def cmd_guardian(args: argparse.Namespace) -> int:
+    from desk.core.worker_lock import WorkerLock
     from desk.paper.guardian import Guardian
     from desk.providers.factory import build_suite
     from desk.storage.databases import Databases
@@ -127,7 +130,8 @@ def cmd_guardian(args: argparse.Namespace) -> int:
         print(json.dumps({"guardian": stats}, indent=1))
         return 1 if stats["unhandled_exceptions"] else 0
 
-    return asyncio.run(main())
+    with WorkerLock(paths, "guardian"):
+        return asyncio.run(main())
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
@@ -462,11 +466,18 @@ def cmd_console(args: argparse.Namespace) -> int:
 
 
 def cmd_shadow(args: argparse.Namespace) -> int:
+    from desk.core.worker_lock import WorkerLock
+
+    paths, _ = _bootstrap(args.verbose)
+    with WorkerLock(paths):
+        return _run_shadow(paths, args)
+
+
+def _run_shadow(paths: DeskPaths, args: argparse.Namespace) -> int:
     from desk.core.config import Mode
     from desk.ops.shadow import ShadowRunner, render_shadow
     from desk.storage.databases import Databases
 
-    paths, _ = _bootstrap(args.verbose)
     if load_config(paths.config_dir).settings.desk.mode is not Mode.SHADOW:
         raise ConfigError("M3 research requires SHADOW mode")
     dbs = Databases.open(paths)
@@ -580,6 +591,131 @@ def cmd_db(args: argparse.Namespace) -> int:
         dbs.close()
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    from desk.web.app import serve
+
+    paths, _ = _bootstrap(args.verbose)
+    print(f"KESTREL dashboard: http://127.0.0.1:{args.port} (this laptop only)", flush=True)
+    serve(paths, port=args.port)
+    return 0
+
+
+def cmd_services(args: argparse.Namespace) -> int:
+    from desk.ops.services import control_services, install_services
+
+    paths, _ = _bootstrap(args.verbose)
+    action = getattr(args, "action", "start")
+    if action == "install":
+        for path in install_services(paths, sys.executable, port=args.port, start=False):
+            print(path)
+        print("User services installed. Start dashboard: desk up. Start PAPER as well: desk up --paper")
+    elif action == "start":
+        install_services(paths, sys.executable, port=args.port, start=True, paper=bool(getattr(args, "paper", False)))
+    else:
+        control_services(action, paper=bool(getattr(args, "paper", False)))
+    return 0
+
+
+def cmd_backups(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from desk.ops.backups import DATABASES, backup_schedule_once, create_backup, restore_backup, verify_backup
+
+    paths, _ = _bootstrap(args.verbose)
+    try:
+        if args.action == "run":
+            result: Any = backup_schedule_once(paths, utc_now())
+        elif args.action == "create":
+            kinds = tuple(kind for kind, filename in DATABASES.items() if (paths.db_dir / filename).exists())
+            result = {"manifest": str(create_backup(paths, kinds, utc_now()))}
+        elif not args.manifest:
+            raise ValueError("provide the backup manifest path")
+        elif args.action == "verify":
+            result = verify_backup(Path(args.manifest).expanduser().resolve())
+        else:
+            from desk.core.worker_lock import WorkerLock
+
+            if not args.kind:
+                raise ValueError("restore requires --kind (for example ledger-paper)")
+            if input(f"Stop dashboard, guardian and engine first. Type RESTORE {args.kind}: ").strip() != f"RESTORE {args.kind}":
+                print("Not restored")
+                return 1
+            if _restore_workers_active(paths):
+                raise ValueError("stop dashboard, guardian and engine before restore")
+            # Hold the same locks as every supervised startup through verification and replacement.
+            with WorkerLock(paths), WorkerLock(paths, "dashboard"), WorkerLock(paths, "guardian"), WorkerLock(paths, "telegram"):
+                previous = restore_backup(
+                    Path(args.manifest).expanduser().resolve(), paths, kind=args.kind, expected_mode=args.mode,
+                    workers_active=lambda: _restore_processes_alive(paths),
+                )
+            result = {"previous_backup": None if previous is None else str(previous)}
+        print(json.dumps(result, indent=1, default=str))
+        return 0
+    except (ValueError, RuntimeError) as exc:
+        raise DeskError(str(exc)) from exc
+
+
+def _restore_workers_active(paths: DeskPaths) -> bool:
+    from desk.core.worker_lock import WorkerLock
+
+    if any(WorkerLock(paths, name).held() for name in ("entry-worker", "dashboard", "guardian", "telegram")):
+        return True
+    return _restore_processes_alive(paths)
+
+
+def _restore_processes_alive(paths: DeskPaths) -> bool:
+    import os
+    import sqlite3
+
+    database = paths.db_dir / "runtime.db"
+    if not database.exists():
+        return False
+    with contextlib.closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=2)) as conn:
+        rows = conn.execute("SELECT pid FROM heartbeats").fetchall()
+    for row in rows:
+        try:
+            os.kill(int(row[0]), 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            return True
+        else:
+            return True
+    return False
+
+
+def cmd_telegram(args: argparse.Namespace) -> int:
+    from desk.core.worker_lock import WorkerLock
+    from desk.ops.telegram import build_daily_report
+
+    paths, _ = _bootstrap(args.verbose)
+    # Report generation is entirely local; outbound Telegram is an explicit separate opt-in.
+    if args.action == "report":
+        print(build_daily_report(paths))
+        return 0
+    from desk.ops.telegram import poll_telegram
+
+    secrets = load_secrets(paths.secrets_file)
+    token, chat = secrets.get("TELEGRAM_BOT_TOKEN"), secrets.get("TELEGRAM_CHAT_ID")
+    if not token or not chat:
+        raise ConfigError("set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the existing private secrets file")
+    import re
+
+    if not re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]{20,}", token) or not re.fullmatch(r"-?[0-9]+", chat):
+        raise ConfigError("Telegram requires a valid bot token and exact integer chat ID in the private secrets file")
+
+    async def run() -> None:
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop.set)
+        await poll_telegram(paths, token, int(chat), stop)
+
+    with WorkerLock(paths, "telegram"):
+        asyncio.run(run())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="desk", description="KESTREL Solana quant desk")
     parser.add_argument("--version", action="version", version=f"desk {__version__}")
@@ -655,6 +791,33 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("console", help="local read-only M2 status console")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(func=cmd_console)
+
+    p = sub.add_parser("dashboard", help="KESTREL local React dashboard and bounded research controls")
+    p.add_argument("--port", type=int, choices=range(1024, 65536), default=8765, metavar="1024..65535")
+    p.set_defaults(func=cmd_dashboard)
+
+    p = sub.add_parser("services", help="install or inspect opt-in systemd user services")
+    p.add_argument("action", choices=["install", "status"])
+    p.add_argument("--port", type=int, default=8765)
+    p.set_defaults(func=cmd_services)
+
+    p = sub.add_parser("up", help="install/start dashboard and backups; PAPER only with --paper")
+    p.add_argument("--paper", action="store_true")
+    p.add_argument("--port", type=int, choices=range(1024, 65536), default=8765, metavar="1024..65535")
+    p.set_defaults(func=cmd_services, action="start")
+    sub.add_parser("down", help="stop engine and dashboard; keep exit guardian alive").set_defaults(
+        func=cmd_services, action="stop")
+
+    p = sub.add_parser("backups", help="online backups, verification and typed-confirmation restore")
+    p.add_argument("action", choices=["run", "create", "verify", "restore"])
+    p.add_argument("manifest", nargs="?")
+    p.add_argument("--kind", choices=["market", "research", "ledger-paper", "ledger-live"])
+    p.add_argument("--mode", choices=["PAPER", "LIVE"], default="PAPER")
+    p.set_defaults(func=cmd_backups)
+
+    p = sub.add_parser("telegram", help="local report, or explicitly opt in to allowlisted Telegram status/stop")
+    p.add_argument("action", choices=["report", "poll"])
+    p.set_defaults(func=cmd_telegram)
 
     p = sub.add_parser("shadow", help="record deterministic research decisions from existing data; no positions")
     p.add_argument("--minutes", type=_positive_minutes, default=360.0)
