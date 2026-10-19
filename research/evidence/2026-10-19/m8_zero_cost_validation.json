@@ -1,0 +1,20 @@
+{
+ "amount_lamports": 10000000,
+ "command": "desk live validate",
+ "kind": "M8-09 zero-cost LIVE-path validation (cloud, keyless Jupiter + public RPC)",
+ "nothing_signed_or_sent": true,
+ "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+ "result": {
+  "in_amount": "10000000",
+  "inspection_problems": [],
+  "note": "nothing was signed or sent; simulation cannot prove landing, MEV exposure or future state",
+  "ok": true,
+  "out_amount": "1054298",
+  "priority_fee_lamports": 140331,
+  "router": "metis",
+  "simulation_error": null,
+  "simulation_problems": [],
+  "units_consumed": 163203
+ },
+ "taker": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9 (public funded wallet, read-only simulation subject)"
+}

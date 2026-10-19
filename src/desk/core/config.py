@@ -149,6 +149,23 @@ class ContextSection(_Section):
         return value
 
 
+class LiveSection(_Section):
+    """M8 signer settings. ``max_capital_sol = 0`` keeps LIVE impossible (gate 4)."""
+
+    max_capital_sol: Decimal = Field(ge=0)
+    max_priority_fee_lamports: int = Field(ge=0)
+    intent_max_age_seconds: int = Field(ge=5, le=120)
+    withdraw_address: str = ""                       # empty = withdrawals impossible
+    allowed_fee_destinations: tuple[str, ...] = ()
+
+    @field_validator("withdraw_address")
+    @classmethod
+    def _withdraw(cls, value: str) -> str:
+        if value and not is_solana_address(value):
+            raise ValueError("withdraw_address must be empty or a Solana address")
+        return value
+
+
 class ResearchSection(_Section):
     # M6-14: local model scores have zero influence until they beat the baselines out of sample AND a new,
     # operator-approved configuration value exists; today "none" is the only accepted value.
@@ -167,6 +184,7 @@ class DeskConfig(_Section):
     discovery: DiscoverySection
     context: ContextSection
     research: ResearchSection = ResearchSection()
+    live: LiveSection
 
 
 @dataclass(frozen=True)

@@ -203,6 +203,7 @@ mint, order rate, consecutive-failure pause, stale-data and kill-switch halts, c
 | M8-09 | Zero-cost path validation | L | `/order` with read-only taker + `simulateTransaction` (sigVerify off) succeeds for a liquid token; nothing is sent |
 | M8-10 | Emergency halt | E2E | STOP + `desk liquidate --all` (against mocks) attempts every exit and reports per-position success/failure truthfully |
 | M8-11 | No real money moved | M | Hot wallet balance unchanged (or zero) at milestone end; no transaction signatures from the hot wallet on-chain |
+| M8-12 | Restricted withdrawal | U | Only to `live.withdraw_address` with the exact typed confirmation; unregistered/empty address, mismatch, or amount above balance − reserve ⇒ refused; the signed transaction contains a single System transfer to that address |
 
 ---
 

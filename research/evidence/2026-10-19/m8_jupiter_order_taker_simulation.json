@@ -1,0 +1,90 @@
+{
+ "decoded": {
+  "fee_payer": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+  "message": "v0",
+  "own_usdc_ata": "FzbcyEZ9m8xjtergWgWDq7mfPoHEbboBF791B6cTpzbq",
+  "own_wsol_ata": "umiAsegEDQeKMAfqPhqNxxYDsXo8fuhQy7HHE7viKud",
+  "required_signatures": 1,
+  "sequence": [
+   "SetComputeUnitLimit",
+   "SetComputeUnitPrice",
+   "System.Transfer wallet->own wSOL ATA (= inAmount)",
+   "Token.SyncNative(own wSOL ATA)",
+   "Jupiter route",
+   "Token.CloseAccount(own wSOL ATA -> wallet)"
+  ],
+  "top_level_programs": [
+   "ComputeBudget111111111111111111111111111111",
+   "11111111111111111111111111111111",
+   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+   "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+  ]
+ },
+ "kind": "M8 zero-cost path evidence (read-only; nothing signed or sent)",
+ "measured_fees": {
+  "note": "R-06 data point: 461 lamports priority fee vs the conservative 100,000 used by PAPER",
+  "prioritizationFeeLamports": 461,
+  "signatureFeeLamports": 5000
+ },
+ "note": "taker is a public, funded exchange wallet used only as a read-only simulation subject",
+ "observed_at": "2026-10-19T05:0xZ (cloud)",
+ "order": {
+  "feeBps": 2,
+  "feeMint": "So11111111111111111111111111111111111111112",
+  "gasless": false,
+  "guaranteedPrice": false,
+  "inAmount": "10000000",
+  "inUsdValue": 1.0538976700469749,
+  "inputMint": "So11111111111111111111111111111111111111112",
+  "jitOptimized": false,
+  "lastValidBlockHeight": "436747407",
+  "mode": "ultra",
+  "otherAmountThreshold": "1051394",
+  "outAmount": "1053713",
+  "outUsdValue": 1.0536103903263525,
+  "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "platformFee": {
+   "feeBps": 2,
+   "feeMint": "So11111111111111111111111111111111111111112"
+  },
+  "priceImpact": -0.027258786956950377,
+  "priceImpactPct": "-0.0002725878695695038",
+  "prioritizationFeeLamports": 461,
+  "prioritizationFeePayer": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+  "rentFeeLamports": 0,
+  "rentFeePayer": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+  "requestId": "01a15291-ddb5-70bb-a5d9-bfc4b68dfed5",
+  "routePlan": [
+   {
+    "bps": 10000,
+    "percent": 100,
+    "swapInfo": {
+     "ammKey": "7DyH4hFA9KY2Uf3ZC2fUGP9ATsLqAEq3pUpyJPA2Mjft",
+     "inAmount": "10000000",
+     "inputMint": "So11111111111111111111111111111111111111112",
+     "label": "ZeroFi",
+     "outAmount": "1053923",
+     "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+    "usdValue": 1.0536103903263525
+   }
+  ],
+  "router": "metis",
+  "signatureFeeLamports": 5000,
+  "signatureFeePayer": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+  "slippageBps": 22,
+  "swapMode": "ExactIn",
+  "swapType": "aggregator",
+  "swapUsdValue": 1.0536103903263525,
+  "taker": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+  "totalTime": 170,
+  "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAFCEjAG1BZAFRV2dywxrzs3LT7Wy6rwamoK1c5K6qkDwTm3sTeRGTwuXxew5/kivghLMd/7RlS2oFJdI1UTmJL6wANhMFxmHie5lj8TFWhd75WFwp5jDWzhXPBOqZlIgYcLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANZtjiLgkUYJsu4O7lCF6+WWGCGKfgWNPCiRJ3mtQnHYDBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAAR51VvyMcBu7nTFbs5oFQf9sbLeo/SOUQKxzaJWvBOPBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKkG+/aUUnTproG/dl0nC6KMTKPNEmCTvXNdfNwnWgYzBgYFAAUCAuEAAAUACQNDHwAAAAAAAAMCAAIMAgAAAICWmAAAAAAABwECAREGHAACAREPBwcGDgYIEwwUCQoLDQIBAAcRBw8SBBAnu2T6zDHErxSAlpgAAAAAABEUEAAAAAAAFgACAAAAAQAAAMMQJwABBwMCAAABCQIpv5UHKk+/BN9xdZPnOLzMIScoFcJHGoDZ+fVVsNSEJQElBAAoAReptpPUZ4/xgIN7WaLUXOHB03DwSNVlvKy3wi8fPGAtFAU5QT83QAM9Pjg=",
+  "transactionVersion": 0
+ },
+ "simulation": {
+  "err": null,
+  "unitsConsumed": 34146,
+  "usdc_post_minus_pre": 1053309
+ },
+ "taker": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9"
+}

@@ -250,6 +250,184 @@ def cmd_counterfactuals(args: argparse.Namespace) -> int:
         dbs.close()
 
 
+def cmd_live(args: argparse.Namespace) -> int:
+    paths, _ = _bootstrap(args.verbose)
+    action = args.action
+    if action == "keygen":
+        from desk.signer.main import keygen
+
+        return keygen(paths)
+    loaded = load_config(paths.config_dir)
+    secrets = load_secrets(paths.secrets_file)
+    if action == "arm":
+        from desk.signer.main import arm
+
+        return arm(paths, loaded, secrets)
+    if action in ("disarm", "withdraw"):
+        return asyncio.run(_live_socket_action(paths, loaded, args))
+    if action == "validate":
+        return asyncio.run(_live_validate(loaded, secrets, args))
+    from desk.storage.databases import Databases
+
+    dbs = Databases.open(paths)
+    try:
+        if action == "approve":
+            if not args.version:
+                print("  usage: desk live approve STRATEGY_VERSION")
+                return 2
+            typed = input(f"Type APPROVE LIVE {args.version} to approve this exact version for LIVE review: ").strip()
+            if typed != f"APPROVE LIVE {args.version}":
+                print("  not approved")
+                return 1
+            from desk.core.hashing import canonical_json
+            from desk.core.ids import new_id
+
+            dbs.research.execute("INSERT INTO approvals(id, created_at, kind, subject, confirmation, payload_json)"
+                                 " VALUES (?, ?, 'LIVE_STRATEGY', ?, ?, ?)",
+                                 (new_id("appr"), utc_now().isoformat(), args.version, typed, canonical_json({})))
+            print("  approval recorded. It is one of seven gates; it does not arm anything.")
+            return 0
+        return asyncio.run(_live_status(paths, loaded, dbs, args.version))
+    finally:
+        dbs.close()
+
+
+async def _live_status(paths: Any, loaded: Any, dbs: Any, version: str | None) -> int:
+    import tomllib
+    from decimal import Decimal
+
+    from desk.live.gates import evaluate_gates, live_allowed, status_context
+    from desk.paper.engine import heartbeat_age
+    from desk.paper.ledger import PaperLedger
+    from desk.signer.main import public_address, socket_path
+    from desk.signer.server import request
+    from desk.stats.champion import current_champion
+
+    unlocked = False
+    if socket_path(paths).exists():
+        with contextlib.suppress(OSError, TimeoutError, ValueError):
+            unlocked = bool((await request(socket_path(paths), {"op": "status"}, timeout=5)).get("unlocked"))
+    with (paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
+        ceiling = Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
+    target = version or current_champion(dbs.research) or "none"
+    age = heartbeat_age(dbs.runtime, "guardian", utc_now())
+    ctx = status_context(dbs.research, loaded, target, signer_unlocked=unlocked, ceiling=ceiling,
+                         halted=PaperLedger(dbs.paper_ledger).halted(), guardian_fresh=age is not None and age <= 20)
+    gates = evaluate_gates(ctx)
+    print(f"\nLIVE gates for strategy version {target} (hot wallet: {public_address(paths) or 'not created'})\n")
+    for gate in gates:
+        print(f"  {'✓' if gate.ok else '✗'} {gate.number}. {gate.name:<20} {gate.detail}")
+    print(f"\n  LIVE {'would be allowed' if live_allowed(gates) else 'is NOT allowed'}. This screen can only show"
+          " gates; nothing here arms LIVE.")
+    return 0
+
+
+async def _live_socket_action(paths: Any, loaded: Any, args: argparse.Namespace) -> int:
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from desk.core.ids import new_id
+    from desk.core.units import sol_to_lamports
+    from desk.signer.main import socket_path
+    from desk.signer.server import request
+
+    if args.action == "disarm":
+        answer = await request(socket_path(paths), {"op": "disarm"}, timeout=10)
+        print(f"  {answer}")
+        return 0
+    destination = loaded.settings.live.withdraw_address
+    if not destination or args.sol is None:
+        print("  set live.withdraw_address in config first, then: desk live withdraw --sol AMOUNT")
+        return 2
+    lamports = sol_to_lamports(Decimal(args.sol))
+    phrase = f"WITHDRAW {lamports} LAMPORTS TO {destination}"
+    typed = input(f"Type exactly: {phrase}\n> ").strip()
+    if typed != phrase:
+        print("  not withdrawn")
+        return 1
+    answer = await request(socket_path(paths), {"op": "withdraw", "withdrawal": {
+        "intent_id": new_id("wd"), "destination": destination, "lamports": lamports, "confirmation": typed,
+        "expires_at": (utc_now() + timedelta(seconds=25)).isoformat()}}, timeout=180)
+    print(json.dumps(answer, indent=1))
+    return 0 if answer.get("ok") else 1
+
+
+async def _live_validate(loaded: Any, secrets: Any, args: argparse.Namespace) -> int:
+    from decimal import Decimal
+
+    import httpx
+
+    from desk.core.units import sol_to_lamports
+    from desk.live.validate import validate_path
+    from desk.signer.net import JupiterSwap, SolanaRpc
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        result = await validate_path(JupiterSwap(client, secrets.get("JUPITER_API_KEY")),
+                                     SolanaRpc(client, secrets.get("SOLANA_RPC_URL") or "https://api.mainnet-beta.solana.com"),
+                                     taker=args.taker, output_mint=args.mint,
+                                     amount_lamports=sol_to_lamports(Decimal(args.sol or "0.01")),
+                                     max_priority_fee_lamports=loaded.settings.live.max_priority_fee_lamports)
+    print(json.dumps(result, indent=1, default=str))
+    return 0 if result["ok"] else 1
+
+
+def cmd_liquidate(args: argparse.Namespace) -> int:
+    from desk.paper.ledger import PaperLedger
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    if not args.all:
+        print("  usage: desk liquidate --all [--live]")
+        return 2
+    if input("Type LIQUIDATE ALL to stop entries and attempt to exit every position: ").strip() != "LIQUIDATE ALL":
+        print("  nothing done")
+        return 1
+    (paths.home / "STOP").write_text(f"liquidation {utc_now().isoformat()}\n")
+    dbs = Databases.open(paths)
+    try:
+        if not args.live:
+            ledger = PaperLedger(dbs.paper_ledger)
+            ledger.halt("STOP", utc_now())
+            rows = ledger.open_positions()
+            for row in rows:
+                if row["state"] == "OPEN":
+                    ledger.set_state(row["id"], "EXITING", utc_now(), {"reason": "MANUAL_LIQUIDATION",
+                                                                       "attempts": row["exit_attempts"]})
+            print(f"  entries stopped; {len(rows)} PAPER positions handed to the guardian for exit (see desk paper-report)")
+            return 0
+    finally:
+        dbs.close()
+    return asyncio.run(_liquidate_live(paths))
+
+
+async def _liquidate_live(paths: Any) -> int:
+    from desk.core.config import Mode
+    from desk.live.liquidate import liquidate_all
+    from desk.paper.ledger import PaperLedger
+    from desk.providers.factory import build_suite
+    from desk.signer.main import socket_path
+    from desk.signer.server import request
+    from desk.storage.databases import Databases, open_ledger
+
+    loaded = load_config(paths.config_dir)
+    dbs = Databases.open(paths)
+    live_ledger = open_ledger(paths.db_dir, Mode.LIVE)
+    suite = build_suite(paths, loaded, load_secrets(paths.secrets_file), dbs)
+    try:
+        ledger = PaperLedger(live_ledger)
+        report = await liquidate_all(ledger, quote=suite.jupiter.order,
+                                     send_intent=lambda payload: request(socket_path(paths), payload),
+                                     stop_entries=lambda: ledger.halt("STOP", utc_now()), clock=utc_now)
+    finally:
+        await suite.aclose()
+        live_ledger.close()
+        dbs.close()
+    for row in report:
+        print(f"  {row['result']:<10} {row['position_id']}  {row.get('reason') or row.get('signature') or ''}")
+    print("  positions not CONFIRMED remain open and supervised.")
+    return 0 if all(r["result"] == "CONFIRMED" for r in report) else 1
+
+
 def cmd_discovery_report(args: argparse.Namespace) -> int:
     from desk.ops.acceptance import discovery_run_failures
     from desk.storage.databases import Databases
@@ -454,6 +632,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("counterfactuals", help="what happened to rejected candidates (M6-05)").set_defaults(
         func=cmd_counterfactuals)
+
+    p = sub.add_parser("live", help="LIVE infrastructure (M8): keygen, arm, disarm, status, approve, validate, withdraw")
+    p.add_argument("action", choices=["keygen", "arm", "disarm", "status", "approve", "validate", "withdraw"])
+    p.add_argument("version", nargs="?", help="strategy version id (status/approve)")
+    p.add_argument("--taker", default="5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+                   help="validate: a funded PUBLIC address used read-only for simulation")
+    p.add_argument("--mint", default="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", help="validate: output mint")
+    p.add_argument("--sol", default=None, help="validate/withdraw: amount in SOL")
+    p.set_defaults(func=cmd_live)
+
+    p = sub.add_parser("liquidate", help="stop entries and attempt to exit every position (typed confirmation)")
+    p.add_argument("--all", action="store_true")
+    p.add_argument("--live", action="store_true", help="LIVE ledger via the signer (default: PAPER via the guardian)")
+    p.set_defaults(func=cmd_liquidate)
 
     p = sub.add_parser("discovery-report", help="candidate outcomes, rejection reasons and audit completeness")
     p.add_argument("--run-id", help="run to check; defaults to the latest run")

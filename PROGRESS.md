@@ -353,6 +353,38 @@ Validation: **478 offline tests passed** after the M6 completion, Ruff clean, st
 (h = 12) gave 35% false alarms on healthy data — consistent with its theoretical run length — so h was raised
 to 20 and the documented detection delay updated rather than loosening the test.
 
+## M8 LIVE infrastructure — zero funds (2026-10-19 UTC, Claude)
+
+`desk_signer` (`src/desk/signer/`) is the only holder of the hot-wallet key: scrypt + AES-256-GCM keystore at
+`~/.config/desk/hot-wallet.json` (0600), unlocked only inside `desk live arm`, serving a 0600 Unix socket that
+accepts four structured operations (status, intent, withdraw, disarm). Every swap intent goes order (Jupiter
+`/swap/v2/order` with the hot wallet as taker) → inspection → balance-delta simulation → signature → `/execute` →
+signature polling until `lastValidBlockHeight`; refusals are final and journaled (synchronous=FULL). `desk live
+status` shows the seven §16.5 gates (calibrated regime added); `desk live approve <version>` records a typed
+approval; `desk live validate` runs the zero-cost path; `desk liquidate --all [--live]` stops entries and attempts
+every exit. Added dependency: `cryptography` 46.0.3 (pinned). `live.max_capital_sol = 0` by default: LIVE is
+impossible until you set it (ceiling 2 SOL) and every other gate passes.
+
+| Criteria | Status | Evidence |
+|---|---|---|
+| M8-01 key isolation | PASS | AST test: no module outside `desk.signer` imports the keystore; non-0600 keystore refused |
+| M8-02 encrypted keystore | PASS | wrong passphrase refused; file holds no key bytes (hex/base58/base64 checked); nothing logged (log capture) |
+| M8-03 intent-only | PASS | raw-transaction ops, unknown fields, string/float amounts, expired or far-future intents, amounts above the 15%-of-allocation cap and a zero allocation are refused before any order |
+| M8-04 inspection | PASS | 9 crafted attacks refused (foreign program, SOL to a stranger, wrong fee payer, output to a foreign account, token transfer, priority fee too high, two routes, close to a stranger, over-wrapping) + order/blockhash mismatches; the **real recorded Jupiter order passes** |
+| M8-05 simulation required | PASS | simulation failure, overspend or under-delivery ⇒ no signature (journal has none) |
+| M8-06 gate matrix | PASS | each of 14 single-gate failures across all 7 gates refuses LIVE; readiness override recorded separately |
+| M8-07 no blind resubmit | PASS | execute timeout ⇒ polling only; one submission; EXPIRED after lastValidBlockHeight, or CONFIRMED if it lands |
+| M8-08 idempotency & recovery | PASS | duplicate id never re-signed; restart resolves SIGNED intents by polling and refuses RECEIVED ones (crashed before signing); no new intent while one is unresolved |
+| M8-09 zero-cost path | **PASS (live, cloud)** | `desk live validate`: real order for a public funded wallet passed inspection; simulation err = null, 76,169 CU; nothing signed or sent (`m8_zero_cost_validation.json`) |
+| M8-10 emergency halt | PASS (mocks) | STOP first; per-position truthful report; failures stay open as EXIT_BLOCKED; ledger reconciles |
+| M8-11 no real money moved | PASS | no hot wallet was funded; no transaction was ever sent |
+| M8-12 restricted withdrawal | PASS | only to the registered address with the exact phrase; single System transfer verified in the signed bytes |
+
+Measured fees (R-06 data): the two live orders reported priority fees of **461** and **12,113 lamports** and a
+5,000-lamport signature fee — far below PAPER's conservative 100,000-lamport model, which stays in place (a floor in
+the ceilings) until enough measurements exist. Validation: **531 offline tests passed + 1 live**, Ruff clean, strict
+mypy clean.
+
 ## Key measurements from M0 (details + evidence in RESEARCH.md)
 
 - Jupiter quote round-trip cost on memecoins with $22k–$59k liquidity: **2.2%–4.1%** (0.1–1 SOL tickets).

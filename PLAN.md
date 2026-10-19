@@ -805,8 +805,10 @@ What this changes:
 - Idempotency: unique `intent_id`; the signer refuses to sign an intent twice; crash-safe journal on disk.
 
 ### 16.3 Destination and capital controls
-No transfers to arbitrary addresses — the signer has no "transfer" capability at all. Sweeping profits to cold storage
-is a manual operator action outside the desk. Hard capital allocation configured manually; the signer enforces it
+No transfers to arbitrary addresses. **Single exception (operator request):** `desk live withdraw` sends SOL only to the
+one address pre-registered in `live.withdraw_address` (part of the hashed config), after the exact typed
+confirmation `WITHDRAW <lamports> LAMPORTS TO <address>`, leaving the 0.05 SOL reserve, with simulation before
+signing; an empty address makes withdrawals impossible. The signer has no other transfer capability. Hard capital allocation configured manually; the signer enforces it
 against on-chain balance.
 
 ### 16.4 What simulation cannot prove (documented in the UI)

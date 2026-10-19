@@ -131,6 +131,19 @@ Paper cash is $100,000 but every ticket is sized as your $100 account (10% of $1
 losing streaks don't stop the learning. Up to 10 paper positions at once (free quote budget). The report also shows
 what the real $100 account would have done (2 positions, its loss limits). Use your keyed laptop setup.
 
+### M8: real-money infrastructure (never used until you decide)
+
+```bash
+uv run desk live keygen          # creates YOUR hot wallet locally; prints only the public address
+uv run desk live validate        # zero-cost check of the whole order → inspect → simulate path; sends nothing
+uv run desk live status          # the seven LIVE gates and which are missing
+```
+
+LIVE stays impossible until every gate passes: `desk.mode = "LIVE"` plus `DESK_LIVE_CONFIRM=yes`, a typed
+`desk live approve <strategy version>`, a confidence verdict of ELIGIBLE FOR MANUAL LIVE REVIEW, your own
+`live.max_capital_sol` (> 0, ceiling 2 SOL), the signer armed with your passphrase (`desk live arm`), fresh
+preflight checks and a calibrated market regime. Never paste the passphrase or any key into a chat.
+
 Profit-based sizing is a standalone M5/M6 foundation: it compounds realized net profit only with matching, fresh
 PAPER confidence evidence, and caps each ticket at 15% of eligible account capital plus the other risk limits.
 An optional absolute cap may further tighten older profiles. No runtime trade sizing,

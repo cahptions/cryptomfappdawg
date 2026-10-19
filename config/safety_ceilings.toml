@@ -29,6 +29,8 @@
 "paper.learning_cash_usd" = "100000"          # operator decision 2026-10-19 (PLAN §13.1.1)
 "paper.max_learning_positions" = "20"
 "paper.learning_max_cumulative_loss_usd" = "5000"
+"live.max_capital_sol" = "2"                 # raise only by editing this file deliberately
+"live.max_priority_fee_lamports" = "2000000"
 "providers.max_paid_cost_usd_month" = "0"     # operator decision: no paid APIs
 
 [min]
