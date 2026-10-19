@@ -92,19 +92,56 @@ try {
   check('1366px and 390px layouts render without horizontal page overflow.');
 
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
-  for (const name of ['Scanner', 'Positions', 'Strategies', 'Research', 'Audit', 'System', 'Live gates', 'Overview']) {
+  for (const name of ['Scanner', 'Paper trading', 'Positions', 'Strategies', 'Research', 'Audit', 'System', 'Live gates', 'Overview']) {
     await nav.getByRole('link', { name, exact: true }).click();
     await page.waitForFunction(() => document.querySelector('nav a[aria-current="page"]')?.getAttribute('href') === window.location.hash);
     assert.equal(await page.locator('h1').count(), 1);
   }
-  check('All eight navigation views render without a full page reload.');
+  check('All nine navigation views render without a full page reload.');
+
+  await page.keyboard.press('g');
+  await page.keyboard.press('t');
+  await page.waitForURL('**/#paper');
+  await page.getByRole('heading', { name: 'Watch the book learn.' }).waitFor();
+  if (scenario === 'empty') {
+    await page.locator('.paper-status-text strong', { hasText: 'No paper book yet' }).waitFor();
+    await page.getByRole('heading', { name: 'Start PAPER to open the learning book.' }).waitFor();
+    check('Paper trading tab (g t) explains how to start when no book exists.');
+  } else {
+    await page.getByRole('heading', { name: "What it's doing", exact: true }).waitFor();
+    const feed = page.locator('.audit-list.plain-titles > li');
+    await feed.first().waitFor();
+    assert.match(await page.locator('.audit-list.plain-titles').innerText(), /Bought FIXTURE for 0\.100000 SOL/);
+    assert.match(await page.locator('.audit-list.plain-titles').innerText(), /Sold .*: \+/);
+    const everything = await feed.count();
+    await page.getByRole('button', { name: /^Trades/ }).click();
+    assert(await feed.count() < everything, 'the Trades filter narrows the feed');
+    await page.getByRole('button', { name: /^Everything/ }).click();
+    assert.match(await page.locator('.paper-levels').first().innerText(), /Hard stop/);
+    assert.match(await page.locator('.paper-levels').first().innerText(), /Trailing stop/);
+    assert.match(await page.locator('table.paper-funnel').innerText(), /Bought\s+\d+\s+2/);
+    await page.getByRole('heading', { name: 'Fees, counted on every trade', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Moonshot watch', exact: true }).waitFor();
+    await page.locator('.position-card').first().click();
+    await page.locator('.detail-drawer[open]').waitFor();
+    await page.locator('.detail-drawer .loading-state').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Close dossier' }).click();
+    check('Paper trading tab (g t): plain-English feed and filters, exit levels, funnel, fees, moonshot watch and position dossier.');
+  }
+  await page.screenshot({ path: path.join(output, `${scenario}-paper-1920x1080.png`), fullPage: false });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.locator('body').evaluate(node => node.scrollWidth <= window.innerWidth), true, 'paper tab overflows at 390px');
+  await page.screenshot({ path: path.join(output, `${scenario}-paper-390x844.png`), fullPage: false });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  check('Paper trading tab has no horizontal page overflow at 390px.');
 
   await page.keyboard.press('g');
   await page.keyboard.press('s');
   await page.waitForURL('**/#scanner');
   await page.keyboard.press('/');
   await page.getByRole('textbox', { name: 'Search token or mint' }).waitFor();
-  assert.equal(await page.getByRole('textbox', { name: 'Search token or mint' }).evaluate(node => document.activeElement === node), true);
+  // The app moves focus in a zero-delay task after "/"; wait for it instead of racing it.
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Search token or mint', null, { timeout: 2000 });
   await page.getByRole('textbox', { name: 'Search token or mint' }).fill('not-a-real-mint-123');
   await page.getByRole('heading', { name: 'No candidates match these filters' }).waitFor();
   await page.getByRole('textbox', { name: 'Search token or mint' }).fill('');

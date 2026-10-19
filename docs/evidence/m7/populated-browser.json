@@ -6,7 +6,9 @@
     "1920×1080 desktop has no horizontal page overflow.",
     "Populated state renders a recorded cash curve, one closed trade, and an open position.",
     "1366px and 390px layouts render without horizontal page overflow.",
-    "All eight navigation views render without a full page reload.",
+    "All nine navigation views render without a full page reload.",
+    "Paper trading tab (g t): plain-English feed and filters, exit levels, funnel, fees, moonshot watch and position dossier.",
+    "Paper trading tab has no horizontal page overflow at 390px.",
     "g/s and / shortcuts navigate and focus search; filtering is functional.",
     "Candidate dossier fetches actual recorded data and closes with Escape.",
     "Position dossier loads its exact raw quantity and audit evidence.",
@@ -21,9 +23,9 @@
   "memory": {
     "sample_seconds": 12,
     "navigation_cycles": 24,
-    "before_used_bytes": 4698976,
-    "after_used_bytes": 4870052,
-    "retained_growth_bytes": 171076,
+    "before_used_bytes": 4891204,
+    "after_used_bytes": 5148496,
+    "retained_growth_bytes": 257292,
     "streams": {
       "sourcesCreated": 1,
       "sourcesClosed": 0,
@@ -34,12 +36,12 @@
     "note": "Short Chromium sample only; does not establish a long-duration absence of memory leaks."
   },
   "requests": {
-    "total": 49,
+    "total": 59,
     "sse": 1,
     "snapshots": 2,
     "posts": 1,
     "streams_after_leaving_document": 0
   },
-  "browser": "154.0.8037.57",
+  "browser": "141.0.7390.37",
   "ok": true
 }

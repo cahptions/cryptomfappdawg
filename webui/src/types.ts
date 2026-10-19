@@ -2,6 +2,7 @@ export type NumberValue = number | string | null | undefined;
 export type View =
   | "overview"
   | "scanner"
+  | "paper"
   | "positions"
   | "strategies"
   | "research"
@@ -176,3 +177,183 @@ export type Detail = {
   value?: unknown;
   kind: "candidate" | "position" | "strategy" | "evidence";
 };
+
+/** /api/paper: the learning book in plain English (desk.web.paper_tab). */
+export type Tone =
+  | "positive"
+  | "negative"
+  | "warning"
+  | "neutral"
+  | "info"
+  | "critical";
+export interface PaperStatus {
+  headline: string;
+  tone?: Tone;
+  detail?: string;
+  halted?: string | null;
+  guardian_age_seconds?: number | null;
+  engine_age_seconds?: number | null;
+}
+export interface PaperBook {
+  started_at?: string;
+  sol_usd_at_start?: NumberValue;
+  cash_sol?: NumberValue;
+  deposit_sol?: NumberValue;
+  base_sol?: NumberValue;
+  sizing_capital_sol?: NumberValue;
+  realized_sol?: NumberValue;
+  realized_observed_sol?: NumberValue;
+  realized_stress_sol?: NumberValue;
+  unrealized_sol?: NumberValue;
+  return_on_base?: NumberValue;
+  next_ticket_sol?: NumberValue;
+  next_ticket_blockers?: string[];
+  open_positions?: number;
+  max_positions?: number;
+  closed_trades?: number;
+  win_rate?: NumberValue;
+  hours_running?: number;
+}
+export interface PaperOpenPosition {
+  id: string;
+  mint?: string;
+  symbol?: string;
+  strategy?: string;
+  state?: string;
+  opened_at?: string;
+  held_seconds?: number;
+  ticket_sol?: NumberValue;
+  mark_sol?: NumberValue;
+  mark_kind?: string | null;
+  mark_at?: string | null;
+  return?: NumberValue;
+  peak_return?: NumberValue;
+  exit_reason?: string;
+  exit_attempts?: number;
+  regime?: string;
+  entry_fees_sol?: NumberValue;
+  rent_locked_sol?: NumberValue;
+  conviction?: boolean;
+  hard_stop_sol?: NumberValue;
+  hard_stop_return?: NumberValue;
+  trailing_armed?: boolean;
+  trailing_arms_at_sol?: NumberValue;
+  trailing_stop_sol?: NumberValue;
+  max_hold_seconds?: number;
+  hold_remaining_seconds?: number;
+}
+export interface PaperClosedTrade {
+  id: string;
+  mint?: string;
+  symbol?: string;
+  strategy?: string;
+  opened_at?: string;
+  closed_at?: string;
+  hold_seconds?: number;
+  ticket_sol?: NumberValue;
+  exit_sol?: NumberValue;
+  pnl_sol?: NumberValue;
+  return?: NumberValue;
+  observed_return?: NumberValue;
+  stress_return?: NumberValue;
+  exit_reason?: string;
+  regime?: string;
+  fees_sol?: NumberValue;
+  fees_pct_of_ticket?: NumberValue;
+  conviction?: boolean;
+  fee_source?: string;
+  breakdown?: Record<string, unknown> | null;
+}
+export type ActivityGroup = "trade" | "signal" | "skip" | "look" | "control";
+export interface PaperActivity {
+  id: number | string;
+  at?: string;
+  kind: string;
+  group?: ActivityGroup;
+  title: string;
+  detail?: string;
+  tone?: Tone;
+  position_id?: string | null;
+  candidate_id?: string | null;
+  mint?: string | null;
+  symbol?: string;
+}
+export interface PaperFunnel {
+  decisions?: number;
+  no_trade?: number;
+  signals?: number;
+  blocked?: number;
+  skipped_size?: number;
+  skipped_cost?: number;
+  attempts?: number;
+  failed?: number;
+  opened?: number;
+  closed?: number;
+}
+export interface PaperFeeEstimate {
+  source?: string;
+  observations?: number;
+  per_transaction_lamports?: NumberValue;
+  signature_lamports?: NumberValue;
+  priority_lamports?: NumberValue;
+  priority_p50_lamports?: NumberValue;
+  priority_p90_lamports?: NumberValue;
+  rent_lamports?: NumberValue;
+  transactions_per_round_trip?: number;
+  rule?: string;
+}
+export interface PaperTab {
+  initialized: boolean;
+  status: PaperStatus;
+  book?: PaperBook;
+  open?: PaperOpenPosition[];
+  closed?: PaperClosedTrade[];
+  activity?: PaperActivity[];
+  funnel?: { last_24h?: PaperFunnel; all_time?: PaperFunnel };
+  blocked_reasons?: Record<string, number>;
+  strategies?: {
+    strategy: string;
+    closed?: number;
+    open?: number;
+    win_rate?: NumberValue;
+    mean_return?: NumberValue;
+    pnl_sol?: NumberValue;
+  }[];
+  exit_reasons?: Record<string, number>;
+  curve?: { at: string; realized_sol: NumberValue }[];
+  replica?: {
+    equity_sol?: NumberValue;
+    return?: NumberValue;
+    trades_taken?: number;
+    skipped?: Record<string, number>;
+    open_at_end?: number;
+    max_drawdown?: NumberValue;
+    halted_by_cumulative_drawdown?: boolean;
+    note?: string;
+  };
+  fees?: {
+    paid_total_sol?: NumberValue;
+    entry_tx_sol?: NumberValue;
+    exit_tx_sol?: NumberValue;
+    failed_tx_sol?: NumberValue;
+    rent_locked_sol?: NumberValue;
+    average_round_trip_pct?: NumberValue;
+    current_estimate?: PaperFeeEstimate;
+    explanation?: string[];
+  };
+  moonshot?: {
+    strategy: string;
+    version?: string | null;
+    closed?: number;
+    open?: number;
+    wins?: number;
+    pnl_sol?: NumberValue;
+    sized_up_trades?: number;
+    conviction_evidence?: string;
+    conviction_detail?: string;
+    normal_ticket_sol?: NumberValue;
+    sized_up_ticket_sol?: NumberValue;
+    rule?: string;
+  };
+  notes?: string[];
+}

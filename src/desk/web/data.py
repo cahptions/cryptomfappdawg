@@ -266,6 +266,16 @@ class DashboardData:
                 "ORDER BY observed_at DESC LIMIT 100", (candidate_id,))]
             return _safe(result)  # type: ignore[no-any-return]
 
+    def paper(self) -> dict[str, Any]:
+        """The Paper trading tab: one bounded read of the learning book (see desk.web.paper_tab)."""
+        from desk.web.paper_tab import paper_tab
+
+        with self._databases() as dbs:
+            if dbs is None:
+                return {"initialized": False, "status": {"headline": "No databases yet", "tone": "neutral",
+                                                         "detail": "start desk collect, desk discover or desk paper"}}
+            return _safe(paper_tab(dbs, self.loaded, utc_now()))  # type: ignore[no-any-return]
+
     def position(self, position_id: str) -> dict[str, Any] | None:
         with self._databases() as dbs:
             if dbs is None:

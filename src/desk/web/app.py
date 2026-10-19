@@ -142,6 +142,10 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
 
         return StreamingResponse(stream(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
 
+    @app.get("/api/paper")
+    def paper() -> dict[str, Any]:
+        return data.paper()
+
     @app.get("/api/candidates/{candidate_id}")
     def candidate(candidate_id: str) -> dict[str, Any]:
         value = data.candidate(candidate_id)

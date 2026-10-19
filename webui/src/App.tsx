@@ -3,20 +3,29 @@ import type { ReactNode } from "react";
 import { control, loadDetail, useDashboard } from "./api";
 import TokenChart from "./TokenChart";
 import type {
+  ActivityGroup,
   AuditEvent,
   Candidate,
   Detail,
   Health,
   Matrix,
   NumberValue,
+  PaperActivity,
+  PaperClosedTrade,
+  PaperFunnel,
+  PaperOpenPosition,
+  PaperStatus,
+  PaperTab,
   Position,
   Snapshot,
+  Tone,
   View,
 } from "./types";
 
 const NAV: { id: View; label: string; icon: string; key?: string }[] = [
   { id: "overview", label: "Overview", icon: "grid", key: "g o" },
   { id: "scanner", label: "Scanner", icon: "scan", key: "g s" },
+  { id: "paper", label: "Paper trading", icon: "receipt", key: "g t" },
   { id: "positions", label: "Positions", icon: "layers", key: "g p" },
   { id: "strategies", label: "Strategies", icon: "sliders" },
   { id: "research", label: "Research", icon: "chart", key: "g r" },
@@ -124,6 +133,12 @@ const ICON_PATHS: Record<string, ReactNode> = {
   wallet: (
     <>
       <path d="M20 7H5a2 2 0 0 1 0-4h13v4M4 7v13h17V7m0 5h-6v4h6" />
+    </>
+  ),
+  receipt: (
+    <>
+      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
     </>
   ),
 };
@@ -333,7 +348,17 @@ function Metric({
   );
 }
 
-function EquityChart({ points = [] }: { points?: Snapshot["equity"] }) {
+function EquityChart({
+  points = [],
+  label,
+  emptyTitle = "Your performance curve starts with evidence.",
+  emptyDetail = "Recorded account observations will appear here.",
+}: {
+  points?: Snapshot["equity"];
+  label?: string;
+  emptyTitle?: string;
+  emptyDetail?: string;
+}) {
   const id = useId().replaceAll(":", "");
   const [hover, setHover] = useState<number | null>(null);
   const valid = points.filter(
@@ -370,9 +395,9 @@ function EquityChart({ points = [] }: { points?: Snapshot["equity"] }) {
           <span className="chart-empty-mark">
             <Icon name="chart" />
           </span>
-          <h3>Your performance curve starts with evidence.</h3>
+          <h3>{emptyTitle}</h3>
           <p>
-            Recorded account observations will appear here.
+            {emptyDetail}
             <br />
             No simulated returns or projected gains.
           </p>
@@ -383,14 +408,14 @@ function EquityChart({ points = [] }: { points?: Snapshot["equity"] }) {
     <div className="chart-wrap">
       <div className="chart-legend">
         <span className="series-swatch" />
-        {cash ? "Realized cash · SOL" : "Account equity · SOL"}
+        {label ?? (cash ? "Realized cash · SOL" : "Account equity · SOL")}
         <span className="muted">{data.length} recorded observations</span>
       </div>
       <svg
         className="equity-chart"
         viewBox="0 0 840 240"
         role="img"
-        aria-label={`${cash ? "Realized cash" : "Account equity"} in SOL across ${data.length} recorded observations`}
+        aria-label={`${label ?? (cash ? "Realized cash in SOL" : "Account equity in SOL")} across ${data.length} recorded observations`}
         onPointerMove={(e) => {
           const b = e.currentTarget.getBoundingClientRect();
           setHover(
@@ -1312,6 +1337,1069 @@ function Evidence({ value, depth = 0 }: { value: unknown; depth?: number }) {
   );
 }
 
+// ── Paper trading tab ────────────────────────────────────────────────────────────────────────────────
+// One bounded read of /api/paper every few seconds while the tab is open and visible. Every sentence is
+// written by the server from recorded ledger events; the browser only formats and filters it.
+type FeedFilter = "all" | ActivityGroup;
+const FEED_FILTERS: { id: FeedFilter; label: string }[] = [
+  { id: "all", label: "Everything" },
+  { id: "trade", label: "Trades" },
+  { id: "signal", label: "Signals" },
+  { id: "skip", label: "Skipped" },
+  { id: "look", label: "Passed on" },
+];
+const FUNNEL_STEPS: { key: keyof PaperFunnel; label: string; hint: string }[] =
+  [
+    {
+      key: "decisions",
+      label: "Tokens assessed",
+      hint: "passed the safety checks; every strategy looked",
+    },
+    {
+      key: "no_trade",
+      label: "No strategy wanted it",
+      hint: "not trading is the default",
+    },
+    { key: "signals", label: "A strategy wanted to buy", hint: "" },
+    {
+      key: "blocked",
+      label: "Blocked by a safety gate",
+      hint: "STOP, guardian, limits, pauses",
+    },
+    {
+      key: "skipped_size",
+      label: "Skipped by sizing rules",
+      hint: "minimum ticket, fee floor, cash",
+    },
+    {
+      key: "attempts",
+      label: "Quoted for real",
+      hint: "two quotes 2.5 s apart; the worse is used",
+    },
+    {
+      key: "skipped_cost",
+      label: "Too expensive to trade",
+      hint: "round-trip cost above the strategy limit",
+    },
+    {
+      key: "failed",
+      label: "Entry failed",
+      hint: "no route or simulated transaction failures",
+    },
+    { key: "opened", label: "Bought", hint: "" },
+    { key: "closed", label: "Sold", hint: "" },
+  ];
+const PAPER_REFRESH_MS = 4_000;
+
+function duration(seconds?: number | null): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds))
+    return "—";
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600)
+    return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  if (s < 86_400)
+    return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  return `${Math.floor(s / 86_400)}d ${Math.floor((s % 86_400) / 3600)}h`;
+}
+function share(value: NumberValue, digits = 1): string {
+  const n = number(value);
+  return n === null ? "—" : `${fmt(n * 100, digits)}%`;
+}
+function lamportsAsSol(value: NumberValue, digits = 6): string {
+  const n = number(value);
+  return n === null ? "—" : `${fmt(n / 1e9, digits)} SOL`;
+}
+function feedTone(value?: Tone): string {
+  return value === "critical" ? "negative" : (value ?? "neutral");
+}
+function signedClass(value: NumberValue): string {
+  const n = number(value);
+  return n === null || n === 0 ? "" : n > 0 ? "positive-text" : "negative-text";
+}
+
+function usePaperTab() {
+  const [data, setData] = useState<PaperTab | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let stopped = false;
+    let request: AbortController | null = null;
+    const load = () => {
+      if (stopped || request || document.hidden) return;
+      const controller = new AbortController();
+      request = controller;
+      const timeout = window.setTimeout(() => controller.abort(), 10_000);
+      loadDetail("/api/paper", controller.signal)
+        .then((value) => {
+          if (!stopped) {
+            setData(value as PaperTab);
+            setError("");
+          }
+        })
+        .catch((cause) => {
+          if (!stopped)
+            setError(
+              controller.signal.aborted
+                ? "The paper book took more than 10 seconds to answer. Retrying."
+                : cause instanceof Error
+                  ? cause.message
+                  : "Could not read the paper book.",
+            );
+        })
+        .finally(() => {
+          window.clearTimeout(timeout);
+          if (request === controller) request = null;
+        });
+    };
+    load();
+    const timer = window.setInterval(load, PAPER_REFRESH_MS);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
+      request?.abort();
+    };
+  }, []);
+  return { data, error };
+}
+
+function PaperStatusBanner({
+  status,
+  hours,
+}: {
+  status: PaperStatus;
+  hours?: number;
+}) {
+  const t = feedTone(status.tone);
+  return (
+    <div className={`paper-status ${t}`} role="status">
+      <span className="paper-status-icon">
+        <Icon
+          name={
+            t === "positive"
+              ? "check"
+              : t === "neutral"
+                ? "clock"
+                : t === "info"
+                  ? "pulse"
+                  : "shield"
+          }
+        />
+      </span>
+      <div className="paper-status-text">
+        <strong>{status.headline}</strong>
+        {status.detail && <span>{status.detail}</span>}
+      </div>
+      <dl className="paper-status-facts">
+        <div>
+          <dt>Exit guardian</dt>
+          <dd className="num">
+            {status.guardian_age_seconds === null ||
+            status.guardian_age_seconds === undefined
+              ? "not seen"
+              : `seen ${duration(status.guardian_age_seconds)} ago`}
+          </dd>
+        </div>
+        <div>
+          <dt>Engine</dt>
+          <dd className="num">
+            {status.engine_age_seconds === null ||
+            status.engine_age_seconds === undefined
+              ? "not seen"
+              : `seen ${duration(status.engine_age_seconds)} ago`}
+          </dd>
+        </div>
+        {hours !== undefined && (
+          <div>
+            <dt>Book running</dt>
+            <dd className="num">{duration(hours * 3600)}</dd>
+          </div>
+        )}
+      </dl>
+    </div>
+  );
+}
+
+function PaperFeed({
+  items,
+  filtered,
+  onDetail,
+}: {
+  items: PaperActivity[];
+  filtered: boolean;
+  onDetail: (detail: Detail) => void;
+}) {
+  if (!items.length)
+    return (
+      <Empty
+        icon="receipt"
+        compact
+        title={
+          filtered ? "Nothing of this kind yet" : "Waiting for the first token"
+        }
+        detail={
+          filtered
+            ? "Try another filter. The feed keeps the latest 100 trade and skip events plus the latest 50 decisions."
+            : "Tokens reach the paper book only after discovery and the safety checks pass. Each look, skip, buy and sell will appear here."
+        }
+      />
+    );
+  const open = (item: PaperActivity) => {
+    const name = item.symbol || short(item.mint || "");
+    if (item.position_id)
+      onDetail({
+        kind: "position",
+        title: name,
+        endpoint: `/api/positions/${encodeURIComponent(item.position_id)}`,
+      });
+    else if (item.candidate_id)
+      onDetail({
+        kind: "candidate",
+        title: name,
+        endpoint: `/api/candidates/${encodeURIComponent(item.candidate_id)}`,
+      });
+    else onDetail({ kind: "evidence", title: item.title, value: item });
+  };
+  return (
+    <ol className="audit-list plain-titles">
+      {items.map((item) => (
+        <li key={item.id}>
+          <span className="audit-time num" title={time(item.at, true)}>
+            {time(item.at)}
+          </span>
+          <span className={`audit-marker ${feedTone(item.tone)}`} />
+          <button onClick={() => open(item)}>
+            <strong>{item.title}</strong>
+            <span title={item.detail || undefined}>
+              {item.detail || words(item.kind)}
+            </span>
+          </button>
+          <Icon name="chevron" />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function PaperFunnelTable({
+  funnel,
+}: {
+  funnel: { last_24h?: PaperFunnel; all_time?: PaperFunnel };
+}) {
+  return (
+    <div className="table-scroll">
+      <table className="paper-funnel">
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th className="numeric">24 h</th>
+            <th className="numeric">All time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {FUNNEL_STEPS.map((step) => (
+            <tr key={step.key}>
+              <td>
+                <strong>{step.label}</strong>
+                {step.hint && <small>{step.hint}</small>}
+              </td>
+              <td className="numeric num">
+                {(funnel.last_24h?.[step.key] ?? 0).toLocaleString()}
+              </td>
+              <td className="numeric num">
+                {(funnel.all_time?.[step.key] ?? 0).toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Where the executable return sits between the hard stop and the trailing-stop trigger. */
+function ExitLadder({ position }: { position: PaperOpenPosition }) {
+  const ticket = number(position.ticket_sol);
+  const stop = number(position.hard_stop_return);
+  const armAt = number(position.trailing_arms_at_sol);
+  const trailAt = number(position.trailing_stop_sol);
+  if (!ticket || stop === null || armAt === null) return null;
+  const arm = armAt / ticket - 1;
+  const trail =
+    position.trailing_armed && trailAt !== null ? trailAt / ticket - 1 : null;
+  const now = number(position.return);
+  const peak = number(position.peak_return);
+  const low = Math.min(stop, now ?? stop);
+  const high = Math.max(arm, peak ?? arm, now ?? arm);
+  const x = (value: number) => ((value - low) / (high - low || 1)) * 300;
+  return (
+    <div
+      className="exit-ladder"
+      role="img"
+      aria-label={`Return now ${pct(now)}. Hard stop at ${pct(stop)}. Trailing stop ${
+        trail === null ? `arms at ${pct(arm)}` : `armed at ${pct(trail)}`
+      }.`}
+    >
+      <svg viewBox="0 0 300 10" preserveAspectRatio="none" aria-hidden="true">
+        <rect width="300" height="10" rx="2" className="ladder-track" />
+        <rect
+          x={x(stop)}
+          width={Math.max(0, x(0) - x(stop))}
+          height="10"
+          className="ladder-loss"
+        />
+        <rect
+          x={x(0)}
+          width={Math.max(0, x(arm) - x(0))}
+          height="10"
+          className="ladder-gain"
+        />
+        {trail !== null && (
+          <rect
+            x={x(trail) - 1}
+            width="2"
+            height="10"
+            className="ladder-trail"
+          />
+        )}
+        <rect
+          x={x(0) - 0.75}
+          width="1.5"
+          height="10"
+          className="ladder-entry"
+        />
+        {now !== null && (
+          <rect
+            x={Math.min(297, Math.max(0, x(now) - 1.5))}
+            width="3"
+            height="10"
+            className="ladder-now"
+          />
+        )}
+      </svg>
+      <div className="ladder-labels num">
+        <span>stop {pct(stop)}</span>
+        <span>now {pct(now)}</span>
+        <span>
+          {trail === null ? `trail arms ${pct(arm)}` : `trail ${pct(trail)}`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function PaperPositionCard({
+  position: p,
+  onDetail,
+}: {
+  position: PaperOpenPosition;
+  onDetail: (detail: Detail) => void;
+}) {
+  const name = p.symbol || short(p.mint || p.id);
+  return (
+    <button
+      className="position-card"
+      onClick={() =>
+        onDetail({
+          kind: "position",
+          title: name,
+          endpoint: `/api/positions/${encodeURIComponent(p.id)}`,
+        })
+      }
+    >
+      <div className="position-head">
+        <Identicon mint={p.mint || p.id} />
+        <span>
+          <strong>{name}</strong>
+          <small>
+            {p.strategy || "Strategy not recorded"} · held{" "}
+            {duration(p.held_seconds)} · {p.regime || "uncalibrated"} regime
+          </small>
+        </span>
+        {p.conviction && <Badge status="PASS">Sized up</Badge>}
+        <Badge status={p.state === "OPEN" ? "ACTIVE" : p.state}>
+          {words(p.state || "OPEN")}
+        </Badge>
+      </div>
+      <div className="position-numbers">
+        <div>
+          <span>Bought for</span>
+          <strong className="num">
+            {fmt(p.ticket_sol, 4)} <small>SOL</small>
+          </strong>
+        </div>
+        <div>
+          <span>
+            {p.mark_kind === "EXECUTABLE" ? "Could sell for" : "Latest mark"}
+          </span>
+          <strong className="num">
+            {fmt(p.mark_sol, 4)} <small>SOL</small>
+          </strong>
+        </div>
+        <div>
+          <span>Return now</span>
+          <strong className={`num ${signedClass(p.return)}`}>
+            {pct(p.return)}
+          </strong>
+        </div>
+      </div>
+      <ExitLadder position={p} />
+      <dl className="paper-levels">
+        <div>
+          <dt>Hard stop</dt>
+          <dd className="num">
+            {fmt(p.hard_stop_sol, 4)} SOL{" "}
+            <span className="muted">{pct(p.hard_stop_return)}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>
+            {p.trailing_armed
+              ? "Trailing stop (armed)"
+              : "Trailing stop arms at"}
+          </dt>
+          <dd className="num">
+            {fmt(
+              p.trailing_armed ? p.trailing_stop_sol : p.trailing_arms_at_sol,
+              4,
+            )}{" "}
+            SOL
+            {number(p.peak_return) !== null && (
+              <span className="muted"> · best {pct(p.peak_return)}</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Time limit</dt>
+          <dd className="num">
+            {p.hold_remaining_seconds === undefined
+              ? "—"
+              : `${duration(p.hold_remaining_seconds)} left of ${duration(p.max_hold_seconds)}`}
+          </dd>
+        </div>
+        <div>
+          <dt>Fees so far · rent locked</dt>
+          <dd className="num">
+            {fmt(p.entry_fees_sol, 6)} · {fmt(p.rent_locked_sol, 4)} SOL
+          </dd>
+        </div>
+      </dl>
+      {p.exit_reason && (
+        <p className="paper-exit-note">
+          Selling: {p.exit_reason}
+          {p.exit_attempts ? ` · attempt ${p.exit_attempts}` : ""}
+        </p>
+      )}
+      <div className="position-foot">
+        <span className={`mark-kind ${tone(p.mark_kind || "")}`}>
+          {p.mark_kind === "EXECUTABLE"
+            ? "EXECUTABLE SELL QUOTE"
+            : words(p.mark_kind || "NO SELL QUOTE YET")}
+        </span>
+        <span>Mark {markFreshness(p.mark_at || undefined)}</span>
+        <Icon name="arrow" />
+      </div>
+    </button>
+  );
+}
+
+function ClosedTrades({
+  trades,
+  onDetail,
+}: {
+  trades: PaperClosedTrade[];
+  onDetail: (detail: Detail) => void;
+}) {
+  const [rows, setRows] = useState(25);
+  if (!trades.length)
+    return (
+      <Empty
+        icon="receipt"
+        compact
+        title="No closed trades yet"
+        detail="Each sale appears here with its result after every fee, the reason it sold, and how the observed and stress fills compare."
+      />
+    );
+  return (
+    <>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Sold · local time</th>
+              <th className="numeric">Held</th>
+              <th className="numeric">Ticket</th>
+              <th className="numeric">Result</th>
+              <th className="numeric">Return</th>
+              <th
+                className="numeric"
+                title="Same trade under the observed and stress cost profiles"
+              >
+                Observed / stress
+              </th>
+              <th
+                className="numeric"
+                title="Network fees for buy, sell and closing the token account, plus failed attempts"
+              >
+                Fees paid
+              </th>
+              <th>Why it sold</th>
+              <th>
+                <span className="sr-only">Details</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {trades.slice(0, rows).map((t) => {
+              const name = t.symbol || short(t.mint || t.id);
+              const open = () =>
+                onDetail({
+                  kind: "position",
+                  title: name,
+                  endpoint: `/api/positions/${encodeURIComponent(t.id)}`,
+                });
+              return (
+                <tr key={t.id}>
+                  <td>
+                    <button className="token-button" onClick={open}>
+                      <Identicon mint={t.mint || t.id} />
+                      <span>
+                        <strong>{name}</strong>
+                        <small>
+                          {t.strategy}
+                          {t.conviction ? " · sized up" : ""}
+                        </small>
+                      </span>
+                    </button>
+                  </td>
+                  <td
+                    className="secondary num text-small"
+                    title={time(t.closed_at, true)}
+                  >
+                    {time(t.closed_at, true)}
+                  </td>
+                  <td className="numeric num">{duration(t.hold_seconds)}</td>
+                  <td className="numeric num">{fmt(t.ticket_sol, 4)}</td>
+                  <td className={`numeric num ${signedClass(t.pnl_sol)}`}>
+                    {signed(t.pnl_sol, 6)}
+                  </td>
+                  <td className={`numeric num ${signedClass(t.return)}`}>
+                    {pct(t.return)}
+                  </td>
+                  <td className="numeric num secondary">
+                    {pct(t.observed_return)} / {pct(t.stress_return)}
+                  </td>
+                  <td
+                    className="numeric num"
+                    title={`${t.fee_source === "MEASURED" ? "Measured" : "Conservative model"} network fees`}
+                  >
+                    {fmt(t.fees_sol, 6)}{" "}
+                    <span className="muted">
+                      {share(t.fees_pct_of_ticket, 2)}
+                    </span>
+                  </td>
+                  <td className="secondary text-small">
+                    {t.exit_reason || "—"}
+                  </td>
+                  <td>
+                    <button
+                      className="icon-button"
+                      aria-label={`Open ${name} trade`}
+                      onClick={open}
+                    >
+                      <Icon name="chevron" />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {trades.length > rows && (
+        <div className="panel-foot">
+          Showing {rows} of {trades.length} most recent closed trades.{" "}
+          <button
+            className="text-button"
+            onClick={() => setRows((r) => r + 25)}
+          >
+            Show 25 more
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function PaperView({ onDetail }: { onDetail: (detail: Detail) => void }) {
+  const { data, error } = usePaperTab();
+  const [filter, setFilter] = useState<FeedFilter>("all");
+  if (!data)
+    return error ? (
+      <div className="notice warning" role="status">
+        <Icon name="info" />
+        <span>{error}</span>
+      </div>
+    ) : (
+      <div className="loading-state">
+        <span className="loading-ring" />
+        Reading the paper book…
+      </div>
+    );
+  if (!data.initialized)
+    return (
+      <>
+        <PaperStatusBanner status={data.status} />
+        <div className="dashboard-grid">
+          <Panel
+            title="Getting started"
+            eyebrow="PAPER TRADING"
+            className="span-12"
+          >
+            <Empty
+              icon="receipt"
+              title="Start PAPER to open the learning book."
+              detail="Use Start PAPER above or run desk paper in a terminal. The book opens with $100,000 of simulated cash, and every ticket is sized as your $100 account would size it."
+            />
+          </Panel>
+        </div>
+      </>
+    );
+  const book = data.book ?? {};
+  const activity = data.activity ?? [];
+  const groups: Record<string, number> = {};
+  for (const item of activity)
+    if (item.group) groups[item.group] = (groups[item.group] ?? 0) + 1;
+  const feed =
+    filter === "all"
+      ? activity
+      : activity.filter((item) => item.group === filter);
+  const open = data.open ?? [];
+  const fees = data.fees;
+  const estimate = fees?.current_estimate;
+  const moon = data.moonshot;
+  const replica = data.replica;
+  const curve: Snapshot["equity"] = data.curve?.length
+    ? [
+        {
+          at: book.started_at ?? data.curve[0].at,
+          value_sol: 0,
+          kind: "realized",
+        },
+        ...data.curve.map((point) => ({
+          at: point.at,
+          value_sol: point.realized_sol,
+          kind: "realized",
+        })),
+      ]
+    : [];
+  const blockers = book.next_ticket_blockers ?? [];
+  return (
+    <>
+      <PaperStatusBanner status={data.status} hours={book.hours_running} />
+      {error && (
+        <div className="notice warning" role="status">
+          <Icon name="info" />
+          <span>{error} Showing the last reading.</span>
+        </div>
+      )}
+      <div className="metrics-strip">
+        <Metric
+          label="Paper cash"
+          value={fmt(book.cash_sol, 2)}
+          suffix="SOL"
+          detail={`Simulated · ${fmt(book.deposit_sol, 2)} SOL at the start`}
+          title="Simulated cash in the learning book ($100,000 at the start). Open positions and locked rent are not included. Not real funds."
+        />
+        <Metric
+          label="Next ticket"
+          value={blockers.length ? "—" : fmt(book.next_ticket_sol, 4)}
+          suffix={blockers.length ? undefined : "SOL"}
+          detail={
+            blockers.length
+              ? `Not now: ${blockers[0]}`
+              : `10% of ${fmt(book.sizing_capital_sol, 4)} SOL ($100 base + profit)`
+          }
+          title="Size of the next normal entry: 10% of the $100-account base plus realized profit. Losses never shrink the base. An evidence-backed moonshot signal may use up to 15%."
+        />
+        <Metric
+          label="Realized P&L"
+          value={signed(book.realized_sol, 4)}
+          suffix="SOL"
+          positive={(number(book.realized_sol) ?? 0) > 0}
+          detail={`${pct(book.return_on_base)} of the $100 base · stress ${signed(book.realized_stress_sol, 4)}`}
+          title="Result of closed paper trades under the conservative fill: the worse of two quotes, simulated failures, and every network fee. Observed and stress profiles are shown for comparison."
+        />
+        <Metric
+          label="Open now"
+          value={`${book.open_positions ?? 0} / ${book.max_positions ?? "—"}`}
+          detail={`${signed(book.unrealized_sol, 4)} SOL unrealized · executable quotes`}
+          title="Open paper positions out of the concurrent limit. Unrealized P&L uses executable sell quotes only and can change before an exit."
+        />
+        <Metric
+          label="Win rate"
+          value={share(book.win_rate)}
+          detail={`${book.closed_trades ?? 0} closed trades`}
+          title="Share of closed paper trades with a positive conservative result. A small sample says little; the confidence matrix in Research measures it properly."
+        />
+      </div>
+      <div className="dashboard-grid">
+        <Panel
+          title="What it's doing"
+          eyebrow="NEWEST FIRST · PLAIN ENGLISH"
+          className="span-8"
+          action={
+            <span className="subtle-chip">
+              refreshes every {PAPER_REFRESH_MS / 1000} s
+            </span>
+          }
+        >
+          <div className="feed-toolbar">
+            <div
+              className="chart-periods"
+              role="group"
+              aria-label="Filter activity"
+            >
+              {FEED_FILTERS.map((option) => (
+                <button
+                  key={option.id}
+                  aria-pressed={filter === option.id}
+                  onClick={() => setFilter(option.id)}
+                >
+                  {option.label}
+                  {option.id !== "all" && groups[option.id]
+                    ? ` · ${groups[option.id]}`
+                    : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+          <PaperFeed
+            items={feed}
+            filtered={filter !== "all"}
+            onDetail={onDetail}
+          />
+        </Panel>
+        <div className="span-4 panel-stack">
+          <Panel title="From token to trade" eyebrow="FUNNEL">
+            <PaperFunnelTable funnel={data.funnel ?? {}} />
+          </Panel>
+          <Panel title="Why entries were skipped" eyebrow="ALL TIME">
+            <Counts
+              values={data.blocked_reasons}
+              empty="Nothing has been blocked or skipped yet."
+              plain
+            />
+          </Panel>
+        </div>
+        <Panel
+          title="Open paper positions"
+          eyebrow="EXITS RUN BY THE GUARDIAN"
+          className="span-12"
+          action={
+            <span className="subtle-chip">
+              stops checked every 5 s · sell quote every 25 s
+            </span>
+          }
+        >
+          {open.length ? (
+            <div className="positions-grid">
+              {open.map((position) => (
+                <PaperPositionCard
+                  key={position.id}
+                  position={position}
+                  onDetail={onDetail}
+                />
+              ))}
+            </div>
+          ) : (
+            <Empty
+              icon="layers"
+              compact
+              title="Flat right now."
+              detail="No open paper positions. A position appears here the moment a strategy buys, with its hard stop, trailing stop and time limit."
+            />
+          )}
+        </Panel>
+        <Panel
+          title="Closed trades"
+          eyebrow="NEWEST FIRST · AFTER EVERY FEE"
+          className="span-12"
+          action={
+            <a className="text-button" href="/api/export/trades.csv" download>
+              Download CSV <Icon name="download" />
+            </a>
+          }
+        >
+          <ClosedTrades trades={data.closed ?? []} onDetail={onDetail} />
+        </Panel>
+        <Panel
+          title="Realized P&L over time"
+          eyebrow="CLOSED TRADES ONLY"
+          className="span-8"
+        >
+          <EquityChart
+            points={curve}
+            label="Cumulative realized P&L · SOL"
+            emptyTitle="The curve starts with the first sale."
+            emptyDetail="Cumulative realized P&L appears after the first closed paper trade."
+          />
+        </Panel>
+        <Panel
+          title="$100 account replica"
+          eyebrow="YOUR ACCOUNT, REPLAYED"
+          className="span-4"
+        >
+          <div className="replica-card">
+            <span className="eyebrow">ESTIMATED RETURN</span>
+            <strong
+              className={`replica-return num ${signedClass(replica?.return)}`}
+            >
+              {pct(replica?.return)}
+            </strong>
+            <p>
+              The same fills replayed through the real $100 account's limits:
+              one ticket at a time per slot, daily loss and drawdown stops, and
+              fixed fees. {replica?.note ? `(${replica.note})` : ""}
+            </p>
+            <dl className="simple-facts">
+              <div>
+                <dt>Estimated equity</dt>
+                <dd className="num">{fmt(replica?.equity_sol, 4)} SOL</dd>
+              </div>
+              <div>
+                <dt>Trades it could take</dt>
+                <dd className="num">{replica?.trades_taken ?? "—"}</dd>
+              </div>
+              <div>
+                <dt>Skipped by its limits</dt>
+                <dd className="num">{count(replica?.skipped)}</dd>
+              </div>
+              <div>
+                <dt>Maximum drawdown</dt>
+                <dd className="num">{share(replica?.max_drawdown, 2)}</dd>
+              </div>
+            </dl>
+          </div>
+        </Panel>
+        <Panel
+          title="Fees, counted on every trade"
+          eyebrow="NETWORK + SWAP"
+          className="span-6"
+          action={
+            <Badge status={estimate?.source === "MEASURED" ? "PASS" : "WARN"}>
+              {estimate?.source === "MEASURED"
+                ? "Measured"
+                : "Conservative model"}
+            </Badge>
+          }
+        >
+          <div className="pad fee-panel">
+            <dl className="simple-facts">
+              <div>
+                <dt>Network fees paid so far</dt>
+                <dd className="num">{fmt(fees?.paid_total_sol, 6)} SOL</dd>
+              </div>
+              <div>
+                <dt>Average per round trip</dt>
+                <dd className="num">
+                  {number(fees?.average_round_trip_pct) === null
+                    ? "—"
+                    : `${share(fees?.average_round_trip_pct, 2)} of the ticket`}
+                </dd>
+              </div>
+              <div>
+                <dt>Each transaction now</dt>
+                <dd className="num">
+                  {lamportsAsSol(estimate?.per_transaction_lamports)}
+                  <span className="muted">
+                    {" "}
+                    × {estimate?.transactions_per_round_trip ?? 3} per round
+                    trip
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Priority fee basis</dt>
+                <dd className="num">
+                  {estimate?.source === "MEASURED"
+                    ? `p50 ${lamportsAsSol(estimate.priority_p50_lamports, 7)} · p90 ${lamportsAsSol(estimate.priority_p90_lamports, 7)} · ${estimate.observations} probes`
+                    : `${estimate?.observations ?? 0} of 6 probes needed for measured fees`}
+                </dd>
+              </div>
+              <div>
+                <dt>Token-account rent locked</dt>
+                <dd className="num">
+                  {fmt(fees?.rent_locked_sol, 6)} SOL · refunded on sale
+                </dd>
+              </div>
+            </dl>
+          </div>
+          <ul className="plain-list">
+            {(fees?.explanation ?? []).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </Panel>
+        <Panel
+          title="Moonshot watch"
+          eyebrow="H8 · RARE RUNNERS"
+          className="span-6"
+          action={
+            <Badge
+              status={moon?.conviction_evidence === "PASS" ? "PASS" : "PENDING"}
+            >
+              {moon?.conviction_evidence === "PASS"
+                ? "Size-up allowed"
+                : "Normal size only"}
+            </Badge>
+          }
+        >
+          <div className="pad">
+            <p className="moonshot-copy">
+              H8 buys only a confirmed runner: up 50% in the last hour and still
+              climbing, volume accelerating, heavy buying, liquidity growing
+              with the price, and no whale or developer concentration. It is
+              built to bank the run before the dump: a 15% hard stop, a trailing
+              stop that arms at +25% and gives back at most 12%, and a 2-hour
+              limit.
+            </p>
+            <dl className="simple-facts">
+              <div>
+                <dt>H8 trades · closed / open</dt>
+                <dd className="num">
+                  {moon?.closed ?? 0} / {moon?.open ?? 0}
+                  <span className="muted"> · {moon?.wins ?? 0} won</span>
+                </dd>
+              </div>
+              <div>
+                <dt>H8 realized P&L</dt>
+                <dd className={`num ${signedClass(moon?.pnl_sol)}`}>
+                  {moon?.closed
+                    ? `${signed(moon.pnl_sol, 6)} SOL`
+                    : "no closed H8 trades yet"}
+                </dd>
+              </div>
+              <div>
+                <dt>Ticket · normal / sized up</dt>
+                <dd className="num">
+                  {fmt(moon?.normal_ticket_sol, 4)} /{" "}
+                  {fmt(moon?.sized_up_ticket_sol, 4)} SOL
+                </dd>
+              </div>
+              <div>
+                <dt>Sized-up trades</dt>
+                <dd className="num">{moon?.sized_up_trades ?? 0}</dd>
+              </div>
+              <div>
+                <dt>Evidence</dt>
+                <dd>
+                  <Badge
+                    status={
+                      moon?.conviction_evidence === "PASS" ? "PASS" : "PENDING"
+                    }
+                  >
+                    {words(moon?.conviction_evidence || "NO REPORT")}
+                  </Badge>
+                </dd>
+              </div>
+            </dl>
+            <p className="panel-note moonshot-detail">
+              {moon?.conviction_detail}
+              {moon?.rule ? ` · Rule: ${moon.rule}.` : ""}
+            </p>
+          </div>
+        </Panel>
+        <Panel title="By strategy" eyebrow="WHO IS TRADING" className="span-8">
+          {data.strategies?.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Strategy</th>
+                    <th className="numeric">Closed</th>
+                    <th className="numeric">Open</th>
+                    <th className="numeric">Win rate</th>
+                    <th className="numeric">Average return</th>
+                    <th className="numeric">Realized P&amp;L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.strategies.map((row) => (
+                    <tr key={row.strategy}>
+                      <td>
+                        <button
+                          className="text-button"
+                          onClick={() =>
+                            onDetail({
+                              kind: "strategy",
+                              title: row.strategy,
+                              endpoint: `/api/strategies/${encodeURIComponent(row.strategy)}`,
+                            })
+                          }
+                        >
+                          {row.strategy}
+                        </button>
+                      </td>
+                      <td className="numeric num">{row.closed ?? 0}</td>
+                      <td className="numeric num">{row.open ?? 0}</td>
+                      <td className="numeric num">{share(row.win_rate)}</td>
+                      <td
+                        className={`numeric num ${signedClass(row.mean_return)}`}
+                      >
+                        {pct(row.mean_return)}
+                      </td>
+                      <td className={`numeric num ${signedClass(row.pnl_sol)}`}>
+                        {signed(row.pnl_sol, 6)} SOL
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty
+              icon="sliders"
+              compact
+              title="No strategy has traded yet"
+              detail="Rows appear when a strategy opens its first paper position."
+            />
+          )}
+        </Panel>
+        <Panel
+          title="How trades ended"
+          eyebrow="EXIT REASONS"
+          className="span-4"
+        >
+          <Counts
+            values={data.exit_reasons}
+            empty="No closed trades yet."
+            plain
+          />
+        </Panel>
+        <Panel
+          title="How to read this page"
+          eyebrow="NOTES"
+          className="span-12"
+        >
+          <ul className="plain-list notes">
+            {(data.notes ?? []).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+            <li>
+              Paper results are evidence for the confidence matrix, not a
+              promise. Real money stays off until you decide, and the LIVE gates
+              still have to pass.
+            </li>
+          </ul>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
 type Modal = "start-shadow" | "start-paper" | "stop" | "help" | null;
 function ActionDialog({
   modal,
@@ -1382,6 +2470,7 @@ function ActionDialog({
             {[
               ["g o", "Overview"],
               ["g s", "Scanner"],
+              ["g t", "Paper trading"],
               ["g p", "Positions"],
               ["g r", "Research"],
               ["/", "Search mint or token"],
@@ -1528,6 +2617,7 @@ export default function App() {
           {
             o: "overview",
             s: "scanner",
+            t: "paper",
             p: "positions",
             r: "research",
           } as Record<string, View>
@@ -1583,6 +2673,7 @@ export default function App() {
   const title = {
     overview: "Your edge, in perspective.",
     scanner: "Find the signal.",
+    paper: "Watch the book learn.",
     positions: "Every position, accounted for.",
     strategies: "Rules before conviction.",
     research: "Evidence compounds.",
@@ -1593,6 +2684,8 @@ export default function App() {
   const subtitle = {
     overview: "A patient desk. A complete picture. Real observations only.",
     scanner: "Source observations, security decisions, and market context.",
+    paper:
+      "Every look, skip, buy and sell in plain English. $100-account tickets, real quotes, fees included.",
     positions: "Simulated exposure, executable marks, and protective exits.",
     strategies:
       "Versioned strategy evidence. No automatic promotion to real trading.",
@@ -1992,6 +3085,7 @@ export default function App() {
               </Panel>
             </div>
           )}
+          {view === "paper" && <PaperView onDetail={setDetail} />}
           {view === "positions" && (
             <div className="dashboard-grid">
               <Panel
@@ -2337,9 +3431,11 @@ export default function App() {
 function Counts({
   values,
   empty,
+  plain = false,
 }: {
   values?: Record<string, number>;
   empty: string;
+  plain?: boolean;
 }) {
   const rows = Object.entries(values ?? {})
     .sort((a, b) => b[1] - a[1])
@@ -2348,7 +3444,7 @@ function Counts({
     <dl className="count-list">
       {rows.map(([key, value]) => (
         <div key={key}>
-          <dt>{words(key)}</dt>
+          <dt>{plain ? key : words(key)}</dt>
           <dd className="num">{value.toLocaleString()}</dd>
         </div>
       ))}
