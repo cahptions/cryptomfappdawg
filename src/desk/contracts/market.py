@@ -44,6 +44,8 @@ class PoolSnapshot(BaseModel):
     fdv_usd: Observed[Decimal]
     market_cap_usd: Observed[Decimal]
     locked_liquidity_pct: Decimal | None = None   # provider claim (GeckoTerminal pools/multi)
+    liquidity_base_amount: Decimal | None = None  # reserve of the base token, as reported (DexScreener)
+    liquidity_quote_amount: Decimal | None = None # reserve of the quote token, as reported (DexScreener)
     windows: dict[str, WindowMetrics]
     flags: tuple[str, ...] = ()
     observed_at: UtcDatetime

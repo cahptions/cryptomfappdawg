@@ -34,7 +34,7 @@
 
 Commands: `uv run pytest` (offline suite), `uv run pytest -m live` (read-only network), `uv run ruff check src tests`,
 `uv run mypy`, `uv run desk doctor`, `uv run desk collect --minutes 60`.
-Totals at commit time: **136 offline tests passed, 4 live tests passed, ruff clean, mypy --strict clean (46 files).**
+Totals at commit time: **139 offline tests passed, 4 live tests passed, ruff clean, mypy --strict clean (46 files).**
 
 | ID | Result | Where | Evidence |
 |---|---|---|---|
@@ -55,7 +55,7 @@ Totals at commit time: **136 offline tests passed, 4 live tests passed, ruff cle
 | M1-15 Provider health | ✅ PASS | unit | OK→DEGRADED(3)→DOWN(10)→OK(3 successes), transitions timestamped |
 | M1-16 Provider registry | ✅ PASS | unit | `config/providers.toml` schema, buckets, evidence files, every adapter has an entry |
 | M1-17 Raw evidence | ✅ PASS | unit | byte-identical by SHA-256; corruption detected; retention keeps decision-linked |
-| M1-18 60-min collection | ⏳ cloud run in progress; **laptop run PENDING — operator** | — | filled in below when complete |
+| M1-18 60-min collection | ✅ cloud run PASS; **laptop run PENDING — operator** | cloud 2026-10-18 23:03–00:03 UTC | see "Cloud 60-minute run" below |
 | M1-19 On-chain constants | ✅ PASS | live (cloud) | Token, Token-2022, wSOL, USDC, venue programs vs live pools |
 | M1-20 No paid / LLM deps | ✅ PASS | unit | no LLM SDK in lockfile, no LLM hosts in source, all providers $0 |
 
@@ -79,6 +79,29 @@ Same config snapshot as tested (`52014c14933b`) → the laptop runs the exact ve
 
 Laptop latencies are lower than the cloud container's on every provider.
 
+### Cloud 60-minute run (M1-18, cloud container, 2026-10-18 23:03 → 2026-10-19 00:03 UTC)
+| Job | Polls | OK | Failed | Success | Items | Item errors |
+|---|---|---|---|---|---|---|
+| geckoterminal_new_pools | 60 | 60 | 0 | 100% | 2,400 | 0 |
+| geckoterminal_trending | 30 | 30 | 0 | 100% | 600 | 0 |
+| jupiter_recent | 60 | 60 | 0 | 100% | 1,800 | 0 |
+| jupiter_trending | 20 | 20 | 0 | 100% | 1,000 | 0 |
+| dexscreener_refresh | 60 | 60 | 0 | 100% | 10,250 | 0 |
+| rpc_slot | 60 | 60 | 0 | 100% | 60 | 0 |
+
+Unhandled exceptions **0** · suspend gaps 0 · tracked tokens 269 · **memory 59.5 MB (peak)** (run used the cache code
+from before the eviction fix) · rows: 13,250 snapshots, 1,139 tokens, 1,185 pools, 2,800 token claims, 617 raw
+responses · disk: 23 MB DB + 6.9 MB raw per hour · `integrity_check = ok`.
+24 HTTP 429s were absorbed by backoff; health transitions recorded and self-recovered: GeckoTerminal
+ok→degraded→ok (23:33→23:37), Jupiter ok→degraded→ok (23:58→00:00).
+
+**Finding from the run — drained pools:** 602 snapshots (22 PumpSwap pools among ~269 tracked tokens) had
+DexScreener `liquidity.usd = 0` *explicitly*, with reserves like 34 tokens / 0.0000217 SOL while 24 h volume was still
+shown (~$9k). These are drained pools (a rug signature). The values were stored truthfully but unflagged, unlike
+GeckoTerminal zeros. Fixed: both providers now flag `ZERO_REPORTED` / `ZERO_LIQUIDITY_REPORTED`, and DexScreener
+reserve amounts are stored (`market` migration 0002). Real response saved as evidence + fixture
+(`research/evidence/2026-10-19/m1_dexscreener_tokens_v1_drained_pumpswap_pools.json`). Input for M2 rug detection.
+
 ### Defects found and fixed during M1 (honest log)
 1. **Out-of-range epoch timestamps** raised a raw `ValueError` instead of the typed `TimestampError` — caught by a unit test; fixed.
 2. **All providers shared one rate-limit bucket** (every endpoint used the bucket name `default`), so a GeckoTerminal
@@ -87,6 +110,8 @@ Laptop latencies are lower than the cloud container's on every provider.
    the fix.
 3. **Rate-limiter wait timeout** surfaced as a bare `TimeoutError` instead of `ProviderError(RATE_LIMITED)` — fixed + test.
 4. **Response cache kept expired entries** until 2,048 entries (up to ~60 MB on long runs) — now dropped promptly + test.
+6. **DexScreener explicit-zero liquidity was not flagged** (GeckoTerminal zeros were) — found in the 60-minute run; fixed,
+   reserve amounts now stored (migration 0002), upgrade-from-v1 migration test added.
 5. My own analysis error: I reported GeckoTerminal `pools/multi` as returning "3 of 4" pools; the request actually
    contained a duplicate address. Corrected in the registry and RESEARCH.md.
 

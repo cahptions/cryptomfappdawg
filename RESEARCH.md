@@ -428,6 +428,7 @@ New facts established while building and testing M1. Evidence files are prefixed
 | Public RPC `getTokenLargestAccounts` still 429 (desk doctor, ~22:55 UTC) | [MEASURED] | R-01 remains open until measured from the operator's home IP |
 | Local clock vs latest confirmed block time: +1.3 s | [MEASURED] (container) | Freshness checks can rely on block time as a cross-check |
 | SOL ≈ $103.7 (0.1 SOL → 10.3743 USDC via Metis, 2 bps fee) | [MEASURED] doctor ~22:55 UTC | Reference only |
+| DexScreener reports `liquidity.usd = 0` **explicitly** for drained PumpSwap pools (reserves e.g. 34 tokens / 0.0000217 SOL) while still showing 24 h volume; 22 of ~269 tracked tokens in one hour | [MEASURED] `2026-10-19/m1_dexscreener_tokens_v1_drained_pumpswap_pools.json` | Explicit zero = rug/drain signal (flagged), distinct from "not reported" (bonding curves); reserves stored for M2 |
 
 ---
 

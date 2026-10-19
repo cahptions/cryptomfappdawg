@@ -68,8 +68,8 @@ def _pool(item: dict[str, Any], source: str, observed_at: datetime, raw_sha256: 
     reserve = opt_decimal(reserve_raw)
     liquidity_flags: tuple[str, ...] = ()
     if reserve is not None and reserve == 0:
-        liquidity_flags = ("SUSPICIOUS_ZERO",)  # an active pool reporting exactly zero reserves
-        flags.append("SUSPICIOUS_ZERO_LIQUIDITY")
+        liquidity_flags = ("ZERO_REPORTED",)  # the provider explicitly reports zero — a drain/rug signal
+        flags.append("ZERO_LIQUIDITY_REPORTED")
 
     return PoolSnapshot(
         source=source,

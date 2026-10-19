@@ -54,10 +54,16 @@ def _pair(pair: dict[str, Any], source: str, observed_at: datetime, raw_sha256: 
     quote = expect_dict(pair["quoteToken"], "quoteToken")
     dex_id = pair["dexId"]
     flags: list[str] = []
-    liquidity = pair.get("liquidity")
-    liquidity_usd = liquidity.get("usd") if isinstance(liquidity, dict) else None
+    liquidity_raw = pair.get("liquidity")
+    liquidity: dict[str, Any] = liquidity_raw if isinstance(liquidity_raw, dict) else {}
+    liquidity_usd = liquidity.get("usd")
+    liquidity_flags: tuple[str, ...] = ()
     if liquidity_usd is None:
         flags.append("LIQUIDITY_NOT_REPORTED")  # observed on every bonding-curve pair in M0
+    elif opt_decimal(liquidity_usd) == 0:
+        # observed 2026-10-19 on drained PumpSwap pools: usd 0, quote reserve ~0.00002 SOL, volume still shown
+        liquidity_flags = ("ZERO_REPORTED",)
+        flags.append("ZERO_LIQUIDITY_REPORTED")
     return PoolSnapshot(
         source=source,
         pool_address=pair["pairAddress"],
@@ -70,7 +76,9 @@ def _pair(pair: dict[str, Any], source: str, observed_at: datetime, raw_sha256: 
         pool_created_at=opt_epoch_ms(pair.get("pairCreatedAt")),
         price_usd=observed_decimal(pair.get("priceUsd"), source, observed_at),
         price_native=observed_decimal(pair.get("priceNative"), source, observed_at),
-        liquidity_usd=observed_decimal(liquidity_usd, source, observed_at),
+        liquidity_usd=observed_decimal(liquidity_usd, source, observed_at, liquidity_flags),
+        liquidity_base_amount=opt_decimal(liquidity.get("base")),
+        liquidity_quote_amount=opt_decimal(liquidity.get("quote")),
         fdv_usd=observed_decimal(pair.get("fdv"), source, observed_at),
         market_cap_usd=observed_decimal(pair.get("marketCap"), source, observed_at),
         windows=_windows(pair),

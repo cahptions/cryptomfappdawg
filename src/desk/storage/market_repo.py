@@ -72,11 +72,12 @@ class MarketRepository:
             "INSERT INTO market_snapshots(pool_address, base_mint, source, observed_at, observed_at_ms,"
             " price_usd, price_usd_status, price_native, price_native_status, liquidity_usd, liquidity_status,"
             " fdv_usd, fdv_status, market_cap_usd, market_cap_status, locked_liquidity_pct, windows_json, flags,"
-            " raw_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " raw_sha256, liquidity_base_amount, liquidity_quote_amount)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (snap.pool_address, snap.base_mint, snap.source, to_iso(snap.observed_at), to_epoch_millis(snap.observed_at),
              price, price_status, native, native_status, liq, liq_status, fdv, fdv_status, mcap, mcap_status,
              _dec(snap.locked_liquidity_pct), json.dumps(windows, sort_keys=True), ",".join(snap.flags),
-             snap.raw_sha256),
+             snap.raw_sha256, _dec(snap.liquidity_base_amount), _dec(snap.liquidity_quote_amount)),
         )
 
     # ── token claims, quotes, mint accounts ────────────────────────────────────────────────────────

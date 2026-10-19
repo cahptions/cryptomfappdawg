@@ -146,3 +146,35 @@ def test_backup_produces_identical_consistent_copy(dbs: Databases, tmp_path: Pat
     assert copy.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert copy.execute("SELECT value FROM system_state WHERE key='entries_halted'").fetchone()[0] == "no"
     copy.close()
+
+
+def test_upgrade_from_previous_schema_keeps_existing_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An M1-v1 database (only migration 0001) upgrades to the current schema without losing data."""
+    conn = connect(tmp_path / "market.db", DbKind.MARKET)
+    original = dbmod.available_migrations
+    monkeypatch.setattr(dbmod, "available_migrations", lambda kind: original(kind)[:1])
+    migrate(conn, DbKind.MARKET)
+    conn.execute("INSERT INTO tokens(mint, first_seen_at, last_seen_at) VALUES ('m', 'a', 'b')")
+    monkeypatch.setattr(dbmod, "available_migrations", original)
+    assert migrate(conn, DbKind.MARKET) == [2]
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(market_snapshots)")}
+    assert {"liquidity_base_amount", "liquidity_quote_amount"} <= columns
+    assert conn.execute("SELECT COUNT(*) FROM tokens").fetchone()[0] == 1
+
+
+def test_reserve_amounts_stored_and_null_when_not_reported(dbs: Databases) -> None:
+    repo = MarketRepository(dbs.market)
+    drained = dexscreener.parse_pairs(load_fixture("provider/m1_dexscreener_tokens_v1_drained_pumpswap_pools.json"),
+                                      "ds_drained", NOW).items
+    curve = dexscreener.parse_pairs(load_fixture("provider/dexscreener_tokens_v1_10mints.json"), "ds_curve", NOW).items
+    repo.save_pool_snapshots(drained + curve)
+    # reserves are present exactly when the provider reported liquidity (incl. the drained pool's explicit 0)
+    mismatched = dbs.market.execute(
+        "SELECT COUNT(*) FROM market_snapshots WHERE (liquidity_status = 'missing') != (liquidity_quote_amount IS NULL)"
+    ).fetchone()[0]
+    assert mismatched == 0
+    reported = dbs.market.execute("SELECT COUNT(*) FROM market_snapshots WHERE source='ds_drained'"
+                                  " AND liquidity_quote_amount IS NOT NULL").fetchone()[0]
+    assert reported == sum(1 for s in drained if s.liquidity_usd.status.value == "ok") > 0
+    assert dbs.market.execute("SELECT COUNT(*) FROM market_snapshots WHERE source='ds_curve'"
+                              " AND liquidity_quote_amount IS NULL").fetchone()[0] == len(curve)

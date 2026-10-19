@@ -175,13 +175,13 @@ def test_geckoterminal_null_reserve_is_missing() -> None:
     assert null_reserve.market_cap_usd.status is DataStatus.MISSING  # market_cap_usd: null in fixture
 
 
-def test_geckoterminal_zero_reserve_is_ok_but_flagged_suspicious() -> None:
+def test_geckoterminal_zero_reserve_is_ok_but_flagged() -> None:
     items = geckoterminal.parse_pools(load_fixture(FX + "geckoterminal_new_pools_p1.json"), "gt", NOW).items
     viral = [s for s in items if s.liquidity_usd.value == 0]
     assert viral, "fixture contains a pool with reserve_in_usd '0.0'"
     for snap in viral:
         assert snap.liquidity_usd.status is DataStatus.OK
-        assert "SUSPICIOUS_ZERO" in snap.liquidity_usd.flags and "SUSPICIOUS_ZERO_LIQUIDITY" in snap.flags
+        assert "ZERO_REPORTED" in snap.liquidity_usd.flags and "ZERO_LIQUIDITY_REPORTED" in snap.flags
 
 
 # ── M1-07: corrupted / drifted responses are rejected explicitly ─────────────────────────────────
@@ -241,3 +241,19 @@ def test_hostile_token_name_is_sanitized_and_flagged() -> None:
     snap = dexscreener.parse_pairs(json.dumps(doc).encode(), "ds", NOW).items[0]
     assert snap.name is not None and "‮" not in snap.name and "\x00" not in snap.name
     assert "NAME_SANITIZED" in snap.flags
+
+
+def test_dexscreener_drained_pool_zero_is_reported_flagged_and_reserves_kept() -> None:
+    """Real response (2026-10-19): a PumpSwap pair with liquidity.usd = 0 and a ~0.00002 SOL quote reserve."""
+    items = dexscreener.parse_pairs(load_fixture(FX + "m1_dexscreener_tokens_v1_drained_pumpswap_pools.json"),
+                                    "ds", NOW).items
+    drained = [s for s in items if s.liquidity_usd.value == 0]
+    assert len(drained) == 1
+    snap = drained[0]
+    assert snap.liquidity_usd.status is DataStatus.OK            # the provider said zero; it is not "unknown"
+    assert "ZERO_REPORTED" in snap.liquidity_usd.flags and "ZERO_LIQUIDITY_REPORTED" in snap.flags
+    assert snap.liquidity_quote_amount == Decimal("0.0000217")
+    healthy = [s for s in items if s.liquidity_usd.value]
+    assert healthy and all(s.liquidity_quote_amount and s.liquidity_quote_amount > 0 for s in healthy)
+    assert all(s.liquidity_quote_amount is None for s in dexscreener.parse_pairs(
+        load_fixture(FX + "dexscreener_tokens_v1_10mints.json"), "ds", NOW).items)  # bonding curves: not reported
