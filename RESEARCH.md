@@ -395,7 +395,7 @@ Implications are handled in PLAN.md §2 and §15.
 
 | ID | Question | Resolve by |
 |---|---|---|
-| ~~R-01~~ | **Resolved 2026-10-19:** public RPC `getTokenLargestAccounts` is 429 from the operator's home IP as well → keyed RPC required for M2; GT/DS/Jupiter keyless all fine from home (148–401 ms) | — |
+| ~~R-01~~ | **Resolved 2026-10-19:** public RPC `getTokenLargestAccounts` is 429 from the operator's home IP as well → keyed RPC required for M2; GT/DS/Jupiter keyless all fine from home (148–401 ms). With the free Helius RPC it returns 20 accounts in 85 ms | — |
 | R-02 | Helius credit cost of `getTokenLargestAccounts`; WS credit accounting | M1 |
 | R-03 | Definitions of Jupiter `topHoldersPercentage`, `devMints`, `numTraders`, organic metrics | M2 (compare with on-chain) |
 | R-04 | Max mints per Jupiter `tokens/v2/search` call (comma-separated lists work: 3 verified) | M2 |
@@ -428,6 +428,8 @@ New facts established while building and testing M1. Evidence files are prefixed
 | Public RPC `getTokenLargestAccounts` still 429 (desk doctor, ~22:55 UTC) | [MEASURED] | R-01 remains open until measured from the operator's home IP |
 | Local clock vs latest confirmed block time: +1.3 s | [MEASURED] (container) | Freshness checks can rely on block time as a cross-check |
 | SOL ≈ $103.7 (0.1 SOL → 10.3743 USDC via Metis, 2 bps fee) | [MEASURED] doctor ~22:55 UTC | Reference only |
+| Jupiter Tokens v2 is served on the keyed host `api.jup.ag/tokens/v2/...` (200 keyless as well; 41 ms with the operator's free key) | [MEASURED] 2026-10-19 | Keyed path verified; `lite-api` only used when no key is configured |
+| Helius free RPC: `getTokenLargestAccounts` works (20 accounts, 85 ms); `getSlot` 155 ms from the operator's laptop | [MEASURED] 2026-10-19 (laptop doctor) | Holder concentration feasible for M2 |
 | DexScreener reports `liquidity.usd = 0` **explicitly** for drained PumpSwap pools (reserves e.g. 34 tokens / 0.0000217 SOL) while still showing 24 h volume; 22 of ~269 tracked tokens in one hour | [MEASURED] `2026-10-19/m1_dexscreener_tokens_v1_drained_pumpswap_pools.json` | Explicit zero = rug/drain signal (flagged), distinct from "not reported" (bonding curves); reserves stored for M2 |
 
 ---

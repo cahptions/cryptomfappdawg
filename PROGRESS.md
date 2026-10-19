@@ -79,6 +79,12 @@ Same config snapshot as tested (`52014c14933b`) → the laptop runs the exact ve
 
 Laptop latencies are lower than the cloud container's on every provider.
 
+**Doctor re-run with the free keys configured (2026-10-19): 19 ok / 1 warn (swap 64%) / 0 fail.**
+Secrets file private (0600); Jupiter key and Helius RPC URL configured (values never recorded). Jupiter tokens via
+`api.jup.ag` (keyed) 2/2 in 41 ms; keyed RPC slot in 155 ms; Token-2022 mint in 38 ms;
+**`getTokenLargestAccounts` returned 20 accounts in 85 ms** — holder analysis for M2 is unblocked. Market migration
+0002 applied automatically on the laptop database.
+
 ### Cloud 60-minute run (M1-18, cloud container, 2026-10-18 23:03 → 2026-10-19 00:03 UTC)
 | Job | Polls | OK | Failed | Success | Items | Item errors |
 |---|---|---|---|---|---|---|
@@ -160,7 +166,7 @@ Linux Mint 22.3 (Ubuntu 24.04), Ryzen 7 7730U, 16 GB RAM (swap 83% used at repor
 | Question | Answer | Date | Effect |
 |---|---|---|---|
 | Q1 Plan | **Approved** | 2026-10-18 | M1 started |
-| Q2 Free keys | **Yes** — will create a free Jupiter API key and a free keyed RPC (e.g. Helius) | 2026-10-18 | Setup steps provided at end of M1; keys live only in `~/.config/desk/secrets.env` on the laptop |
+| Q2 Free keys | **Done** — free Jupiter API key + free Helius RPC configured on the laptop | 2026-10-19 | Verified by doctor (keyed Jupiter tokens, keyed RPC, holder list OK); keys live only in `~/.config/desk/secrets.env` |
 | Q3 Capital | **$100** | 2026-10-18 | PLAN §13.2 rewritten as a $100 small-account profile: 10% tickets (~$10), max 2 positions, fee floor; paper simulates $100 |
 | Q4 AI judge | **No** — "the AI shouldn't judge; I'm not paying for an API" | 2026-10-18 | M4 dropped; PLAN §15 rewritten; M1-20, M6-13, M6-14 added; running cost $0/month |
 | Q5 Dashboard stack | **Approved** (React + TypeScript) | 2026-10-18 | — |
