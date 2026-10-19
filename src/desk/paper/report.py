@@ -25,61 +25,71 @@ def _sol(lamports: int) -> str:
 
 def replica(closed: list[dict[str, Any]], still_open: list[dict[str, Any]], loaded: LoadedConfig,
             base_lamports: int) -> dict[str, Any]:
-    """Estimate what the real $100 account would have done with the same signals (PLAN §13.1.1).
+    """Estimate what the real $100 account would have done with the same signals (PLAN §13.1.1, §13.2).
 
-    Same entries in time order, but: cash = $100, at most ``limits.max_open_positions`` at once, ticket = fraction x
-    min(equity, $100) (no evidence-gated growth yet), fee floor, daily loss limit, trades/day and cumulative-drawdown
-    halt. Returns scale linearly from the learning-book fill; fixed fees are charged per trade unscaled. An estimate.
+    Opens and closes are replayed on one timeline (a close at the same instant is processed first). The account
+    starts with $100, sizes at fraction x min(equity, $100) (no evidence-gated growth yet), and refuses an entry
+    for: cumulative drawdown halt (permanent), daily realized loss, daily equity drawdown, trades/day, open
+    positions, total exposure, free cash, or fee floor/minimum ticket. Each UTC day's limits use that day's
+    start equity and only P&L realized on that day. Returns scale linearly from the learning-book fill; fixed
+    fees are charged per trade unscaled. It is an estimate, labelled as such.
     """
     sizing, limits = loaded.settings.sizing, loaded.settings.limits
-    events = sorted([*closed, *still_open], key=lambda p: (p["opened_at"], p["id"]))
-    equity, peak = base_lamports, base_lamports
-    active: list[tuple[str, int]] = []           # (closed_at or "", pnl)
+    timeline: list[tuple[str, int, str, dict[str, Any]]] = []
+    for position in [*closed, *still_open]:
+        timeline.append((position["opened_at"], 1, position["id"], position))
+        if position.get("closed_at"):
+            timeline.append((position["closed_at"], 0, position["id"], position))
+    timeline.sort(key=lambda item: (item[0], item[1], item[2]))
+    equity = peak = base_lamports
+    active: dict[str, tuple[int, int]] = {}                 # position id -> (replica ticket, replica pnl)
     skipped: Counter[str] = Counter()
-    taken, day_start, day, day_trades, day_realized, halted = 0, base_lamports, "", 0, 0, False
+    taken, day, day_start, day_trades, day_realized, halted = 0, "", equity, 0, 0, False
     max_drawdown = Decimal(0)
-    for position in events:
-        opened = position["opened_at"]
-        for item in [a for a in active if a[0] and a[0] <= opened]:
-            active.remove(item)
-            equity += item[1]
-            day_realized += item[1]
-            peak = max(peak, equity)
-            max_drawdown = max(max_drawdown, Decimal(peak - equity) / Decimal(peak))
-        if opened[:10] != day:
-            day, day_start, day_trades, day_realized = opened[:10], equity, 0, 0
-        if halted or equity <= peak * (1 - limits.cumulative_drawdown_fraction):
-            halted = True
-            skipped["CUMULATIVE_DRAWDOWN_HALT"] += 1
-            continue
-        if day_realized <= -day_start * limits.daily_realized_loss_fraction:
-            skipped["DAILY_LOSS_LIMIT"] += 1
-            continue
-        if day_trades >= limits.max_trades_per_day:
-            skipped["TRADES_PER_DAY"] += 1
-            continue
-        if len(active) >= limits.max_open_positions:
-            skipped["POSITION_LIMIT"] += 1
+    rent = loaded.settings.paper.token_account_rent_lamports
+    for at, kind, position_id, position in timeline:
+        if at[:10] != day:
+            day, day_start, day_trades, day_realized = at[:10], equity, 0, 0
+        if kind == 0:                                       # close
+            if position_id in active:
+                _, pnl = active.pop(position_id)
+                equity += pnl
+                day_realized += pnl
+                peak = max(peak, equity)
+                max_drawdown = max(max_drawdown, Decimal(peak - equity) / Decimal(peak))
+                if equity <= peak * (1 - limits.cumulative_drawdown_fraction):
+                    halted = True                           # until a manual reset: never lifted here
             continue
         ticket = floor_int(Decimal(min(equity, base_lamports)) * sizing.fixed_fraction)
         fixed = position["entry_fees_lamports"] + (position["exit_fees_lamports"] or 0)
-        if ticket < sol_to_lamports(sizing.min_ticket_sol) or Decimal(fixed) > Decimal(ticket) * sizing.max_fixed_cost_fraction:
-            skipped["FEE_FLOOR_OR_MINIMUM"] += 1
+        exposure = sum(t for t, _ in active.values())
+        reason = (
+            "CUMULATIVE_DRAWDOWN_HALT" if halted
+            else "DAILY_LOSS_LIMIT" if day_realized <= -day_start * limits.daily_realized_loss_fraction
+            else "DAILY_DRAWDOWN" if equity <= day_start * (1 - limits.daily_equity_drawdown_fraction)
+            else "TRADES_PER_DAY" if day_trades >= limits.max_trades_per_day
+            else "POSITION_LIMIT" if len(active) >= limits.max_open_positions
+            else "EXPOSURE_LIMIT" if exposure + ticket > equity * limits.max_total_exposure_fraction
+            else "INSUFFICIENT_CASH" if equity - exposure - len(active) * rent < ticket + fixed + rent
+            else "FEE_FLOOR_OR_MINIMUM" if (ticket < sol_to_lamports(sizing.min_ticket_sol)
+                                            or Decimal(fixed) > Decimal(ticket) * sizing.max_fixed_cost_fraction)
+            else None)
+        if reason:
+            skipped[reason] += 1
             continue
         taken += 1
         day_trades += 1
+        pnl = 0
         if position.get("closed_at"):
             gross = Decimal(position["exit_lamports"] - position["ticket_lamports"]) / Decimal(position["ticket_lamports"])
-            active.append((position["closed_at"], floor_int(gross * ticket) - fixed))
-        else:
-            active.append(("", 0))
-    for closed_at, pnl in active:
-        if closed_at:
-            equity += pnl
+            pnl = floor_int(gross * ticket) - fixed
+        active[position_id] = (ticket, pnl)
+    open_ids = {position["id"] for position in still_open}
+    open_at_end = sum(1 for position_id in active if position_id in open_ids)
     return {"start_lamports": base_lamports, "equity_lamports": equity, "equity_sol": _sol(equity),
             "return": str((Decimal(equity - base_lamports) / Decimal(base_lamports)).quantize(Decimal("0.0001"))),
-            "trades_taken": taken, "skipped": dict(skipped), "max_drawdown": str(max_drawdown.quantize(Decimal("0.0001"))),
-            "halted_by_cumulative_drawdown": halted,
+            "trades_taken": taken, "skipped": dict(skipped), "open_at_end": open_at_end,
+            "max_drawdown": str(max_drawdown.quantize(Decimal("0.0001"))), "halted_by_cumulative_drawdown": halted,
             "note": "estimate from learning-book fills; open positions occupy slots at zero P&L"}
 
 

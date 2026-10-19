@@ -305,16 +305,16 @@ Strategy specs v2 (B1, B2, H1–H6) allow PAPER; R1 stays SHADOW-only.
 | M5-09 exit policies | PASS (automated) | 18-row boundary table + invalidation test |
 | M5-10 locks / duplicates | PASS (automated) | gate refusal and database unique index |
 | M5-11 restart recovery | PASS (automated, guardian) | a new guardian resumes an EXIT_BLOCKED position from the ledger and closes it |
-| M5-12 guardian independence | PARTIAL | separate process; entries refused while its heartbeat is stale; kill-the-engine fault test still to add |
+| M5-12 guardian independence | PASS (fault injection) | real processes: engine SIGKILLed mid-write ⇒ no partial position or orphan cash entry, integrity ok; the guardian process keeps marking and exits every position (HARD_STOP); entries refused once its heartbeat is stale |
 | M5-13 kill switch | PASS (automated) | STOP blocks the next entry check; `desk resume` needs typed RESUME |
-| M5-14/22 limits, replica | PASS (automated, learning book) / replica implemented | replica logic covered via report test; more replica edge tests to add |
+| M5-14/22 limits, replica | PASS (automated) | learning-book gates in lifecycle tests; replica rewritten as one open/close timeline with 10 edge tests: 2-position limit, same-instant close frees the slot, open positions hold slots, no compounding above $100, losses shrink tickets, daily loss limit (incl. a loss closed after midnight counting for the new day — a bug in the first version), trades/day, permanent cumulative-drawdown halt, fee floor |
 | M5-15 P&L by hand | PASS (automated) | trailing-stop trade checked to the lamport |
 | M5-17 mode separation | PASS (automated) | no LIVE ledger, no SHADOW rows written |
-| M5-18 sleep/resume | PARTIAL | guardian re-quotes after a wall-clock jump; entries blocked 5 min after a collector gap; fault test to add |
+| M5-18 sleep/resume | PASS (fault injection) | a 30-min wall-clock jump makes the guardian re-quote every position before deciding (mutation-checked: removing the re-quote fails the test); a collector gap blocks PAPER entries for 5 min |
 | M5-19 lifecycle | PASS (fake provider) | decision → entry → marks → trailing exit → reconciliation → report, every step in the audit trail |
 | M5-20 72-hour PAPER run | **PENDING (laptop)** | needs the keyed laptop configuration |
 
-Validation (cloud): **432 offline tests passed**, Ruff clean, strict mypy clean (82 files). Live 3-minute cloud
+Validation (cloud): **445 offline tests passed** (incl. 3 PAPER fault-injection and 10 replica tests), Ruff clean, strict mypy clean (82 files). Live 3-minute cloud
 smoke `desk paper` (`m5_paper_cloud_smoke.json`): book created from a real 1 SOL quote (105.16 USD/SOL ⇒ 950.95 SOL
 cash, 0.951 SOL sizing base), all 11 jobs 100%, 0 unhandled exceptions, 63.7 MB peak, guardian spawned as its own
 process with a 0.5 s-old heartbeat and exited 0 on SIGTERM, reconciliation difference 0. No trades in the cloud:
