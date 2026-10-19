@@ -19,6 +19,7 @@ from typing import Any, Protocol
 
 from pydantic import ValidationError
 from solders.hash import Hash
+from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
 from solders.message import MessageV0
 from solders.pubkey import Pubkey
@@ -30,8 +31,14 @@ from desk.core.clock import utc_now
 from desk.core.config import LimitsSection, LiveSection, SizingSection
 from desk.core.units import sol_to_lamports
 from desk.signer import programs as p
-from desk.signer.inspect import SwapExpectation, associated_token_address, check_simulation, inspect_swap
-from desk.signer.intents import Intent, Withdrawal
+from desk.signer.inspect import (
+    SwapExpectation,
+    associated_token_address,
+    check_simulation,
+    inspect_swap,
+    token_amount,
+)
+from desk.signer.intents import CloseAccount, Intent, Withdrawal
 from desk.signer.journal import Journal
 
 SIGNATURE_FEE = 5000
@@ -85,10 +92,10 @@ class Signer:
         return 2 * SIGNATURE_FEE + self.live.max_priority_fee_lamports + 2 * 2_039_280
 
     async def handle(self, request: Any) -> dict[str, Any]:
-        """The only entry point. Anything that is not one of four structured operations is refused."""
+        """The only entry point. Anything that is not one of six structured operations is refused."""
         if self.disarmed:
             return refusal("DISARMED")
-        if not isinstance(request, dict) or not set(request) <= {"op", "intent", "withdrawal"}:
+        if not isinstance(request, dict) or not set(request) <= {"op", "intent", "withdrawal", "close", "intent_id"}:
             return refusal("UNKNOWN_FIELDS")
         op = request.get("op")
         if op == "status":
@@ -100,6 +107,10 @@ class Signer:
             return await self.intent(request["intent"])
         if op == "withdraw" and set(request) == {"op", "withdrawal"}:
             return await self.withdraw(request["withdrawal"])
+        if op == "close" and set(request) == {"op", "close"}:
+            return await self.close_account(request["close"])
+        if op == "lookup" and set(request) == {"op", "intent_id"}:
+            return self.lookup(request["intent_id"])
         if op == "disarm" and set(request) == {"op"}:
             self.disarmed = True
             return {"ok": True, "disarmed": True}
@@ -169,7 +180,34 @@ class Signer:
         except Exception as exc:  # a timeout may still land: poll, never resubmit
             response = {"status": "UNKNOWN", "error": type(exc).__name__}
         self.journal.update(intent.intent_id, "SUBMITTED", self.clock(), {"execute": response})
-        return await self.settle(intent.intent_id, signature, last_valid)
+        result = await self.settle(intent.intent_id, signature, last_valid)
+        if result.get("state") == "CONFIRMED":
+            # what actually changed on-chain: the LIVE ledger books these amounts, never the quote
+            result["balances"] = await self._balance_changes(tracked, pre)
+            self.journal.update(intent.intent_id, "CONFIRMED", self.clock(), {"balances": result["balances"]})
+        return result
+
+    async def _balance_changes(self, tracked: list[str], pre: list[dict[str, Any] | None]) -> dict[str, Any] | None:
+        """Wallet SOL and own token-account changes of a landed swap; ``tracked`` is [wallet, input, output]."""
+        def amount(account: dict[str, Any] | None) -> int:
+            return token_amount(account) if account and "data" in account else 0
+
+        for _ in range(3):
+            try:
+                post = await self.rpc.accounts(tracked)
+            except Exception:  # unknown is reported as unknown; the caller reconciles
+                post = []
+            # a landed transaction always changes the fee payer's balance; an unchanged one is a lagging node
+            if len(post) == 3 and post[0] is not None and pre and pre[0] is not None \
+                    and int(post[0]["lamports"]) != int(pre[0]["lamports"]):
+                created = pre[2] is None and post[2] is not None
+                return {"sol_lamports": int(post[0]["lamports"]) - int(pre[0]["lamports"]),
+                        "input_token_raw": amount(post[1]) - amount(pre[1]),
+                        "output_token_raw": amount(post[2]) - amount(pre[2]),
+                        "output_account_created": created,
+                        "output_account_lamports": int(post[2]["lamports"]) if created and post[2] else 0}
+            await self.sleep(POLL_SECONDS)
+        return None
 
     def _precheck(self, intent: Intent, now: datetime, others: list[dict[str, Any]]) -> list[str]:
         problems = []
@@ -240,6 +278,83 @@ class Signer:
             else:
                 results.append(await self.settle(row["intent_id"], row["signature"], int(row["last_valid_block_height"])))
         return results
+
+    def lookup(self, intent_id: Any) -> dict[str, Any]:
+        """Read-only: an intent's journaled outcome, so a restarted engine never repeats a trade that landed."""
+        row = self.journal.get(intent_id) if isinstance(intent_id, str) else None
+        if row is None:
+            return {"ok": True, "found": False}
+        return {"ok": True, "found": True, "state": row["state"], "signature": row["signature"],
+                "kind": row["kind"], "detail": row["detail"]}
+
+    # ── rent reclaim: close the wallet's own empty token account ───────────────────────────────────
+    async def close_account(self, raw: Any) -> dict[str, Any]:
+        try:
+            request = CloseAccount.model_validate(raw)
+        except ValidationError as exc:
+            return refusal("INVALID_CLOSE", detail=[e["msg"] for e in exc.errors()][:5])
+        now = self.clock()
+        if not self.journal.claim(request.intent_id, "CLOSE", request.model_dump(mode="json"), now):
+            return refusal("DUPLICATE_INTENT")
+        problems = []
+        if request.expires_at <= now:
+            problems.append("INTENT_EXPIRED")
+        if self._other_unresolved(request.intent_id):
+            problems.append("PREVIOUS_INTENT_UNRESOLVED")
+        if problems:
+            return self._refuse(request.intent_id, problems)
+        candidates = [associated_token_address(self.wallet, request.mint, program) for program in (p.TOKEN, p.TOKEN_2022)]
+        try:
+            accounts = await self.rpc.accounts([self.wallet, *candidates])
+            wallet_before = accounts[0]
+            found = [(address, account) for address, account in zip(candidates, accounts[1:], strict=True) if account]
+            if not found:
+                return self._refuse(request.intent_id, ["NO_TOKEN_ACCOUNT"])
+            address, account = found[0]
+            program = str(account.get("owner"))
+            if program not in p.TOKEN_PROGRAMS or associated_token_address(self.wallet, request.mint, program) != address:
+                return self._refuse(request.intent_id, ["NOT_WALLETS_OWN_TOKEN_ACCOUNT"])
+            if token_amount(account) != 0:
+                return self._refuse(request.intent_id, ["TOKEN_BALANCE_NOT_ZERO"])
+            if wallet_before is None:
+                return self._refuse(request.intent_id, ["WALLET_UNREADABLE"])
+            rent = int(account["lamports"])
+            blockhash, last_valid = await self.rpc.latest_blockhash()
+            owner = self._keypair.pubkey()
+            instruction = Instruction(Pubkey.from_string(program), bytes([p.TOKEN_CLOSE_ACCOUNT]),
+                                      [AccountMeta(Pubkey.from_string(address), False, True),
+                                       AccountMeta(owner, False, True), AccountMeta(owner, True, False)])
+            message = MessageV0.try_compile(owner, [instruction], [], Hash.from_string(blockhash))
+            unsigned = VersionedTransaction.populate(message, [Signature.default()])
+            simulation = await self.rpc.simulate(base64.b64encode(bytes(unsigned)).decode(), [self.wallet])
+            if simulation.get("err") is not None:
+                return self._refuse(request.intent_id, [f"SIMULATION_FAILED:{simulation.get('err')}"])
+            post = (simulation.get("accounts") or [None])[0]
+            gained = None if post is None else int(post["lamports"]) - int(wallet_before["lamports"])
+            if gained is None or not rent - SIGNATURE_FEE <= gained <= rent:
+                return self._refuse(request.intent_id, ["SIMULATED_REFUND_UNEXPECTED"])
+        except Exception as exc:
+            return self._refuse(request.intent_id, [f"PRE_SIGNING_FAILURE:{type(exc).__name__}"])
+        signed = VersionedTransaction(message, [self._keypair])
+        signature = str(signed.signatures[0])
+        self.journal.update(request.intent_id, "SIGNED", self.clock(), {"account": address, "rent_lamports": rent},
+                            signature=signature, last_valid_block_height=last_valid)
+        try:
+            await self.rpc.send(base64.b64encode(bytes(signed)).decode())
+        except Exception as exc:  # may still land; poll
+            self.journal.update(request.intent_id, "SUBMITTED", self.clock(), {"send_error": type(exc).__name__})
+        else:
+            self.journal.update(request.intent_id, "SUBMITTED", self.clock(), {})
+        result = await self.settle(request.intent_id, signature, last_valid)
+        if result.get("state") == "CONFIRMED":
+            try:
+                after = (await self.rpc.accounts([self.wallet]))[0]
+                result["balances"] = None if after is None else {
+                    "sol_lamports": int(after["lamports"]) - int(wallet_before["lamports"])}
+            except Exception:
+                result["balances"] = None
+            self.journal.update(request.intent_id, "CONFIRMED", self.clock(), {"balances": result["balances"]})
+        return result
 
     # ── the single transfer capability ────────────────────────────────────────────────────────────
     async def withdraw(self, raw: Any) -> dict[str, Any]:

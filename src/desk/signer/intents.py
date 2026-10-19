@@ -42,3 +42,14 @@ class Withdrawal(BaseModel):
     lamports: int = Field(gt=0, strict=True)
     confirmation: str
     expires_at: UtcDatetime
+
+
+class CloseAccount(BaseModel):
+    """Close the wallet's own empty token account for ``mint``; its rent goes back to the wallet (PLAN §12.3)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intent_id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,80}$")
+    mint: SolAddress
+    expires_at: UtcDatetime
+
