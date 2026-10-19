@@ -1,0 +1,174 @@
+{
+  "research_date": "2026-10-19",
+  "network_access_notes": [
+    "NBER canonical endpoint denied by inherited proxy HTTP403 CONNECT",
+    "arXiv canonical endpoint denied by inherited proxy HTTP403 CONNECT",
+    "No proxy bypass used; ordinary public GitHub PDF copies retrieved"
+  ],
+  "sources": [
+    {
+      "id": "EQ1",
+      "title": "Time series momentum",
+      "authors": [
+        "Tobias J. Moskowitz",
+        "Yao Hua Ooi",
+        "Lasse Heje Pedersen"
+      ],
+      "publication_year": 2012,
+      "canonical_url": "https://doi.org/10.1016/j.jfineco.2011.11.003",
+      "retrieved_url": "https://raw.githubusercontent.com/xhlgogo/Quantitative-Investment-Trading-system/master/paper/10.Time%20Series%20Momentum.pdf",
+      "retrieved_on": "2026-10-19",
+      "source_kind": "primary published paper; public document mirror",
+      "title_page_verified": true,
+      "read_access": "full PDF retrieved; substantive partial reading",
+      "reading_scope": "Substantive partial: abstract/introduction, data, main regression and trading methods, strategy-factor results, time-series/cross-sectional overlap; selected empirical discussion pp228\u2013244; later CFTC VAR analysis and appendices not fully read.",
+      "claim_locators": [
+        "Section2.1 pp230\u2013231: 58 liquid instruments, history1965\u20132009",
+        "Section2.4 Eq1 p233: lagged exponential volatility",
+        "Sections3.1\u20133.2 pp233\u2013235; Figure1/Table2",
+        "Section4.1 Eq5 p236: sign12-month return, inverse volatility",
+        "Figure2 p237: gross Sharpe ratios",
+        "Section4.3 pp237\u2013239: crisis and reversal",
+        "Section4.4 p239: June2010 liquidity snapshot limitation",
+        "Sections4.5\u20135, Table5 pp240\u2013244: overlap and shared factor structure"
+      ],
+      "bytes": 997501,
+      "sha256": "2d23607952040e43bc761164c8fdc40a49df024e18221a8e8ab2817eb383bc47",
+      "local_research_file": "/tmp/council-sources/tsmom-correct.pdf",
+      "text_extraction": "/tmp/council-sources/tsmom-correct.txt",
+      "redistributed_in_repository": false
+    },
+    {
+      "id": "EQ2",
+      "title": "Momentum crashes",
+      "authors": [
+        "Kent Daniel",
+        "Tobias J. Moskowitz"
+      ],
+      "publication_year": 2016,
+      "canonical_url": "https://doi.org/10.1016/j.jfineco.2015.12.002",
+      "retrieved_url": "https://raw.githubusercontent.com/xhlgogo/Quantitative-Investment-Trading-system/master/paper/4.Momentum%20Crashes.pdf",
+      "retrieved_on": "2026-10-19",
+      "source_kind": "primary published paper; public document mirror",
+      "title_page_verified": true,
+      "read_access": "full PDF retrieved; substantive partial reading",
+      "reading_scope": "Substantive partial: pp221\u2013224 (introduction, universe/portfolio, Table1), pp232\u2013233 (Table5, Section4), pp242\u2013243 (conclusion, AppendixA.1); selected AppendixD description. Not all intervening empirical tables or appendices were read.",
+      "claim_locators": [
+        "Section2.1 p223: CRSP universe and t\u221212..t\u22122 formation",
+        "Section1 pp221\u2013223 and Section6 p242: panic/rebound and short-loser mechanism",
+        "Section4 Eq6 p233: conditional mean/variance weights; leverage/cost caution",
+        "AppendixA.1 p243: no transaction costs",
+        "Section6 footnote16 p242: extension to time-series momentum left for future research"
+      ],
+      "bytes": 5342118,
+      "sha256": "3c3536414532375a4f437949f6a56258378940344cfc8d2e8181b7a9e4bb06d2",
+      "local_research_file": "/tmp/council-sources/crashes.pdf",
+      "text_extraction": "/tmp/council-sources/crashes.txt",
+      "redistributed_in_repository": false
+    },
+    {
+      "id": "EQ3",
+      "title": "Volatility-Managed Portfolios",
+      "authors": [
+        "Alan Moreira",
+        "Tyler Muir"
+      ],
+      "publication_year": 2017,
+      "canonical_url": "https://doi.org/10.1111/jofi.12513",
+      "retrieved_url": "https://raw.githubusercontent.com/coolgan/Volatility-Managed-Portfolios-Sometimes-it-Works/main/reference/%E3%80%90Moreira%2C%202017%2C%20JF%E3%80%91Volatility-managed%20Portfolios.pdf",
+      "retrieved_on": "2026-10-19",
+      "source_kind": "primary published paper; public document mirror",
+      "title_page_verified": true,
+      "read_access": "full PDF retrieved; substantive partial reading",
+      "reading_scope": "Substantive partial: pp1611\u20131619 (introduction, data, Eqs1\u20133, TableI), pp1623\u20131629 (business-cycle interpretation, transaction costs, leverage, TablesIV\u2013V), p1641 conclusion. Most later equilibrium-theory derivations and Internet Appendix not read.",
+      "claim_locators": [
+        "SectionI.A\u2013B pp1615\u20131616: factor data, inverse lagged variance Eq1, realized variance Eq2",
+        "SectionI.D/TableI pp1618\u20131619: factor results and sample dates",
+        "SectionII.B/TableIV pp1623\u20131625: market-only1/10/14bp cost analysis and omitted factor costs",
+        "SectionII.C/TableV pp1625\u20131628: leverage distribution and constraints",
+        "Conclusion p1641: authors interpretation"
+      ],
+      "bytes": 759958,
+      "sha256": "cd3de6a53d53b42f3f09b645dacaac31935397ead1dccb5f47b0d7c317294f8f",
+      "local_research_file": "/tmp/council-sources/vol.pdf",
+      "text_extraction": "/tmp/council-sources/vol.txt",
+      "redistributed_in_repository": false
+    },
+    {
+      "id": "EQ4",
+      "title": "Another look at trading costs and short-term reversal profits",
+      "authors": [
+        "Wilma de Groot",
+        "Joop Huij",
+        "Weili Zhou"
+      ],
+      "publication_year": 2012,
+      "version": "Accepted manuscript, July2011; not final typeset2012 publication",
+      "canonical_url": "https://doi.org/10.1016/j.jbankfin.2011.07.015",
+      "retrieved_url": "https://raw.githubusercontent.com/kuzeysahin-ai/quant-paper-pipeline.2/main/papers/paper-02-groot-huij-zhou-2012/source.pdf",
+      "reading_scope": "Substantive partial: printed manuscript pp1\u20137,12\u201315,17\u201319,23\u201329, including data/methods, execution costs, portfolio hysteresis, interpretation, summary, and cost-model appendices. Not every inserted empirical table or intermediate robustness section was read.",
+      "claim_locators": [
+        "Section2 printedp6/PDFp8: universe1990\u20132009US,1995\u20132009Europe; excludesmicrocaps",
+        "Section4.1 printedpp14\u201315/PDFpp16\u201317: past5days,skip1day,dailyrebalance,grossversusnet",
+        "Section4.2 printedpp17\u201319/PDFpp19\u201321: turnover hysteresis and largeststock outcomes",
+        "Section6 printedpp24\u201326/PDFpp26\u201328: contraryinterpretation/nocausalproof",
+        "AppendixB printedp29/PDFp31: Nomura cost calibration and unfilled opportunitycostexcluded"
+      ],
+      "retrieved_on": "2026-10-19",
+      "source_kind": "primary research paper; public document mirror",
+      "title_page_verified": true,
+      "read_access": "full PDF retrieved; substantive partial reading",
+      "bytes": 849028,
+      "sha256": "4881581ef1dbd72fae0fbc30341864c0e7644893d1d1d812110156d3accf9d14",
+      "local_research_file": "/tmp/council-sources/reversal-costs.pdf",
+      "text_extraction": "/tmp/council-sources/reversal-costs.txt",
+      "redistributed_in_repository": false
+    },
+    {
+      "id": "EQ5",
+      "title": "Short-Term Reversals: The Effects of Past Returns and Institutional Exits",
+      "authors": [
+        "Si Cheng",
+        "Allaudeen Hameed",
+        "Avanidhar Subrahmanyam",
+        "Sheridan Titman"
+      ],
+      "publication_year": 2017,
+      "version": "PublishedJFQA52(1),143\u2013173; publicPDFcopywithJSTORcover",
+      "canonical_url": "https://doi.org/10.1017/S0022109016000958",
+      "retrieved_url": "https://raw.githubusercontent.com/Pieismath/bw_hackathon/main/papers/pdfs/cheng_hameed_subrahmanyam_titman_2017_short_term_reversals.pdf",
+      "reading_scope": "Substantive partial: title/abstract; selected introduction; pp146\u2013148(SectionII.A); p169(SectionVconclusion). Not all empirical tables, robustness sections, or InternetAppendix read.",
+      "claim_locators": [
+        "SectionII.A p146/PDFp5: CRSPcommonstocks1980\u20132011,excludepricebelow$5",
+        "SectionII.A pp147\u2013148/PDFpp6\u20137: t\u22123..t\u22121,t,t+1 chronology and13F participation",
+        "SectionV p169/PDFp28: conditionalreversal,notprimarilylonglosers,notsimplyinstitutionalfiresales"
+      ],
+      "retrieved_on": "2026-10-19",
+      "source_kind": "primary research paper; public document mirror",
+      "title_page_verified": true,
+      "read_access": "full PDF retrieved; substantive partial reading",
+      "bytes": 1042746,
+      "sha256": "f4cf22a89228c3ba7c3dbb8f6f313ccab49a1a13ab5400bed8a9c272642ce280",
+      "local_research_file": "/tmp/council-sources/reversal-dynamics.pdf",
+      "text_extraction": "/tmp/council-sources/reversal-dynamics.txt",
+      "redistributed_in_repository": false
+    }
+  ],
+  "rejected_sources": [
+    {
+      "retrieved_url": "https://raw.githubusercontent.com/jackywong1228/CTA-Quant-Papers/main/23_Time_Series_Momentum_Moskowitz2012.pdf",
+      "reason": "Filename falsely suggests Moskowitz2012; title page is Curdia/Woodford2010 NBERWP16208 centralbank monetarypolicy paper. Excluded from evidence.",
+      "bytes": 513862,
+      "sha256": "bc8a824935644f3160f110ab324635fc6e077307078f65e14e84028eca0c4d70"
+    }
+  ],
+  "unobtained_primary_sources": [
+    {
+      "title": "Evaporating Liquidity",
+      "author": "Stefan Nagel",
+      "year": 2012,
+      "canonical_url": "https://doi.org/10.1093/rfs/hhs066",
+      "status": "No verified substantive copy retrieved; secondary repository descriptions not evidence."
+    }
+  ]
+}
