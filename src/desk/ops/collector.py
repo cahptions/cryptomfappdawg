@@ -39,6 +39,7 @@ from desk.storage.databases import Databases
 from desk.storage.market_repo import MarketRepository
 
 log = logging.getLogger(__name__)
+EVIDENCE_INTERVAL_SECONDS = 6 * 3600     # PAPER: confidence matrix + readiness report (sizing evidence stays < 7 days)
 
 
 @dataclass
@@ -298,6 +299,14 @@ class Collector:
             if isinstance(quote, QuoteObservation) and record(self.dbs.market, quote, label):
                 self.stats.tasks["fee_probe"].items += 1
 
+    async def evidence(self) -> None:
+        """PAPER: refresh the confidence matrix and the readiness report off the event loop (own connections)."""
+        from desk.ops.readiness import refresh_evidence
+
+        summary = await asyncio.to_thread(refresh_evidence, self.dbs.paths, self.loaded, utc_now())
+        self.stats.tasks["evidence"].items += 1
+        log.info("evidence refreshed", extra={"verdict": summary["verdict"], "as_of": summary["as_of"]})
+
     async def evaluate_discovery(self) -> None:
         assert self.discovery_engine is not None
         self.stats.tasks["discovery_evaluation"].items += await self.discovery_engine.evaluate_cycle()
@@ -357,6 +366,8 @@ class Collector:
             jobs.append(("counterfactuals", 300, self.counterfactuals))
             jobs.append(("fee_probe", self.loaded.settings.paper.fee_probe_interval_seconds, self.fee_probe))
             jobs.append(("token_candles", 60, self.token_candles))
+        if self.paper_engine is not None:
+            jobs.append(("evidence", EVIDENCE_INTERVAL_SECONDS, self.evidence))
         for name, _, _ in jobs:
             self.stats.tasks[name] = TaskStats()
         if self.paper_engine is not None:

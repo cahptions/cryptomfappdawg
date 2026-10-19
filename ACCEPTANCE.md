@@ -219,3 +219,8 @@ mint, order rate, consecutive-failure pause, stale-data and kill-switch halts, c
 | M9-03 | Verdict | R | Report states exactly one of: INSUFFICIENT EVIDENCE · FAILED VALIDATION · CONTINUE PAPER TESTING · ELIGIBLE FOR MANUAL LIVE REVIEW, derived from PLAN §14.3 rules |
 | M9-04 | Disclosure | M | Report lists unresolved risks, data gaps, profile differences (observed/conservative/stress), and states that past paper results do not guarantee future returns |
 | M9-05 | No self-promotion | U | Any verdict leaves the mode unchanged; LIVE still requires the separate gates |
+
+Tooling for M9-02…M9-05 is implemented (2026-10-19): `desk report readiness` writes
+`DESK_HOME/reports/READINESS_REPORT.md`; while PAPER runs, the collector refreshes the confidence matrix and the
+report every 6 hours, and the dashboard shows the latest verdict. M9-01 and the verdict itself need ≥ 60 calendar days
+of forward PAPER evidence on the laptop; no tooling can shorten that.

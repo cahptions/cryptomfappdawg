@@ -1337,6 +1337,54 @@ function Evidence({ value, depth = 0 }: { value: unknown; depth?: number }) {
   );
 }
 
+/** The M9 verdict: the only "consider real money" signal, written from recorded data by the readiness report. */
+function ReadinessVerdict({
+  readiness,
+  compact = false,
+}: {
+  readiness?: Snapshot["readiness"];
+  compact?: boolean;
+}) {
+  if (!readiness?.verdict)
+    return (
+      <div className="readiness-verdict">
+        <div className="readiness-head">
+          <Badge status="NEUTRAL">No readiness report yet</Badge>
+        </div>
+        <p>
+          While PAPER runs, a readiness report is written every 6 hours. Run
+          desk report readiness in a terminal to write one now.
+        </p>
+      </div>
+    );
+  const status =
+    readiness.verdict === "ELIGIBLE FOR MANUAL LIVE REVIEW"
+      ? "PASS"
+      : readiness.verdict === "FAILED VALIDATION"
+        ? "FAIL"
+        : readiness.verdict === "CONTINUE PAPER TESTING"
+          ? "PENDING"
+          : "NEUTRAL";
+  return (
+    <div className="readiness-verdict">
+      <div className="readiness-head">
+        <Badge status={status}>{readiness.verdict}</Badge>
+        <span className="muted text-small">
+          {readiness.closed_trades ?? 0} closed trades ·{" "}
+          {fmt(readiness.calendar_days, 1)} days · as of{" "}
+          {time(readiness.as_of ?? undefined, true)}
+        </span>
+      </div>
+      {!compact && <p>{readiness.next_step}</p>}
+      {!compact && readiness.path && (
+        <p className="panel-note">
+          Full report with every figure's source: <code>{readiness.path}</code>
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Paper trading tab ────────────────────────────────────────────────────────────────────────────────
 // One bounded read of /api/paper every few seconds while the tab is open and visible. Every sentence is
 // written by the server from recorded ledger events; the browser only formats and filters it.
@@ -2987,6 +3035,7 @@ export default function App() {
                   </button>
                 }
               >
+                <ReadinessVerdict readiness={snapshot.readiness} compact />
                 <Confidence matrices={matrices} onDetail={setDetail} compact />
                 <div className="confidence-footer">
                   <Icon name="info" />
@@ -3162,6 +3211,13 @@ export default function App() {
           )}
           {view === "research" && (
             <div className="dashboard-grid">
+              <Panel
+                title="Readiness verdict"
+                eyebrow="WHEN TO CONSIDER REAL MONEY"
+                className="span-12"
+              >
+                <ReadinessVerdict readiness={snapshot.readiness} />
+              </Panel>
               <Panel
                 title="Confidence matrix"
                 eyebrow="UNCERTAINTY MADE VISIBLE"

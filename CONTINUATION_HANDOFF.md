@@ -54,6 +54,10 @@ Built assets are included; Node is needed only when changing UI source, via `scr
 - **Ranking v3.** A qualifying hypothesis outranks the baselines; before this, B2's score scale crowded out every
   hypothesis. NO_TRADE still wins ties and whenever nothing qualifies.
 - **Layout fix.** Hidden table labels no longer widen pages on a phone-width window.
+- **Readiness report (M9 tooling).** `uv run desk report readiness` writes `~/desk-data/reports/READINESS_REPORT.md`
+  with one verdict from recorded data. While `desk paper` runs it is refreshed every 6 hours and the verdict shows
+  on Overview and Research. This is the signal to watch before considering real money; ELIGIBLE only permits a
+  review, and LIVE still needs every gate.
 
 ## What changed after Claude
 

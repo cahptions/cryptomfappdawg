@@ -18,7 +18,9 @@ import uvicorn
 from solders.pubkey import Pubkey
 
 from desk.core.clock import to_epoch_millis, to_iso, utc_now
+from desk.core.config import load_config
 from desk.core.paths import REPO_ROOT, DeskPaths
+from desk.ops.readiness import default_path, readiness_report, record
 from desk.stats.evidence import confidence_report
 from desk.storage.databases import Databases
 from desk.web.app import create_app
@@ -47,6 +49,8 @@ def seed(paths: DeskPaths) -> None:
         asyncio.run(guardian.tick())
         dbs.market.execute("UPDATE tokens SET symbol = 'FIXTURE', name = 'Offline browser fixture'")
         confidence_report(dbs.paper_ledger, dbs.research, clock.now, seed=0, resamples=100)
+        _, summary = readiness_report(dbs, load_config(REPO_ROOT / "config"))
+        record(dbs, summary, str(default_path(paths)), clock.now)
         # Synthetic test candles only; these fixtures never represent operator market results.
         end_ms = to_epoch_millis(utc_now()) // 300_000 * 300_000
         candidate_pool = dbs.market.execute(

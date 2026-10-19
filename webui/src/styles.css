@@ -2973,3 +2973,31 @@ dialog::backdrop {
     padding: 2px 15px 16px 30px;
   }
 }
+
+/* Readiness verdict (M9): one state from recorded data; never arms anything. */
+.readiness-verdict {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.readiness-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.readiness-verdict p {
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.7;
+  margin-top: 9px;
+  max-width: 920px;
+}
+.readiness-verdict code {
+  font-family: var(--font-num);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.dashboard-grid > .panel:only-child .readiness-verdict,
+.panel .readiness-verdict:last-child {
+  border-bottom: 0;
+}

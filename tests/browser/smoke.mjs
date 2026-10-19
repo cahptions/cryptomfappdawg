@@ -172,6 +172,9 @@ try {
   }
 
   await nav.getByRole('link', { name: 'Research', exact: true }).click();
+  await page.getByRole('heading', { name: 'Readiness verdict', exact: true }).waitFor();
+  await page.locator('.readiness-verdict .badge', { hasText: scenario === 'empty' ? 'No readiness report yet' : 'INSUFFICIENT EVIDENCE' }).first().waitFor();
+  check('Research shows the latest recorded readiness verdict (or that none exists yet).');
   const csvPromise = page.waitForEvent('download');
   await page.getByRole('link', { name: 'Download CSV', exact: true }).click();
   const csv = await csvPromise;

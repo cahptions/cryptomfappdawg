@@ -83,6 +83,21 @@ Do not kill the guardian while positions remain open. A blocked exit remains a v
 as sold. `desk resume` requires an explicit local confirmation after the reason for stopping has been resolved.
 An entry engine stopping or crashing must not stop its independent guardian.
 
+The **Paper trading** tab in the dashboard (`g` then `t`) shows each look, skip, buy and sell with its reason, the
+open positions' stops and time limits, closed trades after fees and the moonshot watch.
+
+## Readiness report
+
+```bash
+cd ~/kestrel
+uv run desk report readiness
+```
+
+This writes `~/desk-data/reports/READINESS_REPORT.md` and prints its single verdict. While `desk paper` runs, the
+collector rewrites it every 6 hours (with a fresh confidence matrix) and the dashboard shows the verdict on Overview
+and Research. The report reads recorded data only; generating it changes no mode, approval or LIVE gate. Keep the
+file if you want a record: it is regenerated in place.
+
 ## Optional user services
 
 User services require no `sudo`. `desk up` installs the units under `~/.config/systemd/user`, uses the current

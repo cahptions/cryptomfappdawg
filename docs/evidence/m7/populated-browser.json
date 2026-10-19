@@ -13,6 +13,7 @@
     "Candidate dossier fetches actual recorded data and closes with Escape.",
     "Position dossier loads its exact raw quantity and audit evidence.",
     "Strategy dossier loads the persisted strategy specification.",
+    "Research shows the latest recorded readiness verdict (or that none exists yet).",
     "CSV and JSON links create real downloads matching fixture trades, with exact raw quantities encoded as strings.",
     "Shift+S opens confirmation; cancel sends no POST; confirming STOP halts fixture entries.",
     "Keyboard help opens and Escape dismisses it.",
@@ -23,9 +24,9 @@
   "memory": {
     "sample_seconds": 12,
     "navigation_cycles": 24,
-    "before_used_bytes": 4891204,
-    "after_used_bytes": 5148496,
-    "retained_growth_bytes": 257292,
+    "before_used_bytes": 4931180,
+    "after_used_bytes": 5161668,
+    "retained_growth_bytes": 230488,
     "streams": {
       "sourcesCreated": 1,
       "sourcesClosed": 0,

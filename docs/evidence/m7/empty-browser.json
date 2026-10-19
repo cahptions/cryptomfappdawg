@@ -10,6 +10,7 @@
     "Paper trading tab (g t) explains how to start when no book exists.",
     "Paper trading tab has no horizontal page overflow at 390px.",
     "g/s and / shortcuts navigate and focus search; filtering is functional.",
+    "Research shows the latest recorded readiness verdict (or that none exists yet).",
     "CSV and JSON links create real downloads matching fixture trades, with exact raw quantities encoded as strings.",
     "Shift+S opens confirmation; cancel sends no POST; confirming STOP halts fixture entries.",
     "Keyboard help opens and Escape dismisses it.",
@@ -20,9 +21,9 @@
   "memory": {
     "sample_seconds": 12,
     "navigation_cycles": 24,
-    "before_used_bytes": 3780964,
-    "after_used_bytes": 3934464,
-    "retained_growth_bytes": 153500,
+    "before_used_bytes": 3791256,
+    "after_used_bytes": 3945376,
+    "retained_growth_bytes": 154120,
     "streams": {
       "sourcesCreated": 1,
       "sourcesClosed": 0,

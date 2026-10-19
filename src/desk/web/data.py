@@ -230,6 +230,9 @@ class DashboardData:
             ):
                 result["mode"] = "PAPER"
             result["confidence"] = self._confidence(dbs)
+            from desk.ops.readiness import latest_recorded
+
+            result["readiness"] = latest_recorded(dbs.research, now)
             result["audit"] = [_json_row(row, ("payload_json",)) for row in dbs.paper_ledger.execute(
                 "SELECT * FROM paper_events ORDER BY id DESC LIMIT 100")]
             # Replay contexts and quote arrays stay in the evidence store and detail routes. Re-sending

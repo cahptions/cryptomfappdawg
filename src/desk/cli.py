@@ -197,6 +197,30 @@ def cmd_confidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    """`desk report readiness`: the M9 report, written as Markdown from recorded data only (PLAN §14.3)."""
+    from pathlib import Path
+
+    from desk.ops.readiness import default_path, readiness_report, record
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    loaded = load_config(paths.config_dir)
+    output = Path(args.output).expanduser() if args.output else default_path(paths)
+    dbs = Databases.open(paths)
+    try:
+        markdown, summary = readiness_report(dbs, loaded)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(markdown, encoding="utf-8")
+        record(dbs, summary, str(output), utc_now())
+    finally:
+        dbs.close()
+    print(f"  verdict: {summary['verdict']}")
+    print(f"  as of {summary['as_of'] or '—'} (latest recorded PAPER event); sha256 {summary['markdown_sha256'][:16]}…")
+    print(f"  written to {output}. The mode and every LIVE gate are unchanged.")
+    return 0
+
+
 def cmd_champion(args: argparse.Namespace) -> int:
     from desk.stats import champion
     from desk.storage.databases import Databases
@@ -756,6 +780,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_confidence)
 
+    p = sub.add_parser("report", help="M9 readiness report: one verdict from recorded data (READINESS_REPORT.md)")
+    p.add_argument("kind", choices=["readiness"])
+    p.add_argument("--output", help="Markdown path (default: DESK_HOME/reports/READINESS_REPORT.md)")
+    p.set_defaults(func=cmd_report)
     p = sub.add_parser("champion", help="champion/challenger status, evaluation and typed approval (M6)")
     p.add_argument("action", choices=["status", "evaluate", "approve"])
     p.add_argument("version", nargs="?")

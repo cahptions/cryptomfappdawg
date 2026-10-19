@@ -139,6 +139,18 @@ real Jupiter fee reports once enough exist, or a conservative estimate before th
 looks for rare explosive runs and exits fast; it may use a larger ticket (up to 15%) only after its own paper trades
 prove a positive net edge in the confidence report. See PLAN §11.4, §12.3 and §13.1.1.
 
+### M9: readiness report (the signal for considering real money)
+
+```bash
+uv run desk report readiness     # writes ~/desk-data/reports/READINESS_REPORT.md and prints the verdict
+```
+
+The report gives exactly one verdict — INSUFFICIENT EVIDENCE, FAILED VALIDATION, CONTINUE PAPER TESTING or
+ELIGIBLE FOR MANUAL LIVE REVIEW — from recorded data only, with the forward period and collection gaps, the
+observed/conservative/stress results, the $100-account replica, every strategy's confidence matrix, the unresolved
+risks, the disclosures and the query behind every figure. While `desk paper` runs it is rewritten every 6 hours and
+the verdict appears on the dashboard (Overview and Research). ELIGIBLE only permits your review; it changes nothing.
+
 ### M8: real-money infrastructure (never used until you decide)
 
 ```bash

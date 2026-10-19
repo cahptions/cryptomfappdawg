@@ -170,6 +170,16 @@ export interface Snapshot {
     max_capital_sol?: string;
   };
   regime?: { status?: string; label?: string; reason?: string };
+  readiness?: {
+    verdict?: string;
+    next_step?: string;
+    as_of?: string | null;
+    recorded_at?: string;
+    path?: string;
+    calendar_days?: number;
+    closed_trades?: number;
+    deciding_versions?: string[];
+  } | null;
 }
 export type Detail = {
   title: string;

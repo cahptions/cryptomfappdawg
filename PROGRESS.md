@@ -16,7 +16,7 @@
 | M6 Statistical learning & confidence | 🟡 methods implemented; forward evidence pending | 2026-10-19 | confidence matrices, counterfactuals, champion review, zero-influence local models |
 | M7 Dashboard & operations | 🟡 implementation and automated checks | 2026-10-19 | React/FastAPI, Paper trading tab, services, backups; real-laptop acceptance pending |
 | M8 LIVE infrastructure | 🟡 incomplete; production BUY disabled | 2026-10-19 | signer infrastructure present; per-entry production gate integration missing; no real funds used |
-| M9 Forward validation | ⏸ | — | ≥ 60 days calendar time |
+| M9 Forward validation | 🟡 report tooling implemented; forward evidence pending | 2026-10-19 | `desk report readiness`, 6-hourly refresh while PAPER runs; ≥ 60 days calendar time still required |
 
 **Mode of the system:** the configured default is SHADOW. Free provider keys remain private on the operator's
 laptop. PAPER uses a simulated **$100,000 learning book**, tickets based on a **$100 initial allocation plus
@@ -573,4 +573,15 @@ supervises). These are short cloud checks, not the laptop's M7 acceptance.
 Checks: **721 passed, 5 opt-in live tests deselected**; Ruff and strict mypy (115 source files) clean; strict
 TypeScript build and Prettier; all seven contrast tokens pass on four surfaces. No live provider test, wallet,
 signature or transaction was used for this work.
+
+**M9 readiness report (later the same session).** `desk report readiness` writes `READINESS_REPORT.md` (default
+`DESK_HOME/reports/`) with one verdict by a stated precedence over the PLAN §14.3 states, the forward period and
+market-context gaps, observed/conservative/stress results, the $100 replica, each version's confidence matrix, data
+integrity, unresolved risks, disclosures and a sources appendix naming the query behind every figure. The text is a
+function of the data (its time is the latest recorded event; the bootstrap seed is fixed), so it regenerates
+byte-identically; an audit row records each generation outside the text. While PAPER runs the collector refreshes
+the confidence matrix and the report every 6 hours off the event loop, so H8's evidence-gated sizing cannot lapse
+unnoticed and the dashboard shows the current verdict (Overview, Research). Tests cover precedence, reproducibility,
+sources, gaps, the empty book, the CLI, the collector job, the dashboard field and that an ELIGIBLE verdict leaves
+mode, approvals and LIVE gates unchanged (M9-05). The browser harness checks the verdict panel in both fixtures.
 

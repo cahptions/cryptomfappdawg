@@ -766,6 +766,14 @@ deterministically by the research job from ledger + research data. No weighted "
 - **CONTINUE PAPER TESTING** — sample sufficient, no failure, but at least one dimension not yet `PASS`.
 - **ELIGIBLE FOR MANUAL LIVE REVIEW** — every dimension `PASS`. This *permits a review*; it never activates LIVE.
 
+`desk report readiness` writes the report as Markdown from recorded data only: its time is the latest recorded
+PAPER event and the matrix uses a fixed seed, so regenerating from the same data gives identical bytes, and an
+appendix lists the query behind every figure. Each tested strategy version gets one state above; the desk's single
+verdict is the most advanced state any version reached (ELIGIBLE › CONTINUE › INSUFFICIENT › FAILED), naming the
+deciding version(s); baselines never count. While PAPER runs, the collector records a fresh confidence matrix and
+rewrites the report every 6 hours, which also keeps the evidence for conviction sizing (§13.1.1) under its 7-day
+limit. The dashboard shows the latest verdict on Overview and Research.
+
 ### 14.4 Why ~300+ trades (sample-size arithmetic)
 Required trades for a one-sided 95% test with 80% power ≈ `((1.645 + 0.84) · σ / μ)²`.
 
