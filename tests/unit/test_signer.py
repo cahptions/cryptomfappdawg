@@ -169,7 +169,8 @@ def make_signer(tmp_path: Path, swap: FakeSwap, rpc: FakeRpc, keypair: Keypair, 
 def intent(**changes: Any) -> dict[str, Any]:
     base: dict[str, Any] = {"intent_id": "intent-0001", "side": "BUY", "mint": MINT, "amount_raw": AMOUNT,
                             "max_slippage_bps": 50, "min_out_raw": MIN_OUT, "quote_ref": "q",
-                            "expires_at": (NOW + timedelta(seconds=20)).isoformat()}
+                            "expires_at": (NOW + timedelta(seconds=20)).isoformat(),
+                            "strategy_version": "H1:2:" + "a" * 64, "candidate_id": "cand-0001"}
     base.update(changes)
     return base
 
@@ -424,7 +425,7 @@ def test_m8_06_each_single_missing_gate_refuses_live(gate: int, changes: dict[st
 def test_production_default_refuses_buy_before_any_network_or_signature(tmp_path: Path) -> None:
     wallet = Keypair()
     swap, rpc = FakeSwap({}), FakeRpc(wallet.pubkey())
-    # Deliberately omit the authorizer, exactly as the production CLI constructor does.
+    # Deliberately omit the authorizer: the Signer's own default refuses every BUY (production passes LiveAuthorizer).
     signer = Signer(wallet, Journal(tmp_path / "journal.db"), swap, rpc, LIVE,
                     LOADED.settings.limits, LOADED.settings.sizing, clock=lambda: NOW)
     status = asyncio.run(signer.handle({"op": "status"}))

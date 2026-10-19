@@ -324,9 +324,8 @@ async def _live_status(paths: Any, loaded: Any, dbs: Any, version: str | None) -
     import tomllib
     from decimal import Decimal
 
-    from desk.live.gates import evaluate_gates, live_allowed, status_context
+    from desk.live.gates import LIVE_GUARDIAN, evaluate_gates, live_allowed, live_halt, status_context
     from desk.paper.engine import heartbeat_age
-    from desk.paper.ledger import PaperLedger
     from desk.signer.main import public_address, socket_path
     from desk.signer.server import request
     from desk.stats.champion import current_champion
@@ -338,9 +337,9 @@ async def _live_status(paths: Any, loaded: Any, dbs: Any, version: str | None) -
     with (paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
         ceiling = Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
     target = version or current_champion(dbs.research) or "none"
-    age = heartbeat_age(dbs.runtime, "guardian", utc_now())
+    age = heartbeat_age(dbs.runtime, LIVE_GUARDIAN, utc_now())
     ctx = status_context(dbs.research, loaded, target, signer_unlocked=unlocked, ceiling=ceiling,
-                         halted=PaperLedger(dbs.paper_ledger).halted(), guardian_fresh=age is not None and age <= 20)
+                         halted=live_halt(paths), guardian_fresh=age is not None and 0 <= age <= 20)
     gates = evaluate_gates(ctx)
     print(f"\nLIVE gates for strategy version {target} (hot wallet: {public_address(paths) or 'not created'})\n")
     for gate in gates:

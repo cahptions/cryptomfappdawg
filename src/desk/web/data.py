@@ -175,23 +175,23 @@ class DashboardData:
                 "coverage": json.loads(context["coverage_json"]), "version": regime.version,
                 **{name: context[name] for name in INPUTS}}
 
-    def _live(self, dbs: Databases, now: datetime, halted: str | None) -> dict[str, Any]:
-        from desk.live.gates import evaluate_gates, status_context
+    def _live(self, dbs: Databases, now: datetime) -> dict[str, Any]:
+        from desk.live.gates import LIVE_GUARDIAN, evaluate_gates, live_halt, status_context
         from desk.paper.engine import heartbeat_age
         from desk.stats.champion import current_champion
 
         with (self.paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
             ceiling = Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
         version = current_champion(dbs.research) or "none"
-        age = heartbeat_age(dbs.runtime, "guardian", now)
+        age = heartbeat_age(dbs.runtime, LIVE_GUARDIAN, now)
         context = status_context(dbs.research, self.loaded, version, signer_unlocked=False, ceiling=ceiling,
-                                 halted=halted, guardian_fresh=age is not None and 0 <= age <= 20)
+                                 halted=live_halt(self.paths), guardian_fresh=age is not None and 0 <= age <= 20)
         return {"armed": False, "buy_enabled": False, "strategy_version": version,
                 "max_capital_sol": str(self.loaded.settings.live.max_capital_sol),
                 "capital_ceiling_sol": str(ceiling),
                 "gates": [dataclasses.asdict(gate) for gate in evaluate_gates(context)],
-                "reason": "LIVE entry execution is unavailable. Runtime signer status is checked separately; "
-                          "per-entry quote, fee and token preflight remain unverified."}
+                "reason": "An armed signer re-checks all seven gates for each BUY immediately before signing; "
+                          "a missing gate refuses it. Arming stays CLI-only and nothing here can arm LIVE."}
 
     def snapshot(self) -> dict[str, Any]:
         now = utc_now()
@@ -247,7 +247,7 @@ class DashboardData:
                                 "halted": bool(halted), "reason": halted or (
                                     "Collection heartbeat is fresh." if active else "No fresh collection heartbeat.")}
             result["regime"] = self._regime(dbs, now)
-            result["live"] = self._live(dbs, now, halted)
+            result["live"] = self._live(dbs, now)
         return _safe(result)  # type: ignore[no-any-return]
 
     def candidate(self, candidate_id: str) -> dict[str, Any] | None:

@@ -121,7 +121,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
             except (OSError, TimeoutError, ValueError, asyncio.IncompleteReadError):
                 value["live"].update(armed=None, signer_status="unavailable")
             else:
-                value["live"].update(armed=bool(state.get("unlocked")), signer_status="online")
+                value["live"].update(armed=bool(state.get("unlocked")), signer_status="online",
+                                     buy_enabled=bool(state.get("buy_enabled")))
         for gate in value["live"]["gates"]:
             if gate.get("number") == 5:
                 gate["ok"] = value["live"]["armed"] is True

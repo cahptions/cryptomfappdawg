@@ -3,8 +3,9 @@
 Refusals are final: a refused or expired intent is never retried by the signer. After a submission it never
 resubmits blindly; it polls the signature until ``lastValidBlockHeight`` has passed. While any earlier intent is
 unresolved, new intents are refused. Withdrawals go only to the single pre-registered address.
-BUYs are disabled by default: the production entry point does not yet supply the trusted per-entry LIVE
-authorizer. An unlocked key, positive capital setting, or displayed gate report cannot authorize a BUY.
+A BUY needs a per-intent authorizer (``desk.live.authorize.LiveAuthorizer`` in production) that re-establishes
+all seven LIVE gates for that exact intent before every check that may lead to signing. Without one, every BUY
+is refused. An unlocked key, positive capital setting, or displayed gate report alone cannot authorize a BUY.
 """
 
 from __future__ import annotations
@@ -38,8 +39,8 @@ POLL_SECONDS = 2.0
 LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE = "LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE"
 
 # This is an internal dependency, never a request field, environment switch, or UI capability.
-# A production implementation must independently establish all seven LIVE gates for this exact
-# intent using fresh evidence. None is the safe default until that implementation exists.
+# The production implementation (desk.live.authorize) independently establishes all seven LIVE gates
+# for this exact intent from fresh evidence. None refuses every BUY.
 # Synchronous evaluation keeps the final check and signing in one event-loop turn.
 BuyAuthorizer = Callable[[Intent, datetime], list[str]]
 
@@ -92,7 +93,7 @@ class Signer:
         op = request.get("op")
         if op == "status":
             return {"ok": True, "wallet": self.wallet, "unlocked": True, "unresolved": len(self.journal.unresolved()),
-                    "ticket_cap_lamports": self.ticket_cap_lamports, "buy_enabled": False,
+                    "ticket_cap_lamports": self.ticket_cap_lamports, "buy_enabled": self._buy_authorizer is not None,
                     "reason": LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE if self._buy_authorizer is None
                     else "PER_INTENT_AUTHORIZATION_REQUIRED"}
         if op == "intent" and set(request) == {"op", "intent"}:

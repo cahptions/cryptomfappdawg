@@ -6,6 +6,8 @@ import asyncio
 import contextlib
 import getpass
 import signal
+import tomllib
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -54,8 +56,15 @@ def public_address(paths: DeskPaths) -> str | None:
     return keystore.public_key(path) if path.exists() else None
 
 
+def capital_ceiling(paths: DeskPaths) -> Decimal:
+    with (paths.config_dir / "safety_ceilings.toml").open("rb") as handle:
+        return Decimal(str(tomllib.load(handle)["max"]["live.max_capital_sol"]))
+
+
 def arm(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets) -> int:
-    """Unlock for recovery/restricted exits; new BUYs remain disabled pending per-entry gate wiring."""
+    """Unlock the signer. Each BUY is then signed only if all seven LIVE gates hold for it at that moment."""
+    from desk.live.authorize import LiveAuthorizer
+
     if loaded.settings.live.max_capital_sol <= 0:
         print("  live.max_capital_sol is 0: LIVE is not allowed, so the signer will not be armed")
         return 1
@@ -75,11 +84,12 @@ def arm(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets) -> int:
         async with httpx.AsyncClient(timeout=20.0) as client:
             signer = Signer(keypair, journal, JupiterSwap(client, secrets.get("JUPITER_API_KEY")),
                             SolanaRpc(client, secrets.get("SOLANA_RPC_URL") or PUBLIC_RPC), loaded.settings.live,
-                            loaded.settings.limits, loaded.settings.sizing)
+                            loaded.settings.limits, loaded.settings.sizing,
+                            buy_authorizer=LiveAuthorizer(paths, loaded, capital_ceiling(paths)))
             for result in await signer.recover():
                 print(f"  recovered intent {result.get('intent_id')}: {result.get('state')}")
-            print("  new BUY entries disabled: LIVE_ENTRY_AUTHORIZATION_UNAVAILABLE; "
-                  "the seven LIVE gates are not wired to per-entry authorization")
+            print("  every BUY is re-checked against all seven LIVE gates immediately before signing; "
+                  "`desk live status` shows which gates are missing")
             print(f"  signer unlocked for {signer.wallet}; socket {socket_path(paths)} (Ctrl-C or `desk live disarm`)")
             await serve(signer, socket_path(paths), stop)
         journal.close()

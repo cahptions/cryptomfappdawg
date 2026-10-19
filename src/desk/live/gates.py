@@ -10,6 +10,24 @@ from decimal import Decimal
 from typing import Any
 
 ELIGIBLE = "ELIGIBLE FOR MANUAL LIVE REVIEW"
+LIVE_GUARDIAN = "guardian-live"                 # heartbeat name of the LIVE guardian process
+
+
+def live_halt(paths: Any) -> str | None:
+    """STOP, or the LIVE ledger's recorded halt; read-only, and no LIVE ledger means no LIVE halt yet."""
+    if paths.stop_file.exists():
+        return "STOP"
+    path = paths.db_dir / "ledger-live.db"
+    if not path.is_file():
+        return None
+    conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)
+    try:
+        row = conn.execute("SELECT value FROM system_state WHERE key = 'entries_halted'").fetchone()
+    except sqlite3.Error:
+        return "LIVE_LEDGER_UNREADABLE"
+    finally:
+        conn.close()
+    return None if row is None or row[0] == "no" else str(row[0])
 
 
 @dataclass(frozen=True)
