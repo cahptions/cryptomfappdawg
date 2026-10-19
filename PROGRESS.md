@@ -39,7 +39,7 @@ Totals at commit time: **136 offline tests passed, 4 live tests passed, ruff cle
 | ID | Result | Where | Evidence |
 |---|---|---|---|
 | M1-01 Reproducible install | ✅ PASS | cloud (fresh `git clone` + `uv sync --frozen`) | 289 hashes in `uv.lock`; `desk 0.1.0`; same config snapshot `52014c14933b`; 135/135 tests in the clean clone |
-| M1-02 `desk doctor` on the laptop | ⏳ **PENDING — operator** | cloud run: 13 ok / 2 warn / 0 fail | warnings: no keyed RPC; public RPC refuses holder list (429) |
+| M1-02 `desk doctor` on the laptop | ✅ **PASS** (2026-10-19, operator's laptop) | **15 ok / 3 warn / 0 fail** | see "Operator laptop doctor" below |
 | M1-03 Config hash | ✅ PASS | unit | `tests/unit/test_config.py` |
 | M1-04 Ceilings | ✅ PASS | unit | ceiling + floor + paid-provider tests |
 | M1-05 Real fixtures parse | ✅ PASS | unit | 15 real responses, 0 validation errors |
@@ -58,6 +58,26 @@ Totals at commit time: **136 offline tests passed, 4 live tests passed, ruff cle
 | M1-18 60-min collection | ⏳ cloud run in progress; **laptop run PENDING — operator** | — | filled in below when complete |
 | M1-19 On-chain constants | ✅ PASS | live (cloud) | Token, Token-2022, wSOL, USDC, venue programs vs live pools |
 | M1-20 No paid / LLM deps | ✅ PASS | unit | no LLM SDK in lockfile, no LLM hosts in source, all providers $0 |
+
+### Operator laptop doctor (M1-02, 2026-10-19 ~00:00 UTC)
+Same config snapshot as tested (`52014c14933b`) → the laptop runs the exact verified configuration.
+
+| Check | Laptop result |
+|---|---|
+| Python | 3.12.3 (system, Mint 22.3) |
+| Disk | 274 GB free for `~/desk-data` |
+| Memory / swap | 9.6 GB available of 15.0 GB; **swap 1456/2047 MB (71%) — warning** |
+| NTP / clock vs chain | synchronized / +1.7 s |
+| Power | BAT1 full, 100% |
+| Keys | none yet (keyless mode) |
+| GeckoTerminal | 20 new pools, 241 ms, 0 schema problems |
+| DexScreener | 148 ms |
+| Jupiter quote | 0.1 SOL → 10.4002 USDC (SOL ≈ $104.00), metis, 2 bps, 317 ms |
+| Jupiter tokens (keyless lite-api) | 2/2 in 181 ms |
+| Solana public RPC | slot 458626262 in 401 ms; Token-2022 mint parsed in 117 ms |
+| **Public RPC `getTokenLargestAccounts`** | **429 rate_limited from the home IP too** → R-01 resolved: a keyed RPC is REQUIRED for holder analysis (M2) |
+
+Laptop latencies are lower than the cloud container's on every provider.
 
 ### Defects found and fixed during M1 (honest log)
 1. **Out-of-range epoch timestamps** raised a raw `ValueError` instead of the typed `TimestampError` — caught by a unit test; fixed.

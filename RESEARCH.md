@@ -395,7 +395,7 @@ Implications are handled in PLAN.md §2 and §15.
 
 | ID | Question | Resolve by |
 |---|---|---|
-| R-01 | Home-IP behaviour of public RPC `getTokenLargestAccounts`, GT, Jupiter keyless | M1 `desk doctor` |
+| ~~R-01~~ | **Resolved 2026-10-19:** public RPC `getTokenLargestAccounts` is 429 from the operator's home IP as well → keyed RPC required for M2; GT/DS/Jupiter keyless all fine from home (148–401 ms) | — |
 | R-02 | Helius credit cost of `getTokenLargestAccounts`; WS credit accounting | M1 |
 | R-03 | Definitions of Jupiter `topHoldersPercentage`, `devMints`, `numTraders`, organic metrics | M2 (compare with on-chain) |
 | R-04 | Max mints per Jupiter `tokens/v2/search` call (comma-separated lists work: 3 verified) | M2 |
