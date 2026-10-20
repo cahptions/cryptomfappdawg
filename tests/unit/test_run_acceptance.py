@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from desk.core.paths import DeskPaths
+from desk.ops import launcher
 from desk.ops.acceptance import discovery_run_failures, segmented_progress
 from desk.ops.launcher import desktop_entry, install_launchers
 
@@ -109,6 +111,66 @@ def test_launchers_open_the_dashboards_without_a_terminal(tmp_path: Path) -> Non
     assert names == ["kestrel-crypto.desktop", "kestrel-crypto.svg", "kestrel.desktop", "kestrel.svg"]
     entry = (tmp_path / "share" / "applications" / "kestrel-crypto.desktop").read_text()
     assert "Terminal=false" in entry and "-m desk open --desk robinhood --port 8766" in entry
+    assert "StartupWMClass=kestrel-crypto" in entry                  # its own panel entry, matching --class
     assert f'"DESK_HOME={tmp_path / "desk data"}"' in entry          # spaces quoted the Desktop Entry way
     with pytest.raises(ValueError, match="launcher"):
         desktop_entry(DeskPaths(Path("/x/$HOME"), tmp_path, tmp_path / "s.env"), "/usr/bin/python3", "solana", 8765)
+
+
+XRANDR = """Screen 0: minimum 320 x 200, current 3840 x 1080, maximum 16384 x 16384
+HDMI-1 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 527mm x 296mm
+eDP-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 344mm x 194mm
+DP-1 disconnected (normal left inverted right x axis y axis)
+"""
+
+
+def test_the_main_screen_less_the_panel_is_split_between_the_two_desks() -> None:
+    area = launcher.screen_area(XRANDR, "_NET_WORKAREA(CARDINAL) = 0, 0, 3840, 1040, 0, 0, 3840, 1040")
+    assert area == (0, 0, 1920, 1040)                                # the primary monitor, above a 40 px panel
+    assert launcher.window_slot("solana", area) == (0, 0, 960, 1040)
+    assert launcher.window_slot("robinhood", area) == (960, 0, 960, 1040)
+    assert launcher.screen_area(XRANDR, "") == (0, 0, 1920, 1080)
+    assert launcher.screen_area("HDMI-1 connected 2560x1440+0+0 (normal)\n", "") == (0, 0, 2560, 1440)
+    assert launcher.screen_area("", "") is None
+
+
+def remember(profile: Path, **place: object) -> None:
+    """A placement as Chrome writes it for app ``127.0.0.1_/``: the dots become nested keys."""
+    prefs = profile / "Default" / "Preferences"
+    prefs.parent.mkdir(parents=True, exist_ok=True)
+    edges = {"left": 100, "top": 50, "right": 900, "bottom": 650, "maximized": False} | place
+    prefs.write_text(json.dumps({"browser": {"app_window_placement": {"127": {"0": {"0": {"1_/": edges}}}}}}))
+
+
+def test_each_desk_gets_its_own_window_that_keeps_where_it_was_moved(tmp_path: Path) -> None:
+    area, screens = (0, 0, 1920, 1040), launcher.monitors(XRANDR)
+    solana = launcher.browser_command("chromium", "http://127.0.0.1:8765/", "solana", tmp_path / "solana", area,
+                                      screens)
+    crypto = launcher.browser_command("chromium", "http://127.0.0.1:8766/", "robinhood", tmp_path / "robinhood",
+                                      area, screens)
+    assert f"--user-data-dir={tmp_path / 'solana'}" in solana and f"--user-data-dir={tmp_path / 'robinhood'}" in crypto
+    assert "--class=kestrel" in solana and "--class=kestrel-crypto" in crypto
+    assert solana[-2:] == ["--window-position=0,0", "--window-size=960,1040"]        # side by side the first time
+    assert crypto[-2:] == ["--window-position=960,0", "--window-size=960,1040"]
+    remember(tmp_path / "robinhood")
+    again = launcher.browser_command("chromium", "http://127.0.0.1:8766/", "robinhood", tmp_path / "robinhood",
+                                     area, screens)
+    assert again[-2:] == ["--window-position=100,50", "--window-size=800,600"]       # back where it was left
+    remember(tmp_path / "robinhood", left=2000, right=3000, maximized=True)           # on the second monitor
+    assert launcher.browser_command("chromium", "u", "robinhood", tmp_path / "robinhood", area, screens)[-3:] == [
+        "--window-position=2000,50", "--window-size=1000,600", "--start-maximized"]
+    unplugged = launcher.monitors("eDP-1 connected primary 1920x1080+0+0 (normal)\n")
+    assert launcher.browser_command("chromium", "u", "robinhood", tmp_path / "robinhood", area, unplugged)[-2:] == [
+        "--window-position=960,0", "--window-size=960,1040"]                          # never off-screen
+    unknown = launcher.browser_command("chromium", "http://127.0.0.1:8765/", "solana", tmp_path / "solana", None)
+    assert unknown[-2:] == ["--window-position=0,0", "--window-size=683,728"]
+    assert launcher.saved_place(tmp_path / "nothing") is None
+
+
+def test_without_chrome_each_desk_opens_a_new_firefox_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened = []
+    monkeypatch.setattr(launcher.shutil, "which", lambda name: "/usr/bin/firefox" if name == "firefox" else None)
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda command, **_: opened.append(command))
+    assert launcher.open_window("http://127.0.0.1:8766/", "robinhood", tmp_path) == [
+        "firefox", "--new-window", "http://127.0.0.1:8766/"]
+    assert opened == [["firefox", "--new-window", "http://127.0.0.1:8766/"]]

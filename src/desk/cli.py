@@ -799,7 +799,7 @@ def cmd_open(args: argparse.Namespace) -> int:
     paths, _ = _bootstrap(args.verbose)
     port = args.port or (load_config(paths.config_dir).settings.robinhood.dashboard_port if args.desk == "robinhood"
                          else 8765)
-    print(open_desk(args.desk, port))
+    print(open_desk(args.desk, port, paths))
     return 0
 
 

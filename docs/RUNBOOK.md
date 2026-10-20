@@ -135,8 +135,11 @@ uv run desk up
 That installs and enables the dashboards (Solana on 8765, Robinhood on 8766), the Solana PAPER engine (4-hour
 pieces that restart by themselves), the Robinhood PAPER engine, the independent exit guardian and hourly backups,
 and puts two icons in the menu: **KESTREL** and **KESTREL Crypto**. Clicking one opens that dashboard in its own
-window (Chrome or Chromium "app" window when installed, otherwise your browser) and starts it if it is not running.
-`uv run desk open --desk robinhood` does the same from a terminal.
+window (Chrome or Chromium "app" window when installed, otherwise a new Firefox window) and starts it if it is not
+running. `uv run desk open --desk robinhood` does the same from a terminal. The first time, KESTREL opens on the
+left half of the main screen and KESTREL Crypto on the right; move or resize either and it reopens where you left
+it (each has its own small browser profile in `~/desk-data/windows`, and its own panel entry). `Super+←` and
+`Super+→` snap a window to half the screen.
 
 `uv run desk down` stops the engines and dashboards and keeps them off at login; the guardian keeps supervising
 open paper positions and backups continue. `uv run desk up --dashboard-only` starts dashboards and backups without
