@@ -50,6 +50,19 @@ def _json_row(row: sqlite3.Row, fields: tuple[str, ...]) -> dict[str, Any]:
     return result
 
 
+def _assessment_summary(payload: str | None) -> dict[str, Any]:
+    """What decided the candidate besides price and liquidity: the latest security verdict, its reasons,
+    the measured round-trip cost of the exact ticket and the on-chain holder concentration."""
+    if not payload:
+        return {"security_outcome": None, "security_reasons": [], "roundtrip_cost": None, "top10_pct": None,
+                "top1_pct": None, "assessed_at": None}
+    data = json.loads(payload)
+    holders = data.get("holders") or {}
+    return {"security_outcome": data.get("outcome"), "security_reasons": list(data.get("reasons") or [])[:4],
+            "roundtrip_cost": data.get("roundtrip_cost_fraction"), "top10_pct": holders.get("adjusted_top10_pct"),
+            "top1_pct": holders.get("adjusted_top1_pct"), "assessed_at": data.get("assessed_at")}
+
+
 class DashboardData:
     def __init__(self, paths: DeskPaths, loaded: LoadedConfig) -> None:
         self.paths, self.loaded = paths, loaded
@@ -93,16 +106,21 @@ class DashboardData:
         rows = dbs.market.execute(
             "SELECT d.id, d.mint, d.pool_address, t.symbol, t.name, d.reason, d.state, d.stage, d.last_rule_id, "
             "d.last_observed_at AS observed_at, s.price_usd, s.liquidity_usd, s.windows_json, "
-            "s.observed_at AS market_observed_at, s.price_usd_status, s.liquidity_status "
+            "s.observed_at AS market_observed_at, s.price_usd_status, s.liquidity_status, "
+            "a.payload_json AS assessment_json "
             "FROM discoveries d JOIN tokens t ON t.mint = d.mint LEFT JOIN market_snapshots s ON s.id = "
             "(SELECT x.id FROM market_snapshots x WHERE x.base_mint = d.mint "
             "AND (d.pool_address = '' OR x.pool_address = d.pool_address) "
-            "ORDER BY x.observed_at_ms DESC, x.id DESC LIMIT 1) ORDER BY d.last_observed_at DESC, d.id LIMIT 100")
+            "ORDER BY x.observed_at_ms DESC, x.id DESC LIMIT 1) "
+            "LEFT JOIN security_assessments a ON a.id = "
+            "(SELECT y.id FROM security_assessments y WHERE y.candidate_id = d.id ORDER BY y.id DESC LIMIT 1) "
+            "ORDER BY d.last_observed_at DESC, d.id LIMIT 100")
         result = []
         for row in rows:
             item = dict(row)
             windows = json.loads(item.pop("windows_json") or "{}")
             item["volume_h1"] = (windows.get("h1") or {}).get("volume_usd")
+            item.update(_assessment_summary(item.pop("assessment_json")))
             result.append(item)
         return result
 

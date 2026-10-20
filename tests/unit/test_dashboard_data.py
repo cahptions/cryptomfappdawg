@@ -47,6 +47,14 @@ def test_dashboard_reads_paper_and_confidence_without_side_effects(
     assert snapshot["confidence"]["experiment_id"] == "report"
     assert snapshot["paper"]["reconciliation"]["difference_lamports"] == "0"
     assert len(snapshot["scanner"]) == 1 and snapshot["scanner"][0]["id"] == candidate
+    assessment = {"outcome": "REJECT", "reasons": ["HOLDER_TOP10", "FREEZE_AUTHORITY"], "roundtrip_cost_fraction": "0.031",
+                  "holders": {"adjusted_top10_pct": "41.5", "adjusted_top1_pct": "9.2"},
+                  "assessed_at": "2026-10-19T00:00:00Z"}
+    dbs.market.execute("INSERT INTO security_assessments(candidate_id, assessed_at, config_hash, payload_json)"
+                       " VALUES (?, ?, 'cfg', ?)", (candidate, assessment["assessed_at"], json.dumps(assessment)))
+    row = data.snapshot()["scanner"][0]                     # the Scanner shows what decided it, not only price
+    assert (row["security_outcome"], row["security_reasons"], row["roundtrip_cost"], row["top10_pct"]) == (
+        "REJECT", ["HOLDER_TOP10", "FREEZE_AUTHORITY"], "0.031", "41.5")
     position_id = PaperLedger(dbs.paper_ledger).open_positions()[0]["id"]
     position = data.position(position_id)
     assert position is not None and isinstance(position["tokens_raw"], str)

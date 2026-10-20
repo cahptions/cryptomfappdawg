@@ -496,6 +496,50 @@ function EquityChart({
   );
 }
 
+// Safety verdict, measured round-trip cost of the exact ticket and on-chain holder concentration.
+function SafetyCell({ candidate: c }: { candidate: Candidate }) {
+  if (!c.security_outcome) {
+    return (
+      <span className="secondary text-small">
+        {c.state === "DEFER" && c.last_rule_id === "AWAITING_POOL"
+          ? "Not checked: no pool yet"
+          : "Not checked yet"}
+      </span>
+    );
+  }
+  const cost = number(c.roundtrip_cost);
+  const top10 = number(c.top10_pct);
+  const facts = [
+    cost === null ? null : `round trip ${(cost * 100).toFixed(1)}%`,
+    top10 === null ? null : `top-10 hold ${top10.toFixed(0)}%`,
+  ].filter(Boolean);
+  const label =
+    c.security_outcome === "PASS"
+      ? "Safe"
+      : c.security_outcome === "REJECT"
+        ? "Unsafe"
+        : "Unproven";
+  return (
+    <span className="safety-cell">
+      <Badge status={c.security_outcome}>{label}</Badge>
+      {facts.length > 0 && (
+        <small className="rule-label">{facts.join(" · ")}</small>
+      )}
+      {c.security_outcome !== "PASS" && c.security_reasons?.length ? (
+        <small
+          className="rule-label"
+          title={c.security_reasons.map(words).join(", ")}
+        >
+          {c.security_reasons
+            .slice(0, 2)
+            .map((r) => words(r).toLowerCase())
+            .join(", ")}
+        </small>
+      ) : null}
+    </span>
+  );
+}
+
 function Scanner({
   candidates = [],
   search,
@@ -613,6 +657,7 @@ function Scanner({
               <tr>
                 {th("Asset", "symbol")}
                 {th("State", "state")}
+                {!compact && th("Safety & cost", "security_outcome")}
                 {!compact && th("Discovery", "reason")}
                 {th("Liquidity", "liquidity_usd", true)}
                 {th("1h volume", "volume_h1", true)}
@@ -663,9 +708,16 @@ function Scanner({
                       {words(c.state || "PENDING")}
                     </Badge>
                     <small className="rule-label" title={c.last_rule_id}>
-                      {c.last_rule_id || `Stage ${c.stage ?? "—"}`}
+                      {c.last_rule_id
+                        ? words(c.last_rule_id).toLowerCase()
+                        : `Stage ${c.stage ?? "—"}`}
                     </small>
                   </td>
+                  {!compact && (
+                    <td>
+                      <SafetyCell candidate={c} />
+                    </td>
+                  )}
                   {!compact && (
                     <td className="secondary text-small">
                       {words(c.reason || "Not recorded")}

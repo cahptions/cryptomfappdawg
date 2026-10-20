@@ -1,0 +1,50 @@
+{
+ "measured_at": "2026-10-20T04:32:01.831837+00:00",
+ "requests": 2,
+ "daily": {
+  "status": 200,
+  "count": 350,
+  "first": [
+   1792454400,
+   81080.64,
+   82173.84,
+   81837.7,
+   81990.01,
+   765.94633168
+  ],
+  "second": [
+   1792368000,
+   81634.43,
+   83076.23,
+   82006.85,
+   81837.69,
+   4758.01891866
+  ],
+  "last": [
+   1762300800,
+   98950,
+   104550,
+   101468.16,
+   103869,
+   10844.84576039
+  ],
+  "newest_first": true,
+  "first_bar_end_after_now": true
+ },
+ "hourly": {
+  "status": 200,
+  "count": 350,
+  "first": [
+   1792468800,
+   81943.2,
+   82173.84,
+   82031.99,
+   81990.06,
+   54.09741956
+  ],
+  "newest_first": true,
+  "first_bar_end_after_now": true
+ },
+ "row_layout": "[bucket_start_epoch_s, low, high, open, close, volume_base] (docs: time is the bucket start)",
+ "conclusion": "newest first; the newest bar is still forming (its end is after the request), so only bars whose start + granularity <= receipt time are stored; at most 300 bars per request"
+}

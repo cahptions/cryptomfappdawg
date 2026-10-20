@@ -32,8 +32,16 @@
 "live.max_capital_sol" = "2"                 # raise only by editing this file deliberately
 "live.max_priority_fee_lamports" = "2000000"
 "providers.max_paid_cost_usd_month" = "0"     # operator decision: no paid APIs
+"robinhood.fixed_fraction" = "0.15"
+"robinhood.max_ticket_fraction" = "0.15"
+"robinhood.learning_cash_usd" = "100000"
+"robinhood.learning_max_cumulative_loss_usd" = "5000"
+"robinhood.max_roundtrip_cost_fraction" = "0.05"
+"robinhood.max_open_positions" = "20"
+"robinhood.estimate_max_age_seconds" = "30"     # Robinhood signatures expire after 30 s; prices must be fresher
 
 [min]
+"robinhood.backtest_roundtrip_cost_fraction" = "0.01"  # a simulation may not assume trading is cheaper than this
 "sizing.min_ticket_sol" = "0.05"
 "paper.conservative_wait_seconds" = "2"         # PAPER realism cannot be made more optimistic
 "paper.simulated_failure_rate" = "0.10"

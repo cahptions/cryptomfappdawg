@@ -116,3 +116,16 @@ entry_slippage_bps = 100        # a BUY's guaranteed minimum is 1% below its fre
 exit_slippage_bps = 300         # a SELL accepts up to 3% below its fresh quote: exiting matters more than price
 withdraw_address = ""           # your own cold wallet; empty = withdrawals impossible (typed confirmation each time)
 allowed_fee_destinations = []
+
+[robinhood]                     # the Robinhood desk (docs/ROBINHOOD.md); PAPER only, no order code exists
+starting_capital_usd = "100"
+learning_cash_usd = "100000"
+fixed_fraction = "0.10"
+max_ticket_fraction = "0.15"
+max_open_positions = 10
+learning_max_cumulative_loss_usd = "1000"
+max_roundtrip_cost_fraction = "0.02"
+estimate_max_age_seconds = 10
+quote_interval_seconds = 60
+backtest_roundtrip_cost_fraction = "0.02"   # the universe rules live in the frozen strategy spec (desk/rh/strategies.py)
+dashboard_port = 8766

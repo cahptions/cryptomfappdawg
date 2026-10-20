@@ -35,3 +35,12 @@ Some are deliberately kept as prompt-injection / XSS test material.
 `2026-10-20/council_ohlcv_interval_semantics.json` — four keyless GeckoTerminal requests (SOL/USDC reference pool)
 made by `research/council/probe_ohlcv_semantics.py`: OHLCV bar time is the interval START (revision, trade-volume and
 aggregation checks agree; see RESEARCH.md).
+
+Robinhood desk (2026-10-20, docs/ROBINHOOD.md):
+
+| File | What it is |
+|---|---|
+| `2026-10-20/robinhood_crypto_trading_api_openapi.json` | The Crypto Trading API spec embedded in docs.robinhood.com (paths, schemas, auth, rate limits) |
+| `2026-10-20/robinhood_crypto_fee_schedule_20260622.txt` | Text of Robinhood Crypto's fee schedule PDF (exchange routing tiers; market-maker routing: no commission) |
+| `2026-10-20/coinbase_candles_probe.json` | Two keyless Coinbase candle requests (`research/robinhood/probe_coinbase.py`): newest first, newest bar still forming |
+| `2026-10-20/rh_backtest_v1_1095d.json`, `rh_backtest_v1_365d.json` | First history simulation of the frozen v1 strategies on 20 starter coins, 2% round trip assumed |

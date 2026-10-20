@@ -23,6 +23,13 @@ export interface Candidate {
   price_usd?: NumberValue;
   liquidity_usd?: NumberValue;
   volume_h1?: NumberValue;
+  // the latest security assessment: what decided the candidate besides price and liquidity
+  security_outcome?: "PASS" | "REJECT" | "DEFER" | null;
+  security_reasons?: string[];
+  roundtrip_cost?: NumberValue;
+  top10_pct?: NumberValue;
+  top1_pct?: NumberValue;
+  assessed_at?: string | null;
 }
 export interface Position {
   id: string;

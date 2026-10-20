@@ -26,6 +26,8 @@ class DbKind(StrEnum):
     LEDGER = "ledger"
     RESEARCH = "research"
     RUNTIME = "runtime"
+    RH_MARKET = "rh_market"        # the Robinhood desk (docs/ROBINHOOD.md)
+    RH_LEDGER = "rh_ledger"
 
 
 class StorageError(DeskError):
@@ -33,7 +35,8 @@ class StorageError(DeskError):
 
 
 # The money ledger gets full fsync on every commit (survives power loss); the others survive process crashes.
-_SYNCHRONOUS = {DbKind.MARKET: "NORMAL", DbKind.LEDGER: "FULL", DbKind.RESEARCH: "NORMAL", DbKind.RUNTIME: "NORMAL"}
+_SYNCHRONOUS = {DbKind.MARKET: "NORMAL", DbKind.LEDGER: "FULL", DbKind.RESEARCH: "NORMAL", DbKind.RUNTIME: "NORMAL",
+                DbKind.RH_MARKET: "NORMAL", DbKind.RH_LEDGER: "FULL"}
 
 
 def connect(path: Path, kind: DbKind, *, check_same_thread: bool = True) -> sqlite3.Connection:

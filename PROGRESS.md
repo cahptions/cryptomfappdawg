@@ -691,3 +691,30 @@ available for slot …". The failure was the doctor's own race (it asked for the
 slot before the answering node had stored that block); it now steps back up to three slots and measures drift
 from when the slot was read. New unit tests cover it; three live doctor runs against the public endpoint read
 +0.9 to +1.6 s. Python 3.12.3, 266 GB free, NTP synchronized, keyed Jupiter and RPC configured (values hidden).
+
+## The Robinhood desk and a clearer Scanner (2026-10-20 UTC, Claude)
+
+Operator request: extend to all crypto tradable on Robinhood with a second, Robinhood-styled dashboard, "same or
+better parameters", and make the memecoin desk just as good; and the question whether more than liquidity,
+volume and price decide DEFER/REJECT/APPROVE (yes: on-chain safety, exact-ticket round-trip cost, holder
+concentration, ~40 measured features, regime, money rules; the Scanner now shows them).
+
+Decision on "Robinhood does the agentic trading": not adopted. Robinhood's agent account lets an AI model choose
+trades, which PLAN §15 rules out; KESTREL decides with frozen rules and uses Robinhood's official API for prices.
+
+Built (docs/ROBINHOOD.md): Ed25519-signed read-only Robinhood client (reproduces the docs' example signature),
+local `desk rh keygen`, Coinbase public history, separate databases with append-only triggers, frozen strategies R1
+trend breakout, R2 weekly momentum, R3 uptrend pullback and baselines hold-BTC and random coin, a history
+simulator running the same code, the PAPER engine (both routes estimated for the exact size, cheaper buy, worse of
+two estimates booked, 2% round-trip ceiling, hard stops on the best bid, $1,000 loss halt), `desk rh` commands and a
+read-only Robinhood-style dashboard (light/dark, phone width) on port 8766. The memecoin Scanner gained a Safety &
+cost column (market migration 0010 indexes the lookup).
+
+First history simulation (2% round trip assumed, 20 starter coins, frozen before running): per dollar-year held,
+3 years: hold BTC +57%, random −171%, R1 +83%, R2 −6%, R3 −231%; last year (BTC −26%): hold BTC −26%, R1 +36%,
+others negative. Not changed after seeing it. Forward PAPER on Robinhood's prices is the evidence that counts and
+needs the operator's read-only key.
+
+Checks: Robinhood unit and integration tests (client 9, strategies 9, PAPER engine 7), dashboard data test for the
+Scanner fields, Robinhood browser smoke (populated, light and dark, phone width) and the memecoin smoke (empty and
+populated) pass; a one-minute keyless `desk rh paper` against live Coinbase history recorded a real session.

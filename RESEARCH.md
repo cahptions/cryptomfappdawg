@@ -434,6 +434,18 @@ New facts established while building and testing M1. Evidence files are prefixed
 
 ---
 
+## 13. Robinhood desk sources (2026-10-20)
+
+| Fact | Tag | Evidence |
+|---|---|---|
+| Robinhood Crypto Trading API: `https://trading.robinhood.com`, v1 and v2; every endpoint needs `x-api-key`, `x-timestamp` (valid 30 s) and `x-signature` = base64 Ed25519 over `api_key + timestamp + path + method + body` | DOC + TEST (the docs' example signature is reproduced) | `research/evidence/2026-10-20/robinhood_crypto_trading_api_openapi.json` |
+| Limits: 100 requests/min per account, bursts of 300 (token bucket) | DOC | same |
+| No history endpoint: market data is best bid/ask and estimated price only | DOC | same |
+| v1 = market-maker routing (no commission, spread inside the price); v2 = exchange routing with fee tiers, 0.95% taker / 0.50% maker under $10K 30-day volume | DOC | `robinhood_crypto_fee_schedule_20260622.txt` |
+| Credentials can be limited to selected actions (read-only possible); US customers only | DOC | robinhood.com/us/en/support/articles/crypto-api |
+| Robinhood agentic trading: a separate funded account traded by an AI agent via the Trading MCP (OAuth); no crypto history tool | DOC | robinhood.com newsroom (HOOD Summit 2026) and support "Trading with your agent" |
+| Coinbase Exchange public candles: keyless; rows `[start, low, high, open, close, volume]`, newest first; time = bucket start; the newest bar is still forming; 300 bars per request with start/end (350 returned without) | DOC + MEASURED | `coinbase_candles_probe.json` |
+
 ## Sources
 - GeckoTerminal API spec: https://api.geckoterminal.com/docs/v2/swagger.json
 - DexScreener API reference: https://docs.dexscreener.com/api/reference · spec: https://openapi.gitbook.com/o/F3EJQhITOlKtqJoq3nND/spec/dex-screener-api.yaml

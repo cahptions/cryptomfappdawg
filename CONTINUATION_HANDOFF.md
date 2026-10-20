@@ -62,6 +62,12 @@ Built assets are included; Node is needed only when changing UI source, via `scr
 - **Decisions on real inputs.** Every production decision had been NO_TRADE (an overlay vetoed on a value the
   builder always marks unverified) and H8 could never qualify (it needed an input never produced). Fixed by
   evaluator `shadow-rules-v4` and H8 v3; older runs still replay with their own evaluator.
+- **The Robinhood desk (separate, PAPER only).** `desk rh keygen|doctor|backtest|paper|report|dashboard`; its own
+  databases (`robinhood-market.db`, `robinhood-ledger-paper.db`) and dashboard on port 8766. Needs a read-only
+  Robinhood credential for prices; without it, history and signals are recorded and nothing trades. No order code
+  exists. Design and first history results: `docs/ROBINHOOD.md`.
+- **Memecoin Scanner shows the deciding factors.** A Safety & cost column (verdict, round-trip cost, top-10 holder
+  share, reasons). Market migration 0010 adds an index for it.
 - **Evidence council (research only).** Codex's two advisors now record what they would have said at every
   decision (`desk council report`, Research view). Zero influence, zero added requests; mostly ABSTAIN until
   tokens have 76 h of history. First start applies market migration 0009 and research migration 0004.

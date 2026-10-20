@@ -233,3 +233,19 @@ Tooling for M9-02…M9-05 is implemented (2026-10-19): `desk report readiness` w
 `DESK_HOME/reports/READINESS_REPORT.md`; while PAPER runs, the collector refreshes the confidence matrix and the
 report every 6 hours, and the dashboard shows the latest verdict. M9-01 and the verdict itself need ≥ 60 calendar days
 of forward PAPER evidence on the laptop; no tooling can shorten that.
+
+## R — The Robinhood desk (docs/ROBINHOOD.md)
+
+| ID | Criterion | Kind | Pass condition |
+|---|---|---|---|
+| R-01 | Signed API client | U | Reproduces the docs' published Ed25519 signature; signs the exact path, query and body sent; read-only methods only |
+| R-02 | Local key, read-only credential | U/M | `desk rh keygen` writes an owner-only key that is never overwritten; setup asks for read actions only |
+| R-03 | History without look-ahead | U | Only closed Coinbase bars are stored; a session's features never include its own day's bar |
+| R-04 | Frozen strategies and baselines | U | Spec hashes recorded; R1/R2/R3 entries and exits, hold-BTC and random baselines behave as written |
+| R-05 | Realistic PAPER fills | I | Both routes estimated for the exact quantity; cheaper buy, better sell, worse of two estimates booked; round trip above 2% refused |
+| R-06 | Ledger integrity and halts | I | Entries and closed positions immutable; hard stops on the best bid (none on hold-BTC); $1,000 cumulative loss halts entries |
+| R-07 | Works before the key exists | I | History and signals recorded as SKIP NO_ROBINHOOD_PRICE; nothing trades |
+| R-08 | Separate dashboard | U/B | Port 8766, loopback only, read-only; $100-account view, coins, coin "why" checklist, strategies vs baselines, light/dark, phone width |
+| R-09 | Forward evidence | R | Weeks of PAPER on Robinhood's prices with measured costs; until then the history simulation is labelled as such |
+
+R-01…R-08 pass automated tests (2026-10-20). R-09 needs the operator's read-only key and time.

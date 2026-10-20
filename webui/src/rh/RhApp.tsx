@@ -1,0 +1,856 @@
+import { useEffect, useMemo, useState } from "react";
+import { usePoll } from "./api";
+import LineChart, { Sparkline } from "./LineChart";
+import type {
+  Activity,
+  Coin,
+  CoinDetail,
+  EquitySeries,
+  Position,
+  Snapshot,
+  Span,
+  Strategy,
+} from "./types";
+
+const SPANS: Span[] = ["1D", "1W", "1M", "3M", "1Y", "ALL"];
+const STRATEGY_NAMES: Record<string, string> = {
+  R1_TREND: "Trend breakout",
+  R2_XMOM: "Weekly momentum",
+  R3_PULLBACK: "Uptrend pullback",
+  B1_HOLD_BTC: "Hold BTC · baseline",
+  B2_RANDOM: "Random coin · baseline",
+};
+const REASONS: Record<string, string> = {
+  NO_ROBINHOOD_PRICE: "no Robinhood price yet (key not set up)",
+  ROUNDTRIP_COST_ABOVE_CEILING: "buying and selling would cost too much",
+  BOOK_FULL: "already holding the maximum",
+  STALE_QUOTE: "price too old",
+  STOP_FILE: "stop switch is on",
+  SIZE_OUTSIDE_PAIR_LIMITS: "size outside Robinhood's order limits",
+  NOT_TRADABLE_ON_ROBINHOOD: "not tradable on Robinhood",
+  NO_FRESH_ESTIMATE: "Robinhood gave no fresh price",
+  BREAKOUT_20D: "20-day breakout",
+  ABOVE_SMA50: "above 50-day average",
+  BTC_RISK_ON: "BTC in an uptrend",
+  TOP3_28D_MOMENTUM: "top-3 28-day run",
+  BEATS_BTC: "beat BTC",
+  RSI2_BELOW_10: "sharp 2-day dip",
+  UPTREND_50_OVER_100: "in an uptrend",
+  BASELINE_HOLD: "baseline: hold BTC",
+  BASELINE_RANDOM: "baseline: random pick",
+  DONCHIAN_EXIT: "closed at a 10-day low",
+  TRAILING_ATR: "trailing stop",
+  MAX_HOLD: "held for the maximum time",
+  HARD_STOP: "stop price hit",
+  REBALANCE_OUT: "dropped out of the top 3",
+  REGIME_OFF: "BTC trend turned down",
+  MEAN_REVERTED: "bounced back",
+  HOLD_COMPLETE: "7 days done",
+  STALE_HISTORY: "price history is behind",
+  SHORT_HISTORY: "less than 120 days of history",
+  THIN_VOLUME: "too little trading volume",
+  NO_HISTORY: "no price history",
+};
+
+// why a strategy wanted the coin; anything else on a SKIP is what blocked it
+const ENTRY_REASONS = new Set([
+  "BREAKOUT_20D",
+  "ABOVE_SMA50",
+  "BTC_RISK_ON",
+  "TOP3_28D_MOMENTUM",
+  "BEATS_BTC",
+  "RSI2_BELOW_10",
+  "UPTREND_50_OVER_100",
+  "BASELINE_HOLD",
+  "BASELINE_RANDOM",
+]);
+
+function reason(code: string): string {
+  if (code.startsWith("HALTED:")) return "entries halted";
+  return REASONS[code] ?? code.toLowerCase().replaceAll("_", " ");
+}
+
+function num(value: string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+const usdFormat = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
+
+// money amounts: always cents
+function usd(value: number | string | null | undefined): string {
+  const n = typeof value === "number" ? value : num(value);
+  return n === null ? "—" : usdFormat.format(n);
+}
+
+// coin prices: cents above $1, significant digits below (PEPE, SHIB)
+function price(value: number | string | null | undefined): string {
+  const n = typeof value === "number" ? value : num(value);
+  if (n === null) return "—";
+  if (Math.abs(n) > 0 && Math.abs(n) < 1) {
+    return `$${n.toLocaleString("en-US", { maximumSignificantDigits: 4 })}`;
+  }
+  return usdFormat.format(n);
+}
+
+function signedUsd(value: number | null): string {
+  if (value === null) return "—";
+  return `${value >= 0 ? "+" : "−"}${usd(Math.abs(value))}`;
+}
+
+function signedPrice(value: number | null): string {
+  if (value === null) return "—";
+  return `${value >= 0 ? "+" : "−"}${price(Math.abs(value))}`;
+}
+
+function pct(fraction: number | null, digits = 2): string {
+  if (fraction === null) return "—";
+  return `${fraction >= 0 ? "+" : "−"}${Math.abs(fraction * 100).toFixed(digits)}%`;
+}
+
+function tone(value: number | null): string {
+  if (value === null || value === 0) return "flat";
+  return value > 0 ? "up" : "down";
+}
+
+function when(iso: string | null | undefined, withTime = true): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  return withTime
+    ? date.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+}
+
+function useRoute(): string[] {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const update = () => {
+      setHash(window.location.hash);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  return hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+}
+
+function Mark() {
+  return (
+    <svg viewBox="0 0 40 40" className="rh-mark" aria-hidden>
+      <path d="m5 10 15 6L35 5 25 24l-5 11-5-12Z" />
+    </svg>
+  );
+}
+
+function SpanPills({
+  value,
+  onChange,
+  toneClass,
+}: {
+  value: Span;
+  onChange: (span: Span) => void;
+  toneClass: string;
+}) {
+  return (
+    <div className={`rh-spans ${toneClass}`} role="tablist" aria-label="Range">
+      {SPANS.map((span) => (
+        <button
+          key={span}
+          role="tab"
+          aria-selected={span === value}
+          className={span === value ? "is-active" : ""}
+          onClick={() => onChange(span)}
+        >
+          {span}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Header({ snap }: { snap: Snapshot | null }) {
+  const route = useRoute();
+  const here = route[0] ?? "";
+  const links: [string, string][] = [
+    ["", "Investing"],
+    ["strategies", "Strategies"],
+    ["activity", "Activity"],
+    ["system", "System"],
+  ];
+  return (
+    <header className="rh-header">
+      <a className="rh-brand" href="#/">
+        <Mark />
+        <span>KESTREL</span>
+        <span className="rh-venue">Crypto</span>
+      </a>
+      <nav aria-label="Main">
+        {links.map(([path, label]) => (
+          <a
+            key={label}
+            href={`#/${path}`}
+            className={here === path ? "is-active" : ""}
+            aria-current={here === path ? "page" : undefined}
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+      <div className="rh-status">
+        <span className="rh-paper">PAPER</span>
+        <span
+          className={`rh-dot ${snap?.robinhood_prices ? "is-live" : ""}`}
+          title={
+            snap?.robinhood_prices
+              ? "Robinhood prices are flowing"
+              : "No live Robinhood prices (see System)"
+          }
+        />
+      </div>
+    </header>
+  );
+}
+
+function Watchlist({ coins }: { coins: Coin[] }) {
+  return (
+    <aside className="rh-watch" aria-label="Crypto">
+      <div className="rh-watch-head">
+        <h2>Crypto</h2>
+        <span>{coins.length}</span>
+      </div>
+      <ul>
+        {coins.map((coin) => {
+          const change = num(coin.change_24h);
+          return (
+            <li key={coin.symbol}>
+              <a href={`#/coin/${coin.symbol}`}>
+                <span className="rh-watch-name">
+                  <strong>{coin.symbol.replace("-USD", "")}</strong>
+                  <small>{coin.name}</small>
+                </span>
+                <Sparkline values={coin.spark.map(Number)} />
+                <span className="rh-watch-price">
+                  <span>{price(coin.price)}</span>
+                  <span className={`rh-chip ${tone(change)}`}>
+                    {pct(change)}
+                  </span>
+                </span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </aside>
+  );
+}
+
+function PositionRows({ positions }: { positions: Position[] }) {
+  if (!positions.length) {
+    return (
+      <p className="rh-empty">
+        No paper positions. The desk buys at the daily session after 00:05 UTC
+        when a strategy's conditions are met.
+      </p>
+    );
+  }
+  return (
+    <ul className="rh-rows">
+      {positions.map((p) => {
+        const pnl = num(p.pnl);
+        return (
+          <li key={p.id}>
+            <a href={`#/coin/${p.symbol}`}>
+              <span>
+                <strong>{p.symbol.replace("-USD", "")}</strong>
+                <small>
+                  {STRATEGY_NAMES[p.strategy_id] ?? p.strategy_id} · {p.days}d
+                  {p.stop ? ` · stop ${price(p.stop)}` : ""}
+                </small>
+              </span>
+              <span className="rh-right">
+                <strong>{usd(p.value)}</strong>
+                <small className={tone(pnl)}>
+                  {signedUsd(pnl)} ({pct(num(p.pnl_fraction))})
+                </small>
+              </span>
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function activityText(a: Activity): {
+  title: string;
+  sub: string;
+  value?: string;
+  toneValue?: number | null;
+} {
+  const d = a.detail as Record<string, string | string[] | undefined>;
+  const symbol = String(d.symbol ?? "").replace("-USD", "");
+  const name =
+    STRATEGY_NAMES[String(d.strategy_id)] ?? String(d.strategy_id ?? "");
+  if (a.kind === "ENTRY") {
+    return {
+      title: `Bought ${symbol}`,
+      sub: `${name} · ${d.route === "EX" ? "exchange routing" : "Robinhood market makers"}`,
+      value: usd(String(d.cost_usd)),
+    };
+  }
+  if (a.kind === "EXIT") {
+    const pnl = num(String(d.pnl_usd));
+    return {
+      title: `Sold ${symbol}`,
+      sub: `${name} · ${reason(String(d.reason))}`,
+      value: signedUsd(pnl),
+      toneValue: pnl,
+    };
+  }
+  if (a.kind === "SKIP") {
+    const reasons = (d.reasons as string[] | undefined) ?? [];
+    const blocked = reasons.filter((r) => !ENTRY_REASONS.has(r));
+    return {
+      title: `Skipped ${symbol}`,
+      sub: `${name} · ${blocked.map(reason).join(", ") || "blocked"}`,
+    };
+  }
+  return {
+    title: a.kind === "HALT" ? "Entries halted" : "Entries resumed",
+    sub: String(d.reason ?? ""),
+  };
+}
+
+function ActivityRows({ items, limit }: { items: Activity[]; limit?: number }) {
+  const rows = limit ? items.slice(0, limit) : items;
+  if (!rows.length) return <p className="rh-empty">Nothing yet.</p>;
+  return (
+    <ul className="rh-rows">
+      {rows.map((a, i) => {
+        const text = activityText(a);
+        return (
+          <li key={`${a.at}-${i}`}>
+            <div>
+              <span>
+                <strong>{text.title}</strong>
+                <small>
+                  {when(a.at)} · {text.sub}
+                </small>
+              </span>
+              {text.value && (
+                <span className="rh-right">
+                  <strong
+                    className={
+                      text.toneValue !== undefined
+                        ? tone(text.toneValue ?? null)
+                        : ""
+                    }
+                  >
+                    {text.value}
+                  </strong>
+                </span>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function Home({ snap }: { snap: Snapshot }) {
+  const [span, setSpan] = useState<Span>("1M");
+  const [hover, setHover] = useState<number | null>(null);
+  const { data: series } = usePoll<EquitySeries>(
+    `/api/rh/equity?span=${span}`,
+    60_000,
+  );
+  const values = useMemo(
+    () => (series?.points ?? []).map(([, v]) => Number(v)),
+    [series],
+  );
+  const labels = useMemo(
+    () =>
+      (series?.points ?? []).map(([t]) =>
+        when(t, span === "1D" || span === "1W"),
+      ),
+    [series, span],
+  );
+  const account = snap.account;
+  const shown =
+    hover !== null && values[hover] !== undefined
+      ? values[hover]
+      : num(account.equity);
+  const base = values.length ? values[0] : num(account.starting_capital);
+  const change =
+    hover !== null && shown !== null && base !== null
+      ? shown - base
+      : num(account.today_change);
+  const changeFraction =
+    hover !== null && shown !== null && base
+      ? shown / base - 1
+      : num(account.today_change_fraction);
+  return (
+    <>
+      <section className="rh-hero" aria-label="Your $100 account">
+        <p className="rh-eyebrow">Your $100 account · paper</p>
+        <h1 className="rh-big">{usd(shown)}</h1>
+        <p className={`rh-change ${tone(change)}`}>
+          {signedUsd(change)} ({pct(changeFraction)}){" "}
+          <span>{hover !== null ? labels[hover] : "Today"}</span>
+        </p>
+        <LineChart
+          values={values}
+          labels={labels}
+          onHover={setHover}
+          ariaLabel="Account value"
+        />
+        <SpanPills
+          value={span}
+          onChange={setSpan}
+          toneClass={tone(
+            values.length ? values[values.length - 1] - values[0] : 0,
+          )}
+        />
+      </section>
+      {account.halted && (
+        <p className="rh-banner">
+          Entries are halted ({account.halted}). Exits keep running.
+        </p>
+      )}
+      <section className="rh-card rh-power">
+        <div>
+          <span>Next ticket</span>
+          <strong>{usd(account.ticket)}</strong>
+        </div>
+        <div>
+          <span>Realized</span>
+          <strong className={tone(num(account.realized))}>
+            {signedUsd(num(account.realized))}
+          </strong>
+        </div>
+        <div>
+          <span>Open</span>
+          <strong>{account.open_positions}</strong>
+        </div>
+      </section>
+      <section aria-labelledby="pos-h">
+        <h2 id="pos-h" className="rh-h2">
+          Positions
+        </h2>
+        <PositionRows positions={snap.positions} />
+      </section>
+      <section aria-labelledby="act-h">
+        <h2 id="act-h" className="rh-h2">
+          Recent activity <a href="#/activity">See all</a>
+        </h2>
+        <ActivityRows items={snap.activity} limit={6} />
+      </section>
+    </>
+  );
+}
+
+function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
+  const [span, setSpan] = useState<Span>("1M");
+  const [hover, setHover] = useState<number | null>(null);
+  const { data, error } = usePoll<CoinDetail>(
+    `/api/rh/coin/${symbol}?span=${span}`,
+    60_000,
+  );
+  const values = useMemo(
+    () => (data?.points ?? []).map(([, v]) => Number(v)),
+    [data],
+  );
+  const labels = useMemo(
+    () =>
+      (data?.points ?? []).map(([t]) =>
+        when(t, span === "1D" || span === "1W"),
+      ),
+    [data, span],
+  );
+  if (error) return <p className="rh-empty">{error}</p>;
+  if (!data) return <p className="rh-empty">Loading…</p>;
+  const last = values.length
+    ? values[values.length - 1]
+    : num(data.price ?? null);
+  const shown =
+    hover !== null ? values[hover] : (num(data.price ?? null) ?? last);
+  const first = values.length ? values[0] : null;
+  const change = shown !== null && first !== null ? shown - first : null;
+  const f = data.features ?? {};
+  const coin = snap?.coins.find((c) => c.symbol === symbol);
+  const stats: [string, string][] = [
+    ["Bid", price(data.bid ?? null)],
+    ["Ask", price(data.ask ?? null)],
+    [
+      "Spread",
+      data.spread ? pct(Number(data.spread), 3).replace("+", "") : "—",
+    ],
+    [
+      "Round trip (measured)",
+      data.roundtrip_cost
+        ? pct(Number(data.roundtrip_cost)).replace("+", "")
+        : "not measured yet",
+    ],
+    ["28-day run", f.ret_skip28 ? pct(Number(f.ret_skip28), 1) : "—"],
+    ["2-day RSI", f.rsi2 ? Number(f.rsi2).toFixed(1) : "—"],
+    ["20-day high", price(f.high_prior20)],
+    ["50-day average", price(f.sma50)],
+    ["100-day average", price(f.sma100)],
+    ["Daily range (ATR 20)", price(f.atr20)],
+    ["Median daily volume", usd(f.median_dollar_volume30)],
+    [
+      "Price from",
+      coin?.price_source === "robinhood" ? "Robinhood" : "price history",
+    ],
+  ];
+  return (
+    <>
+      <a className="rh-back" href="#/">
+        ← Investing
+      </a>
+      <section className="rh-hero" aria-label={data.name}>
+        <p className="rh-eyebrow">{data.name}</p>
+        <h1 className="rh-big">{price(shown)}</h1>
+        <p className={`rh-change ${tone(change)}`}>
+          {signedPrice(change)} (
+          {pct(change !== null && first ? change / first : null)}){" "}
+          <span>
+            {hover !== null
+              ? labels[hover]
+              : `Past ${span === "ALL" ? "all time" : span}`}
+          </span>
+        </p>
+        <LineChart
+          values={values}
+          labels={labels}
+          onHover={setHover}
+          ariaLabel={`${data.name} price`}
+        />
+        <SpanPills value={span} onChange={setSpan} toneClass={tone(change)} />
+      </section>
+      {data.positions.length > 0 && (
+        <section>
+          <h2 className="rh-h2">Your paper position</h2>
+          <PositionRows positions={data.positions} />
+        </section>
+      )}
+      <section aria-labelledby="why-h">
+        <h2 id="why-h" className="rh-h2">
+          Why the desk would or wouldn't buy
+        </h2>
+        {!data.eligible && (
+          <p className="rh-empty">
+            Not eligible today: {reason(data.ineligible_reason ?? "")}.
+          </p>
+        )}
+        <div className="rh-why">
+          {data.signals.map((s) => {
+            const all = s.conditions.every((c) => c.met);
+            return (
+              <div
+                key={s.strategy_id}
+                className={`rh-card ${all ? "is-met" : ""}`}
+              >
+                <h3>
+                  {STRATEGY_NAMES[s.strategy_id]}
+                  <span className={`rh-chip ${all ? "up" : "flat"}`}>
+                    {all ? "conditions met" : "not now"}
+                  </span>
+                </h3>
+                <ul>
+                  {s.conditions.map((c) => (
+                    <li key={c.label} className={c.met ? "is-met" : ""}>
+                      <span aria-hidden>{c.met ? "✓" : "✗"}</span> {c.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+        <p className="rh-note">
+          Every buy also needs Robinhood's own price for the exact ticket, a
+          round trip under{" "}
+          {snap
+            ? pct(Number(snap.limits.max_roundtrip_cost)).replace("+", "")
+            : "the limit"}
+          , and room in the book. Decisions are made once a day after 00:05 UTC.
+        </p>
+      </section>
+      <section aria-labelledby="stats-h">
+        <h2 id="stats-h" className="rh-h2">
+          Stats
+        </h2>
+        <dl className="rh-stats">
+          {stats.map(([k, v]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <section aria-labelledby="dec-h">
+        <h2 id="dec-h" className="rh-h2">
+          Decisions on this coin
+        </h2>
+        {data.decisions.length ? (
+          <ul className="rh-rows">
+            {data.decisions.map((d, i) => (
+              <li key={`${d.at}-${i}`}>
+                <div>
+                  <span>
+                    <strong>
+                      {d.action === "ENTER"
+                        ? "Buy"
+                        : d.action === "EXIT"
+                          ? "Sell"
+                          : "Skipped"}{" "}
+                      · {STRATEGY_NAMES[d.strategy_id]}
+                    </strong>
+                    <small>
+                      {when(d.at)} · {d.reasons.map(reason).join(", ")}
+                    </small>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rh-empty">No decisions on this coin yet.</p>
+        )}
+      </section>
+    </>
+  );
+}
+
+function StrategyCard({ s, btc }: { s: Strategy; btc: Strategy | undefined }) {
+  const sim = s.backtest;
+  const perYear = num(sim?.pnl_per_dollar_year ?? null);
+  const btcYear = num(btc?.backtest?.pnl_per_dollar_year ?? null);
+  return (
+    <div
+      className={`rh-card rh-strategy ${s.kind === "BASELINE" ? "is-baseline" : ""}`}
+    >
+      <h3>
+        {STRATEGY_NAMES[s.id] ?? s.id}
+        {s.kind === "STRATEGY" && perYear !== null && btcYear !== null && (
+          <span className={`rh-chip ${perYear > btcYear ? "up" : "down"}`}>
+            {perYear > btcYear ? "beat holding BTC" : "behind holding BTC"} in
+            history
+          </span>
+        )}
+      </h3>
+      <p>{s.about}</p>
+      <dl className="rh-stats rh-stats-tight">
+        <div>
+          <dt>Paper now</dt>
+          <dd>
+            {s.open} open · {s.closed} closed · {s.wins} wins
+          </dd>
+        </div>
+        <div>
+          <dt>Paper P&amp;L</dt>
+          <dd className={tone(num(s.realized))}>
+            {signedUsd(num(s.realized))}
+          </dd>
+        </div>
+        <div>
+          <dt>3-year history (sim)</dt>
+          <dd>
+            {sim
+              ? `${sim.trades} trades · ${sim.win_rate ? Math.round(Number(sim.win_rate) * 100) : 0}% wins`
+              : "not run yet"}
+          </dd>
+        </div>
+        <div>
+          <dt>Per dollar-year held</dt>
+          <dd className={tone(perYear)}>{pct(perYear, 0)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function StrategiesPage({ snap }: { snap: Snapshot }) {
+  const btc = snap.strategies.find((s) => s.id === "B1_HOLD_BTC");
+  return (
+    <>
+      <h1 className="rh-title">Strategies</h1>
+      <p className="rh-note">
+        Rules were frozen before any history was looked at. The two baselines
+        are the bar to clear: holding BTC, and picking coins at random. History
+        is a simulation on Coinbase prices with a cost assumption; only paper
+        results on Robinhood's own prices count as evidence.
+      </p>
+      {snap.backtest && (
+        <p className="rh-note">
+          Simulation {snap.backtest.sessions} ·{" "}
+          {snap.backtest.universe.with_history} coins · round trip{" "}
+          {pct(
+            Number(snap.backtest.cost_model.assumed_roundtrip_fraction),
+          ).replace("+", "")}{" "}
+          assumed · BTC held{" "}
+          {pct(num(snap.backtest.btc_buy_and_hold_return), 0)}
+        </p>
+      )}
+      <div className="rh-grid">
+        {snap.strategies.map((s) => (
+          <StrategyCard key={s.id} s={s} btc={btc} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function SystemPage({ snap }: { snap: Snapshot }) {
+  const last = snap.session.last;
+  const rows: [string, string][] = [
+    [
+      "Robinhood prices",
+      snap.robinhood_prices
+        ? `live · last ${when(snap.last_quote_at)}`
+        : "not flowing",
+    ],
+    ["Coins", snap.universe_source],
+    ["Last daily bar", when(snap.last_daily_bar, false)],
+    [
+      "Last session",
+      last
+        ? `${last.day} · BTC ${last.regime === "RISK_ON" ? "uptrend" : last.regime === "RISK_OFF" ? "downtrend" : "unknown"} · ${last.eligible} coins eligible`
+        : "none yet",
+    ],
+    ["Next session", when(snap.session.next_at)],
+    [
+      "Ticket",
+      `${pct(Number(snap.limits.ticket_fraction), 0).replace("+", "")} of the $100 account (+ realized)`,
+    ],
+    [
+      "Round-trip limit",
+      pct(Number(snap.limits.max_roundtrip_cost)).replace("+", ""),
+    ],
+    ["Max open", String(snap.limits.max_open_positions)],
+    ["Learning cash", usd(snap.account.learning_cash)],
+  ];
+  return (
+    <>
+      <h1 className="rh-title">System</h1>
+      {!snap.robinhood_prices && (
+        <div className="rh-card rh-howto">
+          <h3>Connect Robinhood prices (read-only)</h3>
+          <ol>
+            <li>
+              In a terminal: <code>uv run desk rh keygen</code>. It prints a
+              public key.
+            </li>
+            <li>
+              On robinhood.com → Account → Crypto → API trading, add a key with
+              that public key. Enable read actions only.
+            </li>
+            <li>
+              Put <code>ROBINHOOD_API_KEY=rh-api-…</code> in{" "}
+              <code>~/.config/desk/secrets.env</code>.
+            </li>
+            <li>
+              Check with <code>uv run desk rh doctor</code>, then restart{" "}
+              <code>uv run desk rh paper</code>.
+            </li>
+          </ol>
+        </div>
+      )}
+      <dl className="rh-stats">
+        {rows.map(([k, v]) => (
+          <div key={k}>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {snap.backtest && (
+        <section>
+          <h2 className="rh-h2">Simulation caveats</h2>
+          <ul className="rh-list">
+            {snap.backtest.caveats.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {last && Object.keys(last.ineligible).length > 0 && (
+        <section>
+          <h2 className="rh-h2">Coins not eligible at the last session</h2>
+          <ul className="rh-list">
+            {Object.entries(last.ineligible).map(([symbol, why]) => (
+              <li key={symbol}>
+                {symbol.replace("-USD", "")}: {reason(why)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
+export default function RhApp() {
+  const route = useRoute();
+  const { data: snap, error } = usePoll<Snapshot>("/api/rh/snapshot", 15_000);
+  useEffect(() => {
+    const page =
+      route[0] === "coin"
+        ? (route[1] ?? "").replace("-USD", "")
+        : route[0] || "Investing";
+    document.title = `${page.charAt(0).toUpperCase()}${page.slice(1)} · KESTREL Crypto · PAPER`;
+  }, [route]);
+  let main;
+  if (!snap) {
+    main = <p className="rh-empty">{error || "Loading…"}</p>;
+  } else if (route[0] === "coin" && route[1]) {
+    main = <CoinPage symbol={route[1]} snap={snap} />;
+  } else if (route[0] === "strategies") {
+    main = <StrategiesPage snap={snap} />;
+  } else if (route[0] === "activity") {
+    main = (
+      <>
+        <h1 className="rh-title">Activity</h1>
+        <ActivityRows items={snap.activity} />
+      </>
+    );
+  } else if (route[0] === "system") {
+    main = <SystemPage snap={snap} />;
+  } else {
+    main = <Home snap={snap} />;
+  }
+  return (
+    <>
+      <Header snap={snap} />
+      {error && snap && (
+        <p className="rh-banner">
+          Connection problem: {error}. Showing the last data.
+        </p>
+      )}
+      <div className="rh-layout">
+        <main id="main">{main}</main>
+        {snap && <Watchlist coins={snap.coins} />}
+      </div>
+      <footer className="rh-footer">
+        Paper trading on Robinhood's prices. No order can be placed from this
+        desk. Not affiliated with Robinhood.
+      </footer>
+    </>
+  );
+}

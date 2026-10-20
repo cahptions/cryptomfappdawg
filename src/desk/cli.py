@@ -315,6 +315,13 @@ def cmd_council(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_rh(args: argparse.Namespace) -> int:
+    from desk.rh.cli import cmd_rh
+
+    _bootstrap(args.verbose)
+    return cmd_rh(args)
+
+
 def cmd_counterfactuals(args: argparse.Namespace) -> int:
     from desk.discovery.counterfactual import summary
     from desk.storage.databases import Databases
@@ -925,6 +932,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=300, help="run: decisions to advise in this pass")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_council)
+
+    p = sub.add_parser("rh", help="the Robinhood desk: keygen, doctor, backtest, paper, report, dashboard (docs/ROBINHOOD.md)")
+    p.add_argument("action", choices=["keygen", "doctor", "backtest", "paper", "report", "dashboard"])
+    p.add_argument("--days", type=int, default=730, help="backtest: sessions to simulate (default 730)")
+    p.add_argument("--fetch", action="store_true", help="backtest: download missing Coinbase daily history first")
+    p.add_argument("--minutes", type=_positive_minutes, default=None, help="paper: run time (default until stopped)")
+    p.add_argument("--port", type=int, default=None, help="dashboard: port (default robinhood.dashboard_port)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_rh)
 
     p = sub.add_parser("live", help="LIVE (M8): keygen, arm, disarm, status, approve, validate, withdraw, run, guardian,"
                                     " resume")

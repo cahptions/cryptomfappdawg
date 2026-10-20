@@ -60,22 +60,9 @@ def _csv_value(value: Any) -> str:
     return "'" + text if text.startswith(("=", "+", "-", "@", "\t", "\r", "\n")) else text
 
 
-def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
-               manager: WorkerManager | None = None) -> FastAPI:
-    config = loaded or load_config(paths.config_dir)
-    workers = manager or WorkerManager(paths)
-    data = DashboardData(paths, config)
-    cache = SnapshotCache(data.snapshot)
-    csrf_token = secrets.token_urlsafe(32)
-
-    @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # Migration is a startup operation, never a side effect of a dashboard read.
-        dbs = Databases.open(paths)
-        dbs.close()
-        yield
-
-    app = FastAPI(title="KESTREL local dashboard", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+def install_browser_boundary(app: FastAPI, csrf_token: str) -> None:
+    """Loopback host only, same-origin requests only (a top-level page load from a link excepted), CSRF on writes,
+    strict response headers. Shared by the Solana and Robinhood dashboards."""
 
     @app.middleware("http")
     async def browser_boundary(request: Request, call_next: Any) -> Response:
@@ -106,6 +93,26 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
                                        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         })
         return response
+
+
+def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
+               manager: WorkerManager | None = None) -> FastAPI:
+    config = loaded or load_config(paths.config_dir)
+    workers = manager or WorkerManager(paths)
+    data = DashboardData(paths, config)
+    cache = SnapshotCache(data.snapshot)
+    csrf_token = secrets.token_urlsafe(32)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # Migration is a startup operation, never a side effect of a dashboard read.
+        dbs = Databases.open(paths)
+        dbs.close()
+        yield
+
+    app = FastAPI(title="KESTREL local dashboard", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+
+    install_browser_boundary(app, csrf_token)
 
     @app.get("/api/session")
     def session() -> dict[str, str]:

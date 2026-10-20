@@ -214,7 +214,7 @@ def test_migration_backfills_cohort_from_existing_snapshots(tmp_path: Path, monk
             " VALUES (?, ?, 'dexscreener.tokens_v1', ?, ?, 'missing', 'missing', ?, ?, 'missing', 'missing', '{}', '')",
             (pool, mint, to_iso(at), int(at.timestamp() * 1000), liquidity, status))
     monkeypatch.setattr(dbmod, "available_migrations", original)
-    assert migrate(conn, DbKind.MARKET) == [5, 6, 7, 8, 9]
+    assert migrate(conn, DbKind.MARKET) == [5, 6, 7, 8, 9, 10]
     row = conn.execute("SELECT * FROM hazard_cohort").fetchone()
     assert (row["pool_address"], row["entry_liquidity_usd"]) == (pool, "12000")
     conn.close()

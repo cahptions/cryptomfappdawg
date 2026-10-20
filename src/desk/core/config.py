@@ -186,6 +186,22 @@ class ResearchSection(_Section):
     council: Literal["record", "off"] = "record"
 
 
+class RobinhoodSection(_Section):
+    """The Robinhood desk (docs/ROBINHOOD.md). PAPER only: the desk has no code that places orders."""
+
+    starting_capital_usd: Decimal = Decimal("100")         # the real account the tickets are sized for
+    learning_cash_usd: Decimal = Decimal("100000")         # paper cushion, same idea as the Solana learning book
+    fixed_fraction: Fraction = Decimal("0.10")             # ticket = 10% of (capital + realized profit) ...
+    max_ticket_fraction: Fraction = Decimal("0.15")        # ... never above 15%
+    max_open_positions: int = Field(default=10, ge=1)
+    learning_max_cumulative_loss_usd: Decimal = Decimal("1000")
+    max_roundtrip_cost_fraction: Fraction = Decimal("0.02")  # measured buy + sell at the exact ticket size
+    estimate_max_age_seconds: int = Field(default=10, ge=1)
+    quote_interval_seconds: int = Field(default=60, ge=15)
+    backtest_roundtrip_cost_fraction: Fraction = Decimal("0.02")  # until a coin has measured Robinhood estimates
+    dashboard_port: int = Field(default=8766, ge=1024, le=65535)
+
+
 class DeskConfig(_Section):
     desk: DeskSection
     paper: PaperSection
@@ -199,6 +215,7 @@ class DeskConfig(_Section):
     context: ContextSection
     research: ResearchSection = ResearchSection()
     live: LiveSection
+    robinhood: RobinhoodSection = RobinhoodSection()
 
 
 @dataclass(frozen=True)

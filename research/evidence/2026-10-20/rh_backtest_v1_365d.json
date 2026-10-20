@@ -1,0 +1,124 @@
+{
+ "kind": "HISTORICAL SIMULATION (not evidence of future profit)",
+ "generated_at": "2026-10-20T04:43:38.424341+00:00",
+ "sessions": "2025-10-20..2026-10-19",
+ "universe": {
+  "source": "starter list (unverified until the Robinhood key fetches the real pairs)",
+  "requested": 20,
+  "with_history": 20,
+  "missing_history": []
+ },
+ "specs": {
+  "B1_HOLD_BTC": "eeadc51a71345147215f8bf79d58623687702faaeb936ad3ab866e085be1b124",
+  "B2_RANDOM": "ff7c319b6af821594ef9cac1fee83ef305a3dd748db3333ba008dbfe7d4df473",
+  "R1_TREND": "578f17149f05cbc97d4d9e7abdb207d6210dadd9e2964017ac52a5b8db60a9f1",
+  "R2_XMOM": "256b4c6a6fe5f78400c1e25e7ea2bd6df6ac420122c7499950d31a7c45006814",
+  "R3_PULLBACK": "a9011f1a44bd7c2adbcaed91ce319d2f73baae6a895d392a135e66ff3a453812"
+ },
+ "cost_model": {
+  "assumed_roundtrip_fraction": "0.02",
+  "measured_symbols": []
+ },
+ "btc_buy_and_hold_return": "-0.2470",
+ "regime_days": {
+  "RISK_OFF": 259,
+  "RISK_ON": 106
+ },
+ "skipped_entries": {},
+ "strategies": {
+  "B1_HOLD_BTC": {
+   "trades": 1,
+   "wins": 0,
+   "win_rate": "0.0000",
+   "mean_net_return": "-0.2619",
+   "median_net_return": "-0.2619",
+   "best": "-0.2619",
+   "worst": "-0.2619",
+   "total_pnl_usd": "-2.62",
+   "max_drawdown_usd": "-2.62",
+   "mean_hold_days": "364.0",
+   "exit_reasons": {
+    "OPEN_AT_END": 1
+   },
+   "pnl_per_dollar_year": "-0.2626"
+  },
+  "B2_RANDOM": {
+   "trades": 53,
+   "wins": 13,
+   "win_rate": "0.2453",
+   "mean_net_return": "-0.0292",
+   "median_net_return": "-0.0414",
+   "best": "0.3934",
+   "worst": "-0.2011",
+   "total_pnl_usd": "-14.68",
+   "max_drawdown_usd": "-17.64",
+   "mean_hold_days": "5.9",
+   "exit_reasons": {
+    "HARD_STOP": 12,
+    "HOLD_COMPLETE": 40,
+    "OPEN_AT_END": 1
+   },
+   "pnl_per_dollar_year": "-2.0060"
+  },
+  "R1_TREND": {
+   "trades": 10,
+   "wins": 6,
+   "win_rate": "0.6000",
+   "mean_net_return": "0.0273",
+   "median_net_return": "0.0221",
+   "best": "0.2031",
+   "worst": "-0.1204",
+   "total_pnl_usd": "1.89",
+   "max_drawdown_usd": "-1.08",
+   "mean_hold_days": "24.1",
+   "exit_reasons": {
+    "DONCHIAN_EXIT": 8,
+    "HARD_STOP": 1,
+    "TRAILING_ATR": 1
+   },
+   "pnl_per_dollar_year": "0.3646"
+  },
+  "R2_XMOM": {
+   "trades": 25,
+   "wins": 6,
+   "win_rate": "0.2400",
+   "mean_net_return": "-0.0485",
+   "median_net_return": "-0.0975",
+   "best": "0.4518",
+   "worst": "-0.1997",
+   "total_pnl_usd": "-10.06",
+   "max_drawdown_usd": "-10.23",
+   "mean_hold_days": "7.8",
+   "exit_reasons": {
+    "HARD_STOP": 13,
+    "OPEN_AT_END": 3,
+    "REBALANCE_OUT": 9
+   },
+   "pnl_per_dollar_year": "-2.3628"
+  },
+  "R3_PULLBACK": {
+   "trades": 19,
+   "wins": 6,
+   "win_rate": "0.3158",
+   "mean_net_return": "-0.0211",
+   "median_net_return": "-0.0125",
+   "best": "0.0496",
+   "worst": "-0.1117",
+   "total_pnl_usd": "-3.33",
+   "max_drawdown_usd": "-3.33",
+   "mean_hold_days": "3.6",
+   "exit_reasons": {
+    "HARD_STOP": 1,
+    "MEAN_REVERTED": 16,
+    "OPEN_AT_END": 2
+   },
+   "pnl_per_dollar_year": "-2.2456"
+  }
+ },
+ "caveats": [
+  "universe is today's list: coins that were delisted or died are missing (survivorship bias)",
+  "fills at the daily open with a fixed cost; real fills move with size and time of day",
+  "parameters were frozen before this run, but the hypotheses come from published research that already saw much of this history"
+ ],
+ "sync": null
+}

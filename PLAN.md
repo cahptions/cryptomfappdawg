@@ -1123,3 +1123,15 @@ Defaults are given so work can proceed; items marked **blocking** must be answer
 | Q7 | **Telegram** alerts + `/stop`? | Off until M7 setup | M7 |
 | ~~Q8~~ | ~~Promotion thresholds?~~ **Approved 2026-10-18 as part of the plan approval** (research baseline; loosening still requires justification + approval) | — | — |
 | Q9 | Will the laptop typically run **24/7 on AC power**? Is a wired (USB-Ethernet) connection possible? | Assume intermittent uptime and Wi-Fi; design handles both | — (informational) |
+
+## 25. The Robinhood desk (added 2026-10-20, operator request)
+
+A second desk for the liquid crypto Robinhood lists, separate from the Solana desk (own databases, ledger,
+dashboard on port 8766, worker lock). Robinhood's agentic trading is not used to decide: a language model choosing
+trades contradicts §15. KESTREL decides with frozen rules (R1 trend breakout, R2 weekly momentum, R3 uptrend
+pullback; baselines hold-BTC and random coin) and uses the official Crypto Trading API, signed with a laptop-local
+Ed25519 key, only for prices. PAPER fills use Robinhood's own estimate for the exact quantity on both routes (the
+cheaper wins; the worse of two estimates 2.5 s apart is booked) and a 2% round-trip ceiling. History comes from
+Coinbase public candles because Robinhood has no history endpoint. Sizing mirrors §13.1.1 (10% of $100 + realized,
+cap 15%). No order code exists; LIVE would need the §16 gates and an operator decision. Full design:
+`docs/ROBINHOOD.md`.

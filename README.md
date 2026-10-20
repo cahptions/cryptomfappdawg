@@ -20,6 +20,7 @@ net edge — and stays in PAPER mode indefinitely if it doesn't.
 | [PROGRESS.md](PROGRESS.md) | Current status, measured results, and the exact next step |
 | [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md) | Latest Claude continuation, update commands and checks |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Dashboard, services, backups and recovery on the laptop |
+| [docs/ROBINHOOD.md](docs/ROBINHOOD.md) | The separate Robinhood desk: liquid crypto, PAPER on Robinhood's prices, its own dashboard |
 | [config/](config/) | `default.toml` (all settings), `safety_ceilings.toml` (hard limits), `providers.toml` (data sources) |
 | [docs/design/kestrel-concept.html](docs/design/kestrel-concept.html) | Static visual concept of the dashboard (sample data only) |
 
@@ -210,6 +211,18 @@ Controls cannot arm LIVE or resume stopped entries; `desk resume` remains a term
 Exports include the latest 10,000 positions. See [the runbook](docs/RUNBOOK.md) for service and restore details.
 
 ---
+
+## The Robinhood desk (separate)
+
+A second desk for the liquid crypto Robinhood lists, with its own databases, PAPER book and dashboard on port 8766.
+Same discipline: frozen rules, Robinhood's own prices for every paper fill, baselines to beat, no AI judge, and no
+order code at all. Setup and the first historical results: [docs/ROBINHOOD.md](docs/ROBINHOOD.md).
+
+```bash
+uv run desk rh keygen     # once; paste the printed PUBLIC key into Robinhood (read-only actions)
+uv run desk rh paper      # terminal 1
+uv run desk rh dashboard  # terminal 2 → http://127.0.0.1:8766
+```
 
 ## Free API keys (recommended before M2)
 

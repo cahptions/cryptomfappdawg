@@ -67,6 +67,7 @@ class ProviderHttp:
         cache: SingleFlightCache | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         rng: Callable[[], float] = random.random,
+        signer: Callable[[str, str, bytes], Mapping[str, str]] | None = None,
     ) -> None:
         self.name = name
         self.spec = spec
@@ -79,6 +80,8 @@ class ProviderHttp:
         self.cache = cache or SingleFlightCache()
         self._sleep = sleep
         self._rng = rng
+        # per-attempt request signing (method, path with query as sent, body bytes) -> auth headers
+        self.signer = signer
 
     # ── configuration ──────────────────────────────────────────────────────────────────────────────
     @property
@@ -121,6 +124,7 @@ class ProviderHttp:
         method: str = "GET",
         params: Mapping[str, Any] | None = None,
         json_body: Any = None,
+        content: bytes | None = None,
         prefer_keyless_host: bool = False,
         cache_ttl: float = 0.0,
         label: str | None = None,
@@ -130,7 +134,7 @@ class ProviderHttp:
 
         async def fetch() -> HttpResponse:
             return await self._request_with_retries(label or endpoint, endpoint_spec.bucket, method, url, params,
-                                                    json_body)
+                                                    json_body, content)
 
         if cache_ttl > 0 and method == "GET":
             key = canonical_json([self.name, url, sorted((params or {}).items())])
@@ -138,7 +142,8 @@ class ProviderHttp:
         return await fetch()
 
     async def _request_with_retries(self, endpoint: str, bucket: str, method: str, url: str,
-                                    params: Mapping[str, Any] | None, json_body: Any) -> HttpResponse:
+                                    params: Mapping[str, Any] | None, json_body: Any,
+                                    content: bytes | None = None) -> HttpResponse:
         attempts = self.settings.max_retries + 1
         last_kind = ProviderErrorKind.NETWORK
         last_message = "no attempt made"
@@ -150,9 +155,14 @@ class ProviderHttp:
                 raise ProviderError(self.name, ProviderErrorKind.RATE_LIMITED, f"{endpoint}: {exc}") from exc
             requested_at = utc_now()
             started = time.monotonic()
+            headers = self._headers()
+            if self.signer is not None:
+                # signed requests carry their query in ``url`` so the signed path is exactly what is sent
+                target = httpx.URL(url)
+                headers.update(self.signer(method, target.raw_path.decode("ascii"), content or b""))
             try:
-                response = await self.client.request(method, url, params=params, json=json_body,
-                                                     headers=self._headers(), timeout=self.settings.timeout_seconds)
+                response = await self.client.request(method, url, params=params, json=json_body, content=content,
+                                                     headers=headers, timeout=self.settings.timeout_seconds)
             except httpx.TimeoutException:
                 last_kind, last_message, last_status = ProviderErrorKind.TIMEOUT, f"{endpoint} timed out", None
             except httpx.TransportError as exc:

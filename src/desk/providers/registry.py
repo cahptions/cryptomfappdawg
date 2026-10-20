@@ -44,7 +44,7 @@ class ProviderSpec(_Strict):
     display_name: str
     base_url: str
     keyless_base_url: str | None = None
-    auth: Literal["none", "header", "url"]
+    auth: Literal["none", "header", "url", "ed25519"]   # ed25519: key header plus a per-request signature
     key_env: str | None = None
     key_header: str | None = None
     cost_usd_month: Decimal = Field(ge=0)
@@ -63,8 +63,8 @@ class ProviderSpec(_Strict):
     def _consistent(self) -> Self:
         if self.auth == "header" and not (self.key_env and self.key_header):
             raise ValueError("header auth needs key_env and key_header")
-        if self.auth == "url" and not self.key_env:
-            raise ValueError("url auth needs key_env")
+        if self.auth in ("url", "ed25519") and not self.key_env:
+            raise ValueError(f"{self.auth} auth needs key_env")
         for name, endpoint in self.endpoints.items():
             if endpoint.bucket not in self.buckets:
                 raise ValueError(f"endpoint {name} uses unknown bucket {endpoint.bucket!r}")

@@ -173,3 +173,80 @@ path = ""
 status = "verified"
 verified_fields = ["getHealth", "getSlot", "getAccountInfo(jsonParsed)", "getTokenSupply", "getMinimumBalanceForRentExemption",
   "getTokenLargestAccounts (429 on public RPC)"]
+
+# ── Robinhood Crypto Trading API (the Robinhood desk; separate from the Solana desk) ──
+[providers.robinhood]
+display_name = "Robinhood Crypto"
+base_url = "https://trading.robinhood.com"
+auth = "ed25519"
+key_env = "ROBINHOOD_API_KEY"   # the Ed25519 private key lives in ~/.config/desk/robinhood.key (desk rh keygen)
+cost_usd_month = 0
+documented_limit = "100 requests/min per account, bursts of 300 (token bucket; docs 2026-10-20); timestamps valid 30 s"
+measured_limit = "not measured: needs the operator's key (keyless request answers HTTP 400)"
+freshness_seconds = 0
+failure_handling = "401/403 -> key problem, not retried; 429 -> shared backoff; prices older than their limit are never used"
+fallback = "none for Robinhood prices; Coinbase candles are history only, never a fill price"
+allowed_usage = "US Robinhood Crypto customers; Robinhood Crypto Customer Agreement; read-only credential for PAPER"
+evidence = ["research/evidence/2026-10-20/robinhood_crypto_trading_api_openapi.json",
+  "research/evidence/2026-10-20/robinhood_crypto_fee_schedule_20260622.txt"]
+
+[providers.robinhood.buckets.default]
+windows = [[60, 60], [5, 1]]
+
+[providers.robinhood.endpoints.trading_pairs]
+path = "/api/v2/crypto/trading/trading_pairs/"
+status = "to_verify"
+notes = "paginated (next cursor); documented schema V2TradingPair"
+verified_fields = ["symbol", "asset_code", "quote_code", "asset_increment", "quote_increment", "max_order_size",
+  "min_order_amount", "status", "is_api_tradable"]
+
+[providers.robinhood.endpoints.best_bid_ask]
+path = "/api/v2/crypto/marketdata/best_bid_ask/"
+status = "to_verify"
+notes = "repeat symbol= for several pairs; v2 = partner exchanges, bid/ask exclude the fee"
+verified_fields = ["results[].symbol", "results[].bid", "results[].ask"]
+
+[providers.robinhood.endpoints.estimated_price_v2]
+path = "/api/v2/crypto/trading/estimated_price/"
+status = "to_verify"
+notes = "exchange routing; up to 10 comma-separated quantities; fee tier applied"
+verified_fields = ["results[].{symbol,side,quantity,timestamp,bid,ask,fee_ratio,est_fee,est_total_cost,est_total_credit}"]
+
+[providers.robinhood.endpoints.estimated_price_v1]
+path = "/api/v1/crypto/marketdata/estimated_price/"
+status = "to_verify"
+notes = "market-maker routing; no commission, prices include the spread"
+verified_fields = ["results[].{symbol,side,price,quantity,bid_inclusive_of_sell_spread,sell_spread,ask_inclusive_of_buy_spread,buy_spread,timestamp}"]
+
+[providers.robinhood.endpoints.accounts]
+path = "/api/v2/crypto/trading/accounts/"
+status = "to_verify"
+verified_fields = ["results[].{account_number,status,buying_power,buying_power_currency,is_api_tradable,fee_tier_status}"]
+
+# ── Coinbase Exchange public market data (history for the Robinhood desk; keyless) ──
+[providers.coinbase]
+display_name = "Coinbase Exchange (public)"
+base_url = "https://api.exchange.coinbase.com"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "max 300 candles per request with start/end; historical rates 'should not be polled frequently'"
+measured_limit = "keyless 200s; a request without start/end returned 350 daily bars (2026-10-20)"
+freshness_seconds = 3600
+failure_handling = "429/5xx -> shared backoff; missing bars stay missing (no ticks = no bar), never filled"
+fallback = "the desk's own Robinhood quote history once enough has accumulated"
+allowed_usage = "public market data; private local use"
+evidence = ["research/evidence/2026-10-20/coinbase_candles_probe.json"]
+
+[providers.coinbase.buckets.default]
+windows = [[3, 1], [90, 60]]
+
+[providers.coinbase.endpoints.candles]
+path = "/products/{product}/candles"
+status = "verified"
+notes = "row = [bucket_start_s, low, high, open, close, volume_base]; newest first; newest bar still forming"
+verified_fields = ["[0] bucket start epoch s", "[1] low", "[2] high", "[3] open", "[4] close", "[5] volume (base units)"]
+
+[providers.coinbase.endpoints.products]
+path = "/products"
+status = "verified"
+verified_fields = ["id", "base_currency", "quote_currency", "status", "trading_disabled"]

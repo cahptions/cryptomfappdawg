@@ -109,6 +109,23 @@ the desk could not know (young token, short history, stale data), not a negative
 BLOCKED until PAPER has closed trades, then INSUFFICIENT EVIDENCE until 300; neither is a reason to change anything.
 `uv run desk council run` advises any backlog at once; the PAPER collector already does it every 15 minutes.
 
+## The Robinhood desk
+
+A separate desk with its own data and dashboard (details: `docs/ROBINHOOD.md`). It can run at the same time as the
+Solana desk: different worker lock, databases and port.
+
+```bash
+uv run desk rh keygen      # once: prints the PUBLIC key for Robinhood (web classic → Account → Crypto → API trading)
+uv run desk rh doctor      # after ROBINHOOD_API_KEY is in secrets.env
+uv run desk rh paper       # Ctrl+C to stop; decisions happen once a day after 00:05 UTC
+uv run desk rh dashboard   # http://127.0.0.1:8766
+uv run desk rh backtest --fetch --days 1095   # history simulation (not evidence)
+```
+
+Create the Robinhood credential with read actions only. Without a key the desk still records what it would do
+(SKIP NO_ROBINHOOD_PRICE) and the dashboard's System page shows the setup steps. `touch ~/desk-data/STOP` stops new
+entries on both desks; exits continue.
+
 ## Optional user services
 
 User services require no `sudo`. `desk up` installs the units under `~/.config/systemd/user`, uses the current
