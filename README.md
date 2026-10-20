@@ -124,15 +124,15 @@ keep it running. See the handoff for the currently missing live evidence and pro
 
 ```bash
 uv run desk paper --minutes 4320     # 72 h: collection + discovery + paper entries; starts the guardian itself
-uv run desk paper-report             # results, reconciliation, $100-account replica
+uv run desk paper-report             # results, reconciliation, $500-account replica
 uv run desk confidence               # confidence matrix + readiness per strategy (M6)
 uv run desk stop                     # kill switch: no new entries (open positions stay supervised)
 uv run desk resume                   # clear it (type RESUME)
 ```
 
-Paper cash is $100,000 but every ticket is sized as your $100 account (10% of $100 + realized paper profit), so
+Paper cash is $100,000 but every ticket is sized as your $500 account (10% of $500 + realized paper profit), so
 losing streaks don't stop the learning. Up to 10 paper positions at once (free quote budget). The report also shows
-what the real $100 account would have done (2 positions, its loss limits). Use your keyed laptop setup.
+what the real $500 account would have done (2 positions, its loss limits). Use your keyed laptop setup.
 
 Every paper trade pays realistic fees: Jupiter's swap fee, pool fees and price impact are already inside each quote
 (verified), and three network transactions per round trip (buy, sell, close the token account) are charged from
@@ -159,7 +159,7 @@ uv run desk report readiness     # writes ~/desk-data/reports/READINESS_REPORT.m
 
 The report gives exactly one verdict — INSUFFICIENT EVIDENCE, FAILED VALIDATION, CONTINUE PAPER TESTING or
 ELIGIBLE FOR MANUAL LIVE REVIEW — from recorded data only, with the forward period and collection gaps, the
-observed/conservative/stress results, the $100-account replica, every strategy's confidence matrix, the unresolved
+observed/conservative/stress results, the $500-account replica, every strategy's confidence matrix, the unresolved
 risks, the disclosures and the query behind every figure. While `desk paper` runs it is rewritten every 6 hours and
 the verdict appears on the dashboard (Overview and Research). ELIGIBLE only permits your review; it changes nothing.
 
@@ -203,7 +203,7 @@ uv run desk down                     # stop engine/dashboard; guardian continues
 
 The **Paper trading** tab (`g` then `t`) shows what the paper book is doing in plain English: every look, skip,
 buy and sell with its reason, open positions with their stop, trailing stop and time limit, closed trades after
-fees, the signal-to-trade funnel, fees, the moonshot watch and the $100-account replica.
+fees, the signal-to-trade funnel, fees, the moonshot watch and the $500-account replica.
 
 Built UI assets ship with the repository, so running the dashboard needs Python only. To rebuild UI source,
 run `scripts/build_ui.sh` with Node/npm or Docker installed. No remote fonts, token images, or chart CDN are used.
@@ -267,3 +267,13 @@ Both are free. **Never paste a key into the chat** — they go only into a priva
 - Never paste a seed phrase or private key into any chat, web form, or file in this repository.
 - Developers: run the checks with `uv run pytest` (offline), `uv run pytest -m live` (read-only network tests),
   `uv run ruff check src tests`, and `uv run mypy`.
+
+### Earlier opportunity research and the $500 reference account (2026-10-20)
+
+Both desks now default to a $500 reference account ($50 initial 10% PAPER tickets). The $100,000 learning
+cash cushion and percentage limits are separate. Existing records are retained; restart PAPER normally
+to adopt the new sizing base. Older $100 experiments keep their original results.
+
+The [research report](research/opportunities/README.md) explains current discovery blind spots, eight primary
+sources, the new SHADOW-only lab, validation gates and [exact commands](research/opportunities/HANDOFF.md).
+The Robinhood Learning page displays its report as data arrives; no 24-hour import is required.

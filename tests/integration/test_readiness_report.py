@@ -66,10 +66,10 @@ def test_report_is_reproducible_from_recorded_data_alone(dbs: Any, monkeypatch: 
         assert heading in markdown
     assert "Past PAPER results do not guarantee future returns" in markdown
     assert "No calibrated 30-day market regime exists" in markdown
-    assert "Your $100 account, replayed" in markdown
+    assert "Your reference account, replayed" in markdown
     for figure in ("as-of time (latest recorded PAPER event)", "closed trades", "open exit problems",
                    "market-context coverage and gaps", "confidence matrices, replay agreement",
-                   "realized P&L by cost profile", "network fees paid", "$100-account replica"):
+                   "realized P&L by cost profile", "network fees paid", "reference-account replica"):
         assert f"| {figure} |" in markdown, figure
     row = dbs.research.execute("SELECT payload_json FROM experiments WHERE kind = 'READINESS_REPORT'").fetchone()
     assert summary["markdown_sha256"] in row["payload_json"]

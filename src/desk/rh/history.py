@@ -96,6 +96,8 @@ def backtest(market: RhMarket, loaded: LoadedConfig, symbols: list[str], *, days
     report = {
         "kind": "HISTORICAL SIMULATION (not evidence of future profit)",
         "generated_at": now.isoformat(), "sessions": f"{start.isoformat()}..{end.isoformat()}",
+        "capital_profile": {"reference_capital_usd": str(settings.starting_capital_usd),
+                            "ticket_fraction": str(settings.fixed_fraction)},
         "universe": {"source": universe_source, "requested": len(symbols), "with_history": len(history),
                      "missing_history": sorted(set(symbols) - set(history))},
         "specs": {sid: st.spec_sha256(sid) for sid in st.ORDER},

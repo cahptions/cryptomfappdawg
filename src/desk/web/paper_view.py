@@ -36,7 +36,7 @@ class _ReturnMean:
 
 
 def _replica(dbs: Databases, loaded: LoadedConfig, base: int) -> dict[str, Any]:
-    """Same fixed-$100 replica policy as the CLI, with only accepted open tickets in memory."""
+    """Same fixed-reference-capital replica policy as the CLI, with only accepted open tickets in memory."""
     sizing, limits = loaded.settings.sizing, loaded.settings.limits
     timeline = dbs.paper_ledger.execute(
         "SELECT opened_at AS at,1 AS event_kind,id,ticket_lamports,entry_fees_lamports,exit_fees_lamports,"
@@ -92,7 +92,8 @@ def _replica(dbs: Databases, loaded: LoadedConfig, base: int) -> dict[str, Any]:
             "return": str((Decimal(equity - base) / Decimal(base)).quantize(Decimal("0.0001"))),
             "trades_taken": taken, "skipped": dict(skipped), "open_at_end": sum(item[2] for item in active.values()),
             "max_drawdown": str(max_drawdown.quantize(Decimal("0.0001"))), "halted_by_cumulative_drawdown": halted,
-            "note": "estimate from learning-book fills; open positions occupy slots at zero P&L"}
+            "note": "Counterfactual at the current reference base using historical fills; past tickets unchanged. "
+                    "Linear size approximation, fixed fees unscaled; missing exits are not profits."}
 
 
 def paper_snapshot(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[str, Any]:
@@ -145,6 +146,7 @@ def paper_snapshot(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[
     recomputed = int(meta.get("deposit_lamports", "0")) + int(totals["net_cash"])
     guardian_age = heartbeat_age(dbs.runtime, "guardian", now)
     return {"initialized": True, "book_started_at": meta["book_started_at"], "sol_usd_at_start": meta["sol_usd_at_start"],
+            "base_usd": ledger.reference_capital()["base_usd"], "reference_capital": ledger.reference_capital(),
             "cash_sol": _sol(cash), "deposit_sol": _sol(int(meta["deposit_lamports"])),
             "sizing_capital_sol": _sol(base + max(0, realized)), "base_sol": _sol(base), "realized_pnl_sol": profiles,
             "unrealized_executable_sol": _sol(totals["unrealized"]), "closed_trades": closed_count,
@@ -156,7 +158,7 @@ def paper_snapshot(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[
             "guardian_heartbeat_age_seconds": None if guardian_age is None else round(guardian_age, 1),
             "jupiter_requests_allocated": {row[0]: int(row[1]) for row in dbs.runtime.execute(
                 "SELECT bucket,allocated FROM rate_totals WHERE bucket LIKE 'jupiter:%'")},
-            "replica_100_usd_account": _replica(dbs, loaded, base),
+            "account_replica": _replica(dbs, loaded, base),
             "realized_vs_estimated": "realized P&L uses closed conservative fills; unrealized uses executable sell quotes only",
             "first_trade_at": totals["first_trade"],
             "hours_since_start": round((now - parse_iso8601(meta["book_started_at"])).total_seconds() / 3600, 2)}

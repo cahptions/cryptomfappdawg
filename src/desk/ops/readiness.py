@@ -68,7 +68,7 @@ DISCLOSURES = (
     "separately and does not make them independent evidence.",
     "Decisions before a calibrated 30-day market regime existed were taken with the regime recorded as "
     "uncalibrated; LIVE requires a calibrated regime (gate 7).",
-    "The $100-account replica is an estimate replayed from the learning-book fills, not a funded account.",
+    "The reference-account replica is an estimate replayed from the learning-book fills, not a funded account.",
 )
 
 
@@ -201,7 +201,7 @@ def readiness_report(dbs: Databases, loaded: LoadedConfig) -> tuple[str, dict[st
     positions = [dict(r) for r in conn.execute("SELECT * FROM positions ORDER BY opened_at, id")]
     account = replica([r for r in positions if r["state"] == "CLOSED"], [r for r in positions if r["state"] != "CLOSED"],
                       loaded, ledger.base_lamports())
-    sources.note("$100-account replica", "ledger-paper.db",
+    sources.note("reference-account replica", "ledger-paper.db",
                  "desk.paper.report.replica over SELECT * FROM positions ORDER BY opened_at, id")
     reconciliation = ledger.reconcile()
     sources.note("ledger reconciliation", "ledger-paper.db",
@@ -262,7 +262,7 @@ def readiness_report(dbs: Databases, loaded: LoadedConfig) -> tuple[str, dict[st
         lines.append("| — | 0 | — | — | — |")
     lines += ["", f"Realized P&L across all closed trades: observed {_sol(int(totals[0]))}, conservative "
               f"{_sol(int(totals[1]))}, stress {_sol(int(totals[2]))}. Network fees paid: {_sol(fees_paid)}.", "",
-              "Your $100 account, replayed from the same fills under its own limits (an estimate): return "
+              "Your reference account, replayed from the same fills under its own limits (an estimate): return "
               f"{_pct(float(account['return']))}, maximum drawdown {float(account['max_drawdown']) * 100:.2f}%, "
               f"{account['trades_taken']} trades taken, {sum(account['skipped'].values())} skipped by its limits"
               + (", halted by the cumulative-drawdown limit." if account.get("halted_by_cumulative_drawdown") else "."),

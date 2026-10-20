@@ -138,8 +138,8 @@ of M4 that still matter were moved, not deleted:
 | M5-18 | Sleep/resume handling | FI | Simulated wall-clock jump of 30 min ⇒ entries halted, data marked stale, positions re-quoted and reconciled before resuming |
 | M5-19 | **End-to-end PAPER lifecycle** | E2E | Recorded-fixture scenario: discovery → funnel → decision → sized entry → marks → exit by trailing stop → reconciliation → report; every step present in the audit trail |
 | M5-20 | 72-hour live PAPER run | L/R | Report trades, rejections, costs by item, halts, quote-budget usage, RSS; zero unreconciled positions |
-| M5-21 | Learning-book sizing (operator 2026-10-19) | U | Ticket = 10% × ($100 base + realized PAPER profit); losses never shrink it; 15% cap, fee floor, liquidity cap and cash still bind |
-| M5-22 | $100-account replica | U | The same entries replayed under the real account's limits (2 positions, daily loss, trades/day, cumulative drawdown, fee floor) are reported separately |
+| M5-21 | Learning-book sizing (operator 2026-10-19) | U | Ticket = 10% × ($500 base + realized PAPER profit); losses never shrink it; 15% cap, fee floor, liquidity cap and cash still bind |
+| M5-22 | $500-account replica | U | The same entries replayed under the real account's limits (2 positions, daily loss, trades/day, cumulative drawdown, fee floor) are reported separately |
 | M5-23 | Fee realism (operator 2026-10-19) | U/L | Jupiter's platform fee is never deducted twice (recorded live comparison); network fees use ≥ 6 measured taker orders in 24 h at p90 × 1.5, else the conservative model; a round trip pays three transactions (buy, sell, close the token account); every closed trade records its fee breakdown and source |
 | M5-24 | Conviction sizing (operator 2026-10-19) | U | Only H8 sizes up (1.5×, never above the 15% cap) and only with PASS net-expectancy evidence ≤ 7 days old for its exact version plus the extra signal; every entry records the policy, checks and the size it would have used |
 
@@ -245,7 +245,7 @@ of forward PAPER evidence on the laptop; no tooling can shorten that.
 | R-05 | Realistic PAPER fills | I | Both routes estimated for the exact quantity; cheaper buy, better sell, worse of two estimates booked; round trip above 2% refused |
 | R-06 | Ledger integrity and halts | I | Entries and closed positions immutable; hard stops on the best bid (none on hold-BTC); $1,000 cumulative loss halts entries |
 | R-07 | Works before the key exists | I | History and signals recorded as SKIP NO_ROBINHOOD_PRICE; nothing trades |
-| R-08 | Separate dashboard | U/B | Port 8766, loopback only, read-only; $100-account view, coins, coin "why" checklist, strategies vs baselines, light/dark, phone width |
+| R-08 | Separate dashboard | U/B | Port 8766, loopback only, read-only; $500-account view, coins, coin "why" checklist, strategies vs baselines, light/dark, phone width |
 | R-10 | Continuous v2 checks | I/B | Closed 15m / 1h / 4h / 1d readiness; afternoon checks without a daily session; no synthetic gap filling, stale inputs or restart replay; chart intervals and version-separated evidence |
 | R-09 | Forward evidence | R | Weeks of PAPER on Robinhood's prices with measured costs; until then the history simulation is labelled as such |
 

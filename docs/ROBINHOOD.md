@@ -63,7 +63,7 @@ least $1M. Entry priority when the book is full: B1, B2, R1, R2, R3.
 
 ## Money rules (same as the Solana learning book)
 
-* Paper learning cash $100,000 (never binding); tickets sized for the $100 account: 10% of ($100 + realized
+* Paper learning cash $100,000 (never binding); tickets sized for the $500 account: 10% of ($500 + realized
   profit), never above 15%. At most 10 open positions; R1 3, R2 3, R3 2, each baseline 1.
 * An entry needs Robinhood's own estimate for the exact quantity on both routes, a measured round trip of at most
   2%, and room in the book. After a 2.5 s wait a second estimate is taken and the worse one is booked.
@@ -103,7 +103,7 @@ uv run desk rh doctor                 # key, account, pairs, a quote, Coinbase h
 uv run desk rh backtest --fetch       # download history, simulate 730 days (add --days 1095)
 uv run desk rh paper                  # the PAPER engine (Ctrl+C to stop); add --minutes N for a timed run
 uv run desk rh dashboard              # http://127.0.0.1:8766 (this laptop only)
-uv run desk rh report                 # the $100 account, strategies, last session
+uv run desk rh report                 # the $500 account, strategies, last session
 ```
 
 Setting up the read-only key: `desk rh keygen`, then robinhood.com (web classic) → Account → Crypto → API trading →

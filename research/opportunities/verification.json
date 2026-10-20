@@ -1,0 +1,48 @@
+{
+  "scope": "Software/research verification only; no empirical trading edge or laptop acceptance claimed",
+  "baseline_commit": "9c255ff30beeb3cfce363e1f8314a0ab12da595b",
+  "branch": "codex/early-opportunity-research",
+  "checks": {
+    "offline_pytest": {
+      "passed": 911,
+      "deselected_live": 5,
+      "warnings": "Existing Starlette TestClient/httpx deprecation",
+      "seconds": 72.81
+    },
+    "final_opportunity_tests_after_quote_provenance_fields": {
+      "passed": 12
+    },
+    "ruff": "PASS: src/desk, tests, research/opportunities/benchmark.py",
+    "strict_mypy": "PASS: 155 source files",
+    "typescript_vite": "PASS: production assets rebuilt",
+    "frozen_machine_specs_match_runtime": "PASS; both references 500; default LIVE allocation zero",
+    "git_diff_check": "PASS",
+    "browser": {
+      "engine": "Chromium 154.0.8037.57",
+      "robinhood": [
+        "Empty and populated",
+        "Light/dark",
+        "Desktop and 375px phone",
+        "Capital labels use $500",
+        "Research report/missing state and phone overflow"
+      ],
+      "solana": [
+        "Populated, 1920/1366/390 widths",
+        "Account replica, feed/exit levels, dossiers and exact raw trade exports",
+        "Single SSE through 24 navigation cycles; no JS/CSP/request errors",
+        "2-second heap sample only, not a long-term leak test"
+      ]
+    }
+  },
+  "what_tests_do_not_prove": [
+    "Profitable signal",
+    "Live fills or liquidity",
+    "Future net expectancy or calibrated probability",
+    "Timed 24h collection or 72h PAPER acceptance",
+    "Performance of long multi-month queues on operator laptop"
+  ],
+  "data_access": "No operator credentials, wallets, real provider calls or laptop databases used by new research verification",
+  "sources": "sources.json: eight substantive partial primary-source readings, no empirical replication",
+  "resource_workload": "benchmark.json: disposable synthetic 90-pair / 8640-bar check, cloud host",
+  "production_boundary": "Only authorized $500 reference change affects future PAPER sizing. Opportunity labs influence NONE; no LIVE activation or trading."
+}

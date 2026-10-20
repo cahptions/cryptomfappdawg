@@ -176,7 +176,8 @@ def report(paths: DeskPaths) -> dict[str, Any]:
 def print_report(data: dict[str, Any]) -> None:
     account = data["account"]
     print(f"\nKESTREL Robinhood desk — PAPER ({'Robinhood prices' if data['robinhood_prices'] else 'no live prices'})")
-    print(f"  $100 account: ${account['equity']} (realized {account['realized']}, unrealized {account['unrealized']});"
+    print(f"  ${account['starting_capital']} reference account: ${account['equity']}"
+          f" (realized {account['realized']}, unrealized {account['unrealized']});"
           f" ticket ${account['ticket']}; open {account['open_positions']}"
           + (f"; ENTRIES HALTED: {account['halted']}" if account["halted"] else ""))
     last = (data["session"] or {}).get("last") or {}

@@ -265,6 +265,20 @@ class RhLedger:
         self.conn.execute("INSERT INTO rh_events(at, kind, position_id, payload_json) VALUES (?, ?, ?, ?)",
                           (to_iso(at), kind, position_id, canonical_json(payload)))
 
+    def sync_reference_capital(self, base: Decimal, at: datetime) -> None:
+        """Version sizing capital without altering learning cash or any historical position."""
+        if base <= 0:
+            raise ValueError("positive reference capital required")
+        with transaction(self.conn):
+            row = self.conn.execute("SELECT payload_json FROM rh_events WHERE kind = 'REFERENCE_CAPITAL'"
+                                    " ORDER BY id DESC LIMIT 1").fetchone()
+            previous = json.loads(row[0])["base_usd"] if row else None
+            if previous is not None and Decimal(previous) == base:
+                return
+            self._event(at, "REFERENCE_CAPITAL", None, {"base_usd": str(base), "previous_base_usd": previous,
+                        "effective_at": to_iso(at), "scope": "future PAPER sizing; no cash flow or P&L",
+                        "legacy_basis": "unrecorded" if previous is None else "recorded"})
+
     def event(self, at: datetime, kind: str, payload: dict[str, Any], position_id: str | None = None) -> None:
         with transaction(self.conn):
             self._event(at, kind, position_id, payload)

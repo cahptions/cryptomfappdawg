@@ -175,6 +175,8 @@ export interface EquitySeries {
 }
 
 export interface LearningProcedure {
+  ticket_usd?: number;
+  curve_kind?: string;
   label: string;
   folds: number;
   trades: number;

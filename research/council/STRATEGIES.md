@@ -79,7 +79,7 @@ All profiles are spot/long-only research. No short hedge, margin or borrowing is
 
 Freeze membership daily from information already available; keep admitted members, failures and outcomes
 after they disappear. First observed age is a lower bound on age, not a verified creation timestamp.
-The $100small-account replica and $100,000learning book remain separate. Sizing/risk supplies the intended
+The $500small-account replica and $100,000learning book remain separate. Sizing/risk supplies the intended
 ticket; neither advisor calculates an allocation or increases a ticket.
 
 ### Exact-size cost qualification
@@ -99,7 +99,7 @@ Qualification requires `0 <= c_rt <= min(existing risk limit, 0.03)` for the mem
 for equity/liquid-crypto research are0.005/0.01 respectively; these are conservative starting hypotheses,
 not measured venue costs. Stress wider costs, route loss and adverse movement separately.
 
-Realized modeled return in the $100SOL replica is
+Realized modeled return in the $500SOL replica is
 `(actual_or_modeled_exit_SOL - entry_SOL - nonembedded_entry/exit/failed_fees - irrecoverable_rent) / entry_SOL`.
 Reserve refundable rent as capital occupancy and release it only under the stated accounting model; do not
 silently treat it as certain immediate cash. A token's USD return or regression residual is not SOL profit.

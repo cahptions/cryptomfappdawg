@@ -14,7 +14,7 @@ from desk.core.errors import ConfigError
 def test_real_config_loads_and_defaults_to_shadow(config_dir: Path) -> None:
     loaded = load_config(config_dir)
     assert loaded.settings.desk.mode is Mode.SHADOW
-    assert str(loaded.settings.paper.starting_capital_usd) == "100"
+    assert str(loaded.settings.paper.starting_capital_usd) == "500"
     assert len(loaded.snapshot_hash) == 64
     assert loaded.settings.sizing.max_ticket_fraction_equity == loaded.settings.sizing.max_ticket_fraction_free_capital
     assert loaded.settings.sizing.max_ticket_sol is None

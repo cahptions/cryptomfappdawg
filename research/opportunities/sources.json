@@ -1,0 +1,178 @@
+{
+  "sources": [
+    {
+      "id": "EQ1",
+      "url": "https://raw.githubusercontent.com/xhlgogo/Quantitative-Investment-Trading-system/master/paper/10.Time%20Series%20Momentum.pdf",
+      "bytes": 997501,
+      "sha256": "2d23607952040e43bc761164c8fdc40a49df024e18221a8e8ab2817eb383bc47",
+      "extracted": true,
+      "title": "Time series momentum",
+      "authors": [
+        "Tobias J. Moskowitz",
+        "Yao Hua Ooi",
+        "Lasse Heje Pedersen"
+      ],
+      "year": 2012,
+      "version": "Published JFE 104, 228\u2013250",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Sections 2\u20133, Tables 1\u20132; PDF pages 3\u20138",
+      "limitations": "Liquid diversified long/short futures; monthly horizon; no transferred execution model",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "EQ2",
+      "url": "https://raw.githubusercontent.com/xhlgogo/Quantitative-Investment-Trading-system/master/paper/4.Momentum%20Crashes.pdf",
+      "bytes": 5342118,
+      "sha256": "3c3536414532375a4f437949f6a56258378940344cfc8d2e8181b7a9e4bb06d2",
+      "extracted": true,
+      "title": "Momentum crashes",
+      "authors": [
+        "Kent Daniel",
+        "Tobias J. Moskowitz"
+      ],
+      "year": 2016,
+      "version": "Published JFE 122, 221\u2013247",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Sections 2.1\u20132.3, Figure 1, Table 1; PDF pages 2\u20134, 8",
+      "limitations": "US CRSP equities 1927\u20132013; long/short portfolio, cited figure excludes costs",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "EQ4",
+      "url": "https://raw.githubusercontent.com/kuzeysahin-ai/quant-paper-pipeline.2/main/papers/paper-02-groot-huij-zhou-2012/source.pdf",
+      "bytes": 849028,
+      "sha256": "4881581ef1dbd72fae0fbc30341864c0e7644893d1d1d812110156d3accf9d14",
+      "extracted": true,
+      "title": "Another look at trading costs and short-term reversal profits",
+      "authors": [
+        "Wilma de Groot",
+        "Joop Huij",
+        "Weili Zhou"
+      ],
+      "year": 2012,
+      "version": "July 2011 accepted manuscript; publication year 2012",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Sections 2, 4.1\u20134.2, 5, Appendix B; PDF pages 8\u201310, 16\u201323, 31+",
+      "limitations": "Large-stock samples; institutional modeled costs, not new crypto spot or unfilled-order costs",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "crypto_pairs",
+      "url": "https://raw.githubusercontent.com/jackywong1228/CTA-Quant-Papers/0c30ae8c0cdb2cc671f4a19a277633462f21cc2b/73_Cointegration_Pairs_Trading_Crypto_Tadi2021.pdf",
+      "bytes": 847504,
+      "sha256": "5ab7b697a7ad0787246fc7cb7da93cf13ba1a03ce12cce8498682ac4bb14cf46",
+      "extracted": true,
+      "title": "Evaluation of Dynamic Cointegration-Based Pairs Trading Strategy in the Cryptocurrency Market",
+      "authors": [
+        "Masood Tadi",
+        "Irina Kortchemski"
+      ],
+      "year": 2021,
+      "version": "arXiv:2109.10662v1",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Table I, Sections 3\u20134, 7\u20138; PDF pages 6\u20138, 19\u201322, 26\u201327",
+      "limitations": "BitMEX derivatives 2018\u20132019; maker rebates, funding and short legs not available here",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "uniswap_v2_master",
+      "url": "https://raw.githubusercontent.com/Uniswap/docs/1c7597d73be0e9a3a4e44aa75b8fb212b40ea136/archive/static/whitepaper.pdf",
+      "bytes": 316194,
+      "sha256": "32f8efd517767d8effb908e322df5ed1fe746ad0a3e642d49596cf2de1a6d21d",
+      "extracted": true,
+      "title": "Uniswap v2 Core",
+      "authors": [
+        "Hayden Adams",
+        "Noah Zinsmeister",
+        "Dan Robinson"
+      ],
+      "year": 2020,
+      "version": "March 2020 technical whitepaper",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Sections 2.1\u20132.2, equations 1\u20133, Section 3.2.1, equations 9\u201311; PDF pages 2\u20134, 7",
+      "limitations": "Protocol mechanics only; no empirical alpha result; fee and block assumptions venue-specific",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "V1",
+      "url": "https://raw.githubusercontent.com/coolgan/Volatility-Managed-Portfolios-Sometimes-it-Works/057ac211dcbdc8564a81f626a59cdffa13322229/reference/%E3%80%90Cederburg%2C%202020%2C%20JFE%E3%80%91On%20the%20performance%20of%20volatility-managed%20portfolios.pdf",
+      "bytes": 974329,
+      "sha256": "cd25244d8a350f1fcf6c9851a69b55f489fe2d633f33420acc22625db6ac99c7",
+      "extracted": true,
+      "title": "On the performance of volatility-managed portfolios",
+      "authors": [
+        "Scott Cederburg",
+        "Michael S. O\u2019Doherty",
+        "Feifei Wang",
+        "Xuemin (Sterling) Yan"
+      ],
+      "year": 2020,
+      "version": "Published JFE 138, 95\u2013117",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Sections 2\u20134, Tables 1\u20132, 6, 9; PDF pages 2\u20137 and project counterevidence notes",
+      "limitations": "103 equity strategies; structural instability and out-of-sample implementation limitations",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "network",
+      "url": "https://raw.githubusercontent.com/jackywong1228/CTA-Quant-Papers/0c30ae8c0cdb2cc671f4a19a277633462f21cc2b/16_Follow_the_Leader_Trend_Li2025.pdf",
+      "bytes": 6152837,
+      "sha256": "c2f4fdce8495513e2111aa0b56f5a66f45f131c238843fd8671b571c5b462130",
+      "extracted": true,
+      "title": "Follow the Leader: Enhancing Systematic Trend-Following Using Network Momentum",
+      "authors": [
+        "Linze Li",
+        "William Ferreira"
+      ],
+      "year": 2025,
+      "version": "arXiv:2501.07135v1, 13 January 2025",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Sections 4.1 and 5.2, cost and resampling discussions; PDF pages 6, 8\u20139",
+      "limitations": "28 futures; half-spread convention, daily synchronization, no intraday crypto replication",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    },
+    {
+      "id": "changepoint",
+      "url": "https://raw.githubusercontent.com/jackywong1228/CTA-Quant-Papers/0c30ae8c0cdb2cc671f4a19a277633462f21cc2b/21_Slow_Momentum_Fast_Reversion_Wood2021.pdf",
+      "bytes": 530350,
+      "sha256": "2b1906296d29b41dbb1792b3a2c44d6626d66162fc91e2160cac3780c7778353",
+      "extracted": true,
+      "title": "Slow Momentum with Fast Reversion: A Trading Strategy Using Deep Learning and Changepoint Detection",
+      "authors": [
+        "Kieran Wood",
+        "Stephen Roberts",
+        "Stefan Zohren"
+      ],
+      "year": 2021,
+      "version": "arXiv:2105.13727v3",
+      "access": "Complete PDF downloaded; substantive partial reading",
+      "read_scope": "Online CPD, Section IV, Appendix cost/hyperparameter discussion; PDF pages 4, 6\u20137, 13",
+      "limitations": "Futures 1995\u20132020; main objective excludes costs at that stage, tuned LSTM/GP not implemented",
+      "replicated": false,
+      "access_date": "2026-10-20",
+      "third_party_pdf_committed": false
+    }
+  ],
+  "unread_leads": [
+    "Liu\u2013Tsyvinski cryptocurrency risk/factors",
+    "Makarov\u2013Schoar cryptocurrency arbitrage",
+    "Cong and coauthors crypto wash trading",
+    "Probability of Backtest Overfitting",
+    "Deflated Sharpe Ratio"
+  ],
+  "network_limit": "Direct arXiv proxy CONNECT denied; accessible public GitHub copies used normally. Mirrors and hashes do not prove independent replication."
+}

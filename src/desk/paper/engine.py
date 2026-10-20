@@ -88,6 +88,7 @@ class PaperEngine:
         repo.register_specs(superseded_specs(), self.clock())
         repo.register_specs(self.specs, self.clock())
         if self.ledger.initialized():
+            self.ledger.sync_reference_capital(self.loaded.settings.paper.starting_capital_usd, self.clock())
             return
         one_sol = sol_to_lamports(Decimal(1))
         spot = await self._quote(SOL_MINT, USDC_MINT, one_sol)

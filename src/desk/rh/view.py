@@ -111,6 +111,7 @@ class RhView:
             "invested": _f(cost), "learning_cash": _f(ledger.cash()),
             "ticket": _f((base + realized) * min(self.settings.fixed_fraction, self.settings.max_ticket_fraction)),
             "halted": ledger.halted(), "open_positions": len(open_),
+            "capital_view": "Current reference capital plus actual PAPER P&L. Historical tickets are unchanged.",
         }
 
     def _positions(self, ledger: RhLedger, market: RhMarket, now: datetime) -> list[dict[str, Any]]:
@@ -258,7 +259,8 @@ class RhView:
                 "strategies": self._strategies(ledger, market, backtest), "activity": self._activity(ledger, market),
                 "session": self._session(ledger, market, now),
                 "backtest": None if backtest is None else {k: backtest.get(k) for k in (
-                    "kind", "sessions", "generated_at", "btc_buy_and_hold_return", "cost_model", "universe", "caveats")},
+                    "kind", "sessions", "generated_at", "btc_buy_and_hold_return", "cost_model", "universe", "caveats",
+                    "capital_profile")},
                 "limits": {"ticket_fraction": str(self.settings.fixed_fraction),
                            "max_roundtrip_cost": str(self.settings.max_roundtrip_cost_fraction),
                            "max_open_positions": self.settings.max_open_positions},
@@ -274,7 +276,9 @@ class RhView:
         try:
             offset = self.settings.learning_cash_usd - self.settings.starting_capital_usd
             series = RhLedger(dbs.ledger).equity_series(now - spans[span])
-            return {"span": span, "points": [[t.isoformat(), _f(v - offset)] for t, v in series]}
+            return {"span": span, "points": [[t.isoformat(), _f(v - offset)] for t, v in series],
+                    "reference_capital_usd": str(self.settings.starting_capital_usd),
+                    "kind": "PAPER P&L rebased to current reference capital; past position sizes unchanged"}
         finally:
             dbs.close()
 

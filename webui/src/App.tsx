@@ -2250,7 +2250,7 @@ function PaperView({ onDetail }: { onDetail: (detail: Detail) => void }) {
             <Empty
               icon="receipt"
               title="Start PAPER to open the learning book."
-              detail="Use Start PAPER above or run desk paper in a terminal. The book opens with $100,000 of simulated cash, and every ticket is sized as your $100 account would size it."
+              detail="Use Start PAPER above or run desk paper in a terminal. The book opens with $100,000 of simulated cash, and every ticket is sized as your reference account would size it."
             />
           </Panel>
         </div>
@@ -2309,16 +2309,16 @@ function PaperView({ onDetail }: { onDetail: (detail: Detail) => void }) {
           detail={
             blockers.length
               ? `Not now: ${blockers[0]}`
-              : `10% of ${fmt(book.sizing_capital_sol, 4)} SOL ($100 base + profit)`
+              : `10% of ${fmt(book.sizing_capital_sol, 4)} SOL ($${fmt(book.base_usd, 0)} base + profit)`
           }
-          title="Size of the next normal entry: 10% of the $100-account base plus realized profit. Losses never shrink the base. An evidence-backed moonshot signal may use up to 15%."
+          title="Size of the next normal entry: 10% of the reference-account base plus realized profit. Losses never shrink the base. An evidence-backed moonshot signal may use up to 15%."
         />
         <Metric
           label="Realized P&L"
           value={signed(book.realized_sol, 4)}
           suffix="SOL"
           positive={(number(book.realized_sol) ?? 0) > 0}
-          detail={`${pct(book.return_on_base)} of the $100 base · stress ${signed(book.realized_stress_sol, 4)}`}
+          detail={`${pct(book.return_on_base)} of the $${fmt(book.base_usd, 0)} base · stress ${signed(book.realized_stress_sol, 4)}`}
           title="Result of closed paper trades under the conservative fill: the worse of two quotes, simulated failures, and every network fee. Observed and stress profiles are shown for comparison."
         />
         <Metric
@@ -2437,7 +2437,7 @@ function PaperView({ onDetail }: { onDetail: (detail: Detail) => void }) {
           />
         </Panel>
         <Panel
-          title="$100 account replica"
+          title={`$${fmt(book.base_usd, 0)} account replica`}
           eyebrow="YOUR ACCOUNT, REPLAYED"
           className="span-4"
         >
@@ -2449,7 +2449,7 @@ function PaperView({ onDetail }: { onDetail: (detail: Detail) => void }) {
               {pct(replica?.return)}
             </strong>
             <p>
-              The same fills replayed through the real $100 account's limits:
+              The same fills replayed through the real reference account's limits:
               one ticket at a time per slot, daily loss and drawdown stops, and
               fixed fees. {replica?.note ? `(${replica.note})` : ""}
             </p>
@@ -2974,7 +2974,7 @@ export default function App() {
     overview: "A patient desk. A complete picture. Real observations only.",
     scanner: "Source observations, security decisions, and market context.",
     paper:
-      "Every look, skip, buy and sell in plain English. $100-account tickets, real quotes, fees included.",
+      "Every look, skip, buy and sell in plain English. reference-account tickets, real quotes, fees included.",
     positions: "Simulated exposure, executable marks, and protective exits.",
     strategies:
       "Versioned strategy evidence. No automatic promotion to real trading.",
@@ -3196,12 +3196,12 @@ export default function App() {
                 title="Open PAPER positions. Unrealized P&L includes only executable sell marks and can change before an exit."
               />
               <Metric
-                label="$100 account replica"
-                value={pct(paper?.replica_100_usd_account?.return)}
-                detail={`${paper?.replica_100_usd_account?.trades_taken ?? 0} trades · estimate from learning fills`}
+                label={`$${fmt(paper?.base_usd, 0)} account replica`}
+                value={pct(paper?.account_replica?.return)}
+                detail={`${paper?.account_replica?.trades_taken ?? 0} trades · estimate from learning fills`}
                 title={
-                  paper?.replica_100_usd_account?.note ||
-                  "Estimated return of a $100 account from learning-book fills, risk limits, and fixed fees. Not a funded account or live result."
+                  paper?.account_replica?.note ||
+                  "Estimated return of a reference account from learning-book fills, risk limits, and fixed fees. Not a funded account or live result."
                 }
               />
             </div>
@@ -3482,40 +3482,40 @@ export default function App() {
                 <Confidence matrices={matrices} onDetail={setDetail} />
               </Panel>
               <Panel
-                title="$100 account replica"
+                title={`$${fmt(paper?.base_usd, 0)} account replica`}
                 eyebrow="CONSTRAINED ESTIMATE"
                 className="span-4"
               >
                 <div className="replica-card">
                   <span className="eyebrow">ESTIMATED RETURN</span>
                   <strong className="replica-return num">
-                    {pct(paper?.replica_100_usd_account?.return)}
+                    {pct(paper?.account_replica?.return)}
                   </strong>
                   <p>
-                    {paper?.replica_100_usd_account?.note ||
+                    {paper?.account_replica?.note ||
                       "The replica replays the learning-book fills with small-account risk limits and fixed fees. It is not live performance."}
                   </p>
                   <dl className="simple-facts">
                     <div>
                       <dt>Estimated equity</dt>
                       <dd className="num">
-                        {fmt(paper?.replica_100_usd_account?.equity_sol)} SOL
+                        {fmt(paper?.account_replica?.equity_sol)} SOL
                       </dd>
                     </div>
                     <div>
                       <dt>Trades taken</dt>
                       <dd className="num">
-                        {paper?.replica_100_usd_account?.trades_taken ?? "—"}
+                        {paper?.account_replica?.trades_taken ?? "—"}
                       </dd>
                     </div>
                     <div>
                       <dt>Maximum drawdown</dt>
                       <dd className="num">
                         {number(
-                          paper?.replica_100_usd_account?.max_drawdown,
+                          paper?.account_replica?.max_drawdown,
                         ) === null
                           ? "—"
-                          : `${fmt(Number(paper?.replica_100_usd_account?.max_drawdown) * 100, 2)}%`}
+                          : `${fmt(Number(paper?.account_replica?.max_drawdown) * 100, 2)}%`}
                       </dd>
                     </div>
                   </dl>

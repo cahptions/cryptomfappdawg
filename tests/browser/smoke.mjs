@@ -111,7 +111,7 @@ try {
     await page.getByRole('heading', { name: "What it's doing", exact: true }).waitFor();
     const feed = page.locator('.audit-list.plain-titles > li');
     await feed.first().waitFor();
-    assert.match(await page.locator('.audit-list.plain-titles').innerText(), /Bought FIXTURE for 0\.100000 SOL/);
+    assert.match(await page.locator('.audit-list.plain-titles').innerText(), /Bought FIXTURE for 0\.500000 SOL/);
     assert.match(await page.locator('.audit-list.plain-titles').innerText(), /Sold .*: \+/);
     const everything = await feed.count();
     await page.getByRole('button', { name: /^Trades/ }).click();

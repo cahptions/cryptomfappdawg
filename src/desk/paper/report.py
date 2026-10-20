@@ -1,4 +1,4 @@
-"""``desk paper-report``: learning-book results by profile/strategy/exit, reconciliation, and the $100 replica."""
+"""``desk paper-report``: learning-book results by profile/strategy/exit, reconciliation, and the reference replica."""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ def _sol(lamports: int) -> str:
 
 def replica(closed: list[dict[str, Any]], still_open: list[dict[str, Any]], loaded: LoadedConfig,
             base_lamports: int) -> dict[str, Any]:
-    """Estimate what the real $100 account would have done with the same signals (PLAN §13.1.1, §13.2).
+    """Estimate what the real reference account would have done with the same signals (PLAN §13.1.1, §13.2).
 
     Opens and closes are replayed on one timeline (a close at the same instant is processed first). The account
-    starts with $100, sizes at fraction x min(equity, $100) (no evidence-gated growth yet), and refuses an entry
+    starts with the reference base, sizes at fraction x min(equity, base) (no evidence-gated growth yet), and refuses an entry
     for: cumulative drawdown halt (permanent), daily realized loss, daily equity drawdown, trades/day, open
     positions, total exposure, free cash, or fee floor/minimum ticket. Each UTC day's limits use that day's
     start equity and only P&L realized on that day. Returns scale linearly from the learning-book fill; fixed
@@ -90,7 +90,8 @@ def replica(closed: list[dict[str, Any]], still_open: list[dict[str, Any]], load
             "return": str((Decimal(equity - base_lamports) / Decimal(base_lamports)).quantize(Decimal("0.0001"))),
             "trades_taken": taken, "skipped": dict(skipped), "open_at_end": open_at_end,
             "max_drawdown": str(max_drawdown.quantize(Decimal("0.0001"))), "halted_by_cumulative_drawdown": halted,
-            "note": "estimate from learning-book fills; open positions occupy slots at zero P&L"}
+            "note": "Counterfactual at the current reference base using historical fills; past tickets unchanged. "
+                    "Linear size approximation, fixed fees unscaled; missing exits are not profits."}
 
 
 def paper_report(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[str, Any]:
@@ -131,6 +132,7 @@ def paper_report(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[st
     guardian_age = heartbeat_age(dbs.runtime, "guardian", now)
     return {
         "initialized": True, "book_started_at": meta["book_started_at"], "sol_usd_at_start": meta["sol_usd_at_start"],
+        "base_usd": ledger.reference_capital()["base_usd"], "reference_capital": ledger.reference_capital(),
         "cash_sol": _sol(ledger.cash_lamports()), "deposit_sol": _sol(int(meta["deposit_lamports"])),
         "sizing_capital_sol": _sol(base + max(0, realized)), "base_sol": _sol(base),
         "realized_pnl_sol": {name: _sol(value) for name, value in profiles.items()} or {"conservative": _sol(0)},
@@ -147,7 +149,7 @@ def paper_report(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[st
         "halted": ledger.halted(), "stop_file": stop_file_set(dbs),
         "guardian_heartbeat_age_seconds": None if guardian_age is None else round(guardian_age, 1),
         "jupiter_requests_allocated": jupiter,
-        "replica_100_usd_account": replica(closed, still_open, loaded, base),
+        "account_replica": replica(closed, still_open, loaded, base),
         "realized_vs_estimated": "realized P&L uses closed conservative fills; unrealized uses executable sell quotes only",
         "first_trade_at": rows[0]["opened_at"] if rows else None,
         "hours_since_start": round((now - parse_iso8601(meta["book_started_at"])).total_seconds() / 3600, 2),

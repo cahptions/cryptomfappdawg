@@ -414,7 +414,8 @@ def paper_tab(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[str, 
     return {
         "initialized": True,
         "status": _status(dbs, loaded, ledger, now, len(open_rows)),
-        "book": {"started_at": meta["book_started_at"], "sol_usd_at_start": meta["sol_usd_at_start"],
+        "book": {"base_usd": ledger.reference_capital()["base_usd"], "reference_capital": ledger.reference_capital(),
+                 "started_at": meta["book_started_at"], "sol_usd_at_start": meta["sol_usd_at_start"],
                  "cash_sol": _sol(cash), "deposit_sol": _sol(int(meta["deposit_lamports"])), "base_sol": _sol(base),
                  "sizing_capital_sol": _sol(base + max(0, realized)), "realized_sol": _sol(realized),
                  "realized_observed_sol": _sol(int(profile_totals["observed"])),
@@ -430,7 +431,7 @@ def paper_tab(dbs: Databases, loaded: LoadedConfig, now: datetime) -> dict[str, 
         "exit_reasons": {plain(r["exit_reason"]): r["n"] for r in conn.execute(
             "SELECT exit_reason, COUNT(*) AS n FROM positions WHERE state = 'CLOSED' GROUP BY exit_reason ORDER BY n DESC")},
         "curve": curve, "replica": _replica(dbs, loaded, base), "fees": fee_summary, "moonshot": moonshot,
-        "notes": ["Paper cash is $100,000; every ticket is sized as the $100 account (10% of $100 + realized profit), "
+        "notes": ["Paper cash is $100,000; tickets use the configured reference base plus realized profit, "
                   "up to 15% for an evidence-backed moonshot signal.",
                   "Realized results use the conservative fill; observed and stress are shown for comparison.",
                   "Unrealized values use executable sell quotes only; stops are not guaranteed."],

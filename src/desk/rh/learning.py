@@ -119,7 +119,10 @@ def run_and_record(market: RhMarket, loaded: LoadedConfig, now: datetime) -> Run
     yesterday = now.date() - timedelta(days=1)
     panel = learn.build_panel(load_daily(market, symbols), until=yesterday)
     cost, sources = costs(market, panel.symbols, loaded.settings.robinhood.backtest_roundtrip_cost_fraction)
-    result = learn.run_lab(panel, cost, now=now, cost_sources=sources)
+    settings = loaded.settings.robinhood
+    result = learn.run_lab(panel, cost, now=now, cost_sources=sources,
+                           reference_capital_usd=float(settings.starting_capital_usd),
+                           ticket_fraction=float(min(settings.fixed_fraction, settings.max_ticket_fraction)))
     report = result.as_json()
     report["lab"] = {"version": learn.LAB_VERSION, "sha256": learn.lab_sha256()}
     selection = learn.selection_sha256(result)

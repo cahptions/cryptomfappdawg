@@ -1,0 +1,17 @@
+{
+  "kind": "SYNTHETIC SOFTWARE WORKLOAD, NOT FORWARD EVIDENCE",
+  "universe": 90,
+  "source_candles": 8640,
+  "research_points": 90,
+  "elapsed_seconds": 0.07,
+  "cpu_seconds": 0.07,
+  "process_peak_rss_kib_linux": 47300,
+  "database_bytes": {
+    "research.db": 585728,
+    "runtime.db": 53248,
+    "robinhood-ledger-paper.db": 65536,
+    "robinhood-market.db": 1404928
+  },
+  "extra_provider_calls": 0,
+  "host": "cloud workspace; repeat on operator laptop"
+}

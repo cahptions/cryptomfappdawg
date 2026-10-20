@@ -17,6 +17,16 @@ from desk.rh.contracts import Candle
 START = datetime(2023, 1, 1, tzinfo=UTC)
 
 
+def test_reference_capital_scales_dollar_illustrations_without_changing_returns() -> None:
+    panel = learn.build_panel({"BTC-USD": bars("BTC-USD", [100.0] * 400)})
+    trades = [learn.Trade("test", 0, 350, 355, 0.10, 0.03, "TIME")]
+    old = learn.summarize(trades, panel, 1, 7, ticket_usd=10)
+    current = learn.summarize(trades, panel, 1, 7, ticket_usd=50)
+    assert old["mean_net"] == current["mean_net"] == 0.10
+    assert old["curve"][0][1] == 1.0 and current["curve"][0][1] == 5.0
+    assert current["ticket_usd"] == 50 and "not an investable" in current["curve_kind"]
+
+
 def bars(symbol: str, closes: list[float], *, volume: float = 1_000_000.0) -> list[Candle]:
     out, prev = [], closes[0]
     for i, close in enumerate(closes):

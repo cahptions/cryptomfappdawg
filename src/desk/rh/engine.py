@@ -499,6 +499,7 @@ class RhDesk:
         now = self.clock()
         self.market.register_specs(now)
         self.ledger.ensure_book(self.settings.learning_cash_usd, now)
+        self.ledger.sync_reference_capital(self.settings.starting_capital_usd, now)
         stop = asyncio.Event()
         await self._first_pass()
         jobs = [("pairs", PAIRS_INTERVAL_SECONDS, self.refresh_pairs),

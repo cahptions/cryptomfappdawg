@@ -84,7 +84,7 @@ def test_conviction_needs_the_strategys_own_evidence_and_extra_confirmation(dbs:
     assert not other.applied and other.evidence == "NOT_APPLICABLE"
 
 
-@pytest.mark.parametrize("evidence,expected_ticket", [("PASS", 15 * 10 ** 7), (None, 10 ** 8)])
+@pytest.mark.parametrize("evidence,expected_ticket", [("PASS", 75 * 10 ** 7), (None, 5 * 10 ** 8)])
 def test_engine_sizes_h8_up_only_with_evidence(dbs: Any, monkeypatch: pytest.MonkeyPatch,  # noqa: F811
                                                evidence: str | None, expected_ticket: int) -> None:
     engine, _, _, clock, candidate = _setup(dbs, monkeypatch)

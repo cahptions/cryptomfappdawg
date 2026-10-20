@@ -9,11 +9,11 @@
 mode = "SHADOW"          # SHADOW (default) | PAPER | LIVE. LIVE also needs the gates in PLAN.md §16.5 (M8).
 
 [paper]
-starting_capital_usd = "100"   # operator answer Q3: the $100 account (ticket sizing base and replica capital)
-# PLAN §13.1.1 learning book (operator decisions 2026-10-19): big cash cushion, $100-account ticket sizes
+starting_capital_usd = "500"   # operator update 2026-10-20: reference account, sizing base and replica capital
+# Learning cash is a separate simulated cushion, not the reference account.
 learning_cash_usd = "100000"
 max_learning_positions = 10                  # bounded by the free Jupiter quote budget (~2 exit quotes/min each)
-learning_max_cumulative_loss_usd = "1000"    # ~100 losing $10 tickets: halts entries until `desk resume`
+learning_max_cumulative_loss_usd = "1000"    # absolute learning-book halt, separate from account-relative limits
 mark_interval_seconds = 25                   # executable exit quote per open position (PLAN §12.1: 20-30 s)
 guardian_loop_seconds = 5                    # exit policies evaluated every loop (PLAN §13.3)
 guardian_heartbeat_max_age_seconds = 20      # entries are impossible while the guardian is not supervising
@@ -26,8 +26,8 @@ token_account_rent_lamports = 2039280        # SPL token account; locked while o
 fee_probe_taker = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9"  # public funded address; read-only fee probes
 fee_probe_interval_seconds = 600             # real Jupiter orders for that taker report actual network fees
 
-[sizing]                        # PLAN.md §13.2 — $100 small-account profile
-fixed_fraction = "0.10"                      # ~$10 tickets
+[sizing]                        # $500 small-account profile
+fixed_fraction = "0.10"                      # ~$50 initial tickets; existing percentage caps still apply
 max_ticket_fraction_free_capital = "0.15"
 max_ticket_fraction_pool_liquidity = "0.005"
 max_ticket_fraction_equity = "0.15"          # hard cap relative to eligible account capital
@@ -118,7 +118,7 @@ withdraw_address = ""           # your own cold wallet; empty = withdrawals impo
 allowed_fee_destinations = []
 
 [robinhood]                     # the Robinhood desk (docs/ROBINHOOD.md); PAPER only, no order code exists
-starting_capital_usd = "100"
+starting_capital_usd = "500"
 learning_cash_usd = "100000"
 fixed_fraction = "0.10"
 max_ticket_fraction = "0.15"

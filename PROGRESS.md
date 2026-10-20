@@ -12,15 +12,15 @@
 | M2 Discovery & on-chain safety | 🟡 **implemented; 24-hour acceptance pending** | 2026-10-18 Eastern / Oct 19 UTC | automated checks and short cloud discovery runs passed; see M2 results and M2_HANDOFF.md |
 | M3 Features & strategy engine | 🟡 implemented; forward acceptance pending | 2026-10-19 | measured context, SHADOW and replay; six-hour laptop run still needed |
 | ~~M4 AI judge~~ | ❌ **Dropped** | 2026-10-18 | Operator declined paid API; desk is deterministic-only (PLAN §15) |
-| M5 Full PAPER trading | 🟡 implemented; 72-hour acceptance pending | 2026-10-19 | $100,000 learning book, $100 replica; measured fees; H8 moonshot with evidence-gated conviction sizing |
+| M5 Full PAPER trading | 🟡 implemented; 72-hour acceptance pending | 2026-10-19 | $100,000 learning book, $500 reference replica; measured fees; H8 moonshot with evidence-gated conviction sizing |
 | M6 Statistical learning & confidence | 🟡 methods implemented; forward evidence pending | 2026-10-20 | confidence matrices, counterfactuals, champion review, zero-influence local models, record-only evidence council |
 | M7 Dashboard & operations | 🟡 implementation and automated checks | 2026-10-19 | React/FastAPI, Paper trading tab, services, backups; real-laptop acceptance pending |
 | M8 LIVE infrastructure | 🟡 implemented; tested against fakes only | 2026-10-19 | signer re-checks all seven gates per BUY; LIVE engine and guardian book from measured balances; no wallet funded |
 | M9 Forward validation | 🟡 report tooling implemented; forward evidence pending | 2026-10-19 | `desk report readiness`, 6-hourly refresh while PAPER runs; ≥ 60 days calendar time still required |
 
 **Mode of the system:** the configured default is SHADOW. Free provider keys remain private on the operator's
-laptop. PAPER uses a simulated **$100,000 learning book**, tickets based on a **$100 initial allocation plus
-realized paper profit**, and a separate conservative $100-account replica. LIVE trading is implemented (a signer
+laptop. PAPER uses a simulated **$100,000 learning book**, tickets based on a **$500 initial allocation plus
+realized paper profit**, and a separate conservative $500-account replica. LIVE trading is implemented (a signer
 that re-checks all seven gates for every BUY, a LIVE engine and an independent LIVE guardian) but stays impossible
 until you set `desk.mode = "LIVE"`, `DESK_LIVE_CONFIRM=yes` and an allocation, approve a version the readiness
 report calls ELIGIBLE, and arm the signer. No wallet has been funded. See the latest continuation below.
@@ -832,3 +832,20 @@ First result (20 starter coins, 4 years, 30 unseen months, 2% round trip): best 
 families and a selection score able to choose them before their results were seen; both versions are hashed.
 Tests: no look-ahead, honest stops and costs, ranking on known outcomes only, planted edge promoted, noise not,
 engine entries/exits/benching/scheduling, paper-only import guard, Learning page in the browser smoke.
+
+## 2026-10-20 — Earlier-opportunity workflow and $500 account amendment
+
+Operator requested sustained research/development, prioritizing Robinhood, and superseded the $100
+reference account with $500. Both defaults and current labels now follow configured capital; old positions,
+cash journals and historical learning reports are retained. $100,000 learning cash and percentage caps remain
+separate. An append-only event records existing Solana sizing changes at the original SOL/USD rate; RH records
+future sizing reference changes. New learning dollar illustrations use the configured initial ticket and
+carry its amount; past reports are not multiplied by five.
+
+Delivered SHADOW-only opportunity sidecars for Robinhood and Solana, immutable receipt-time inputs and hashes,
+all locally observed cohorts, honest missing outcomes, exact-original-quantity quote marks, CLI and an RH
+Learning-page panel. No added provider calls or trading influence. Eight accessible primary documents were
+partially read; speculative mechanisms and trade-policy experiments are clearly separated from findings.
+[Research](research/opportunities/README.md), [validation](research/opportunities/VALIDATION.md), and
+[handoff/operator commands](research/opportunities/HANDOFF.md) are the durable continuation. Prior $100 notes
+above remain dated history. Long-duration acceptance and actual prospective net edge remain unproven.

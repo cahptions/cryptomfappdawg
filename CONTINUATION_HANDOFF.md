@@ -1,5 +1,10 @@
 # Continuing Claude's work
 
+
+> **New continuation, 2026-10-20:** use [research/opportunities/HANDOFF.md](research/opportunities/HANDOFF.md).
+> The reference account is now $500 on both desks. Earlier $100 notes below are historical. The new
+> opportunity lab is SHADOW-only; it neither promotes a strategy nor changes LIVE authorization.
+
 Current Robinhood continuation: **`codex/robinhood-multitimeframe`**, including the quote fix `ec55bc0`,
 based on Claude's **`71e2140`**. New R1/R2/R3 PAPER entries check closed 15m candles using 1h setups,
 locally assembled 4h trends and the daily BTC regime; they no longer wait for the daily session.

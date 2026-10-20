@@ -417,9 +417,10 @@ function Home({ snap }: { snap: Snapshot }) {
       : num(account.today_change_fraction);
   return (
     <>
-      <section className="rh-hero" aria-label="Your $100 account">
-        <p className="rh-eyebrow">Your $100 account · paper</p>
+      <section className="rh-hero" aria-label={`Your ${usd(account.starting_capital)} reference account`}>
+        <p className="rh-eyebrow">Your {usd(account.starting_capital)} reference account · paper</p>
         <h1 className="rh-big">{usd(shown)}</h1>
+        <p className="rh-note">Current reference capital plus PAPER P&amp;L. Historical tickets keep their original sizes.</p>
         <p className={`rh-change ${tone(change)}`}>
           {signedUsd(change)} ({pct(changeFraction)}){" "}
           <span>{hover !== null ? labels[hover] : "Today"}</span>
@@ -761,6 +762,45 @@ function StrategyCard({ s, btc }: { s: Strategy; btc: Strategy | undefined }) {
   );
 }
 
+interface OpportunityReport {
+  available: boolean;
+  reason?: string;
+  report?: {
+    as_of: string;
+    cohorts: number;
+    cohorts_without_comparable_points: number;
+    matured_outcomes: number;
+    source_rows_pending_approx: number;
+    summary_truncated: boolean;
+    points_by_evidence_kind: Record<string, number>;
+    groups: Record<string, Record<string, { matured: number; charted: number }>>;
+  };
+}
+
+function OpportunityPanel() {
+  const { data, error } = usePoll<OpportunityReport>("/api/rh/opportunities", 60_000);
+  const report = data?.report;
+  return <section aria-label="Early opportunity research">
+    <h2 className="rh-h2">Early opportunity research <span className="rh-chip flat">Shadow only</span></h2>
+    <p className="rh-note">Measures short-window participation before the main rules qualify a coin.
+      It cannot place trades or change position sizes. Chart gains are not executable profits.</p>
+    {report ? <>
+      <dl className="rh-stats">
+        <div><dt>Listed pairs observed</dt><dd>{report.cohorts}</dd></div>
+        <div><dt>Without comparable data</dt><dd>{report.cohorts_without_comparable_points}</dd></div>
+        <div><dt>Matured horizon observations</dt><dd>{report.matured_outcomes}</dd></div>
+        <div><dt>Source rows awaiting processing</dt><dd>{report.source_rows_pending_approx}</dd></div>
+      </dl>
+      <p className="rh-note">Updated {when(report.as_of)} · observations overlap and are not independent trades.
+        {report.summary_truncated ? " Group summaries show the latest 10,000 outcomes." : ""}</p>
+      <p className="rh-note">Insufficient evidence of a net edge. This experiment has zero trading influence.</p>
+    </> : <>
+      <p className="rh-note">{error || data?.reason || "Reading research status…"}</p>
+      <p className="rh-note">Run once in a separate terminal: <code>uv run desk opportunities run --venue robinhood</code>.</p>
+    </>}
+  </section>;
+}
+
 function LearningPage() {
   const { data, error } = usePoll<Learning>("/api/rh/learning", 60_000);
   if (error) return <p className="rh-empty">{error}</p>;
@@ -781,6 +821,7 @@ function LearningPage() {
   return (
     <>
       <h1 className="rh-title">Learning</h1>
+      <OpportunityPanel />
       <p className="rh-note">
         <span className={`rh-chip ${promoted && !benched ? "up" : "flat"}`}>
           {status}
@@ -844,6 +885,7 @@ function LearningPage() {
                     height={110}
                     ariaLabel={`${p.label}: cumulative paper dollars on unseen months`}
                   />
+                  <p className="rh-note">Fixed-ticket P&amp;L illustration: {p.ticket_usd === undefined ? "legacy ticket amount not recorded" : `${usd(p.ticket_usd)} per ticket`}. This is not portfolio equity.</p>
                   <dl className="rh-stats rh-stats-tight">
                     <div>
                       <dt>Unseen trades</dt>
@@ -1042,7 +1084,7 @@ function SystemPage({ snap }: { snap: Snapshot }) {
     ],
     [
       "Ticket",
-      `${pct(Number(snap.limits.ticket_fraction), 0).replace("+", "")} of the $100 account (+ realized)`,
+      `${pct(Number(snap.limits.ticket_fraction), 0).replace("+", "")} of the ${usd(snap.account.starting_capital)} reference account (+ realized)`,
     ],
     [
       "Round-trip limit",

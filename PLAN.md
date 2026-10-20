@@ -614,6 +614,13 @@ a bounded schedule. Hypothetical sale proceeds are **never** booked as realized 
 
 ## 13. Position sizing, risk engine, and global limits
 
+**2026-10-20 capital amendment:** the operator superseded the original $100 reference with **$500** for both
+desks. Apply $500 wherever this plan derives sizing/replica amounts from the original $100 account: normal
+10% ticket about $50, 15% ceiling about $75 before gains and other limits. Keep $100,000 learning cash,
+absolute learning loss halt, native fee/minimum probes, percentage limits and historical observations separate.
+Existing books record sizing changes without cash/P&L adjustments or rewriting positions. The earlier dated
+$100 decisions and numerical examples below are historical; see `research/opportunities/HANDOFF.md`.
+
 ### 13.1 Deterministic sizing (code only; no model ever sizes)
 Baseline **fixed fraction**: `ticket = min(f × eligible_capital, cap_equity × eligible_capital,
 cap_free × deployable_free_capital, cap_liq × verified_liquidity, remaining_exposure_budget)`

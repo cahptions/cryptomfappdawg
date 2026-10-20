@@ -14,7 +14,7 @@ try {
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
     page.on("pageerror", (e) => errors.push(String(e)));
     await page.goto(`${base}/#/`);
-    await page.getByText("Your $100 account · paper").waitFor();
+    await page.getByText("Your $500.00 reference account · paper").waitFor();
     if (scenario === "populated") {
       await page.locator(".rh-rows").first().getByText("ETH").waitFor();
       await page.locator(".rh-chart-line").waitFor();                 // the account chart loads after the snapshot
@@ -47,13 +47,15 @@ try {
     await page.goto(`${base}/#/learning`);
     await page.getByRole("heading", { name: "Learning", exact: true }).waitFor();
     await page.getByText("The learned strategy's own paper record").waitFor();
+    await page.getByRole("region", { name: "Early opportunity research" }).waitFor();
+    await page.getByText(scenario === "populated" ? "Listed pairs observed" : "Research sidecar has not produced a report yet").waitFor();
     await page.goto(`${base}/#/activity`);
     await page.getByRole("heading", { name: "Activity" }).waitFor();
     await page.close();
   }
   const phone = await browser.newPage({ viewport: { width: 375, height: 812 } });
   await phone.goto(`${base}/#/`);
-  await phone.getByText("Your $100 account · paper").waitFor();
+  await phone.getByText("Your $500.00 reference account · paper").waitFor();
   assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     "no horizontal scroll at phone width");
   for (const label of ["Investing", "Strategies", "Activity", "System"]) {
@@ -65,6 +67,10 @@ try {
     assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
       "timeframe readiness fits a phone");
   }
+  await phone.goto(`${base}/#/learning`);
+  await phone.getByRole("region", { name: "Early opportunity research" }).waitFor();
+  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    "research panel fits a phone");
   assert.deepEqual(errors, []);
   console.log(`rh smoke ok (${scenario})`);
 } finally {

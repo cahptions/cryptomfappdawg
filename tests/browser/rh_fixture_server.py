@@ -17,6 +17,7 @@ import uvicorn
 from desk.core.clock import utc_now
 from desk.core.config import load_config
 from desk.core.paths import REPO_ROOT, DeskPaths
+from desk.ops.opportunities import pass_once
 from desk.rh import multiframe as mf
 from desk.rh import strategies as st
 from desk.rh.contracts import BidAsk, Candle, Estimate, Pair
@@ -107,6 +108,7 @@ def build(scenario: str, home: Path) -> DeskPaths:
     finally:
         dbs.close()
     write_backtest(paths, loaded, now, days=200)
+    pass_once(paths, "robinhood", now=now)
     return paths
 
 

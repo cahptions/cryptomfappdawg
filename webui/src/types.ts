@@ -96,6 +96,7 @@ export interface Snapshot {
     initialized?: boolean;
     cash_sol?: NumberValue;
     base_sol?: NumberValue;
+    base_usd?: NumberValue;
     sizing_capital_sol?: NumberValue;
     realized_pnl_sol?: Record<string, NumberValue>;
     unrealized_executable_sol?: NumberValue;
@@ -111,7 +112,7 @@ export interface Snapshot {
         pnl_sol?: NumberValue;
       }
     >;
-    replica_100_usd_account?: {
+    account_replica?: {
       equity_sol?: NumberValue;
       return?: NumberValue;
       trades_taken?: number;
@@ -219,6 +220,7 @@ export interface PaperStatus {
   engine_age_seconds?: number | null;
 }
 export interface PaperBook {
+  base_usd?: NumberValue;
   started_at?: string;
   sol_usd_at_start?: NumberValue;
   cash_sol?: NumberValue;

@@ -587,14 +587,14 @@ def _p_positive(values: list[float], seed: int) -> float | None:
     return max(float(np.mean(means <= 0)), 1 / RESAMPLES)
 
 
-def summarize(trades: list[Trade], p: Panel, folds: int, seed: int) -> dict[str, Any]:
+def summarize(trades: list[Trade], p: Panel, folds: int, seed: int, *, ticket_usd: float = 50.0) -> dict[str, Any]:
     ordered = sorted(trades, key=lambda t: (t.entry_t, t.s))
     nets = [t.net for t in ordered]
     excess = [t.net - t.btc for t in ordered if not math.isnan(t.btc)]
     curve, btc_curve, points = 0.0, 0.0, []
     for t in sorted(ordered, key=lambda x: x.exit_t):
-        curve += 10 * t.net
-        btc_curve += 0 if math.isnan(t.btc) else 10 * t.btc
+        curve += ticket_usd * t.net
+        btc_curve += 0 if math.isnan(t.btc) else ticket_usd * t.btc
         points.append([p.days[t.exit_t].isoformat(), round(curve, 2), round(btc_curve, 2)])
     hold_days = [max(t.exit_t - t.entry_t, 1) for t in ordered]
     return {
@@ -604,7 +604,8 @@ def summarize(trades: list[Trade], p: Panel, folds: int, seed: int) -> dict[str,
         "mean_excess_vs_btc": float(np.mean(excess)) if excess else None,
         "pnl_per_dollar_year": float(sum(nets) * 365 / sum(hold_days)) if nets else None,
         "p_profit": _p_positive(nets, seed), "p_beats_btc": _p_positive(excess, seed + 1),
-        "curve": points[-400:],
+        "curve": points[-400:], "ticket_usd": ticket_usd,
+        "curve_kind": "fixed-ticket cumulative P&L; not an investable portfolio equity curve",
     }
 
 
@@ -621,15 +622,20 @@ class LabResult:
     selection: dict[str, Any]
     leaderboard: list[dict[str, Any]]
     cost_model: dict[str, str]
+    capital_profile: dict[str, str]
 
     def as_json(self) -> dict[str, Any]:
         return {k: getattr(self, k) for k in ("generated_at", "data_end", "symbols", "days", "candidates", "folds",
-                                              "procedures", "promoted", "selection", "leaderboard", "cost_model")}
+                                              "procedures", "promoted", "selection", "leaderboard", "cost_model",
+                                              "capital_profile")}
 
 
 def run_lab(p: Panel, cost: Array, *, now: datetime, cost_sources: dict[str, str] | None = None,
-            seed: int = 0) -> LabResult:
+            seed: int = 0, reference_capital_usd: float = 500.0, ticket_fraction: float = 0.10) -> LabResult:
     """Walk forward over the whole panel, judge the three procedures on unseen months, and choose today's selection."""
+    if reference_capital_usd <= 0 or not 0 < ticket_fraction <= 1:
+        raise ValueError("positive reference capital and ticket fraction in (0, 1] required")
+    ticket_usd = reference_capital_usd * ticket_fraction
     cands = {c.id: c for c in candidates()}
     trades = {cid: simulate(c, p, cost) for cid, c in cands.items()}
     oos: dict[str, list[Trade]] = {name: [] for name in PROCEDURES}
@@ -648,7 +654,8 @@ def run_lab(p: Panel, cost: Array, *, now: datetime, cost_sources: dict[str, str
         if model is not None:
             oos["LEARN_MODEL"] += _capped(model_trades(model, p, cost, a, end, "MODEL"))
         folds.append(record)
-    procedures = {name: summarize(oos[name], p, len(folds), seed + 10 * i) for i, name in enumerate(PROCEDURES)}
+    procedures = {name: summarize(oos[name], p, len(folds), seed + 10 * i, ticket_usd=ticket_usd)
+                  for i, name in enumerate(PROCEDURES)}
     names = [n for n in PROCEDURES if procedures[n]["p_profit"] is not None and procedures[n]["p_beats_btc"] is not None]
     adj_profit = holm([procedures[n]["p_profit"] for n in names])
     adj_btc = holm([procedures[n]["p_beats_btc"] for n in names])
@@ -682,7 +689,9 @@ def run_lab(p: Panel, cost: Array, *, now: datetime, cost_sources: dict[str, str
                                                and t.exit_t <= now_t - 1 and not t.open_at_end]))}
                    for cid, score, n in ranked_now[:12]]
     return LabResult(now.isoformat(), p.days[-1].isoformat(), len(p.symbols), len(p.days), len(cands), folds,
-                     procedures, promoted, selection, leaderboard, cost_sources or {})
+                     procedures, promoted, selection, leaderboard, cost_sources or {},
+                     {"reference_capital_usd": str(reference_capital_usd), "ticket_usd": str(ticket_usd),
+                      "ticket_fraction": str(ticket_fraction), "kind": "fixed-ticket historical illustration"})
 
 
 def selection_sha256(result: LabResult) -> str:

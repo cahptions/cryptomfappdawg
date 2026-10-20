@@ -54,9 +54,9 @@ For the initial conservative filter experiment, **SUPPORT, CAUTION and ABSTAIN p
 Perform two distinct analyses:
 
 1. **Opportunity-matched diagnostic:** apply the four fixed masks to the same primary trades. A removed trade is replaced by cash, and freed capital is not silently reused. This isolates the filter's trade-selection effect. Show return per original opportunity, rejected-winner cost, avoided-loss benefit and retained coverage. Conditional return per retained trade is secondary and can look better merely by trading less.
-2. **Matched-capital simulation:** independently run all four policy arms from a **$100 account replica with at most two concurrent positions**, identical original primary ticket sizing, account-relative limits, execution/cost model and deterministic conflict/order rules. Each arm maintains its own cash and realized/marked exposures. Freed cash can fund a later original primary opportunity only under the same frozen simulator rules. No arm borrows the learning book's cash, uses a more aggressive ticket or increases its allowed exposure.
+2. **Matched-capital simulation:** independently run all four policy arms from a **$500 account replica with at most two concurrent positions**, identical original primary ticket sizing, account-relative limits, execution/cost model and deterministic conflict/order rules. Each arm maintains its own cash and realized/marked exposures. Freed cash can fund a later original primary opportunity only under the same frozen simulator rules. No arm borrows the learning book's cash, uses a more aggressive ticket or increases its allowed exposure.
 
-The $100,000 PAPER learning book is a separate descriptive experiment. Report its results separately; never net its gains, fills or trade count against the $100 replica. A notional $100 trade in a deep simulated book does not prove that the $100 account can pay its costs or keep two positions safely funded.
+The $100,000 PAPER learning book is a separate descriptive experiment. Report its results separately; never net its gains, fills or trade count against the $500 replica. A notional $100 trade in a deep simulated book does not prove that the $500 account can pay its costs or keep two positions safely funded.
 
 Report cash and uninvested time. Compare both with a **zero-return NO-TRADE/cash benchmark** and with simple preregistered filters such as freshness-only and a single benchmark-trend rule. Do not optimize a cash benchmark's return or assume interest the system cannot earn. Cash in SOL must also disclose its USD mark-to-market risk; present SOL-account and USD-account results consistently rather than treating SOL cash as a guaranteed zero USD return.
 
@@ -157,7 +157,7 @@ If forecasts are later calibrated, fit and test calibration separately for memec
 
 1. **Immediately feasible:** an append-only registration and advisory tape using existing timestamped records, version/input hashes, reason-coded ABSTAIN and summaries of information coverage. No new API requests or runtime decision influence are necessary.
 2. **Next:** an offline mask evaluator with the four exact arms, all-NO-TRADE detection, attrition reports, paired-calendar alignment and conservative unresolved-exit treatment.
-3. **Then:** the separate matched-capital $100/max-two-position simulator, with one frozen execution/accounting model shared by all arms. Validate reconciliation and no capital borrowing across books.
+3. **Then:** the separate matched-capital $500/max-two-position simulator, with one frozen execution/accounting model shared by all arms. Validate reconciliation and no capital borrowing across books.
 4. **After sufficient real observations:** chronological evaluation, dependent inference, registered multiplicity and the sealed final holdout. A missing primary baseline or inadequate free-data history remains an explicit blocker.
 
 Meaningful checks for this future implementation:

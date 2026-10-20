@@ -38,7 +38,7 @@ class DeskSection(_Section):
 
 
 class PaperSection(_Section):
-    starting_capital_usd: Decimal = Field(gt=0)        # the $100 account: sizing base and replica capital
+    starting_capital_usd: Decimal = Field(gt=0)        # reference account: sizing base and replica capital
     # PLAN §13.1.1 learning book (operator decisions 2026-10-19)
     learning_cash_usd: Decimal = Field(gt=0)
     max_learning_positions: int = Field(ge=1)
@@ -189,7 +189,7 @@ class ResearchSection(_Section):
 class RobinhoodSection(_Section):
     """The Robinhood desk (docs/ROBINHOOD.md). PAPER only: the desk has no code that places orders."""
 
-    starting_capital_usd: Decimal = Decimal("100")         # the real account the tickets are sized for
+    starting_capital_usd: Decimal = Decimal("500")         # reference account used for PAPER ticket sizing
     learning_cash_usd: Decimal = Decimal("100000")         # paper cushion, same idea as the Solana learning book
     fixed_fraction: Fraction = Decimal("0.10")             # ticket = 10% of (capital + realized profit) ...
     max_ticket_fraction: Fraction = Decimal("0.15")        # ... never above 15%

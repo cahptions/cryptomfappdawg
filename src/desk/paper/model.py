@@ -112,7 +112,7 @@ def learning_ticket(*, base_lamports: int, realized_pnl_lamports: int, fixed_fra
                     max_fraction: Decimal, min_ticket_lamports: int, max_fixed_cost_fraction: Decimal,
                     fixed_costs_lamports: int, rent_lamports: int, cash_lamports: int,
                     liquidity_cap_lamports: int | None) -> TicketDecision:
-    """Ticket = fraction x ($100-account base + realized profit); losses never shrink the base.
+    """Ticket = fraction x (reference-account base + realized profit); losses never shrink the base.
 
     Returns 0 with reasons when the fee floor, minimum ticket, liquidity cap or cash would be violated.
     """

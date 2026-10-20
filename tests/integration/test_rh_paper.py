@@ -149,7 +149,7 @@ async def test_session_enters_on_robinhood_prices_and_records_why(world: World) 
     assert set(open_) == {("B1_HOLD_BTC", "BTC-USD"), ("R1_TREND", "ALT-USD")}
     trend = open_[("R1_TREND", "ALT-USD")]
     assert trend.entry_route == "MM"                                      # cheaper buy: 0.4% spread vs 1% fee
-    assert trend.entry_cost <= D("10.00") * D("1.004") and trend.entry_cost > D("9.90")
+    assert trend.entry_cost <= D("50.00") * D("1.004") and trend.entry_cost > D("49.90")
     assert trend.roundtrip_cost_fraction == (D("1.004") - D("0.9995") * (1 - D("0.0095"))) / D("1.004") or (
         trend.roundtrip_cost_fraction < D("0.02"))
     assert trend.stop_price is not None and trend.stop_price < trend.entry_unit_price
@@ -254,14 +254,14 @@ async def test_without_a_key_signals_are_recorded_but_nothing_trades(tmp_path: P
         w.dbs.close()
 
 
-async def test_dashboard_view_shows_the_100_dollar_account(world: World) -> None:
+async def test_dashboard_view_shows_the_500_dollar_account(world: World) -> None:
     await world.prime()
     await world.desk.session()
     await world.desk.snapshot_equity()
     snap = RhView(world.paths, world.loaded).snapshot()
     account = snap["account"]
-    assert D(account["starting_capital"]) == D(100)
-    assert D(account["equity"]) < D(100) + 1 and D(account["equity"]) > D(95)
+    assert D(account["starting_capital"]) == D(500)
+    assert D(account["equity"]) < D(500) + 1 and D(account["equity"]) > D(475)
     assert {p["strategy_id"] for p in snap["positions"]} == {"B1_HOLD_BTC", "R1_TREND"}
     assert {s["id"] for s in snap["strategies"]} == set(st.ORDER)
     coin = RhView(world.paths, world.loaded).coin("ALT-USD", "1M")
@@ -269,4 +269,21 @@ async def test_dashboard_view_shows_the_100_dollar_account(world: World) -> None
     r1 = next(s for s in coin["signals"] if s["strategy_id"] == "R1_TREND")
     assert all(c["met"] for c in r1["conditions"])
     assert RhView(world.paths, world.loaded).coin("NOPE-USD", "1M") is None
+
+
+async def test_reference_change_versions_sizing_without_changing_old_positions(world: World) -> None:
+    world.desk.settings = world.desk.settings.model_copy(update={"starting_capital_usd": D(100)})
+    world.ledger.sync_reference_capital(D(100), NOW)
+    await world.prime()
+    await world.desk.session()
+    old = [dict(r) for r in world.dbs.ledger.execute("SELECT * FROM rh_positions ORDER BY id")]
+    cash, realized = world.ledger.cash(), world.ledger.realized()
+    world.desk.settings = world.desk.settings.model_copy(update={"starting_capital_usd": D(500)})
+    world.ledger.sync_reference_capital(D(500), NOW + timedelta(minutes=1))
+    world.ledger.sync_reference_capital(D(500), NOW + timedelta(minutes=2))
+    assert [dict(r) for r in world.dbs.ledger.execute("SELECT * FROM rh_positions ORDER BY id")] == old
+    assert world.ledger.cash() == cash and world.ledger.realized() == realized
+    assert world.desk.ticket() == D(50)
+    assert world.dbs.ledger.execute("SELECT COUNT(*) FROM rh_events WHERE kind='REFERENCE_CAPITAL'").fetchone()[0] == 2
+    assert world.dbs.ledger.execute("SELECT COUNT(*) FROM rh_cash WHERE kind='DEPOSIT'").fetchone()[0] == 1
 

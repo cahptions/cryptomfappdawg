@@ -43,10 +43,10 @@ def test_tab_explains_what_the_book_did(dbs: Any, monkeypatch: pytest.MonkeyPatc
     assert tab["status"]["headline"] == "Paper trading active" or tab["status"]["tone"] in ("neutral", "warning")
     opened = tab["open"][0]
     assert opened["strategy"] == "H1" and opened["mark_kind"] == "EXECUTABLE"   # hypotheses outrank baselines
-    assert Decimal(opened["hard_stop_sol"]) == Decimal("0.09")            # H1 stop: -10% of a 0.1 SOL ticket
+    assert Decimal(opened["hard_stop_sol"]) == Decimal("0.45")            # H1 stop: -10% of the new 0.5 SOL ticket
     assert opened["trailing_armed"] is False and opened["hold_remaining_seconds"] > 0
     titles = [a["title"] for a in tab["activity"]]
-    assert any(t.startswith("Bought") and "0.100000 SOL" in t for t in titles)
+    assert any(t.startswith("Bought") and "0.500000 SOL" in t for t in titles)
     assert any(t.startswith("Signal on") for t in titles)
     groups = {a["kind"]: a["group"] for a in tab["activity"]}
     assert groups == {"DECISION": "signal", "ENTRY_ATTEMPT": "trade", "OPENED": "trade"}
@@ -70,9 +70,9 @@ def test_tab_explains_what_the_book_did(dbs: Any, monkeypatch: pytest.MonkeyPatc
     assert tab["exit_reasons"] == {"hard stop": 1} and len(tab["curve"]) == 1
     moonshot = tab["moonshot"]
     assert moonshot["strategy"] == "H8" and moonshot["conviction_evidence"] == "NO_REPORT"
-    # a loss never shrinks the $100 base (1 SOL here): 10% normally, 15% for an evidence-backed moonshot
-    assert (moonshot["normal_ticket_sol"], moonshot["sized_up_ticket_sol"]) == ("0.100000", "0.150000")
-    assert book["next_ticket_sol"] == "0.100000" and book["next_ticket_blockers"] == []
+    # a loss never shrinks the $500 base (5 SOL here): 10% normally, 15% for an evidence-backed moonshot
+    assert (moonshot["normal_ticket_sol"], moonshot["sized_up_ticket_sol"]) == ("0.500000", "0.750000")
+    assert book["next_ticket_sol"] == "0.500000" and book["next_ticket_blockers"] == []
     assert PaperLedger(dbs.paper_ledger).reconcile()["difference_lamports"] == 0
 
 

@@ -36,7 +36,7 @@ from tests.unit.test_strategies import NOW, _context
 
 MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 POOL = "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"
-SOL_USD = Decimal(100)          # 1 SOL = $100 -> $100 base = 1 SOL, $100k cash = 1000 SOL
+SOL_USD = Decimal(100)          # 1 SOL = $100 -> $500 base = 5 SOL, $100k cash = 1000 SOL
 
 
 class FakeJupiter:
@@ -121,13 +121,13 @@ def _setup(dbs: Databases, monkeypatch: pytest.MonkeyPatch) -> tuple[PaperEngine
 def test_full_lifecycle_reconciles_and_every_step_is_audited(dbs: Databases, monkeypatch: pytest.MonkeyPatch) -> None:
     engine, guardian, jupiter, clock, candidate = _setup(dbs, monkeypatch)
     ledger = PaperLedger(dbs.paper_ledger)
-    assert ledger.cash_lamports() == 1000 * 10 ** 9 and ledger.base_lamports() == 10 ** 9
+    assert ledger.cash_lamports() == 1000 * 10 ** 9 and ledger.base_lamports() == 5 * 10 ** 9
     assert asyncio.run(engine.consider(candidate)) == "OPENED"
     position = ledger.open_positions()[0]
-    assert position["ticket_lamports"] == 10 ** 8                       # 10% of the $100 base (1 SOL)
+    assert position["ticket_lamports"] == 5 * 10 ** 8                   # 10% of the $500 base (5 SOL)
     # fills came only from exact-amount quotes: buy, sell-back cost check, second buy (worse is used)
-    assert jupiter.calls[1:] == [(SOL_MINT, MINT, 10 ** 8), (MINT, SOL_MINT, 10 ** 9), (SOL_MINT, MINT, 10 ** 8)]
-    assert position["tokens_raw"] == int(Decimal(10 ** 9) * (1 - Decimal("0.001")))
+    assert jupiter.calls[1:] == [(SOL_MINT, MINT, 5 * 10 ** 8), (MINT, SOL_MINT, 5 * 10 ** 9), (SOL_MINT, MINT, 5 * 10 ** 8)]
+    assert position["tokens_raw"] == int(Decimal(5 * 10 ** 9) * (1 - Decimal("0.001")))
     assert ledger.reconcile()["difference_lamports"] == 0
     # second decision on the same mint is refused (lock) — by the gate and, underneath, by the database
     assert asyncio.run(engine.consider(candidate)) == "BLOCKED"
@@ -140,7 +140,7 @@ def test_full_lifecycle_reconciles_and_every_step_is_audited(dbs: Databases, mon
     jupiter.price = Decimal("1.3")
     clock.now += timedelta(seconds=30)
     asyncio.run(guardian.tick())
-    assert ledger.open_positions()[0]["peak_value_lamports"] > 10 ** 8 * 1.25
+    assert ledger.open_positions()[0]["peak_value_lamports"] > 5 * 10 ** 8 * 1.25
     jupiter.price = Decimal("1.3") * Decimal("0.88")
     clock.now += timedelta(seconds=30)
     asyncio.run(guardian.tick())
@@ -154,7 +154,7 @@ def test_full_lifecycle_reconciles_and_every_step_is_audited(dbs: Databases, mon
     quote_out = int(Decimal(closed["tokens_raw"]) / 10 * Decimal("1.3") * Decimal("0.88") * Decimal("0.99"))
     assert closed["exit_lamports"] == int(Decimal(quote_out) * Decimal("0.999"))
     assert closed["exit_fees_lamports"] == 105_000 + 105_000
-    assert closed["realized_pnl_lamports"] == (closed["exit_lamports"] - 210_000 - 10 ** 8
+    assert closed["realized_pnl_lamports"] == (closed["exit_lamports"] - 210_000 - 5 * 10 ** 8
                                               - closed["entry_fees_lamports"])
     breakdown = json.loads(closed["profiles_json"])["fee_breakdown"]
     assert breakdown["sell_tx_lamports"] == breakdown["close_account_tx_lamports"] == 105_000
@@ -168,7 +168,7 @@ def test_full_lifecycle_reconciles_and_every_step_is_audited(dbs: Databases, mon
     assert report["closed_trades"] == 1 and report["reconciliation"]["difference_lamports"] == 0
     pnl = report["realized_pnl_sol"]
     assert Decimal(pnl["observed"]) >= Decimal(pnl["conservative"]) >= Decimal(pnl["stress"])
-    assert report["replica_100_usd_account"]["trades_taken"] == 1
+    assert report["account_replica"]["trades_taken"] == 1
     # M5-17: nothing was written to a LIVE ledger, SHADOW tables untouched
     assert not (dbs.paths.db_dir / "ledger-live.db").exists()
     assert dbs.market.execute("SELECT COUNT(*) FROM shadow_decisions").fetchone()[0] == 0
@@ -257,3 +257,25 @@ def test_guardian_waits_for_the_engine_heartbeat_before_idling(dbs: Databases, m
     guardian.paper = guardian.paper.model_copy(update={"guardian_loop_seconds": 1})
     asyncio.run(guardian.run())
     assert ticks == 3       # no collector heartbeat yet, but it kept supervising through the grace period
+
+
+def test_reference_change_preserves_legacy_book_cash_and_positions(dbs: Databases,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    ledger = PaperLedger(dbs.paper_ledger)
+    ledger.init_book(NOW, Decimal(100), Decimal(100), Decimal(100_000))
+    original_meta, original_cash = ledger.meta(), ledger.cash_lamports()
+    engine, _, _, clock, candidate = _setup(dbs, monkeypatch)
+    assert ledger.base_lamports() == 5_000_000_000
+    assert ledger.meta() == original_meta and ledger.cash_lamports() == original_cash
+    assert ledger.reference_capital()["original_base_usd"] == "100"
+    asyncio.run(engine._quote(SOL_MINT, USDC_MINT, 10 ** 9))  # restart still needs a fresh rate for liquidity checks
+    assert asyncio.run(engine.consider(candidate)) == "OPENED"
+    before, cash_before = dict(ledger.open_positions()[0]), ledger.cash_lamports()
+    asyncio.run(engine.ensure_book())
+    assert dict(ledger.open_positions()[0]) == before
+    assert ledger.cash_lamports() == cash_before and ledger.reconcile()["difference_lamports"] == 0
+    assert dbs.paper_ledger.execute("SELECT COUNT(*) FROM paper_events WHERE kind='REFERENCE_CAPITAL'").fetchone()[0] == 1
+    report = paper_report(dbs, engine.loaded, clock.now)
+    assert report["base_usd"] == "500" and report["account_replica"]["start_lamports"] == 5_000_000_000
+    with pytest.raises(sqlite3.IntegrityError):
+        dbs.paper_ledger.execute("DELETE FROM paper_events WHERE kind='REFERENCE_CAPITAL'")

@@ -1,0 +1,91 @@
+{
+  "status": "EXPERIMENTAL SHADOW ONLY",
+  "influence": "NONE",
+  "promotion": "DISABLED",
+  "reference_capital_usd": "500",
+  "learning_cash_usd": "100000",
+  "advisors_unchanged": "research/council/specifications.json",
+  "experiments": [
+    {
+      "venue": "robinhood",
+      "sha256": "7821068411094499ebf1b333b5036cb248b930a2e3c959d126dbb9c7fb708326",
+      "specification": {
+        "id": "rh-early-participation-v1",
+        "version": 1,
+        "influence": "NONE",
+        "promotion": "DISABLED",
+        "context": "five contiguous Coinbase 15m bars, all first received by decision time",
+        "decision_time": "actual first receipt; bars ending >15m before receipt abstain; no synthetic past entries",
+        "volume_ratio": "current base volume / median of previous four base volumes",
+        "flow_watch": "volume ratio >=2, current close*base volume >=5000 USD, 0 <= 15m return <=0.10, return exceeds simultaneous BTC 15m return",
+        "price_control": "15m return >=0.03 on same available universe",
+        "required": "API-tradable USD pair as of decision; BTC contemporaneous bar; Robinhood quote <=120s old",
+        "missing_liquidity": "depth/order imbalance unavailable, never substitute Coinbase volume for Robinhood depth",
+        "point_bucket_seconds": 900,
+        "horizons_seconds": [
+          900,
+          3600,
+          21600,
+          86400
+        ],
+        "label_window_seconds": 90,
+        "path_max_rows": 2000,
+        "max_path_gap_seconds": 120,
+        "quote_mark": "fresh exact-original-quantity BUY/SELL estimated totals; reported fees included; no actual fills",
+        "experiment_usd": "50",
+        "quote_age_seconds": 10,
+        "quote_ticket_lamports": 100000000
+      }
+    },
+    {
+      "venue": "solana",
+      "sha256": "1989f07af7f9e78049db8447e4a88cc15c9b5ab07a5f2297aa42124b9cc90636",
+      "specification": {
+        "id": "early-opportunities-v1",
+        "influence": "NONE",
+        "version": 1,
+        "source": "dexscreener.tokens_v1",
+        "population": "all locally observed mint/pool identities; not the entire market",
+        "point_bucket_seconds": 300,
+        "episode_seconds": 86400,
+        "prior_window_seconds": [
+          300,
+          390
+        ],
+        "min_history_observations": 4,
+        "max_gap_seconds": 120,
+        "flow_watch": {
+          "volume_ratio_min": "2",
+          "volume_m5_usd_min": "5000",
+          "trade_count_min": 50,
+          "buy_trade_share_min": "0.60",
+          "price_return_range": [
+            "0",
+            "0.10"
+          ],
+          "liquidity_usd_min": "40000",
+          "liquidity_ratio_min": "0.95"
+        },
+        "price_control": {
+          "price_return_min": "0.03",
+          "liquidity_usd_min": "40000"
+        },
+        "horizons_seconds": [
+          900,
+          3600,
+          21600,
+          86400
+        ],
+        "label_window_seconds": 90,
+        "path_max_rows": 2000,
+        "quote_age_seconds": 10,
+        "executable_mark": "original exact token quantity; contemporaneous persisted quotes only; fees not imputed",
+        "net_returns": "not estimated; quote-to-quote marks exclude unrecorded network costs and are not fills",
+        "missingness": "retain missing, zero-liquidity, insufficient-path and unquoted outcomes; never impute",
+        "quote_ticket_lamports": 100000000
+      }
+    }
+  ],
+  "evaluation": "VALIDATION.md",
+  "proposed_policy_status": "Complete trade-policy experiments specified in README.md; not implemented or enabled"
+}

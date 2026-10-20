@@ -28,7 +28,7 @@ class PaperLedger:
         return "book_started_at" in self.meta()
 
     def init_book(self, at: datetime, sol_usd: Decimal, base_usd: Decimal, cash_usd: Decimal) -> dict[str, str]:
-        """Create the learning book once: cash cushion and the $100-account sizing base, at one recorded rate."""
+        """Create the learning book once: cash cushion and reference sizing base, at one recorded rate."""
         if self.initialized():
             return self.meta()
         if sol_usd <= 0 or base_usd <= 0 or cash_usd < base_usd:
@@ -44,7 +44,35 @@ class PaperLedger:
         return self.meta()
 
     def base_lamports(self) -> int:
-        return int(self.meta()["base_lamports"])
+        return int(self.reference_capital()["base_lamports"])
+
+    def reference_capital(self) -> dict[str, str]:
+        """Current PAPER sizing basis; original book metadata and every cash entry remain unchanged."""
+        meta = self.meta()
+        row = self.conn.execute("SELECT payload_json FROM paper_events WHERE kind = 'REFERENCE_CAPITAL'"
+                                " ORDER BY id DESC LIMIT 1").fetchone()
+        if row is not None:
+            return dict(json.loads(row[0]))
+        return {"base_usd": meta["base_usd"], "base_lamports": meta["base_lamports"],
+                "effective_at": meta["book_started_at"], "original_base_usd": meta["base_usd"]}
+
+    def sync_reference_capital(self, base_usd: Decimal, at: datetime) -> None:
+        """Append a PAPER sizing change, never a deposit, P&L adjustment or rewrite of past positions."""
+        meta = self.meta()
+        if meta.get("mode") == "LIVE":
+            raise ValueError("PAPER reference capital cannot change a LIVE allocation")
+        if base_usd <= 0 or base_usd > Decimal(meta["cash_usd"]):
+            raise ValueError("reference capital must be positive and no greater than initial learning cash")
+        with transaction(self.conn):
+            current = self.reference_capital()
+            if Decimal(current["base_usd"]) == base_usd:
+                return
+            self.event(at, "REFERENCE_CAPITAL", {
+                "base_usd": str(base_usd),
+                "base_lamports": str(usd_to_lamports(base_usd, Decimal(meta["sol_usd_at_start"]))),
+                "previous_base_usd": current["base_usd"], "original_base_usd": meta["base_usd"],
+                "effective_at": to_iso(at), "conversion": "original book SOL/USD rate; sizing only",
+            })
 
     def cash_lamports(self) -> int:
         return int(self.conn.execute("SELECT COALESCE(SUM(amount_lamports), 0) FROM cash_entries").fetchone()[0])

@@ -335,6 +335,36 @@ def cmd_counterfactuals(args: argparse.Namespace) -> int:
         dbs.close()
 
 
+def cmd_opportunities(args: argparse.Namespace) -> int:
+    from desk.ops.opportunities import pass_once, run
+
+    paths = DeskPaths.from_env()
+    venues = ["robinhood", "solana"] if args.venue == "both" else [args.venue]
+    if args.action == "run":
+        records = asyncio.run(run(paths, venues, minutes=args.minutes, limit=args.limit, outcomes=args.outcomes))
+    else:
+        records = [pass_once(paths, venue, ingest=False) for venue in venues]
+    if args.json:
+        print(json.dumps(records, indent=1))
+        return 0
+    for item in records:
+        print(f"\n{item['venue']} opportunity research — SHADOW, trading influence NONE")
+        if not item["available"]:
+            print("  " + item["reason"])
+            continue
+        report = item["report"]
+        print(f"  {report['cohorts']} observed instruments/pools; "
+              f"{report['cohorts_with_comparable_points']} with comparable research points")
+        print(f"  source backlog (approx rows): {report['source_rows_pending_approx']}; "
+              f"matured outcomes: {report['matured_outcomes']}")
+        print("  " + report["verdict"])
+        for name, horizons in report["groups"].items():
+            row = horizons["3600"]
+            print(f"  {name} at 1h: {row['matured']} matured, {row['charted']} chart marks; "
+                  f"quote coverage {row['quote_status']}")
+    return 0
+
+
 def cmd_live(args: argparse.Namespace) -> int:
     paths, _ = _bootstrap(args.verbose)
     action = args.action
@@ -935,7 +965,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yes", action="store_true", help="skip the typed confirmation")
     p.set_defaults(func=cmd_resume)
 
-    sub.add_parser("paper-report", help="PAPER results, reconciliation and the $100-account replica").set_defaults(
+    sub.add_parser("paper-report", help="PAPER results, reconciliation and the reference-account replica").set_defaults(
         func=cmd_paper_report)
 
     p = sub.add_parser("confidence", help="confidence matrix and readiness per strategy from PAPER evidence (M6)")
@@ -959,6 +989,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("counterfactuals", help="what happened to rejected candidates (M6-05)").set_defaults(
         func=cmd_counterfactuals)
+
+    p = sub.add_parser("opportunities", help="early-opportunity research; separate Robinhood/Solana SHADOW records")
+    p.add_argument("action", choices=["run", "report"])
+    p.add_argument("--venue", choices=["robinhood", "solana", "both"], default="robinhood")
+    p.add_argument("--minutes", type=_positive_minutes, help="run: repeat every minute for this duration; default one pass")
+    p.add_argument("--limit", type=int, default=2000, help="source rows per pass, at most 10000")
+    p.add_argument("--outcomes", type=int, default=200, help="matured outcomes per pass, at most 2000")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_opportunities)
 
     p = sub.add_parser("council", help="evidence council: two record-only research advisors (zero influence)")
     p.add_argument("action", choices=["run", "report", "rebuild-benchmark"])
