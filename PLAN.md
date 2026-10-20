@@ -805,6 +805,20 @@ security/data-integrity issue · no deterioration alarm · fault-injection suite
 manual authorization** recorded in the ledger. These thresholds are deliberately conservative; loosening them later
 requires a documented justification and approval.
 
+### 14.6 Evidence council (research only; built 2026-10-20 from Codex's research in `research/council/`)
+Two research advisors record, at every recorded primary decision (SHADOW, PAPER, LIVE), what they would say about a
+prospective long: **C1_BRC** (continuation of the token's return left after removing a fitted SOL exposure, over
+76 h of unbroken 15-minute history) and **C2_ECDR** (an idiosyncratic dislocation, which needs a pre-event quote
+and reserve panel this version does not collect, so a detected one is ABSTAIN). Stances are SUPPORT, CAUTION,
+OPPOSE or ABSTAIN; ABSTAIN means "could not know", never a forecast. Mode SHADOW, influence **NONE**: no module that
+decides, sizes, signs or exits imports the council (import-graph test), it adds **zero** provider requests (its
+SOL/USD benchmark minutes come from the payload market context already fetches), it writes only to research.db,
+and every input must have ended and been received before the decision, so a record never changes when later data
+arrives. Specifications are frozen by hash; a 20-member daily cohort is frozen per UTC day. `desk council report`
+shows coverage, stances, disagreements and the opportunity-matched filter diagnostic (OPPOSE removes an entry,
+its capital stays cash); it says BLOCKED while there are no closed primary trades and INSUFFICIENT EVIDENCE below
+300. Any future influence is a separately approved policy version under `research/council/validation_plan.md`.
+
 ---
 
 ## 15. AI judge — removed by operator decision

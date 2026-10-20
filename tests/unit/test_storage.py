@@ -156,7 +156,7 @@ def test_upgrade_from_previous_schema_keeps_existing_rows(tmp_path: Path, monkey
     migrate(conn, DbKind.MARKET)
     conn.execute("INSERT INTO tokens(mint, first_seen_at, last_seen_at) VALUES ('m', 'a', 'b')")
     monkeypatch.setattr(dbmod, "available_migrations", original)
-    assert migrate(conn, DbKind.MARKET) == [2, 3, 4, 5, 6, 7, 8]
+    assert migrate(conn, DbKind.MARKET) == [2, 3, 4, 5, 6, 7, 8, 9]
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(market_snapshots)")}
     assert {"liquidity_base_amount", "liquidity_quote_amount"} <= columns
     assert conn.execute("SELECT COUNT(*) FROM tokens").fetchone()[0] == 1

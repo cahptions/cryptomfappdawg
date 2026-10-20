@@ -182,6 +182,8 @@ class ResearchSection(_Section):
     # M6-14: local model scores have zero influence until they beat the baselines out of sample AND a new,
     # operator-approved configuration value exists; today "none" is the only accepted value.
     model_influence: Literal["none"] = "none"
+    # research/council: two record-only advisors with zero influence and zero added requests ("off" stops recording)
+    council: Literal["record", "off"] = "record"
 
 
 class DeskConfig(_Section):

@@ -62,6 +62,9 @@ Built assets are included; Node is needed only when changing UI source, via `scr
 - **Decisions on real inputs.** Every production decision had been NO_TRADE (an overlay vetoed on a value the
   builder always marks unverified) and H8 could never qualify (it needed an input never produced). Fixed by
   evaluator `shadow-rules-v4` and H8 v3; older runs still replay with their own evaluator.
+- **Evidence council (research only).** Codex's two advisors now record what they would have said at every
+  decision (`desk council report`, Research view). Zero influence, zero added requests; mostly ABSTAIN until
+  tokens have 76 h of history. First start applies market migration 0009 and research migration 0004.
 - **LIVE (M8) completed, never used.** The signer re-checks all seven gates for every BUY just before signing.
   `desk live run` (PAPER plus LIVE) and the LIVE guardian trade only through the signer and book every amount from
   the wallet's measured balance changes; lost answers are looked up, never resent. Nothing runs LIVE until you set

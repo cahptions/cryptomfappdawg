@@ -1,0 +1,167 @@
+{
+ "kind": "ohlcv_interval_semantics_probe",
+ "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+ "provider": "geckoterminal (keyless public API)",
+ "requests": [
+  {
+   "path": "/networks/solana/pools/Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE/ohlcv/minute",
+   "params": {
+    "aggregate": 1,
+    "limit": 10
+   },
+   "requested_at": "2026-10-20T00:25:41.650865+00:00",
+   "received_at": "2026-10-20T00:25:42.273827+00:00",
+   "http_status": 200,
+   "bytes": 1435,
+   "sha256": "1712b7f680c212e89d51f55b58cccf07a1adbee33efd54ad51a9e5579dc5e2e7",
+   "cache_headers": {
+    "date": "Tue, 20 Oct 2026 00:25:42 GMT",
+    "cache-control": "max-age=30, public, must-revalidate, s-maxage=60"
+   }
+  },
+  {
+   "path": "/networks/solana/pools/Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE/trades",
+   "params": {},
+   "requested_at": "2026-10-20T00:25:42.273944+00:00",
+   "received_at": "2026-10-20T00:25:42.380691+00:00",
+   "http_status": 200,
+   "bytes": 268958,
+   "sha256": "89919ffd4ba260150cebf804c8adcdd1ff148f9ebd97492fa1083873ba40a5a0",
+   "cache_headers": {
+    "date": "Tue, 20 Oct 2026 00:25:42 GMT",
+    "cache-control": "max-age=30, public, must-revalidate, s-maxage=30",
+    "age": "29"
+   }
+  },
+  {
+   "path": "/networks/solana/pools/Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE/ohlcv/minute",
+   "params": {
+    "aggregate": 5,
+    "limit": 12
+   },
+   "requested_at": "2026-10-20T00:25:42.383505+00:00",
+   "received_at": "2026-10-20T00:25:42.871031+00:00",
+   "http_status": 200,
+   "bytes": 1618,
+   "sha256": "5c8a5546e1d5e8e8f0b9506cd97a523a1213d8b0c5e64dfeeecc63a52eedbde4",
+   "cache_headers": {
+    "date": "Tue, 20 Oct 2026 00:25:42 GMT",
+    "cache-control": "max-age=30, public, must-revalidate, s-maxage=60"
+   }
+  },
+  {
+   "path": "/networks/solana/pools/Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE/ohlcv/minute",
+   "params": {
+    "aggregate": 1,
+    "limit": 40
+   },
+   "requested_at": "2026-10-20T00:26:47.871606+00:00",
+   "received_at": "2026-10-20T00:26:48.509096+00:00",
+   "http_status": 200,
+   "bytes": 4504,
+   "sha256": "8ee8f1c5ebb096d2886e80c66f4699b81b87594ff43e10aeea5ec051f2099eff",
+   "cache_headers": {
+    "date": "Tue, 20 Oct 2026 00:26:48 GMT",
+    "cache-control": "max-age=30, public, must-revalidate, s-maxage=60"
+   }
+  }
+ ],
+ "revision_check": {
+  "bar_time": 1792455900,
+  "first_received_epoch": 1792455942.274,
+  "received_minus_bar_seconds": 42.274,
+  "first": [
+   "104.50087730644864",
+   "104.50203660605905",
+   "104.50024106980364",
+   "104.50087730644864",
+   "130305.43393919099"
+  ],
+  "second": [
+   "104.50087730644864",
+   "104.775745033758",
+   "104.132573286341",
+   "104.43191624795703",
+   "305886.3250435872"
+  ],
+  "changed": true
+ },
+ "trade_volume_check": {
+  "trade_window_epoch": [
+   1792455755.0,
+   1792455906.0
+  ],
+  "minutes_compared": 2,
+  "abs_error_start_labelling": "1.570995350023E-11",
+  "abs_error_end_labelling": "209766.1217159228957099535002",
+  "rows": [
+   {
+    "minute_start": 1792455780,
+    "trades_usd": "96120.20332766431300051914997",
+    "bar_labelled_minute_start_usd": "96120.20332766432",
+    "bar_labelled_minute_end_usd": "230486.68068349452"
+   },
+   {
+    "minute_start": 1792455840,
+    "trades_usd": "230486.6806834945112895273498",
+    "bar_labelled_minute_start_usd": "230486.68068349452",
+    "bar_labelled_minute_end_usd": "305886.3250435872"
+   }
+  ],
+  "note": "the provider's 300 most recent trades; its volume may differ slightly from the bar's"
+ },
+ "aggregation_check": [
+  {
+   "bar_time": 1792454100,
+   "five_minute_volume_usd": "44428.80334127105",
+   "sum_1m_start_labelled": "44428.8033412710464",
+   "sum_1m_end_labelled": "31542.9624897067391"
+  },
+  {
+   "bar_time": 1792454400,
+   "five_minute_volume_usd": "447490.62768450176",
+   "sum_1m_start_labelled": "447490.627684501736",
+   "sum_1m_end_labelled": "298493.0658125680307"
+  },
+  {
+   "bar_time": 1792454700,
+   "five_minute_volume_usd": "436405.20466031495",
+   "sum_1m_start_labelled": "436405.204660314944",
+   "sum_1m_end_labelled": "252807.886996049446"
+  },
+  {
+   "bar_time": 1792455000,
+   "five_minute_volume_usd": "255766.92628666118",
+   "sum_1m_start_labelled": "255766.926286661184",
+   "sum_1m_end_labelled": "483428.628497782864"
+  },
+  {
+   "bar_time": 1792455300,
+   "five_minute_volume_usd": "459914.0876290614",
+   "sum_1m_start_labelled": "459914.08762906144",
+   "sum_1m_end_labelled": "201339.697766484794"
+  },
+  {
+   "bar_time": 1792455600,
+   "five_minute_volume_usd": "661827.2494995724",
+   "sum_1m_start_labelled": "661827.249499572435",
+   "sum_1m_end_labelled": "434974.084612045835"
+  }
+ ],
+ "verdict": "START",
+ "documentation": [
+  {
+   "url": "https://coingecko-api-v3.readme.io/v3.0.1/reference/pool-ohlcv-contract-address",
+   "quote": "The epoch/unix timestamp representing the start of the time interval."
+  },
+  {
+   "url": "https://docs.coingecko.com/websocket/onchainohlcv",
+   "quote": "Candle open time, UNIX timestamp (s)."
+  },
+  {
+   "url": "https://coingecko-api-v3.readme.io/v3.0.1/reference/pool-ohlcv-contract-address",
+   "quote": "specific timeframe intervals (e.g. minutely) with no recorded swaps are excluded from the response."
+  }
+ ],
+ "limitations": "one pool, one short window; the trade list is the provider's own recent-trade record, not a chain scan; a 60 s response cache can delay the newest bar"
+}

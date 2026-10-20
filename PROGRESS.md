@@ -13,7 +13,7 @@
 | M3 Features & strategy engine | 🟡 implemented; forward acceptance pending | 2026-10-19 | measured context, SHADOW and replay; six-hour laptop run still needed |
 | ~~M4 AI judge~~ | ❌ **Dropped** | 2026-10-18 | Operator declined paid API; desk is deterministic-only (PLAN §15) |
 | M5 Full PAPER trading | 🟡 implemented; 72-hour acceptance pending | 2026-10-19 | $100,000 learning book, $100 replica; measured fees; H8 moonshot with evidence-gated conviction sizing |
-| M6 Statistical learning & confidence | 🟡 methods implemented; forward evidence pending | 2026-10-19 | confidence matrices, counterfactuals, champion review, zero-influence local models |
+| M6 Statistical learning & confidence | 🟡 methods implemented; forward evidence pending | 2026-10-20 | confidence matrices, counterfactuals, champion review, zero-influence local models, record-only evidence council |
 | M7 Dashboard & operations | 🟡 implementation and automated checks | 2026-10-19 | React/FastAPI, Paper trading tab, services, backups; real-laptop acceptance pending |
 | M8 LIVE infrastructure | 🟡 implemented; tested against fakes only | 2026-10-19 | signer re-checks all seven gates per BUY; LIVE engine and guardian book from measured balances; no wallet funded |
 | M9 Forward validation | 🟡 report tooling implemented; forward evidence pending | 2026-10-19 | `desk report readiness`, 6-hourly refresh while PAPER runs; ≥ 60 days calendar time still required |
@@ -659,3 +659,20 @@ Checks: **795 passed, 5 opt-in live tests deselected**; Ruff and strict mypy (13
 build and Prettier; Chromium smoke (empty and populated fixtures, all nine views) passed. Two halts that re-applied
 themselves the moment `desk live resume` lifted them were found by the new tests and fixed (the peak and failure
 count now restart at the resume).
+
+## Evidence council: Codex's research finished as a record-only sidecar (2026-10-20 UTC, Claude)
+
+Checked what the other AI left: the only unmerged work was Codex's `codex/council-research` (documentation and a
+design verifier; no open pull requests or issues). It is now on this branch with its "build first" minimum version
+implemented (details and remaining steps: `research/council/HANDOFF.md`, PLAN §14.6, ACCEPTANCE M6-15..18).
+
+- Two research advisors record, for every recorded SHADOW/PAPER/LIVE decision, what they would say about a
+  prospective long: C1_BRC (benchmark-residual continuation over 76 h of unbroken 15-minute history) and C2_ECDR
+  (dislocation reversal; ABSTAIN when one is detected, because its pre-event quote panel is not collected).
+  Influence NONE, zero added provider requests, research.db writes only, every input ended and received before the
+  decision. `desk council report`; Research view on the dashboard. Expect mostly ABSTAIN for days: tokens must be
+  first seen 96 h earlier and have 306 consecutive 15-minute bars.
+- Resolved a research blocker: GeckoTerminal OHLCV bar time is the interval START (CoinGecko documentation plus a
+  four-request probe; RESEARCH.md). New migrations: market 0009 (SOL/USD benchmark minutes from the existing market
+  context payload, only once closed beyond the provider's 60 s cache), research 0004 (council records).
+- No edge is claimed; no record can change an entry, exit, size or LIVE gate.

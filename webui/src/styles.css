@@ -3001,3 +3001,11 @@ dialog::backdrop {
 .panel .readiness-verdict:last-child {
   border-bottom: 0;
 }
+
+/* Evidence council (Research view) */
+.council-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}

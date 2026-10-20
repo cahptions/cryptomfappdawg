@@ -106,6 +106,7 @@ hazard_followup_interval_seconds = 300
 
 [research]                      # M6: local statistical models are logged and benchmarked only
 model_influence = "none"        # the only accepted value until a model is validated and the operator approves
+council = "record"              # two research advisors record what they would say; they never change a trade
 
 [live]                          # M8: real-money infrastructure. Nothing here can arm LIVE (PLAN §16.5 gates)
 max_capital_sol = "0"           # 0 = LIVE impossible. You set this yourself when you decide; ceiling 2 SOL

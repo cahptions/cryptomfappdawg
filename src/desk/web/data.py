@@ -7,7 +7,7 @@ import dataclasses
 import json
 import sqlite3
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -194,6 +194,27 @@ class DashboardData:
                           "immediately before signing; the LIVE guardian exits through the same signer. Arming stays "
                           "CLI-only and nothing here can arm LIVE."}
 
+    def _council(self, dbs: Databases, now: datetime) -> dict[str, Any]:
+        """The two research advisors' latest records (read-only, bounded). They never change a trade."""
+        from desk.contracts.advisory import zulu
+
+        since = zulu(now - timedelta(hours=24))
+        counts: dict[str, dict[str, int]] = {}
+        for row in dbs.research.execute("SELECT advisor_id, stance, COUNT(*) AS n FROM council_advisories WHERE"
+                                        " decision_at >= ? GROUP BY advisor_id, stance", (since,)):
+            counts.setdefault(row["advisor_id"], {})[row["stance"]] = int(row["n"])
+        latest = []
+        for row in dbs.research.execute(
+                "SELECT advisor_id, stance, reasons, mint, source, primary_action, decision_at,"
+                " json_extract(payload_json, '$.candidate_signal') AS signal FROM council_advisories"
+                " ORDER BY decision_at DESC, advisory_id LIMIT 12"):
+            latest.append({"advisor": row["advisor_id"], "stance": row["stance"], "reasons": row["reasons"].split(","),
+                           "mint": row["mint"], "source": row["source"], "primary_action": row["primary_action"],
+                           "decision_at": row["decision_at"], "signal": json.loads(row["signal"] or "{}")})
+        minutes = dbs.market.execute("SELECT COUNT(*) FROM benchmark_bars").fetchone()[0]
+        return {"enabled": self.loaded.settings.research.council == "record", "influence": "NONE",
+                "last_24h": counts, "latest": latest, "benchmark_minutes": minutes}
+
     def _live_book(self, now: datetime) -> dict[str, Any] | None:
         """Read-only summary of the LIVE ledger (None until `desk live run` has created it)."""
         from desk.core.units import sol_to_lamports
@@ -236,6 +257,7 @@ class DashboardData:
             "live": {"armed": False, "buy_enabled": False, "gates": [], "book": None,
                      "reason": "No local databases yet. Arming remains CLI-only."},
             "regime": {"label": None, "status": "missing", "reason": "No recorded market context."},
+            "council": {"enabled": False, "influence": "NONE", "last_24h": {}, "latest": [], "benchmark_minutes": 0},
         }
         with self._databases() as dbs:
             if dbs is None:
@@ -264,6 +286,7 @@ class DashboardData:
             from desk.ops.readiness import latest_recorded
 
             result["readiness"] = latest_recorded(dbs.research, now)
+            result["council"] = self._council(dbs, now)
             result["audit"] = [_json_row(row, ("payload_json",)) for row in dbs.paper_ledger.execute(
                 "SELECT * FROM paper_events ORDER BY id DESC LIMIT 100")]
             # Replay contexts and quote arrays stay in the evidence store and detail routes. Re-sending

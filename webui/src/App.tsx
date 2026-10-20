@@ -736,7 +736,7 @@ function Identicon({ mint = "" }: { mint?: string }) {
         {Array.from({ length: 15 }, (_, i) => {
           const col = i % 3;
           const row = Math.floor(i / 3);
-          return (seed >>> i % 24) & 1 ? (
+          return (seed >>> (i % 24)) & 1 ? (
             <g key={i}>
               <rect x={col * 5} y={row * 5} width="5" height="5" />
               {col !== 2 && (
@@ -1380,6 +1380,99 @@ function ReadinessVerdict({
         <p className="panel-note">
           Full report with every figure's source: <code>{readiness.path}</code>
         </p>
+      )}
+    </div>
+  );
+}
+
+const COUNCIL_NAMES: Record<string, string> = {
+  C1_BRC: "C1 benchmark-residual continuation",
+  C2_ECDR: "C2 dislocation reversal (experimental)",
+};
+const STANCE_TONE: Record<string, string> = {
+  SUPPORT: "PASS",
+  OPPOSE: "FAIL",
+  CAUTION: "PENDING",
+  ABSTAIN: "NEUTRAL",
+};
+
+/** Two research advisors record what they would have said at each decision; nothing here changes a trade. */
+function CouncilPanel({ council }: { council?: Snapshot["council"] }) {
+  if (!council?.enabled)
+    return (
+      <p className="panel-note">
+        Council recording is off (research.council = "off"). Turning it on
+        changes no trade.
+      </p>
+    );
+  return (
+    <div className="council">
+      <p className="panel-note">
+        Research only, zero influence. Each advisor states SUPPORT, CAUTION,
+        OPPOSE or ABSTAIN for a prospective long at every recorded decision.
+        ABSTAIN means it could not know, not a forecast. C1 needs 76 hours of
+        unbroken 15-minute history, so expect mostly ABSTAIN at first. SOL/USD
+        benchmark minutes collected:{" "}
+        {council.benchmark_minutes.toLocaleString()}.
+      </p>
+      <div className="council-counts">
+        {Object.keys(COUNCIL_NAMES).map((advisor) => (
+          <span className="subtle-chip" key={advisor}>
+            {COUNCIL_NAMES[advisor]} · 24 h:{" "}
+            {Object.entries(council.last_24h[advisor] ?? {})
+              .map(([stance, n]) => `${words(stance)} ${n}`)
+              .join(" · ") || "no records"}
+          </span>
+        ))}
+      </div>
+      {council.latest.length ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Decision</th>
+                <th>Advisor</th>
+                <th>Stance</th>
+                <th>Primary</th>
+                <th>Token</th>
+                <th>Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              {council.latest.map((row) => (
+                <tr key={`${row.advisor}-${row.decision_at}-${row.mint}`}>
+                  <td>{time(row.decision_at, true)}</td>
+                  <td>{row.advisor}</td>
+                  <td>
+                    <Badge status={STANCE_TONE[row.stance]}>
+                      {words(row.stance)}
+                    </Badge>
+                  </td>
+                  <td>{words(row.primary_action)}</td>
+                  <td>
+                    <strong>{short(row.mint)}</strong>
+                  </td>
+                  <td>
+                    {row.reasons.map(words).join(", ")}
+                    {row.signal.residual_z && (
+                      <small> · Z {fmt(row.signal.residual_z, 2)}</small>
+                    )}
+                    {row.signal.shock_z && (
+                      <small> · shock {fmt(row.signal.shock_z, 2)}</small>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty
+          icon="shield"
+          compact
+          title="No council records yet"
+          detail="Records appear within 15 minutes of the first recorded decision while desk paper runs."
+        />
       )}
     </div>
   );
@@ -3217,6 +3310,13 @@ export default function App() {
                 className="span-12"
               >
                 <ReadinessVerdict readiness={snapshot.readiness} />
+              </Panel>
+              <Panel
+                title="Evidence council"
+                eyebrow="RESEARCH ONLY · ZERO INFLUENCE"
+                className="span-12"
+              >
+                <CouncilPanel council={snapshot.council} />
               </Panel>
               <Panel
                 title="Confidence matrix"

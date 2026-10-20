@@ -185,6 +185,7 @@ export interface Snapshot {
     closed_trades?: number;
     deciding_versions?: string[];
   } | null;
+  council?: CouncilSummary;
 }
 export type Detail = {
   title: string;
@@ -394,4 +395,22 @@ export interface LiveBookSummary {
     value_sol: string | null;
     exit_reason: string | null;
   }[];
+}
+
+/** The evidence council's latest records: two research advisors that never change a trade. */
+export interface CouncilSummary {
+  enabled: boolean;
+  influence: "NONE";
+  last_24h: Record<string, Record<string, number>>;
+  latest: {
+    advisor: string;
+    stance: string;
+    reasons: string[];
+    mint: string;
+    source: string;
+    primary_action: string;
+    decision_at: string;
+    signal: Record<string, string>;
+  }[];
+  benchmark_minutes: number;
 }

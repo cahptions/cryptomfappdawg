@@ -61,7 +61,7 @@ class OhlcvBar(BaseModel):
 
     pool_address: SolAddress
     timeframe: str          # e.g. "minute:5"
-    ts: UtcDatetime         # bar timestamp as returned by the provider (believed to be bar start; TO VERIFY)
+    ts: UtcDatetime         # interval START: documented and measured 2026-10-20 (see RESEARCH.md)
     open: Decimal
     high: Decimal
     low: Decimal

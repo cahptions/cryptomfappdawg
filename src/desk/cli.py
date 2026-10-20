@@ -281,6 +281,40 @@ def cmd_model(args: argparse.Namespace) -> int:
         dbs.close()
 
 
+def cmd_council(args: argparse.Namespace) -> int:
+    """Evidence council (research/council): two record-only advisors with zero influence."""
+    from desk.ops.council import council_report, rebuild_benchmark, run_council
+    from desk.storage.databases import Databases
+
+    paths, _ = _bootstrap(args.verbose)
+    loaded = load_config(paths.config_dir)
+    if args.action == "run":
+        stats = run_council(paths, loaded, limit=args.limit)
+        print(json.dumps(stats, indent=1, default=str))
+        return 0
+    dbs = Databases.open(paths)
+    try:
+        if args.action == "rebuild-benchmark":
+            print(json.dumps(rebuild_benchmark(dbs, loaded, utc_now()), indent=1))
+            return 0
+        report = council_report(dbs)
+    finally:
+        dbs.close()
+    if args.json:
+        print(json.dumps(report, indent=1, default=str))
+        return 0
+    coverage, diagnostic = report["coverage"], report["filter_diagnostic"]
+    print("\nEvidence council — research records only; nothing here changes a trade (influence NONE)\n")
+    print(f"  decisions advised {coverage['decisions_advised']}, in the universe {coverage['decisions_in_universe']},"
+          f" C1 with full 76 h history {coverage['c1_with_full_history']}")
+    print(f"  SOL/USD benchmark minutes {coverage['benchmark_minutes']}"
+          f" ({coverage['benchmark_first'] or '-'} → {coverage['benchmark_last'] or '-'})")
+    for advisor, detail in report["stances"].items():
+        print(f"  {advisor}: {detail['all_time'] or 'no records yet'}; top reasons {detail['top_reasons'] or '-'}")
+    print(f"  filter diagnostic: {diagnostic['verdict']}")
+    return 0
+
+
 def cmd_counterfactuals(args: argparse.Namespace) -> int:
     from desk.discovery.counterfactual import summary
     from desk.storage.databases import Databases
@@ -885,6 +919,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("counterfactuals", help="what happened to rejected candidates (M6-05)").set_defaults(
         func=cmd_counterfactuals)
+
+    p = sub.add_parser("council", help="evidence council: two record-only research advisors (zero influence)")
+    p.add_argument("action", choices=["run", "report", "rebuild-benchmark"])
+    p.add_argument("--limit", type=int, default=300, help="run: decisions to advise in this pass")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_council)
 
     p = sub.add_parser("live", help="LIVE (M8): keygen, arm, disarm, status, approve, validate, withdraw, run, guardian,"
                                     " resume")

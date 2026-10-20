@@ -83,7 +83,7 @@ def main() -> None:
         example = {
             "schema_version": "kestrel-advisory-1", "advisory_id": "DESIGN_EXAMPLE_NOT_RUNTIME_OUTPUT",
             "advisor_id": "C1_BRC", "spec_version": 1, "spec_sha256": hashlib.sha256(canonical(spec)).hexdigest(),
-            "code_commit": spec["audited_commit"], "mode": "SHADOW", "influence": "NONE",
+            "code_sha256": hashlib.sha256(b"design-example").hexdigest(), "mode": "SHADOW", "influence": "NONE",
             "primary_decision_hash": None, "primary_action": "NO_TRADE", "reference_action": "PROSPECTIVE_LONG",
             "asset": {"profile": "solana_meme_15m", "instrument_id": "illustration-only", "pool_or_venue": "none",
                       "source": "design-example", "price_currency": "USD", "account_numeraire": "SOL",

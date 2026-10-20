@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import sqlite3
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -24,6 +25,7 @@ from desk.core.config import LoadedConfig
 from desk.core.errors import ProviderError
 from desk.core.hashing import canonical_json
 from desk.core.ids import new_id
+from desk.council.benchmark import save_benchmark_bars
 from desk.ops import system
 from desk.providers.factory import ProviderSuite
 from desk.regime.context import INPUTS as CONTEXT_INPUTS
@@ -40,6 +42,7 @@ from desk.storage.databases import Databases
 from desk.storage.market_repo import MarketRepository
 
 log = logging.getLogger(__name__)
+COUNCIL_INTERVAL_SECONDS = 900          # record-only research advisors (desk.ops.council)
 EVIDENCE_INTERVAL_SECONDS = 6 * 3600     # PAPER: confidence matrix + readiness report (sizing evidence stays < 7 days)
 
 
@@ -229,6 +232,10 @@ class Collector:
         try:
             fetched = await self.suite.geckoterminal.ohlcv(ctx.sol_reference_pool, "minute", aggregate=1, limit=70)
             raw = fetched.raw_sha256
+            try:     # the council's SOL/USD benchmark reuses this payload: no extra request
+                save_benchmark_bars(self.dbs.market, ctx.sol_reference_pool, fetched.items, raw)
+            except sqlite3.Error:
+                log.exception("benchmark minutes not stored; market context continues")
             values["sol_return_1h"], values["sol_volatility_1h"], reason = sol_reference_metrics(fetched.items, now)
             if reason:
                 reasons.update({n: reason for n in ("sol_return_1h", "sol_volatility_1h") if values[n] is None})
@@ -315,6 +322,20 @@ class Collector:
         self.stats.tasks["evidence"].items += 1
         log.info("evidence refreshed", extra={"verdict": summary["verdict"], "as_of": summary["as_of"]})
 
+    async def council(self) -> None:
+        """Record the two research advisors' views of new primary decisions, off the event loop (own connections)."""
+        from desk.ops.council import run_council
+
+        task = self.stats.tasks["council"]
+        try:
+            stats = await asyncio.to_thread(run_council, self.dbs.paths, self.loaded, utc_now())
+        except Exception as exc:  # research only: logged and counted, never a collection or trading failure
+            task.item_errors += 1
+            task.last_error = f"{type(exc).__name__}: {exc}"[:300]
+            log.exception("council records not written this cycle")
+            return
+        task.items += int(stats["advisories"])
+
     async def evaluate_discovery(self) -> None:
         assert self.discovery_engine is not None
         self.stats.tasks["discovery_evaluation"].items += await self.discovery_engine.evaluate_cycle()
@@ -384,6 +405,8 @@ class Collector:
             jobs.append(("token_candles", 60, self.token_candles))
         if self.paper_engine is not None:
             jobs.append(("evidence", EVIDENCE_INTERVAL_SECONDS, self.evidence))
+            if self.loaded.settings.research.council == "record":
+                jobs.append(("council", COUNCIL_INTERVAL_SECONDS, self.council))
         for name, _, _ in jobs:
             self.stats.tasks[name] = TaskStats()
         if self.paper_engine is not None:

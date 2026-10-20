@@ -31,3 +31,7 @@ Some are deliberately kept as prompt-injection / XSS test material.
 | `jupiter_ultra_v1_shield.json` | `GET lite-api.jup.ag/ultra/v1/shield?mints=<mint>` |
 | `jupiter_v2_shield_429.json` | `GET api.jup.ag/swap/v2/shield` → 429 (keyless budget exhausted) |
 | `response_headers_ratelimit_cache.json` | rate-limit/cache headers from several of the above |
+
+`2026-10-20/council_ohlcv_interval_semantics.json` — four keyless GeckoTerminal requests (SOL/USDC reference pool)
+made by `research/council/probe_ohlcv_semantics.py`: OHLCV bar time is the interval START (revision, trade-volume and
+aggregation checks agree; see RESEARCH.md).

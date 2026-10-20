@@ -98,6 +98,17 @@ collector rewrites it every 6 hours (with a fresh confidence matrix) and the das
 and Research. The report reads recorded data only; generating it changes no mode, approval or LIVE gate. Keep the
 file if you want a record: it is regenerated in place.
 
+## Evidence council (research records)
+
+```bash
+uv run desk council report        # add --json for the full record
+```
+
+Two research advisors record what they would have said at each decision; they never change a trade. ABSTAIN means
+the desk could not know (young token, short history, stale data), not a negative view. The filter diagnostic stays
+BLOCKED until PAPER has closed trades, then INSUFFICIENT EVIDENCE until 300; neither is a reason to change anything.
+`uv run desk council run` advises any backlog at once; the PAPER collector already does it every 15 minutes.
+
 ## Optional user services
 
 User services require no `sudo`. `desk up` installs the units under `~/.config/systemd/user`, uses the current

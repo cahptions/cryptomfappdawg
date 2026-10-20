@@ -139,6 +139,17 @@ real Jupiter fee reports once enough exist, or a conservative estimate before th
 looks for rare explosive runs and exits fast; it may use a larger ticket (up to 15%) only after its own paper trades
 prove a positive net edge in the confidence report. See PLAN §11.4, §12.3 and §13.1.1.
 
+### Evidence council (research only, never changes a trade)
+
+```bash
+uv run desk council report       # what the two research advisors recorded, and what that can and cannot show
+```
+
+While `desk paper` runs, two research advisors record every 15 minutes what they would have said about each new
+decision (see `research/council/`). They add no provider request and have zero influence. Expect mostly ABSTAIN at
+first: the main one needs 76 hours of unbroken 15-minute history for a token. Turn recording off with
+`council = "off"` under `[research]` in the config.
+
 ### M9: readiness report (the signal for considering real money)
 
 ```bash
