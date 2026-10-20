@@ -86,7 +86,13 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *,
             return JSONResponse({"detail": "loopback host required"}, status_code=403)
         origin = request.headers.get("origin")
         expected = f"{request.url.scheme}://{host}"
-        if (origin is not None and origin != expected) or request.headers.get("sec-fetch-site") == "cross-site":
+        # Opening the page from a link elsewhere is a cross-site top-level navigation; it may load the page shell
+        # (static files only). Every /api request, and anything framed or fetched, must still come from this page.
+        navigation = (request.method in {"GET", "HEAD"} and not request.url.path.startswith("/api/")
+                      and request.headers.get("sec-fetch-mode") == "navigate"
+                      and request.headers.get("sec-fetch-dest") == "document")
+        if (origin is not None and origin != expected) or (
+                request.headers.get("sec-fetch-site") == "cross-site" and not navigation):
             return JSONResponse({"detail": "same-origin requests required"}, status_code=403)
         if request.method not in {"GET", "HEAD"}:
             supplied = request.headers.get("x-csrf-token", "")

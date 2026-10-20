@@ -50,6 +50,12 @@ def test_cross_origin_dns_rebinding_and_csrf_are_refused(paths: DeskPaths) -> No
         assert client.get("/api/session", headers={"Host": "attacker.example"}).status_code == 403
         assert client.get("/api/session", headers={"Origin": "https://attacker.example"}).status_code == 403
         assert client.get("/api/session", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+        link = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
+        assert client.get("/", headers=link).status_code == 200            # opened from a link in another site
+        assert client.get("/api/session", headers=link).status_code == 403
+        assert client.get("/", headers={**link, "Sec-Fetch-Dest": "iframe"}).status_code == 403
+        assert client.get("/", headers={**link, "Sec-Fetch-Mode": "no-cors"}).status_code == 403
+        assert client.post("/api/control/stop", headers=link).status_code == 403
         assert client.post("/api/control/stop").status_code == 403
         token = client.get("/api/session").json()["csrf_token"]
         headers = {"X-CSRF-Token": token}
