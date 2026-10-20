@@ -25,11 +25,18 @@ the LIVE plan: when LIVE is ever built, the desk's own allocation limit plays th
 |---|---|---|
 | Executable prices | Robinhood Crypto Trading API, `trading.robinhood.com` | Every endpoint needs the signed key. 100 requests/min, bursts of 300; timestamps valid 30 s. The desk budgets 60/min. |
 | Exact-size cost | `estimated_price` (v1 and v2) | v1 = market-maker routing: no commission, spread inside the price. v2 = exchange routing: fee tier, 0.95% taker under $10K/month ([fee schedule](https://cdn.robinhood.com/assets/robinhood/legal/rhc-fee-schedule.pdf)). The desk asks both and takes the cheaper. |
-| Coin list | `trading_pairs` | Stablecoins and untradable pairs excluded. Until the key works, a labelled 20-coin starter list is used. |
+| Coin list | `trading_pairs` | Only tradable USD pairs with `is_api_tradable=true`; stablecoins excluded. Until the key works, a labelled 20-coin starter list is used. |
 | Price history | Coinbase Exchange public candles (keyless) | Robinhood's API has **no history endpoint**. Bars are bucket START, newest first; the newest bar is still forming and is never stored. History only: never a fill price. |
 
 The signature is `base64(Ed25519(api_key + timestamp + path_with_query + method + body))`. The implementation
 reproduces the docs' published example signature (test `test_signature_matches_the_documented_example`).
+
+The v2 best-bid/ask feed aggregates partner exchanges and excludes order size and fees, according to its
+`Get Best Price` description in the saved official OpenAPI document. A finite positive bid above the ask is
+retained as a **crossed aggregate quote**, with its original sides and signed spread. The doctor and coin page
+label it explicitly. Zero, negative, nonnumeric and nonfinite prices still fail validation. Crossed top-of-book
+prices do not establish executable profit: PAPER fills and the round-trip ceiling still use exact-quantity
+estimated totals, including the route's spread or fees. This fix needs no database migration or new credentials.
 
 ## Strategies (v1, frozen before any history was looked at)
 

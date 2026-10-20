@@ -93,6 +93,18 @@ async def test_requests_are_signed_over_the_exact_path_and_query(suite: RhSuite,
     _verify(request, public)
     assert quotes[0].bid == Decimal("81990.1") and quotes[0].ask == Decimal("82010.3")
     assert quotes[1].spread_fraction == (Decimal("3013.1") - Decimal("3012.5")) / Decimal("3012.8")
+    assert not quotes[0].crossed
+
+
+@respx.mock
+async def test_crossed_aggregate_quote_preserves_both_reported_sides(suite: RhSuite) -> None:
+    respx.get(url__startswith=f"{RH}/api/v2/crypto/marketdata/best_bid_ask/").mock(return_value=httpx.Response(
+        200, json={"results": [{"symbol": "BTC-USD", "bid": "82010.12345678", "ask": "81990.87654321"},
+                               {"symbol": "ETH-USD", "bid": "3000", "ask": "3000"}]}))
+    crossed, locked = await suite.robinhood.best_bid_ask(["BTC-USD", "ETH-USD"])
+    assert crossed.bid == Decimal("82010.12345678") and crossed.ask == Decimal("81990.87654321")
+    assert crossed.crossed and crossed.spread_fraction < 0
+    assert not locked.crossed and locked.spread_fraction == 0
 
 
 @respx.mock
@@ -133,19 +145,23 @@ async def test_trading_pairs_follow_pagination_and_flag_tradability(suite: RhSui
         return_value=httpx.Response(200, json={
             "next": None, "previous": None, "results": [{**page, "symbol": "USDC-USD", "asset_code": "USDC"},
                                                         {**page, "symbol": "XYZ-USD", "asset_code": "XYZ",
-                                                         "status": "untradable"}]}))
+                                                         "status": "untradable"},
+                                                        {**page, "symbol": "APPONLY-USD", "asset_code": "APPONLY",
+                                                         "is_api_tradable": False}]}))
     respx.get(f"{RH}/api/v2/crypto/trading/trading_pairs/").mock(return_value=httpx.Response(200, json={
         "next": f"{RH}/api/v2/crypto/trading/trading_pairs/?cursor=abc", "previous": None, "results": [page]}))
     pairs = await suite.robinhood.trading_pairs()
-    assert [p.symbol for p in pairs] == ["BTC-USD", "USDC-USD", "XYZ-USD"]
-    assert [p.tradable for p in pairs] == [True, False, False]          # stablecoin and untradable excluded
+    assert [p.symbol for p in pairs] == ["BTC-USD", "USDC-USD", "XYZ-USD", "APPONLY-USD"]
+    assert [p.tradable for p in pairs] == [True, False, False, False]  # includes retail-only API exclusion
 
 
 @respx.mock
-async def test_malformed_robinhood_payloads_are_refused(suite: RhSuite) -> None:
+@pytest.mark.parametrize("bid,ask", [(0, 10), (10, 0), (-1, 10), (10, -1), ("NaN", 10),
+                                    (10, "Infinity"), (True, 10), (10, None), ("bad", 10)])
+async def test_malformed_robinhood_payloads_are_refused(suite: RhSuite, bid: object, ask: object) -> None:
     respx.get(url__startswith=f"{RH}/api/v2/crypto/marketdata/best_bid_ask/").mock(return_value=httpx.Response(
-        200, json={"results": [{"symbol": "BTC-USD", "bid": 82010, "ask": 81990}]}))
-    with pytest.raises(SchemaError, match="crossed"):
+        200, json={"results": [{"symbol": "BTC-USD", "bid": bid, "ask": ask}]}))
+    with pytest.raises(SchemaError):
         await suite.robinhood.best_bid_ask(["BTC-USD"])
 
 

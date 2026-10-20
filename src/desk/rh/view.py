@@ -76,6 +76,7 @@ class RhView:
                 "price": _f(price, places), "price_source": source,
                 "bid": _f(quote.bid, places) if quote else None, "ask": _f(quote.ask, places) if quote else None,
                 "spread": _f(quote.spread_fraction, 6) if quote else None,
+                "quote_crossed": quote.crossed if quote else False,
                 "quote_at": quote.received_at.isoformat() if quote else None,
                 "change_24h": _f(price / day_ago - 1, 6) if day_ago else None,
                 "spark": [_f(v, places) for v in spark[::step]],

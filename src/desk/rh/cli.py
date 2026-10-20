@@ -71,7 +71,9 @@ async def _doctor(paths: DeskPaths) -> list[tuple[str, bool, str]]:
                 rows.append(("Robinhood pairs", bool(tradable), f"{len(tradable)} tradable USD pairs of {len(pairs)}"))
                 quotes = await suite.robinhood.best_bid_ask(["BTC-USD"])
                 rows.append(("Robinhood quote", bool(quotes),
-                             f"BTC bid {quotes[0].bid} ask {quotes[0].ask}" if quotes else "no quote"))
+                             (f"BTC bid {quotes[0].bid} ask {quotes[0].ask}"
+                              + (" (crossed aggregate; size and fees checked with estimates)" if quotes[0].crossed else ""))
+                             if quotes else "no quote"))
             except DeskError as exc:
                 rows.append(("Robinhood API", False, str(exc)[:200]))
         try:

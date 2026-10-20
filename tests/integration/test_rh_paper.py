@@ -51,6 +51,7 @@ class FakeRobinhood:
 
     def __init__(self, mids: dict[str, Decimal], clock: Clock) -> None:
         self.mids, self.clock, self.calls = mids, clock, 0
+        self.crossed = False
 
     async def estimates(self, symbol: str, route: Route, quantities: Iterable[Decimal]) -> list[Estimate]:
         self.calls += 1
@@ -69,7 +70,8 @@ class FakeRobinhood:
         return out
 
     async def best_bid_ask(self, symbols: Iterable[str]) -> list[BidAsk]:
-        return [BidAsk(s, self.mids[s] * D("0.9995"), self.mids[s] * D("1.0005"), self.clock(), "q") for s in symbols
+        bid, ask = (D("1.01"), D("0.99")) if self.crossed else (D("0.9995"), D("1.0005"))
+        return [BidAsk(s, self.mids[s] * bid, self.mids[s] * ask, self.clock(), "q") for s in symbols
                 if s in self.mids]
 
     async def trading_pairs(self) -> list[Pair]:
@@ -148,6 +150,24 @@ async def test_cost_gate_refuses_an_expensive_round_trip(world: World) -> None:
     world.desk.settings = world.desk.settings.model_copy(update={"max_roundtrip_cost_fraction": D("0.001")})
     await world.desk.session()
     assert world.ledger.positions("OPEN") == []
+    skips = [r for r in world.decisions() if r["action"] == "SKIP"]
+    assert skips and all("ROUNDTRIP_COST_ABOVE_CEILING" in r["reasons"] for r in skips)
+
+
+async def test_crossed_quotes_are_recorded_but_do_not_bypass_exact_size_costs(world: World,
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    world.fake.crossed = True
+    await world.prime()
+    quotes = world.market.latest_quotes()
+    assert quotes["BTC-USD"].bid == world.mids["BTC-USD"] * D("1.01")
+    assert quotes["BTC-USD"].ask == world.mids["BTC-USD"] * D("0.99")
+    assert quotes["BTC-USD"].crossed and quotes["BTC-USD"].spread_fraction < 0
+    monkeypatch.setattr("desk.rh.view.utc_now", world.clock)
+    coin = RhView(world.paths, world.loaded).coin("BTC-USD", "1M")
+    assert coin is not None and coin["quote_crossed"]
+    world.desk.settings = world.desk.settings.model_copy(update={"max_roundtrip_cost_fraction": D("0.001")})
+    await world.desk.session()
+    assert world.fake.calls > 0 and world.ledger.positions("OPEN") == []
     skips = [r for r in world.decisions() if r["action"] == "SKIP"]
     assert skips and all("ROUNDTRIP_COST_ABOVE_CEILING" in r["reasons"] for r in skips)
 

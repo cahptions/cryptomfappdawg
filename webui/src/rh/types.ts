@@ -8,6 +8,7 @@ export interface Coin {
   bid: string | null;
   ask: string | null;
   spread: string | null;
+  quote_crossed: boolean;
   quote_at: string | null;
   change_24h: string | null;
   spark: string[];

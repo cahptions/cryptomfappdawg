@@ -496,7 +496,7 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
     ["Bid", price(data.bid ?? null)],
     ["Ask", price(data.ask ?? null)],
     [
-      "Spread",
+      data.quote_crossed ? "Crossed quote spread" : "Spread",
       data.spread ? pct(Number(data.spread), 3).replace("+", "") : "—",
     ],
     [
@@ -603,6 +603,13 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
             </div>
           ))}
         </dl>
+        {data.quote_crossed && (
+          <p className="rh-note">
+            The reported bid exceeds the ask across partner exchanges. These
+            prices exclude order size and fees; paper fills use exact-size
+            estimates.
+          </p>
+        )}
       </section>
       <section aria-labelledby="dec-h">
         <h2 id="dec-h" className="rh-h2">

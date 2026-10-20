@@ -77,8 +77,10 @@ def parse_best_bid_ask(resp: HttpResponse) -> list[BidAsk]:
     out = []
     for item in _results(_body(resp), resp.endpoint):
         bid, ask = _dec(item.get("bid"), "bid"), _dec(item.get("ask"), "ask")
-        if bid <= 0 or ask < bid:
-            raise SchemaError(f"robinhood best_bid_ask: crossed or empty book for {item.get('symbol')}")
+        # v2 aggregates partner-exchange prices, excluding quantity and fees. Its documented response has
+        # no bid <= ask invariant. Keep both reported sides; crossing is a diagnostic, never a fill/cost.
+        if bid <= 0 or ask <= 0:
+            raise SchemaError(f"robinhood best_bid_ask: non-positive price for {item.get('symbol')}")
         out.append(BidAsk(str(item["symbol"]), bid, ask, resp.received_at, resp.sha256))
     return out
 

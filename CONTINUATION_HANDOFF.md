@@ -1,6 +1,11 @@
 # Continuing Claude's work
 
-Branch: **`claude/funny-rubin-gq99vj`**. It contains all of Codex's `codex/continue-claude` (through `32344da`)
+Current Robinhood quote fix: **`codex/robinhood-quote-validation`**, based on Claude's **`71e2140`**.
+It accepts and labels finite positive crossed aggregate quotes, preserves both reported sides, and excludes
+pairs without `is_api_tradable=true` from the v2 quote universe. Exact-size PAPER cost checks remain in force.
+See the latest entry in `PROGRESS.md` and `docs/ROBINHOOD.md`. No migration or credential changes are needed.
+
+The underlying **`claude/funny-rubin-gq99vj`** build contains all of Codex's `codex/continue-claude` (through `32344da`)
 plus the Paper trading tab, measured paper fees, the H8 moonshot hypothesis with evidence-gated conviction sizing,
 hypotheses-before-baselines ranking, replay of every recorded evaluator version, the M9 readiness report, the fix
 for always-NO_TRADE production decisions (`shadow-rules-v4`) and the completed M8 LIVE path. Details: the last
@@ -17,11 +22,12 @@ still going, let it finish before updating the folder it runs from (a restart wo
 ```bash
 cd ~/kestrel                     # or ~/kestrel-dashboard, if that is the folder you use for the dashboard
 git status --short               # should print nothing; if it lists files, stop and keep them
-git fetch origin claude/funny-rubin-gq99vj
-git checkout -B claude/funny-rubin-gq99vj FETCH_HEAD
+git fetch origin codex/robinhood-quote-validation
+git merge --ff-only FETCH_HEAD   # preserves local work; stop if Git reports conflicts or divergent history
 uv sync --frozen
 uv run desk db check
 uv run desk doctor
+uv run desk rh doctor
 ```
 
 Running processes keep the code they started with. Stop anything still running in a terminal (`Ctrl+C`), then

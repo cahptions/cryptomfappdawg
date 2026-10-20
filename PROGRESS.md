@@ -730,3 +730,34 @@ so they start at every login; the Solana engine runs 4-hour pieces with Restart=
 KESTREL Crypto run `desk open`, which starts the dashboard if needed and opens it in an app window. The dashboard
 shows test progress (Overview until passed, System always). The interrupted run of 2026-10-19 shows as lost; it
 does not block the new total. Tests: segment accounting, launchers, services and CLI; both browser smokes pass.
+
+## Robinhood crossed-quote continuation (2026-10-20 UTC, Codex)
+
+Continued from the latest pushed Claude build, `71e2140`, in an isolated checkout on
+`codex/robinhood-quote-validation`. Earlier parallel Solana LIVE work was preserved separately and was not merged
+into this Robinhood fix. The operator supplied a laptop `desk rh doctor` report: databases OK, keys found, one
+account with fee ratio 0.0095, 90 tradable USD pairs of 92, Coinbase history listing 403 USD products, and a
+`best_bid_ask` failure for a crossed BTC quote. These are operator-reported observations, not cloud API results.
+
+The quoted "fixing it now" change had not landed: `rh/client.py` still rejected every bid above its ask. The
+official vendored v2 `Get Best Price` description says the feed aggregates partner exchanges and excludes size
+and fees; it imposes no bid/ask ordering invariant. Parsing now preserves both finite positive sides, including
+locked/crossed observations. Zero, negative, missing, boolean, nonnumeric and nonfinite prices remain invalid.
+The doctor labels crossing, the dashboard API exposes `quote_crossed`, and the coin page labels the signed spread
+and explains the separate exact-size estimates. No price sides are swapped or clamped.
+
+Also fixed a related endpoint mismatch: `Pair.tradable` now requires `is_api_tradable=true`, as the v2 best-price
+endpoint requires. Retail-only pairs therefore cannot invalidate an entire quote batch. PAPER still uses actual
+exact-quantity estimated totals and its existing round-trip ceiling; a crossed display quote cannot bypass it.
+
+Validation: **35 Robinhood unit/integration tests passed**; Ruff over `src tests` and strict mypy over **157 source
+files** passed; TypeScript/Vite built the included assets. Chromium **154.0.8037.57** checked an offline crossed-quote
+fixture in light/dark modes and at 375px, preserving the original prices and negative signed spread, showing the
+new label/explanation, with no horizontal overflow or JavaScript errors. These fixtures do not supply forward or
+profitability evidence. No private laptop credentials were read and no real Robinhood API request/order was sent.
+
+Next on the laptop: fast-forward the fix, run `uv run desk rh doctor`, and restart already-running Robinhood workers
+so they load the new code. With installed user services this is
+`systemctl --user restart desk-rh-engine.service desk-rh-dashboard.service`; otherwise stop/restart those terminals.
+Do not restart the Solana collector for this fix. Robinhood remains PAPER-only. Keyed forward PAPER results and
+real-laptop acceptance are still pending; no additional 24-hour wait is needed before opening its dashboard.

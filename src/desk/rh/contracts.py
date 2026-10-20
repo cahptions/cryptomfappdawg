@@ -26,7 +26,8 @@ class Pair:
 
     @property
     def tradable(self) -> bool:
-        return self.status == "tradable" and self.quote_code == "USD" and self.asset_code not in STABLECOINS
+        return (self.status == "tradable" and self.is_api_tradable and self.quote_code == "USD"
+                and self.asset_code not in STABLECOINS)
 
 
 @dataclass(frozen=True)
@@ -38,11 +39,17 @@ class BidAsk:
     raw_sha256: str
 
     @property
+    def crossed(self) -> bool:
+        """Reported aggregate bid exceeds ask; this does not establish executable profit."""
+        return self.bid > self.ask
+
+    @property
     def mid(self) -> Decimal:
         return (self.bid + self.ask) / 2
 
     @property
     def spread_fraction(self) -> Decimal:
+        """Signed reported spread, preserving a crossed observation instead of inventing new prices."""
         return (self.ask - self.bid) / self.mid
 
 
