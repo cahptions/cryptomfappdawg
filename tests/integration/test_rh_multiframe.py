@@ -195,3 +195,18 @@ async def test_history_sync_uses_quarter_hour_not_hour_floor(world: World) -> No
     await sync_candles(History(), world.market, ["NEW-USD"], granularity=900, days=3,  # type: ignore[arg-type]
                        now=at, clock=world.clock)
     assert calls[0][3] == at.replace(minute=45, second=0, microsecond=0)
+
+
+async def test_rotating_bootstrap_does_not_finish_daily_baselines_against_only_its_first_batch(world: World) -> None:
+    from desk.rh.contracts import Pair
+    world.market.save_pairs([Pair(f"NEW{i}-USD", f"NEW{i}", "USD", Decimal("0.01"), Decimal("0.01"),
+                                  Decimal(10000), Decimal(1), "tradable", True) for i in range(8)], NOW)
+    assert world.desk.session_ready(NOW) is None
+    class MissingHistory:
+        async def candles(self, *_: object) -> list[object]:
+            return []
+    world.suite.coinbase = MissingHistory()  # type: ignore[assignment]
+    await world.desk.sync_history()
+    assert world.desk.session_ready(NOW) is None          # more assets remain beyond the first batch
+    await world.desk.sync_history()
+    assert world.desk.session_ready(NOW) == NOW.date()    # attempted missing product is an explicit exclusion

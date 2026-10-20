@@ -75,6 +75,7 @@ class RhDesk:
         self._probe_cursor = 0
         self._history_cursor = 0
         self._history_due: dict[tuple[str, int], datetime] = {}
+        self._daily_attempted: dict[str, date] = {}
         self._exiting: set[str] = set()
         self._pending_exits: dict[str, str] = {}       # position id -> reason, retried until a price exists
 
@@ -139,6 +140,8 @@ class RhDesk:
                     continue
                 report = await sync_candles(self.suite.coinbase, self.market, [symbol], granularity=granularity,
                                            days=days, now=now - mf.GRACE, clock=self.clock)
+                if granularity == DAILY:
+                    self._daily_attempted[symbol] = now.date()
                 if report["errors"]:
                     self._error("history", DeskError(str(report["errors"])))
                 # Complete series need no polling until their next close; missing products retry hourly.
@@ -205,6 +208,13 @@ class RhDesk:
         if now < today_start(now) + SESSION_DELAY or self.ledger.session_done(day):
             return None
         last = self.market.last_candle_start(str(st.COMMON["regime_symbol"]), DAILY)
+        # Rotating history must not select a weekly baseline or finish legacy exits against only
+        # the first batch of assets. Each missing/stale daily series gets at least one sync attempt.
+        # Unsupported/erroring sources are then explicit ineligible inputs, rather than a global lock.
+        for symbol in self.symbols()[0]:
+            latest = self.market.last_candle_start(symbol, DAILY)
+            if (latest is None or latest.date() != day - timedelta(days=1)) and self._daily_attempted.get(symbol) != day:
+                return None
         return day if last is not None and last.date() == day - timedelta(days=1) else None
 
     async def daily_session(self) -> None:

@@ -792,8 +792,8 @@ See [ROBINHOOD_MULTIFRAME.md](docs/ROBINHOOD_MULTIFRAME.md) for exact rules, res
 behavior, failure policy, laptop commands and outstanding validation.
 
 Validation: the broader offline suite passed **873 tests, 5 deselected** with one existing Starlette/httpx
-deprecation warning. Four further timing/strategy/legacy cases were then added; the final affected Robinhood
-suite passed **48 tests**. Ruff over src/tests, strict mypy over **158 source files**, TypeScript and Vite passed.
+deprecation warning. Five further timing/strategy/legacy/bootstrap cases were then added; the final affected
+Robinhood suite passed **49 tests**. Ruff over src/tests, strict mypy over **158 source files**, TypeScript and Vite passed.
 Final Chromium checks passed for populated AND empty fixtures in light/dark and at 375px; the populated check
 exercised all four chart intervals, readiness, System timing and no phone overflow. Synthetic 90-asset feature
 loading/conditions took 1.142s with 48.6 MiB peak process RSS in the cloud, not measured on the Dell. At that
@@ -804,3 +804,8 @@ budgets, Robinhood-specific backups/retention, and evidence that v2 improves aft
 backup kinds do not include the two Robinhood databases. No historical or synthetic result validates v2 or
 permits real-money promotion. Source data updates automatically as it is received; no import or 24-hour wait
 is required to use this feature.
+
+Final scheduling review also added a daily-maintenance barrier: every stale/missing daily asset gets a history
+fetch attempt before legacy exits and baseline selection run, so rotating initial downloads cannot silently
+shrink the baseline universe to the first batch. Errors remain explicit ineligible inputs; v2 checks do not
+wait for that daily maintenance. The two-batch fixture verifies this without network calls.

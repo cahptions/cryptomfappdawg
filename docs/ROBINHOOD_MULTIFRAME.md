@@ -107,6 +107,9 @@ v1 specification hashes are unchanged. Existing v1 positions still use v1 daily 
 own new hashes and exit code. BTC-hold and weekly-random baselines remain v1. The old daily simulation
 is still generated once per daily maintenance session, but is not attached to current v2 strategy statistics.
 The dashboard/report separate v1 holdings and closed results from v2 evidence. Account totals include both.
+Daily maintenance waits for each stale/missing daily series to receive a sync attempt before selecting its
+baseline universe. A provider failure or unsupported product is then reported as ineligible, rather than
+blocking everything indefinitely. This avoids accidentally choosing baselines from just the first download batch.
 
 ## Laptop, API and storage budget
 
