@@ -56,7 +56,11 @@ the arithmetic mean of 20 true ranges, using each preceding close. Return24h = l
 hourly close 24 buckets earlier − 1. These bounded definitions are recorded in immutable v2 specs.
 
 New or thin assets, missing products, stale latest buckets and gaps abstain. The current status distinguishes
-the needed bar count from the count actually present within that window. A late download can qualify
+the needed bar count from the count actually present within that window, and names the reason per frame
+(System page and each coin's page): `NONE` (no Coinbase history: still downloading, or Coinbase does not list
+the coin), `STALE` (the newest closed bucket has not been downloaded yet), `WARMUP` (stored history starts too
+recently) or `GAP` (buckets inside the window are absent: Coinbase omits a bucket in which nothing traded, so a
+quieter coin waits until its empty periods leave the window). `THIN_VOLUME` shows the coin's median. A late download can qualify
 later in the same 15m interval if its candle check has not already been claimed. After sleep or an outage,
 only the latest complete setup can qualify: missed historical signals are never filled retroactively.
 

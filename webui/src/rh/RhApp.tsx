@@ -67,6 +67,13 @@ const ENTRY_REASONS = new Set([
   "BASELINE_RANDOM",
 ]);
 
+const FRAME_PROBLEMS: Record<string, string> = {
+  GAP: "periods with no trades on Coinbase",
+  STALE: "newest candle not downloaded yet",
+  WARMUP: "not enough history yet",
+  NONE: "no price history from Coinbase",
+};
+
 function reason(code: string): string {
   if (code.startsWith("HALTED:")) return "entries halted";
   return REASONS[code] ?? code.toLowerCase().replaceAll("_", " ");
@@ -579,7 +586,9 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
             <div key={frame}>
               <dt>{frame}</dt>
               <dd>
-                {status.ready ? "ready" : "warming up / gap / stale"}
+                {status.ready
+                  ? "ready"
+                  : (FRAME_PROBLEMS[status.problem ?? ""] ?? "not ready")}
                 {" · "}
                 {status.available}/{status.required} bars · last close{" "}
                 {when(status.last_close)}
@@ -600,7 +609,7 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
         </h2>
         {!data.eligible && (
           <p className="rh-empty">
-            Waiting for data: {reason(data.ineligible_reason ?? "")}.
+            Waiting for data: {data.ineligible_reason}.
           </p>
         )}
         <div className="rh-why">
@@ -1089,10 +1098,16 @@ function SystemPage({ snap }: { snap: Snapshot }) {
       {Object.keys(snap.session.pending).length > 0 && (
         <section>
           <h2 className="rh-h2">Waiting for complete current data</h2>
+          <p className="rh-note">
+            These coins are skipped until their data is complete; nothing is
+            broken. Coinbase leaves out any period in which nothing traded, and
+            these rules need every period, so a quieter coin waits until its
+            empty periods are older than the window the rules look at.
+          </p>
           <ul className="rh-list">
             {Object.entries(snap.session.pending).map(([symbol, why]) => (
               <li key={symbol}>
-                {symbol.replace("-USD", "")}: {reason(why)}
+                <strong>{symbol.replace("-USD", "")}</strong>: {why}
               </li>
             ))}
           </ul>

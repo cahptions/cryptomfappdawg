@@ -146,11 +146,12 @@ def load(market: RhMarket, symbol: str, now: datetime) -> FrameState:
         closed = [b for b in bars if b.start + timedelta(seconds=seconds) <= floor_time(end, seconds)]
         lower = floor_time(end, seconds) - timedelta(seconds=seconds * n)
         available = sum(b.start >= lower for b in closed)
-        frames[label] = {"required": n, "available": available, "ready": chosen is not None,
+        problem = None if chosen is not None else _problem(bars, closed, seconds, n, end)
+        frames[label] = {"required": n, "available": available, "ready": chosen is not None, "problem": problem,
                          "last_close": (closed[-1].start + timedelta(seconds=seconds)).isoformat() if closed else None,
                          "expected_close": floor_time(end, seconds).isoformat()}
-        if chosen is None:
-            missing.append(f"{label}:WARMUP_GAP_OR_STALE")
+        if problem:
+            missing.append(f"{label}:{problem}")
     # Hash the exact bounded observations, not a price-only proxy; persist inputs for replay.
     evidence = {label: [[b.start.isoformat(), str(b.open), str(b.high), str(b.low), str(b.close), str(b.volume)]
                         for b in (samples[label] or [])] for label in frames}
@@ -173,6 +174,47 @@ def load(market: RhMarket, symbol: str, now: datetime) -> FrameState:
         if D(f["median_dollar_volume30"]) < D(COMMON["min_median_daily_usd_volume30"]):
             missing.append("THIN_VOLUME")
     return FrameState(symbol, end, frames, f, digest, tuple(missing))
+
+
+def _problem(bars: list[Candle], closed: list[Candle], seconds: int, n: int, end: datetime) -> str:
+    """Why a frame is not ready: nothing stored at all (NONE), its newest closed bar has not arrived (STALE), the
+    stored history starts too recently (WARMUP), or buckets inside the window are absent (GAP; Coinbase omits a
+    bucket with no trades)."""
+    expected = floor_time(end, seconds)
+    if not bars:
+        return "NONE"
+    if not closed or closed[-1].start + timedelta(seconds=seconds) < expected:
+        return "STALE"
+    if bars[0].start > expected - timedelta(seconds=seconds * n):
+        return "WARMUP"
+    return "GAP"
+
+
+FRAME_WORDS = {"15m": "15-minute", "1h": "hourly", "4h": "4-hour", "1d": "daily"}
+
+
+def describe(s: FrameState) -> list[str]:
+    """Each reason a coin is not ready, in plain words (the System list and the coin page)."""
+    out = []
+    for code in s.missing:
+        if code == "THIN_VOLUME":
+            out.append(f"too little trading volume: ${D(s.features['median_dollar_volume30']):,.0f} a day on "
+                       f"Coinbase (median of 30 days; needs ${D(COMMON['min_median_daily_usd_volume30']):,.0f})")
+            continue
+        label, _, problem = code.partition(":")
+        frame, words = s.frames[label], FRAME_WORDS[label]
+        if problem == "GAP":
+            empty = int(frame["required"]) - int(frame["available"])
+            what = "lack an hour with any trade" if label == "4h" else "had no trades"
+            out.append(f"{words}: {empty} of the last {frame['required']} periods {what} on Coinbase "
+                       f"(the rules need every one)")
+        elif problem == "NONE":
+            out.append(f"{words}: no price history from Coinbase yet (Coinbase may not list this coin)")
+        elif problem == "STALE":
+            out.append(f"{words}: the newest closed candle has not been downloaded yet")
+        else:
+            out.append(f"{words}: {frame['available']} of the {frame['required']} candles needed so far")
+    return out
 
 
 def regime(btc: FrameState | None) -> str:

@@ -80,14 +80,22 @@ async def test_stale_or_gapped_frames_abstain_and_late_data_is_not_visible_early
     state = mf.load(world.market, "ALT-USD", NOW)
     assert state.ready
     later = NOW + timedelta(minutes=15)
-    assert not mf.load(world.market, "ALT-USD", later).ready
+    waiting = mf.load(world.market, "ALT-USD", later)
+    assert not waiting.ready and waiting.missing == ("15m:STALE",)
+    assert mf.describe(waiting) == ["15-minute: the newest closed candle has not been downloaded yet"]
     # Only the next 15m bar arrives, leaving the 00:00..00:15 gap permanently visible.
     end = mf.cutoff(later) + timedelta(minutes=15)
     bar = intraday("ALT-USD", [Decimal(61)], mf.QUARTER, end)
     received = end + timedelta(minutes=1)
     world.market.save_candles("coinbase", bar, received)
     assert bar[0] not in world.market.candles("ALT-USD", mf.QUARTER, as_of=received - timedelta(seconds=1))
-    assert not mf.load(world.market, "ALT-USD", received).ready
+    gapped = mf.load(world.market, "ALT-USD", received)
+    assert not gapped.ready and gapped.frames["15m"]["problem"] == "GAP"
+    assert mf.describe(gapped) == ["15-minute: 1 of the last 61 periods had no trades on Coinbase (the rules need "
+                                   "every one)"]
+    unknown = mf.load(world.market, "NOPE-USD", received)
+    assert {f["problem"] for f in unknown.frames.values()} == {"NONE"}
+    assert mf.describe(unknown)[0] == "15-minute: no price history from Coinbase yet (Coinbase may not list this coin)"
     # A late real missing bucket repairs the gap; no interpolation, and first receipt is respected.
     missing = intraday("ALT-USD", [Decimal(60)], mf.QUARTER, end - timedelta(minutes=15))
     world.market.save_candles("coinbase", missing, received + timedelta(seconds=1))

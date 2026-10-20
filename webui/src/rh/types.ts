@@ -150,6 +150,7 @@ export interface CoinDetail extends Partial<Coin> {
       required: number;
       available: number;
       ready: boolean;
+      problem: "GAP" | "STALE" | "WARMUP" | "NONE" | null;
       last_close: string | null;
       expected_close: string;
     }

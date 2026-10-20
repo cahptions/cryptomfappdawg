@@ -223,7 +223,7 @@ class RhView:
                                   ).fetchone()
         last = json.loads(row["payload_json"]) if row else None
         states = {s: mf.load(market, s, now) for s in universe(market)[0]}
-        pending = {s: ",".join(v.missing) for s, v in states.items() if not v.ready}
+        pending = {s: "; ".join(mf.describe(v)) for s, v in states.items() if not v.ready}
         return {"last": last, "last_at": row["at"] if row else None,
                 "next_at": (mf.cutoff(now) + timedelta(seconds=mf.QUARTER) + mf.GRACE).isoformat(),
                 "ready_assets": len(states) - len(pending), "total_assets": len(states), "pending": pending,
@@ -312,7 +312,7 @@ class RhView:
             return {
                 "symbol": symbol, "name": NAMES.get(symbol.split("-")[0], symbol.split("-")[0]), "span": span,
                 **prices.get(symbol, {}), "regime": reg, "eligible": state.ready,
-                "ineligible_reason": ",".join(state.missing) or None,
+                "ineligible_reason": "; ".join(mf.describe(state)) or None,
                 "interval": interval, "frames": state.frames, "analysis_at": state.bar_end.isoformat(),
                 "points": [[b.start.isoformat(), _f(b.close, places)] for b in bars],
                 "features": state.features if state.ready else None,
