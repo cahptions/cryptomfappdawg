@@ -250,3 +250,12 @@ of forward PAPER evidence on the laptop; no tooling can shorten that.
 | R-09 | Forward evidence | R | Weeks of PAPER on Robinhood's prices with measured costs; until then the history simulation is labelled as such |
 
 R-01…R-08 pass automated tests (2026-10-20). R-09 needs the operator's read-only key and time.
+
+| ID | Criterion | Kind | Pass condition |
+|---|---|---|---|
+| R-10 | Learning without look-ahead | U | Features at day t never use day t+1; simulated trades are unchanged when later bars change; rankings use only outcomes known before the fold |
+| R-11 | Judged only on unseen months | U | A planted edge is found and promoted; pure noise is not; promotion needs >= 12 unseen months, >= 60 trades, Holm-adjusted p < 0.05 profit and p < 0.10 vs BTC |
+| R-12 | Learning reaches PAPER only | U/I | `L1_LEARNED` enters and exits through the PAPER engine with its own version; record/off modes, benching and the monthly schedule hold; LIVE and signer code cannot import the lab |
+| R-13 | Learning is visible | B | The Robinhood dashboard's Learning page shows the verdict, unseen-month records vs BTC, today's choice and the learned paper record |
+
+R-10…R-13 pass automated tests (2026-10-20). Forward PAPER evidence for any promoted choice still requires time.

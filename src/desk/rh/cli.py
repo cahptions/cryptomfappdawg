@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import sys
 from typing import Any
 
 from desk.core.clock import utc_now
@@ -194,6 +195,57 @@ def print_report(data: dict[str, Any]) -> None:
                   f"${row['legacy_realized']} realized")
 
 
+async def _learn(paths: DeskPaths, fetch: bool) -> dict[str, Any]:
+    from desk.rh import learning
+    from desk.rh.history import DAILY, sync_candles, universe
+    from desk.rh.repo import RhDatabases, RhMarket
+    from desk.rh.suite import build_rh_suite
+
+    loaded = load_config(paths.config_dir)
+    dbs = RhDatabases.open(paths)
+    market = RhMarket(dbs.market)
+    now = utc_now()
+    try:
+        fetched: dict[str, Any] | None = None
+        if fetch:
+            suite = build_rh_suite(paths, loaded, load_secrets(paths.secrets_file), dbs.runtime)
+            try:
+                symbols, _ = universe(market)
+                print(f"Downloading up to 4 years of daily history for {len(symbols)} coins (a few minutes the "
+                      "first time)...", file=sys.stderr, flush=True)
+                fetched = await learning.backfill_daily(suite.coinbase, market, symbols, now)
+                await sync_candles(suite.coinbase, market, symbols, granularity=DAILY, days=400, now=now)
+            finally:
+                await suite.aclose()
+        print("Learning: simulating every variant and judging each month it had not seen...", file=sys.stderr,
+              flush=True)
+        run = learning.run_and_record(market, loaded, now)
+        return {"run_id": run.id, "history": fetched, "promoted": run.promoted, "report": run.report,
+                "selection": learning.describe_selection(run)}
+    finally:
+        dbs.close()
+
+
+def print_learning(result: dict[str, Any]) -> None:
+    report = result["report"]
+    print(f"\nLearning lab v{report['lab']['version']}: {report['candidates']} rule variants + a model, "
+          f"{report['symbols']} coins, {report['days']} days to {report['data_end']}, {len(report['folds'])} unseen months")
+    print(f"  {'procedure':<36}{'trades':>7}{'wins':>6}{'avg/trade':>11}{'vs BTC':>9}  verdict")
+    for row in report["procedures"].values():
+        mean = "-" if row["mean_net"] is None else f"{row['mean_net'] * 100:+.2f}%"
+        excess = "-" if row["mean_excess_vs_btc"] is None else f"{row['mean_excess_vs_btc'] * 100:+.2f}%"
+        verdict = "PASSED" if row["passed"] else "not yet: " + "; ".join(row["failures"])
+        print(f"  {row['label']:<36}{row['trades']:>7}{row['wins']:>6}{mean:>11}{excess:>9}  {verdict}")
+    if result["promoted"]:
+        print(f"\n  PROMOTED to PAPER: {report['procedures'][result['promoted']]['label']}")
+        for item in result["selection"]:
+            if item["procedure"] == result["promoted"]:
+                print(f"    - {item['describe']}")
+    else:
+        print("\n  Nothing has earned a place in the PAPER book yet. The lab runs again every month with new data")
+        print("  and Robinhood-measured costs; it trades only what passes on months it had not seen.")
+
+
 def cmd_rh(args: argparse.Namespace) -> int:
     if args.action == "keygen":
         return keygen()
@@ -205,6 +257,13 @@ def cmd_rh(args: argparse.Namespace) -> int:
             print(json.dumps(result, indent=1, default=str))
         else:
             print_backtest(result)
+        return 0
+    if args.action == "learn":
+        result = asyncio.run(_learn(_paths(), not args.no_fetch))
+        if args.json:
+            print(json.dumps(result, indent=1, default=str))
+        else:
+            print_learning(result)
         return 0
     if args.action == "paper":
         stats = asyncio.run(_paper(_paths(), args.minutes))

@@ -90,6 +90,11 @@ seeing this: changing them now would fit the past. Caveats: survivorship (today'
 with a fixed cost, and hypotheses taken from research that already saw much of this history. Forward PAPER on
 Robinhood's prices is the evidence that counts. Full reports: `research/evidence/2026-10-20/rh_backtest_v1_*.json`.
 
+## Learning
+
+The desk keeps learning from years of history and promotes to PAPER only what passes on months it never saw:
+see [ROBINHOOD_LEARNING.md](ROBINHOOD_LEARNING.md) and the dashboard's Learning page (`uv run desk rh learn`).
+
 ## Commands
 
 ```bash

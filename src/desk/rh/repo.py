@@ -6,7 +6,7 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any, cast
@@ -247,6 +247,7 @@ class Position:
     closed_at: datetime | None
     realized_pnl: Decimal | None
     spec_sha256: str = ""
+    plan: dict[str, Any] = field(default_factory=dict, compare=False)
 
 
 class RhLedger:
@@ -285,7 +286,7 @@ class RhLedger:
             Decimal(r["roundtrip_cost_fraction"]), r["state"],
             None if r["exit_credit_micros"] is None else usd(r["exit_credit_micros"]), r["exit_reason"],
             None if r["closed_at"] is None else parse_iso8601(r["closed_at"]),
-            None if r["realized_pnl_micros"] is None else usd(r["realized_pnl_micros"]), r["spec_sha256"])
+            None if r["realized_pnl_micros"] is None else usd(r["realized_pnl_micros"]), r["spec_sha256"], plan)
 
     def positions(self, state: str | None = None) -> list[Position]:
         sql, args = "SELECT * FROM rh_positions", cast(tuple[str, ...], ())

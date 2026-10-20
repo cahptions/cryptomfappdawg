@@ -64,7 +64,7 @@ export interface SimRow {
 
 export interface Strategy {
   id: string;
-  kind: "STRATEGY" | "BASELINE";
+  kind: "STRATEGY" | "BASELINE" | "LEARNED";
   about: string;
   spec_sha256: string;
   spec_version: number;
@@ -144,8 +144,16 @@ export interface CoinDetail extends Partial<Coin> {
   points: [string, string][];
   features: Record<string, string> | null;
   analysis_at: string;
-  frames: Record<string, { required: number; available: number; ready: boolean;
-    last_close: string | null; expected_close: string }>;
+  frames: Record<
+    string,
+    {
+      required: number;
+      available: number;
+      ready: boolean;
+      last_close: string | null;
+      expected_close: string;
+    }
+  >;
   signals: {
     strategy_id: string;
     conditions: { label: string; met: boolean }[];
@@ -163,4 +171,74 @@ export interface CoinDetail extends Partial<Coin> {
 export interface EquitySeries {
   span: Span;
   points: [string, string][];
+}
+
+export interface LearningProcedure {
+  label: string;
+  folds: number;
+  trades: number;
+  wins: number;
+  mean_net: number | null;
+  median_net: number | null;
+  lcb_net: number | null;
+  mean_excess_vs_btc: number | null;
+  pnl_per_dollar_year: number | null;
+  p_profit: number | null;
+  p_beats_btc: number | null;
+  holm_p_profit?: number;
+  holm_p_beats_btc?: number;
+  passed: boolean;
+  failures: string[];
+  curve: [string, number, number][];
+}
+
+export interface Learning {
+  mode: "paper" | "record" | "off";
+  lab_version: number;
+  rules: {
+    train_days: number;
+    test_days: number;
+    min_folds: number;
+    min_trades: number;
+    alpha_profit: number;
+    alpha_btc: number;
+    max_positions: number;
+  };
+  latest: {
+    id: number;
+    created_at: string;
+    data_end: string;
+    symbols: number;
+    days: number;
+    candidates: number;
+    folds: number;
+    promoted: string | null;
+    procedures: Record<string, LearningProcedure>;
+    leaderboard: {
+      id: string;
+      describe: string;
+      score: number;
+      trades: number;
+      mean_net: number;
+    }[];
+    costs: { measured: number; assumed: number };
+  } | null;
+  selection: { procedure: string; id: string; describe: string }[];
+  runs: {
+    id: number;
+    created_at: string;
+    data_end: string;
+    promoted: string | null;
+  }[];
+  next_run: string | null;
+  forward: {
+    closed_all: number;
+    closed_current: number;
+    open: number;
+    wins: number;
+    mean_net: number | null;
+    upper_bound: number | null;
+    benched: boolean;
+    realized: string;
+  };
 }

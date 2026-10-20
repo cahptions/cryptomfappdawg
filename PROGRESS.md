@@ -809,3 +809,26 @@ Final scheduling review also added a daily-maintenance barrier: every stale/miss
 fetch attempt before legacy exits and baseline selection run, so rotating initial downloads cannot silently
 shrink the baseline universe to the first batch. Errors remain explicit ineligible inputs; v2 checks do not
 wait for that daily maintenance. The two-batch fixture verifies this without network calls.
+
+## Codex's Robinhood work merged; the Robinhood desk learns (2026-10-20 UTC, Claude)
+
+Checked first: Codex had pushed `codex/robinhood-quote-validation` (crossed quotes kept, API-unsupported pairs
+filtered; the fix for the operator's `desk rh doctor` failure) and `codex/robinhood-multitimeframe` (continuous
+15m/1h/4h/1d PAPER analysis, v2 rules). Both descend from `71e2140`; fast-forwarded after 878 tests, Ruff and
+strict mypy passed (two UI files reformatted with Prettier; bundle rebuilt). My own duplicate quote fix was
+discarded unused.
+
+Operator request: the app should learn while it gathers data, aiming at profitable trades. Built the learning lab
+(docs/ROBINHOOD_LEARNING.md): 255 rule variants in four families plus an L2 logistic model, simulated on up to 4
+years of closed daily bars with measured or assumed round trips; monthly walk-forward selection judged only on the
+following unseen month; three procedures (best, best three, model) must be profitable after costs and beat BTC on
+the same days (stationary bootstrap, Holm) with >= 12 months and >= 60 trades before the best is promoted to PAPER
+as `L1_LEARNED` (4 positions max, own version hash, exits by the rule that opened it, benched by its own forward
+record). Runs monthly inside `desk rh paper`, on demand with `desk rh learn`; dashboard Learning page. Operator
+decision recorded: `robinhood.learning = "paper"` (record/off available); LIVE and signer cannot import the lab.
+
+First result (20 starter coins, 4 years, 30 unseen months, 2% round trip): best single −2.62%/trade, best three
++0.32%/trade (not significant), model −2.81%/trade; nothing promoted. v1 of the lab failed; v2 added low-turnover
+families and a selection score able to choose them before their results were seen; both versions are hashed.
+Tests: no look-ahead, honest stops and costs, ranking on known outcomes only, planted edge promoted, noise not,
+engine entries/exits/benching/scheduling, paper-only import guard, Learning page in the browser smoke.

@@ -16,17 +16,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
+import numpy as np
+
 from desk.core.clock import utc_now
 from desk.core.config import LoadedConfig
 from desk.core.errors import DeskError
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
+from desk.rh import learn, learning
 from desk.rh import multiframe as mf
 from desk.rh import strategies as st
 from desk.rh.contracts import Estimate, Pair, Route
@@ -44,6 +48,7 @@ PROBE_INTERVAL_SECONDS = 60
 SESSION_CHECK_SECONDS = 60
 EQUITY_INTERVAL_SECONDS = 300
 HOURLY_CHART_DAYS = 14
+LEARNING_INTERVAL_SECONDS = 3600
 
 
 @dataclass
@@ -77,6 +82,7 @@ class RhDesk:
         self._history_due: dict[tuple[str, int], datetime] = {}
         self._daily_attempted: dict[str, date] = {}
         self._exiting: set[str] = set()
+        self._backfilled = False
         self._pending_exits: dict[str, str] = {}       # position id -> reason, retried until a price exists
 
     # ── helpers ──────────────────────────────────────────────────────────────────────────────────
@@ -223,11 +229,13 @@ class RhDesk:
         if day is None:
             return
         snaps, eligible, reg, why = self.state(day)
-        open_ = [p for p in self.ledger.positions("OPEN") if p.spec_sha256 == st.spec_sha256(p.strategy_id)]
+        open_ = [p for p in self.ledger.positions("OPEN")
+                 if p.strategy_id in st.SPECS and p.spec_sha256 == st.spec_sha256(p.strategy_id)]
         for pos in open_:
             if pos.symbol in snaps:
                 self.ledger.update_peak(pos.id, snaps[pos.symbol].close)
-        open_ = [p for p in self.ledger.positions("OPEN") if p.spec_sha256 == st.spec_sha256(p.strategy_id)]
+        open_ = [p for p in self.ledger.positions("OPEN")
+                 if p.strategy_id in st.SPECS and p.spec_sha256 == st.spec_sha256(p.strategy_id)]
         held = [st.Held(p.id, p.strategy_id, p.symbol, p.session_day, p.peak_close) for p in open_]
         for signal in st.exits(day, held, snaps, eligible, reg):
             pos = next(p for p in open_ if p.id == signal.position_id)
@@ -238,6 +246,7 @@ class RhDesk:
         for signal in st.entries(day, eligible, reg, held):
             if signal.strategy_id.startswith("B"):
                 await self.enter(signal, day, eligible[signal.symbol], reg)
+        await self.learned_session(day, now)
         self.ledger.event(now, "SESSION", {"day": day.isoformat(), "regime": reg, "eligible": len(eligible),
                                            "ineligible": why, "open_positions": len(self.ledger.positions("OPEN"))})
         self.stats.sessions += 1
@@ -299,11 +308,74 @@ class RhDesk:
                               "open_positions": len(self.ledger.positions("OPEN"))})
             self.stats.sessions += 1
 
+    # ── the learning lab ─────────────────────────────────────────────────────────────────────────
+    async def learning_step(self) -> None:
+        """Download the lab's years of daily history once per start, then run the lab when a month is due."""
+        if self.settings.learning == "off":
+            return
+        now = self.clock()
+        if not self._backfilled:
+            symbols, _ = self.symbols()
+            report = await learning.backfill_daily(self.suite.coinbase, self.market, symbols, now)
+            self._backfilled = True
+            self.ledger.event(now, "LEARNING_HISTORY", report)
+        if learning.due(self.market.conn, now):
+            run = await asyncio.to_thread(_learn_in_thread, self.paths, self.loaded, now)
+            self.ledger.event(self.clock(), "LEARNING_RUN", {"run_id": run.id, "data_end": run.data_end.isoformat(),
+                                                             "promoted": run.promoted})
+
+    async def learned_session(self, day: date, now: datetime) -> None:
+        """Daily: exit learned positions by the rule that opened them; enter only for a promoted, unbenched run."""
+        if self.settings.learning != "paper":
+            return
+        run = learning.latest(self.market.conn)
+        open_l1 = [p for p in self.ledger.positions("OPEN") if p.strategy_id == learn.STRATEGY_ID]
+        if run is None and not open_l1:
+            return
+        since = today_start(now) - timedelta(days=430)
+        symbols, _ = self.symbols()
+        history = {s: self.market.candles(s, DAILY, since=since, as_of=now) for s in symbols}
+        try:
+            panel = learn.build_panel(history, until=day - timedelta(days=1))
+        except ValueError:
+            return
+        t = len(panel.days) - 1
+        if panel.days[t] != day - timedelta(days=1):
+            return                                       # yesterday's bar is not in yet: decide on a later poll
+        index = {sym: i for i, sym in enumerate(panel.symbols)}
+        for pos in open_l1:
+            s = index.get(pos.symbol)
+            if s is None or math.isnan(panel.c[s, t]):
+                continue
+            close = Decimal(repr(float(panel.c[s, t])))
+            self.ledger.update_peak(pos.id, close)
+            reason = learned_exit(pos, panel, s, t)
+            if reason:
+                signal = st.Signal(pos.strategy_id, pos.symbol, "EXIT", (reason,), dict(pos.plan.get("features", {})),
+                                   pos.id)
+                self.market.record_decision(now, day, signal, "EXIT", signal.reasons, {"learning_run": run and run.id})
+                await self.exit(pos, reason)
+        if run is None or not run.promoted or learning.forward(self.ledger, run.selection_sha256)["benched"]:
+            return
+        held = {p.symbol for p in self.ledger.positions("OPEN") if p.strategy_id == learn.STRATEGY_ID}
+        for cid, s, fraction in learned_picks(run, panel, t):
+            symbol = panel.symbols[s]
+            if symbol in held or len(held) >= learn.MAX_POSITIONS or math.isnan(fraction):
+                continue
+            signal = st.Signal(learn.STRATEGY_ID, symbol, "ENTER", ("LEARNED", str(run.promoted)), {
+                "learned_spec": run.selection_sha256, "learned_candidate": cid, "learned_procedure": run.promoted,
+                "learning_run": str(run.id), "stop_fraction": f"{fraction:.6f}"})
+            before = len(self.ledger.positions("OPEN"))
+            await self.enter(signal, day, _LearnedStop(Decimal(f"{fraction:.6f}")), "LEARNED")
+            if len(self.ledger.positions("OPEN")) > before:
+                held.add(symbol)
+
     def _skip(self, now: datetime, day: date, signal: st.Signal, reasons: list[str], inputs: dict[str, Any]) -> None:
         self.market.record_decision(now, day, signal, "SKIP", [*signal.reasons, *reasons], inputs)
         self.stats.skips += 1
 
-    async def enter(self, signal: st.Signal, day: date, snap: st.Snapshot | mf.FrameState, reg: str) -> None:
+    async def enter(self, signal: st.Signal, day: date, snap: st.Snapshot | mf.FrameState | _LearnedStop,
+                    reg: str) -> None:
         now = self.clock()
         inputs: dict[str, Any] = {"regime": reg}
         if not self.priced:                         # nothing below can be checked without Robinhood's prices
@@ -434,7 +506,8 @@ class RhDesk:
                 ("quotes", self.settings.quote_interval_seconds, self.poll_quotes),
                 ("probes", PROBE_INTERVAL_SECONDS, self.probe_costs),
                 ("session", SESSION_CHECK_SECONDS, self.session),
-                ("equity", EQUITY_INTERVAL_SECONDS, self.snapshot_equity)]
+                ("equity", EQUITY_INTERVAL_SECONDS, self.snapshot_equity),
+                ("learning", LEARNING_INTERVAL_SECONDS, self.learning_step)]
         tasks = [asyncio.create_task(self._loop(n, i, j, stop), name=f"rh-{n}") for n, i, j in jobs]
         try:
             if minutes is None:
@@ -455,4 +528,59 @@ class RhDesk:
                 self._error(name, exc)
 
 
-__all__ = ["RhDesk", "Stats"]
+@dataclass(frozen=True)
+class _LearnedStop:
+    stop_fraction: Decimal
+
+
+def _learn_in_thread(paths: DeskPaths, loaded: LoadedConfig, now: datetime) -> learning.Run:
+    dbs = RhDatabases.open(paths)                        # its own connections: SQLite objects stay in their thread
+    try:
+        return learning.run_and_record(RhMarket(dbs.market), loaded, now)
+    finally:
+        dbs.close()
+
+
+def learned_exit(pos: Position, panel: learn.Panel, s: int, t: int) -> str | None:
+    """The exit rule of the variant (or model) that opened the position, evaluated at the close of day t."""
+    cid = str(pos.plan.get("features", {}).get("learned_candidate", ""))
+    entry_t = (pos.session_day - panel.days[0]).days
+    peak = np.array([max(float(pos.peak_close), float(panel.c[s, t]))])
+    if cid == "MODEL":
+        family, params = "MODEL", {}
+    else:
+        try:
+            cand = learn.candidate_by_id(cid)
+        except KeyError:
+            return None
+        if cand.family == "XMOM":
+            every = int(cand.p("every", 1))
+            if learn.rebalance_day(panel, t, every) and s not in learn.xmom_targets(cand, panel, t):
+                return "REBALANCED_OUT"
+            return None
+        family, params = cand.family, dict(cand.params)
+    code = int(learn.exit_codes(family, params, panel, s, t, t + 1, entry_t, peak)[0])
+    return learn.EXIT_CODES[code] if code else None
+
+
+def learned_picks(run: learning.Run, panel: learn.Panel, t: int) -> list[tuple[str, int, float]]:
+    """What the promoted procedure buys at the open after the close of day t: (variant id, coin index, stop)."""
+    selection = run.report.get("selection", {})
+    picks: list[tuple[str, int, float]] = []
+    if run.promoted == "LEARN_MODEL":
+        model = learn.model_from(selection)
+        if model is not None and learn.rebalance_day(panel, t):
+            picks = [("MODEL", s, float(panel.f["stop_frac"][s, t])) for s in learn.model_picks(model, panel, t)]
+        return picks
+    for cid in selection.get("best" if run.promoted == "LEARN_BEST" else "top3", []):
+        cand = learn.candidate_by_id(cid)
+        if cand.family == "XMOM":
+            if learn.rebalance_day(panel, t, int(cand.p("every", 1))):
+                picks += [(cid, s, float(panel.f["stop_frac"][s, t])) for s in learn.xmom_targets(cand, panel, t)]
+            continue
+        for s in np.nonzero(learn.entry_mask(cand, panel)[:, t])[0]:
+            picks.append((cid, int(s), learn.stop_fraction(cand, panel, int(s), t)))
+    return picks
+
+
+__all__ = ["RhDesk", "Stats", "learned_exit", "learned_picks"]

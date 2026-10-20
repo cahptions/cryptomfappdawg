@@ -11,6 +11,7 @@ from typing import Any
 from desk.core.clock import parse_iso8601, utc_now
 from desk.core.config import LoadedConfig
 from desk.core.paths import DeskPaths
+from desk.rh import learn, learning
 from desk.rh import multiframe as mf
 from desk.rh import strategies as st
 from desk.rh.history import DAILY, HOURLY, today_start, universe
@@ -130,7 +131,7 @@ class RhView:
             })
         return rows
 
-    def _strategies(self, ledger: RhLedger, backtest: dict[str, Any] | None) -> list[dict[str, Any]]:
+    def _strategies(self, ledger: RhLedger, market: RhMarket, backtest: dict[str, Any] | None) -> list[dict[str, Any]]:
         closed = ledger.positions("CLOSED")
         open_ = ledger.positions("OPEN")
         rows = []
@@ -151,7 +152,60 @@ class RhView:
                                   / len(mine), 6) if mine else None,
                 "backtest": None if sid in mf.IDS else (backtest or {}).get("strategies", {}).get(sid),
             })
-        return rows
+        return rows + ([card] if (card := self._learned_card(ledger, market)) else [])
+
+    def _learned_card(self, ledger: RhLedger, market: RhMarket) -> dict[str, Any] | None:
+        """The learning lab's PAPER strategy, shown with the others once a run exists or it has traded."""
+        run = learning.latest(market.conn)
+        positions = [p for p in ledger.positions() if p.strategy_id == learn.STRATEGY_ID]
+        if run is None and not positions:
+            return None
+        closed = [p for p in positions if p.state == "CLOSED"]
+        pnl = [p.realized_pnl or Decimal(0) for p in closed]
+        promoted = None if run is None else run.promoted
+        label = "" if promoted is None or run is None else run.report["procedures"][promoted]["label"]
+        return {
+            "id": learn.STRATEGY_ID, "kind": "LEARNED",
+            "about": (f"Learned on unseen months: {label}." if promoted else
+                      "The learning lab trades here only when a procedure passes on months it never saw; "
+                      "none has yet."),
+            "spec_sha256": "" if run is None else run.selection_sha256, "spec_version": learn.LAB_VERSION,
+            "legacy_open": 0, "legacy_closed": 0, "legacy_realized": "0.00",
+            "closed": len(closed), "open": sum(1 for p in positions if p.state == "OPEN"),
+            "wins": sum(1 for v in pnl if v > 0), "realized": _f(sum(pnl, Decimal(0))),
+            "mean_return": _f(sum(((p.exit_credit or Decimal(0)) / p.entry_cost - 1 for p in closed), Decimal(0))
+                              / len(closed), 6) if closed else None,
+            "backtest": None,
+        }
+
+    def learning(self) -> dict[str, Any]:
+        """Everything the Learning page shows: the latest run, today's choice, past runs and forward PAPER."""
+        dbs = self._open()
+        try:
+            market, ledger = RhMarket(dbs.market), RhLedger(dbs.ledger)
+            run = learning.latest(market.conn)
+            costs = {} if run is None else run.report.get("cost_model", {})
+            measured = sum(1 for v in costs.values() if v.endswith("measured"))
+            return {
+                "mode": self.settings.learning, "lab_version": learn.LAB_VERSION,
+                "rules": {"train_days": learn.TRAIN_DAYS, "test_days": learn.TEST_DAYS, "min_folds": learn.MIN_FOLDS,
+                          "min_trades": learn.MIN_OOS_TRADES, "alpha_profit": learn.ALPHA_PROFIT,
+                          "alpha_btc": learn.ALPHA_BTC, "max_positions": learn.MAX_POSITIONS},
+                "latest": None if run is None else {
+                    "id": run.id, "created_at": run.created_at.isoformat(), "data_end": run.data_end.isoformat(),
+                    "symbols": run.report["symbols"], "days": run.report["days"],
+                    "candidates": run.report["candidates"], "folds": len(run.report["folds"]),
+                    "promoted": run.promoted, "procedures": run.report["procedures"],
+                    "leaderboard": run.report["leaderboard"][:10],
+                    "costs": {"measured": measured, "assumed": len(costs) - measured},
+                },
+                "selection": [] if run is None else learning.describe_selection(run),
+                "runs": learning.history(market.conn),
+                "next_run": None if (due := learning.next_due(market.conn)) is None else due.isoformat(),
+                "forward": learning.forward(ledger, None if run is None else run.selection_sha256),
+            }
+        finally:
+            dbs.close()
 
     def _activity(self, ledger: RhLedger, market: RhMarket, limit: int = 40) -> list[dict[str, Any]]:
         events = [{"at": r["at"], "kind": r["kind"], "position_id": r["position_id"],
@@ -201,7 +255,7 @@ class RhView:
                 "universe_source": source, "robinhood_prices": key_ready, "last_quote_at": last_quote,
                 "last_daily_bar": last_bar, "account": self._account(ledger, market, now),
                 "positions": self._positions(ledger, market, now), "coins": coins,
-                "strategies": self._strategies(ledger, backtest), "activity": self._activity(ledger, market),
+                "strategies": self._strategies(ledger, market, backtest), "activity": self._activity(ledger, market),
                 "session": self._session(ledger, market, now),
                 "backtest": None if backtest is None else {k: backtest.get(k) for k in (
                     "kind", "sessions", "generated_at", "btc_buy_and_hold_return", "cost_model", "universe", "caveats")},

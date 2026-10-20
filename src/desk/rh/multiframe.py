@@ -65,6 +65,8 @@ def spec_sha256(sid: str) -> str:
 
 
 def signal_spec(signal: st.Signal) -> str:
+    if signal.features.get("learned_spec"):              # the learning lab's selection versions its own positions
+        return str(signal.features["learned_spec"])
     return spec_sha256(signal.strategy_id) if signal.features.get("spec_version") == "2" else st.spec_sha256(
         signal.strategy_id)
 

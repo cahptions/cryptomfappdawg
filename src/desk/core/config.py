@@ -199,6 +199,9 @@ class RobinhoodSection(_Section):
     estimate_max_age_seconds: int = Field(default=10, ge=1)
     quote_interval_seconds: int = Field(default=60, ge=15)
     backtest_roundtrip_cost_fraction: Fraction = Decimal("0.02")  # until a coin has measured Robinhood estimates
+    # learning lab (docs/ROBINHOOD_LEARNING.md; operator decision 2026-10-20): "paper" lets a procedure that passes
+    # on unseen months trade the PAPER book as L1_LEARNED; "record" only learns and reports; "off" does nothing.
+    learning: Literal["paper", "record", "off"] = "paper"
     dashboard_port: int = Field(default=8766, ge=1024, le=65535)
 
 

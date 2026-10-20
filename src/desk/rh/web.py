@@ -37,6 +37,10 @@ def create_rh_app(paths: DeskPaths, loaded: LoadedConfig | None = None) -> FastA
     async def snapshot() -> dict[str, object]:
         return await asyncio.to_thread(view.snapshot)
 
+    @app.get("/api/rh/learning")
+    async def learning_view() -> dict[str, object]:
+        return await asyncio.to_thread(view.learning)
+
     @app.get("/api/rh/equity")
     async def equity(span: Span = "1M") -> dict[str, object]:
         return await asyncio.to_thread(view.equity, span)

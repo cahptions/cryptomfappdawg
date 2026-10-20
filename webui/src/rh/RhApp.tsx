@@ -6,6 +6,7 @@ import type {
   Coin,
   CoinDetail,
   EquitySeries,
+  Learning,
   Position,
   Snapshot,
   Span,
@@ -19,6 +20,7 @@ const STRATEGY_NAMES: Record<string, string> = {
   R3_PULLBACK: "Uptrend pullback",
   B1_HOLD_BTC: "Hold BTC · baseline",
   B2_RANDOM: "Random coin · baseline",
+  L1_LEARNED: "Learned strategy",
 };
 const REASONS: Record<string, string> = {
   NO_ROBINHOOD_PRICE: "no Robinhood price yet (key not set up)",
@@ -187,6 +189,7 @@ function Header({ snap }: { snap: Snapshot | null }) {
   const links: [string, string][] = [
     ["", "Investing"],
     ["strategies", "Strategies"],
+    ["learning", "Learning"],
     ["activity", "Activity"],
     ["system", "System"],
   ];
@@ -261,8 +264,9 @@ function PositionRows({ positions }: { positions: Position[] }) {
   if (!positions.length) {
     return (
       <p className="rh-empty">
-        No paper positions. The desk checks newly closed 15-minute candles as data arrives.
-        It buys only when a setup and every risk and cost check qualify.
+        No paper positions. The desk checks newly closed 15-minute candles as
+        data arrives. It buys only when a setup and every risk and cost check
+        qualify.
       </p>
     );
   }
@@ -276,7 +280,8 @@ function PositionRows({ positions }: { positions: Position[] }) {
               <span>
                 <strong>{p.symbol.replace("-USD", "")}</strong>
                 <small>
-                  {STRATEGY_NAMES[p.strategy_id] ?? p.strategy_id} · v{p.spec_version} · {p.days}d
+                  {STRATEGY_NAMES[p.strategy_id] ?? p.strategy_id} · v
+                  {p.spec_version} · {p.days}d
                   {p.stop ? ` · stop ${price(p.stop)}` : ""}
                 </small>
               </span>
@@ -542,22 +547,44 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
           ariaLabel={`${data.name} price`}
         />
         <SpanPills value={span} onChange={setSpan} toneClass={tone(change)} />
-        <div className="rh-spans flat" role="tablist" aria-label="Candle interval">
+        <div
+          className="rh-spans flat"
+          role="tablist"
+          aria-label="Candle interval"
+        >
           {["15m", "1h", "4h", "1d"].map((value) => (
-            <button key={value} role="tab" aria-selected={interval === value}
+            <button
+              key={value}
+              role="tab"
+              aria-selected={interval === value}
               className={interval === value ? "is-active" : ""}
-              onClick={() => { setInterval(value); setHover(null); }}>{value}</button>
+              onClick={() => {
+                setInterval(value);
+                setHover(null);
+              }}
+            >
+              {value}
+            </button>
           ))}
         </div>
-        <p className="rh-note">Closed {interval} candle prices · available stored history only.
-          Missing buckets stay missing; the line connects available closes.</p>
+        <p className="rh-note">
+          Closed {interval} candle prices · available stored history only.
+          Missing buckets stay missing; the line connects available closes.
+        </p>
       </section>
       <section aria-label="Timeframe readiness">
         <h2 className="rh-h2">Data for the current check</h2>
         <dl className="rh-stats">
           {Object.entries(data.frames).map(([frame, status]) => (
-            <div key={frame}><dt>{frame}</dt><dd>{status.ready ? "ready" : "warming up / gap / stale"}
-              {" · "}{status.available}/{status.required} bars · last close {when(status.last_close)}</dd></div>
+            <div key={frame}>
+              <dt>{frame}</dt>
+              <dd>
+                {status.ready ? "ready" : "warming up / gap / stale"}
+                {" · "}
+                {status.available}/{status.required} bars · last close{" "}
+                {when(status.last_close)}
+              </dd>
+            </div>
           ))}
         </dl>
       </section>
@@ -607,8 +634,9 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
           {snap
             ? pct(Number(snap.limits.max_roundtrip_cost)).replace("+", "")
             : "the limit"}
-          , and room in the book. Closed 15-minute candles trigger checks throughout the day,
-          using the daily regime, 4-hour trend and hourly setup. More data does not require more trades.
+          , and room in the book. Closed 15-minute candles trigger checks
+          throughout the day, using the daily regime, 4-hour trend and hourly
+          setup. More data does not require more trades.
         </p>
       </section>
       <section aria-labelledby="stats-h">
@@ -683,11 +711,17 @@ function StrategyCard({ s, btc }: { s: Strategy; btc: Strategy | undefined }) {
         )}
       </h3>
       <p>{s.about}</p>
-      <p className="rh-note">Rules v{s.spec_version}
-        {s.spec_version === 2 ? " · experimental · no historical validation yet" : " · daily baseline"}</p>
-      {(s.legacy_open > 0 || s.legacy_closed > 0) && <p className="rh-note">
-        Daily v1 kept separately: {s.legacy_open} open · {s.legacy_closed} closed · {usd(s.legacy_realized)} realized.
-      </p>}
+      <p className="rh-note">
+        {s.kind === "LEARNED"
+          ? "Chosen by the learning lab · judged on months it never saw"
+          : `Rules v${s.spec_version}${s.spec_version === 2 ? " · experimental · no historical validation yet" : " · daily baseline"}`}
+      </p>
+      {(s.legacy_open > 0 || s.legacy_closed > 0) && (
+        <p className="rh-note">
+          Daily v1 kept separately: {s.legacy_open} open · {s.legacy_closed}{" "}
+          closed · {usd(s.legacy_realized)} realized.
+        </p>
+      )}
       <dl className="rh-stats rh-stats-tight">
         <div>
           <dt>Paper now</dt>
@@ -718,16 +752,235 @@ function StrategyCard({ s, btc }: { s: Strategy; btc: Strategy | undefined }) {
   );
 }
 
+function LearningPage() {
+  const { data, error } = usePoll<Learning>("/api/rh/learning", 60_000);
+  if (error) return <p className="rh-empty">{error}</p>;
+  if (!data) return <p className="rh-empty">Loading…</p>;
+  const latest = data.latest;
+  const promoted = latest?.promoted ?? null;
+  const benched = data.forward.benched;
+  const status = !latest
+    ? "First run starting"
+    : promoted && !benched
+      ? data.mode === "paper"
+        ? "Paper trading a learned strategy"
+        : "A procedure passed (recording only)"
+      : benched
+        ? "Benched: paper results contradicted history"
+        : "Learning · nothing has earned a place yet";
+  const years = latest ? (latest.days / 365).toFixed(1) : "—";
+  return (
+    <>
+      <h1 className="rh-title">Learning</h1>
+      <p className="rh-note">
+        <span className={`rh-chip ${promoted && !benched ? "up" : "flat"}`}>
+          {status}
+        </span>
+      </p>
+      <p className="rh-note">
+        Every month the desk tests {latest?.candidates ?? "~250"} rule variants
+        and a statistical model on all the history it has. It picks using only
+        the past {data.rules.train_days} days, then is graded on the next{" "}
+        {data.rules.test_days} days it had not seen. A choice trades in PAPER
+        only if, on those unseen months, it made money after Robinhood costs and
+        beat holding BTC over the same days, with statistical confidence.
+      </p>
+      {latest ? (
+        <>
+          <section className="rh-card rh-power rh-learn-facts">
+            <div>
+              <span>Unseen months</span>
+              <strong>{latest.folds}</strong>
+            </div>
+            <div>
+              <span>Coins · years</span>
+              <strong>
+                {latest.symbols} · {years}
+              </strong>
+            </div>
+            <div>
+              <span>Costs measured</span>
+              <strong>
+                {latest.costs.measured}/
+                {latest.costs.measured + latest.costs.assumed}
+              </strong>
+            </div>
+            <div>
+              <span>Next run</span>
+              <strong>{data.next_run ?? "—"}</strong>
+            </div>
+          </section>
+          <h2 className="rh-h2">On months it never saw</h2>
+          <div className="rh-grid">
+            {Object.entries(latest.procedures).map(([key, p]) => {
+              const last = p.curve.length ? p.curve[p.curve.length - 1] : null;
+              return (
+                <div
+                  key={key}
+                  className={`rh-card ${p.passed ? "is-met" : ""}`}
+                >
+                  <h3>
+                    {p.label}
+                    <span className={`rh-chip ${p.passed ? "up" : "flat"}`}>
+                      {p.passed
+                        ? promoted === key
+                          ? "promoted"
+                          : "passed"
+                        : "not yet"}
+                    </span>
+                  </h3>
+                  <LineChart
+                    values={p.curve.map((c) => c[1])}
+                    labels={p.curve.map((c) => c[0])}
+                    height={110}
+                    ariaLabel={`${p.label}: cumulative paper dollars on unseen months`}
+                  />
+                  <dl className="rh-stats rh-stats-tight">
+                    <div>
+                      <dt>Unseen trades</dt>
+                      <dd>
+                        {p.trades} ·{" "}
+                        {p.trades ? Math.round((p.wins / p.trades) * 100) : 0}%
+                        wins
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Avg per trade, after costs</dt>
+                      <dd className={tone(p.mean_net)}>{pct(p.mean_net)}</dd>
+                    </div>
+                    <div>
+                      <dt>vs holding BTC</dt>
+                      <dd className={tone(p.mean_excess_vs_btc)}>
+                        {pct(p.mean_excess_vs_btc)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>$10 tickets · BTC same days</dt>
+                      <dd>
+                        {last
+                          ? `${signedUsd(last[1])} · ${signedUsd(last[2])}`
+                          : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {!p.passed && p.failures.length > 0 && (
+                    <ul className="rh-list">
+                      {p.failures.map((f) => (
+                        <li key={f}>{f}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <h2 className="rh-h2">Today&apos;s choice</h2>
+          <ul className="rh-rows">
+            {data.selection.map((item) => (
+              <li key={`${item.procedure}-${item.id}`}>
+                <div>
+                  <span>
+                    <strong>
+                      {latest.procedures[item.procedure]?.label ??
+                        item.procedure}
+                      {promoted === item.procedure ? " · trading" : ""}
+                    </strong>
+                    <small>{item.describe}</small>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <h2 className="rh-h2">Best variants over the past year</h2>
+          <ul className="rh-rows">
+            {latest.leaderboard.map((row, i) => (
+              <li key={row.id}>
+                <div>
+                  <span>
+                    <strong>
+                      #{i + 1} · {row.trades} trades · avg {pct(row.mean_net)}
+                    </strong>
+                    <small>{row.describe}</small>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="rh-note">
+            A good past year is not enough: picking last year&apos;s winner is
+            exactly what the unseen-month grades above test.
+          </p>
+        </>
+      ) : (
+        <p className="rh-empty">
+          The first run starts a few minutes after the desk starts: it downloads
+          up to 4 years of daily history first. Or run{" "}
+          <code>uv run desk rh learn</code>.
+        </p>
+      )}
+      <h2 className="rh-h2">The learned strategy&apos;s own paper record</h2>
+      <dl className="rh-stats">
+        <div>
+          <dt>Open · closed</dt>
+          <dd>
+            {data.forward.open} · {data.forward.closed_all}
+          </dd>
+        </div>
+        <div>
+          <dt>Realized</dt>
+          <dd className={tone(num(data.forward.realized))}>
+            {signedUsd(num(data.forward.realized))}
+          </dd>
+        </div>
+        <div>
+          <dt>Current choice: trades · avg</dt>
+          <dd>
+            {data.forward.closed_current} · {pct(data.forward.mean_net)}
+          </dd>
+        </div>
+        <div>
+          <dt>Benched if paper contradicts history</dt>
+          <dd>{data.forward.benched ? "benched" : "no"}</dd>
+        </div>
+      </dl>
+      {data.runs.length > 0 && (
+        <>
+          <h2 className="rh-h2">Runs</h2>
+          <ul className="rh-rows">
+            {data.runs.map((r) => (
+              <li key={r.id}>
+                <div>
+                  <span>
+                    <strong>
+                      {when(r.created_at)} · data to {r.data_end}
+                    </strong>
+                    <small>
+                      {r.promoted
+                        ? `promoted: ${latest?.procedures[r.promoted]?.label ?? r.promoted}`
+                        : "nothing passed"}
+                    </small>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
 function StrategiesPage({ snap }: { snap: Snapshot }) {
   const btc = snap.strategies.find((s) => s.id === "B1_HOLD_BTC");
   return (
     <>
       <h1 className="rh-title">Strategies</h1>
       <p className="rh-note">
-        The three v2 strategies combine daily, 4-hour, hourly and 15-minute evidence.
-        They are experimental and need forward validation. Holding BTC and random entries
-        remain daily v1 baselines. The old daily v1 simulation does not validate these new rules;
-        current v2 results and old v1 positions are counted separately.
+        The three v2 strategies combine daily, 4-hour, hourly and 15-minute
+        evidence. They are experimental and need forward validation. Holding BTC
+        and random entries remain daily v1 baselines. The old daily v1
+        simulation does not validate these new rules; current v2 results and old
+        v1 positions are counted separately.
       </p>
       {snap.backtest && (
         <p className="rh-note">
@@ -766,9 +1019,18 @@ function SystemPage({ snap }: { snap: Snapshot }) {
         ? `${last.day} · BTC ${last.regime === "RISK_ON" ? "uptrend" : last.regime === "RISK_OFF" ? "downtrend" : "unknown"} · ${last.eligible} coins eligible`
         : "none yet",
     ],
-    ["Next 15-minute candle close + publication grace", when(snap.session.next_at)],
-    ["Analysis", `24/7 · checks every ${snap.session.check_interval_seconds}s as closed data arrives`],
-    ["Data ready", `${snap.session.ready_assets}/${snap.session.total_assets} assets across 1d / 4h / 1h / 15m`],
+    [
+      "Next 15-minute candle close + publication grace",
+      when(snap.session.next_at),
+    ],
+    [
+      "Analysis",
+      `24/7 · checks every ${snap.session.check_interval_seconds}s as closed data arrives`,
+    ],
+    [
+      "Data ready",
+      `${snap.session.ready_assets}/${snap.session.total_assets} assets across 1d / 4h / 1h / 15m`,
+    ],
     [
       "Ticket",
       `${pct(Number(snap.limits.ticket_fraction), 0).replace("+", "")} of the $100 account (+ realized)`,
@@ -857,6 +1119,8 @@ export default function RhApp() {
     main = <CoinPage symbol={route[1]} snap={snap} />;
   } else if (route[0] === "strategies") {
     main = <StrategiesPage snap={snap} />;
+  } else if (route[0] === "learning") {
+    main = <LearningPage />;
   } else if (route[0] === "activity") {
     main = (
       <>

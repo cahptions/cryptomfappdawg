@@ -967,7 +967,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_council)
 
     p = sub.add_parser("rh", help="the Robinhood desk: keygen, doctor, backtest, paper, report, dashboard (docs/ROBINHOOD.md)")
-    p.add_argument("action", choices=["keygen", "doctor", "backtest", "paper", "report", "dashboard"])
+    p.add_argument("action", choices=["keygen", "doctor", "backtest", "learn", "paper", "report", "dashboard"])
+    p.add_argument("--no-fetch", action="store_true", help="learn: use stored history only")
     p.add_argument("--days", type=int, default=730, help="backtest: sessions to simulate (default 730)")
     p.add_argument("--fetch", action="store_true", help="backtest: download missing Coinbase daily history first")
     p.add_argument("--minutes", type=_positive_minutes, default=None, help="paper: run time (default until stopped)")

@@ -44,6 +44,9 @@ try {
     await page.goto(`${base}/#/system`);
     await page.getByText(scenario === "populated" ? /^live · last/ : "Connect Robinhood prices (read-only)").waitFor();
     await page.getByText("Next 15-minute candle close + publication grace", { exact: true }).waitFor();
+    await page.goto(`${base}/#/learning`);
+    await page.getByRole("heading", { name: "Learning", exact: true }).waitFor();
+    await page.getByText("The learned strategy's own paper record").waitFor();
     await page.goto(`${base}/#/activity`);
     await page.getByRole("heading", { name: "Activity" }).waitFor();
     await page.close();

@@ -74,6 +74,11 @@ Built assets are included; Node is needed only when changing UI source, via `scr
 - **Decisions on real inputs.** Every production decision had been NO_TRADE (an overlay vetoed on a value the
   builder always marks unverified) and H8 could never qualify (it needed an input never produced). Fixed by
   evaluator `shadow-rules-v4` and H8 v3; older runs still replay with their own evaluator.
+- **The Robinhood desk learns (PAPER only).** A monthly walk-forward lab (255 rule variants + a logistic model on up
+  to 4 years of daily bars, measured costs) promotes a procedure to PAPER as `L1_LEARNED` only when it is profitable
+  and beats BTC on months it never saw; benched if its own paper trades contradict history. Learning page;
+  `desk rh learn`; `robinhood.learning = paper|record|off`. First run: nothing passed. Codex's crossed-quote fix
+  and v2 multi-timeframe analysis are merged. docs/ROBINHOOD_LEARNING.md.
 - **Runs like an app; the 24-hour test comes in pieces.** `desk up` installs and enables both dashboards, both
   PAPER engines, the guardian and backups (they return at every login) and adds the menu icons KESTREL and KESTREL
   Crypto (`desk open`). The Solana engine runs 4-hour pieces; every cleanly finished piece counts toward the 24 hours

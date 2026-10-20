@@ -127,5 +127,6 @@ learning_max_cumulative_loss_usd = "1000"
 max_roundtrip_cost_fraction = "0.02"
 estimate_max_age_seconds = 10
 quote_interval_seconds = 60
+learning = "paper"          # learning lab: "paper" (a procedure that passes unseen months may PAPER trade), "record", "off"
 backtest_roundtrip_cost_fraction = "0.02"   # the universe rules live in the frozen strategy spec (desk/rh/strategies.py)
 dashboard_port = 8766

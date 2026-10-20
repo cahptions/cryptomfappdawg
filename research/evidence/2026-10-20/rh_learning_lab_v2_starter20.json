@@ -1,0 +1,1541 @@
+{
+ "note": "First learning-lab run on a cloud copy of 20 starter coins, Coinbase daily bars, 2% assumed round trip. Development evidence, not the laptop run.",
+ "promoted": null,
+ "report": {
+  "generated_at": "2026-10-20T19:49:42.349705+00:00",
+  "data_end": "2026-10-19",
+  "symbols": 20,
+  "days": 1460,
+  "candidates": 255,
+  "folds": [
+   {
+    "start": "2024-05-18",
+    "end": "2024-06-16",
+    "best": [
+     "TREND:n=10,sma=0,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=10,sma=0,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=4.0,hold=60,regime=False"
+    ],
+    "model_rows": 5284
+   },
+   {
+    "start": "2024-06-17",
+    "end": "2024-07-16",
+    "best": [
+     "TREND:n=10,sma=0,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=10,sma=0,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=4.0,hold=60,regime=False"
+    ],
+    "model_rows": 5734
+   },
+   {
+    "start": "2024-07-17",
+    "end": "2024-08-15",
+    "best": [
+     "TREND:n=10,sma=0,x=20,k=3.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=10,sma=0,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=10,sma=50,x=20,k=3.0,hold=60,regime=True"
+    ],
+    "model_rows": 6193
+   },
+   {
+    "start": "2024-08-16",
+    "end": "2024-09-14",
+    "best": [
+     "TREND:n=10,sma=50,x=20,k=3.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=10,sma=50,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=50,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "model_rows": 6673
+   },
+   {
+    "start": "2024-09-15",
+    "end": "2024-10-14",
+    "best": [
+     "TREND:n=10,sma=50,x=20,k=3.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=10,sma=50,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=50,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "model_rows": 7153
+   },
+   {
+    "start": "2024-10-15",
+    "end": "2024-11-13",
+    "best": [
+     "TREND:n=10,sma=50,x=20,k=3.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=10,sma=50,x=20,k=3.0,hold=60,regime=True",
+     "TREND:n=10,sma=50,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=10,sma=0,x=20,k=3.0,hold=60,regime=True"
+    ],
+    "model_rows": 7603
+   },
+   {
+    "start": "2024-11-14",
+    "end": "2024-12-13",
+    "best": [
+     "XMOM:look=14,top=5,regime=False,every=4"
+    ],
+    "top3": [
+     "XMOM:look=14,top=5,regime=False,every=4",
+     "XMOM:look=14,top=1,regime=False,every=4",
+     "XMOM:look=14,top=1,regime=True,every=4"
+    ],
+    "model_rows": 8053
+   },
+   {
+    "start": "2024-12-14",
+    "end": "2025-01-12",
+    "best": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=100,x=5,k=3.0,hold=60,regime=True",
+     "TREND:n=20,sma=100,x=5,k=4.0,hold=60,regime=True"
+    ],
+    "model_rows": 8541
+   },
+   {
+    "start": "2025-01-13",
+    "end": "2025-02-11",
+    "best": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=100,x=5,k=3.0,hold=60,regime=True",
+     "TREND:n=20,sma=100,x=5,k=4.0,hold=60,regime=True"
+    ],
+    "model_rows": 9081
+   },
+   {
+    "start": "2025-02-12",
+    "end": "2025-03-13",
+    "best": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=5,k=3.0,hold=60,regime=True",
+     "TREND:n=20,sma=100,x=5,k=3.0,hold=60,regime=True"
+    ],
+    "model_rows": 9621
+   },
+   {
+    "start": "2025-03-14",
+    "end": "2025-04-12",
+    "best": [
+     "TREND:n=55,sma=0,x=5,k=3.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=55,sma=0,x=5,k=3.0,hold=60,regime=True",
+     "TREND:n=55,sma=0,x=5,k=4.0,hold=60,regime=True",
+     "TREND:n=55,sma=100,x=5,k=3.0,hold=60,regime=True"
+    ],
+    "model_rows": 10136
+   },
+   {
+    "start": "2025-04-13",
+    "end": "2025-05-12",
+    "best": [
+     "TREND:n=55,sma=0,x=10,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=55,sma=0,x=10,k=4.0,hold=60,regime=True",
+     "TREND:n=55,sma=100,x=10,k=4.0,hold=60,regime=True",
+     "TREND:n=55,sma=50,x=10,k=4.0,hold=60,regime=True"
+    ],
+    "model_rows": 10616
+   },
+   {
+    "start": "2025-05-13",
+    "end": "2025-06-11",
+    "best": [
+     "TREND:n=55,sma=0,x=10,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=55,sma=0,x=10,k=4.0,hold=60,regime=True",
+     "TREND:n=55,sma=100,x=10,k=4.0,hold=60,regime=True",
+     "TREND:n=55,sma=50,x=10,k=4.0,hold=60,regime=True"
+    ],
+    "model_rows": 11012
+   },
+   {
+    "start": "2025-06-12",
+    "end": "2025-07-11",
+    "best": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=50,x=5,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=5,k=3.0,hold=60,regime=True"
+    ],
+    "model_rows": 11138
+   },
+   {
+    "start": "2025-07-12",
+    "end": "2025-08-10",
+    "best": [
+     "TREND:n=20,sma=50,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=50,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=20,k=2.0,hold=60,regime=True",
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "model_rows": 11267
+   },
+   {
+    "start": "2025-08-11",
+    "end": "2025-09-09",
+    "best": [
+     "TREND:n=20,sma=0,x=20,k=2.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=0,x=20,k=2.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=20,k=2.0,hold=60,regime=True",
+     "TREND:n=20,sma=0,x=10,k=2.0,hold=60,regime=True"
+    ],
+    "model_rows": 11372
+   },
+   {
+    "start": "2025-09-10",
+    "end": "2025-10-09",
+    "best": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=20,k=4.0,hold=60,regime=True",
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=False"
+    ],
+    "model_rows": 11539
+   },
+   {
+    "start": "2025-10-10",
+    "end": "2025-11-08",
+    "best": [
+     "TREND:n=20,sma=0,x=20,k=2.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=0,x=20,k=2.0,hold=60,regime=True",
+     "TREND:n=20,sma=0,x=10,k=2.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=20,k=2.0,hold=60,regime=True"
+    ],
+    "model_rows": 11713
+   },
+   {
+    "start": "2025-11-09",
+    "end": "2025-12-08",
+    "best": [
+     "TREND:n=20,sma=0,x=20,k=2.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=0,x=20,k=2.0,hold=60,regime=True",
+     "TREND:n=20,sma=50,x=20,k=2.0,hold=60,regime=True",
+     "TREND:n=20,sma=0,x=10,k=2.0,hold=60,regime=True"
+    ],
+    "model_rows": 11887
+   },
+   {
+    "start": "2025-12-09",
+    "end": "2026-01-07",
+    "best": [
+     "TIMING:sma=50,coins=MAJORS2,hold=365"
+    ],
+    "top3": [
+     "TIMING:sma=50,coins=MAJORS2,hold=365",
+     "TIMING:sma=200,coins=BTC,hold=365",
+     "TIMING:sma=100,coins=BTC,hold=365"
+    ],
+    "model_rows": 11977
+   },
+   {
+    "start": "2026-01-08",
+    "end": "2026-02-06",
+    "best": [
+     "TIMING:sma=50,coins=MAJORS2,hold=365"
+    ],
+    "top3": [
+     "TIMING:sma=50,coins=MAJORS2,hold=365",
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "TIMING:sma=200,coins=BTC,hold=365"
+    ],
+    "model_rows": 12048
+   },
+   {
+    "start": "2026-02-07",
+    "end": "2026-03-08",
+    "best": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True",
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "REVERT:rsi=5,sma=200,hold=7,regime=True"
+    ],
+    "model_rows": 12093
+   },
+   {
+    "start": "2026-03-09",
+    "end": "2026-04-07",
+    "best": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True",
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "REVERT:rsi=5,sma=200,hold=7,regime=True"
+    ],
+    "model_rows": 12147
+   },
+   {
+    "start": "2026-04-08",
+    "end": "2026-05-07",
+    "best": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True"
+    ],
+    "top3": [
+     "TREND:n=20,sma=0,x=20,k=4.0,hold=60,regime=True",
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "REVERT:rsi=5,sma=200,hold=7,regime=True"
+    ],
+    "model_rows": 12127
+   },
+   {
+    "start": "2026-05-08",
+    "end": "2026-06-06",
+    "best": [
+     "REVERT:rsi=5,sma=100,hold=7,regime=True"
+    ],
+    "top3": [
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "REVERT:rsi=5,sma=200,hold=7,regime=True",
+     "REVERT:rsi=5,sma=100,hold=3,regime=True"
+    ],
+    "model_rows": 12078
+   },
+   {
+    "start": "2026-06-07",
+    "end": "2026-07-06",
+    "best": [
+     "REVERT:rsi=5,sma=100,hold=7,regime=True"
+    ],
+    "top3": [
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "REVERT:rsi=5,sma=200,hold=7,regime=True",
+     "REVERT:rsi=5,sma=100,hold=7,regime=False"
+    ],
+    "model_rows": 12076
+   },
+   {
+    "start": "2026-07-07",
+    "end": "2026-08-05",
+    "best": [
+     "REVERT:rsi=5,sma=200,hold=7,regime=True"
+    ],
+    "top3": [
+     "REVERT:rsi=5,sma=200,hold=7,regime=True",
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "REVERT:rsi=5,sma=100,hold=7,regime=False"
+    ],
+    "model_rows": 12078
+   },
+   {
+    "start": "2026-08-06",
+    "end": "2026-09-04",
+    "best": [
+     "REVERT:rsi=5,sma=200,hold=7,regime=True"
+    ],
+    "top3": [
+     "REVERT:rsi=5,sma=200,hold=7,regime=True",
+     "REVERT:rsi=5,sma=200,hold=3,regime=True",
+     "REVERT:rsi=5,sma=100,hold=7,regime=True"
+    ],
+    "model_rows": 12035
+   },
+   {
+    "start": "2026-09-05",
+    "end": "2026-10-04",
+    "best": [
+     "TIMING:sma=200,coins=BTC,hold=365"
+    ],
+    "top3": [
+     "TIMING:sma=200,coins=BTC,hold=365",
+     "REVERT:rsi=5,sma=100,hold=7,regime=True",
+     "REVERT:rsi=5,sma=100,hold=3,regime=True"
+    ],
+    "model_rows": 11949
+   },
+   {
+    "start": "2026-10-05",
+    "end": "2026-10-19",
+    "best": [
+     "XMOM:look=91,top=3,regime=True,every=4"
+    ],
+    "top3": [
+     "XMOM:look=91,top=3,regime=True,every=4",
+     "XMOM:look=91,top=5,regime=True,every=4",
+     "REVERT:rsi=5,sma=200,hold=3,regime=True"
+    ],
+    "model_rows": 11978
+   }
+  ],
+  "procedures": {
+   "LEARN_BEST": {
+    "folds": 30,
+    "trades": 85,
+    "wins": 15,
+    "mean_net": -0.02621252409187757,
+    "median_net": -0.10494049630633007,
+    "lcb_net": -0.06062736322492181,
+    "mean_excess_vs_btc": -0.02916947846127686,
+    "pnl_per_dollar_year": -0.6100851912606913,
+    "p_profit": 0.789,
+    "p_beats_btc": 0.868,
+    "curve": [
+     [
+      "2024-11-15",
+      -28.19,
+      -6.83
+     ],
+     [
+      "2024-11-15",
+      -29.71,
+      -4.79
+     ],
+     [
+      "2024-11-18",
+      -25.45,
+      -0.24
+     ],
+     [
+      "2024-11-19",
+      -18.98,
+      4.14
+     ],
+     [
+      "2024-11-26",
+      -20.9,
+      3.52
+     ],
+     [
+      "2024-12-09",
+      -23.55,
+      3.45
+     ],
+     [
+      "2024-12-14",
+      0.82,
+      8.8
+     ],
+     [
+      "2024-12-19",
+      -0.15,
+      8.12
+     ],
+     [
+      "2024-12-20",
+      2.14,
+      10.99
+     ],
+     [
+      "2024-12-20",
+      0.13,
+      10.97
+     ],
+     [
+      "2024-12-23",
+      5.16,
+      10.67
+     ],
+     [
+      "2025-01-19",
+      3.67,
+      10.39
+     ],
+     [
+      "2025-01-20",
+      2.38,
+      10.17
+     ],
+     [
+      "2025-01-26",
+      0.57,
+      10.37
+     ],
+     [
+      "2025-01-27",
+      -0.77,
+      10.58
+     ],
+     [
+      "2025-01-27",
+      -2.4,
+      10.24
+     ],
+     [
+      "2025-02-02",
+      -3.28,
+      9.63
+     ],
+     [
+      "2025-02-03",
+      -3.46,
+      9.95
+     ],
+     [
+      "2025-05-03",
+      -5.28,
+      10.08
+     ],
+     [
+      "2025-05-31",
+      -4.71,
+      10.85
+     ],
+     [
+      "2025-06-06",
+      -5.76,
+      10.69
+     ],
+     [
+      "2025-06-06",
+      -5.03,
+      10.53
+     ],
+     [
+      "2025-06-13",
+      -6.13,
+      10.15
+     ],
+     [
+      "2025-06-13",
+      -7.73,
+      9.77
+     ],
+     [
+      "2025-06-21",
+      -5.97,
+      9.78
+     ],
+     [
+      "2025-07-05",
+      -5.39,
+      9.96
+     ],
+     [
+      "2025-07-15",
+      -6.44,
+      9.97
+     ],
+     [
+      "2025-07-23",
+      -6.05,
+      10.99
+     ],
+     [
+      "2025-07-23",
+      -7.06,
+      11.12
+     ],
+     [
+      "2025-07-30",
+      -0.16,
+      11.88
+     ],
+     [
+      "2025-08-02",
+      -0.19,
+      12.05
+     ],
+     [
+      "2025-08-02",
+      2.15,
+      12.23
+     ],
+     [
+      "2025-08-15",
+      1.46,
+      11.75
+     ],
+     [
+      "2025-08-18",
+      0.21,
+      11.43
+     ],
+     [
+      "2025-08-19",
+      -1.07,
+      10.83
+     ],
+     [
+      "2025-08-26",
+      -2.31,
+      10.39
+     ],
+     [
+      "2025-08-30",
+      -2.97,
+      9.6
+     ],
+     [
+      "2025-09-01",
+      -4.18,
+      8.38
+     ],
+     [
+      "2025-09-01",
+      -5.57,
+      7.72
+     ],
+     [
+      "2025-09-01",
+      -7.01,
+      7.19
+     ],
+     [
+      "2025-09-19",
+      -7.99,
+      7.15
+     ],
+     [
+      "2025-09-22",
+      -9.5,
+      6.91
+     ],
+     [
+      "2025-09-22",
+      -10.67,
+      6.67
+     ],
+     [
+      "2025-09-23",
+      -10.59,
+      6.68
+     ],
+     [
+      "2025-10-09",
+      -11.5,
+      6.44
+     ],
+     [
+      "2025-10-10",
+      -12.76,
+      6.35
+     ],
+     [
+      "2025-10-10",
+      -13.45,
+      5.87
+     ],
+     [
+      "2025-10-10",
+      -14.46,
+      5.15
+     ],
+     [
+      "2026-01-21",
+      -14.84,
+      4.97
+     ],
+     [
+      "2026-01-21",
+      -15.62,
+      4.79
+     ],
+     [
+      "2026-04-18",
+      -16.89,
+      4.86
+     ],
+     [
+      "2026-05-20",
+      -17.94,
+      5.08
+     ],
+     [
+      "2026-05-21",
+      -18.39,
+      5.0
+     ],
+     [
+      "2026-05-21",
+      -18.72,
+      4.92
+     ],
+     [
+      "2026-05-22",
+      -18.84,
+      5.0
+     ],
+     [
+      "2026-05-23",
+      -19.24,
+      4.78
+     ],
+     [
+      "2026-05-29",
+      -20.5,
+      4.54
+     ],
+     [
+      "2026-05-31",
+      -20.6,
+      4.58
+     ],
+     [
+      "2026-06-02",
+      -21.55,
+      3.45
+     ],
+     [
+      "2026-06-02",
+      -22.28,
+      2.51
+     ]
+    ],
+    "holm_p_profit": 1.0,
+    "holm_p_beats_btc": 1.0,
+    "passed": false,
+    "failures": [
+     "not reliably profitable after costs on unseen months",
+     "did not reliably beat holding BTC over the same days"
+    ],
+    "label": "Best single rule each month"
+   },
+   "LEARN_TOP3": {
+    "folds": 30,
+    "trades": 109,
+    "wins": 22,
+    "mean_net": 0.0031916875983060778,
+    "median_net": -0.10094512406582168,
+    "lcb_net": -0.03957573911407927,
+    "mean_excess_vs_btc": 0.0005701545615085503,
+    "pnl_per_dollar_year": 0.08245538383026421,
+    "p_profit": 0.5225,
+    "p_beats_btc": 0.5325,
+    "curve": [
+     [
+      "2025-06-06",
+      25.23,
+      12.27
+     ],
+     [
+      "2025-06-06",
+      25.95,
+      12.1
+     ],
+     [
+      "2025-06-13",
+      24.85,
+      11.72
+     ],
+     [
+      "2025-06-13",
+      23.25,
+      11.35
+     ],
+     [
+      "2025-06-21",
+      25.01,
+      11.35
+     ],
+     [
+      "2025-07-05",
+      25.59,
+      11.53
+     ],
+     [
+      "2025-07-15",
+      24.54,
+      11.55
+     ],
+     [
+      "2025-07-23",
+      23.53,
+      11.68
+     ],
+     [
+      "2025-07-31",
+      22.72,
+      12.49
+     ],
+     [
+      "2025-08-02",
+      22.69,
+      12.67
+     ],
+     [
+      "2025-08-12",
+      27.33,
+      13.5
+     ],
+     [
+      "2025-08-15",
+      26.64,
+      13.01
+     ],
+     [
+      "2025-08-18",
+      25.39,
+      12.7
+     ],
+     [
+      "2025-08-19",
+      24.11,
+      12.09
+     ],
+     [
+      "2025-08-20",
+      24.07,
+      11.76
+     ],
+     [
+      "2025-08-26",
+      22.83,
+      11.33
+     ],
+     [
+      "2025-08-30",
+      22.17,
+      10.54
+     ],
+     [
+      "2025-09-01",
+      20.96,
+      9.31
+     ],
+     [
+      "2025-09-01",
+      19.57,
+      8.66
+     ],
+     [
+      "2025-09-01",
+      18.13,
+      8.13
+     ],
+     [
+      "2025-09-05",
+      18.09,
+      7.63
+     ],
+     [
+      "2025-09-08",
+      23.32,
+      7.61
+     ],
+     [
+      "2025-09-19",
+      22.35,
+      7.58
+     ],
+     [
+      "2025-09-22",
+      20.84,
+      7.34
+     ],
+     [
+      "2025-09-22",
+      19.67,
+      7.09
+     ],
+     [
+      "2025-09-23",
+      19.75,
+      7.11
+     ],
+     [
+      "2025-10-09",
+      18.84,
+      6.87
+     ],
+     [
+      "2025-10-10",
+      17.58,
+      6.78
+     ],
+     [
+      "2025-10-10",
+      16.89,
+      6.3
+     ],
+     [
+      "2025-10-10",
+      15.88,
+      5.58
+     ],
+     [
+      "2025-10-10",
+      14.87,
+      4.86
+     ],
+     [
+      "2025-10-10",
+      13.86,
+      4.15
+     ],
+     [
+      "2026-01-21",
+      13.48,
+      3.96
+     ],
+     [
+      "2026-01-21",
+      12.69,
+      3.78
+     ],
+     [
+      "2026-04-18",
+      11.43,
+      3.86
+     ],
+     [
+      "2026-05-20",
+      10.38,
+      4.07
+     ],
+     [
+      "2026-05-20",
+      9.69,
+      3.9
+     ],
+     [
+      "2026-05-20",
+      9.16,
+      3.73
+     ],
+     [
+      "2026-05-22",
+      9.04,
+      3.81
+     ],
+     [
+      "2026-05-23",
+      8.63,
+      3.59
+     ],
+     [
+      "2026-05-29",
+      7.37,
+      3.35
+     ],
+     [
+      "2026-05-31",
+      7.27,
+      3.39
+     ],
+     [
+      "2026-06-01",
+      7.08,
+      3.4
+     ],
+     [
+      "2026-06-02",
+      6.13,
+      2.27
+     ],
+     [
+      "2026-06-15",
+      6.37,
+      2.96
+     ],
+     [
+      "2026-07-01",
+      5.87,
+      2.3
+     ],
+     [
+      "2026-07-11",
+      6.18,
+      2.6
+     ],
+     [
+      "2026-09-02",
+      6.32,
+      2.57
+     ],
+     [
+      "2026-09-03",
+      6.55,
+      2.52
+     ],
+     [
+      "2026-09-04",
+      6.88,
+      2.98
+     ],
+     [
+      "2026-09-13",
+      7.09,
+      3.08
+     ],
+     [
+      "2026-09-14",
+      6.93,
+      3.11
+     ],
+     [
+      "2026-09-14",
+      6.59,
+      3.15
+     ],
+     [
+      "2026-09-14",
+      6.35,
+      3.18
+     ],
+     [
+      "2026-09-18",
+      6.61,
+      3.28
+     ],
+     [
+      "2026-10-10",
+      4.99,
+      2.93
+     ],
+     [
+      "2026-10-11",
+      4.71,
+      2.89
+     ],
+     [
+      "2026-10-11",
+      4.25,
+      2.85
+     ],
+     [
+      "2026-10-11",
+      3.74,
+      2.8
+     ],
+     [
+      "2026-10-19",
+      3.48,
+      2.86
+     ]
+    ],
+    "holm_p_profit": 1.0,
+    "holm_p_beats_btc": 1.0,
+    "passed": false,
+    "failures": [
+     "not reliably profitable after costs on unseen months",
+     "did not reliably beat holding BTC over the same days"
+    ],
+    "label": "Best three rules each month"
+   },
+   "LEARN_MODEL": {
+    "folds": 30,
+    "trades": 46,
+    "wins": 13,
+    "mean_net": -0.02813236648588863,
+    "median_net": -0.044143245008358534,
+    "lcb_net": -0.04881861883962543,
+    "mean_excess_vs_btc": -0.03864285855248468,
+    "pnl_per_dollar_year": -1.628767011372656,
+    "p_profit": 0.8625,
+    "p_beats_btc": 0.971,
+    "curve": [
+     [
+      "2024-06-10",
+      0.23,
+      0.28
+     ],
+     [
+      "2024-07-15",
+      1.4,
+      1.17
+     ],
+     [
+      "2024-07-29",
+      1.23,
+      1.18
+     ],
+     [
+      "2024-07-29",
+      0.25,
+      1.19
+     ],
+     [
+      "2024-07-29",
+      -0.66,
+      1.2
+     ],
+     [
+      "2024-08-05",
+      -2.46,
+      0.49
+     ],
+     [
+      "2024-08-12",
+      -3.14,
+      0.59
+     ],
+     [
+      "2024-09-09",
+      -2.5,
+      0.17
+     ],
+     [
+      "2024-09-09",
+      -2.72,
+      -0.25
+     ],
+     [
+      "2024-09-09",
+      -3.18,
+      -0.67
+     ],
+     [
+      "2024-10-14",
+      -3.75,
+      -0.66
+     ],
+     [
+      "2024-10-14",
+      -4.4,
+      -0.66
+     ],
+     [
+      "2024-10-14",
+      -4.64,
+      -0.65
+     ],
+     [
+      "2024-11-25",
+      -4.27,
+      0.25
+     ],
+     [
+      "2024-11-25",
+      -4.08,
+      1.16
+     ],
+     [
+      "2024-11-25",
+      -1.86,
+      2.07
+     ],
+     [
+      "2024-11-26",
+      -3.78,
+      1.45
+     ],
+     [
+      "2024-12-02",
+      -1.81,
+      1.37
+     ],
+     [
+      "2024-12-02",
+      -2.37,
+      1.29
+     ],
+     [
+      "2024-12-09",
+      -0.63,
+      1.69
+     ],
+     [
+      "2024-12-09",
+      -0.88,
+      2.09
+     ],
+     [
+      "2024-12-09",
+      -2.24,
+      2.5
+     ],
+     [
+      "2024-12-30",
+      -2.58,
+      2.34
+     ],
+     [
+      "2025-01-27",
+      -3.7,
+      2.47
+     ],
+     [
+      "2025-01-27",
+      -4.49,
+      2.6
+     ],
+     [
+      "2025-02-02",
+      -7.14,
+      2.13
+     ],
+     [
+      "2025-02-02",
+      -9.49,
+      1.65
+     ],
+     [
+      "2025-02-02",
+      -11.55,
+      1.17
+     ],
+     [
+      "2025-02-03",
+      -14.2,
+      1.56
+     ],
+     [
+      "2025-02-03",
+      -16.73,
+      1.95
+     ],
+     [
+      "2025-03-17",
+      -17.15,
+      2.18
+     ],
+     [
+      "2025-05-12",
+      -14.94,
+      3.22
+     ],
+     [
+      "2025-05-12",
+      -11.68,
+      4.27
+     ],
+     [
+      "2025-05-12",
+      -8.04,
+      5.32
+     ],
+     [
+      "2025-05-26",
+      -8.07,
+      5.56
+     ],
+     [
+      "2025-05-26",
+      -8.61,
+      5.8
+     ],
+     [
+      "2025-05-26",
+      -8.76,
+      6.04
+     ],
+     [
+      "2025-06-02",
+      -8.72,
+      5.73
+     ],
+     [
+      "2025-06-09",
+      -9.55,
+      5.74
+     ],
+     [
+      "2025-06-09",
+      -9.87,
+      5.75
+     ],
+     [
+      "2025-06-09",
+      -9.91,
+      5.75
+     ],
+     [
+      "2025-07-28",
+      -10.5,
+      5.94
+     ],
+     [
+      "2025-10-20",
+      -11.05,
+      5.38
+     ],
+     [
+      "2026-01-25",
+      -12.15,
+      4.63
+     ],
+     [
+      "2026-04-27",
+      -11.67,
+      5.28
+     ],
+     [
+      "2026-05-28",
+      -12.94,
+      4.83
+     ]
+    ],
+    "holm_p_profit": 1.0,
+    "holm_p_beats_btc": 1.0,
+    "passed": false,
+    "failures": [
+     "46 of 60 unseen trades",
+     "not reliably profitable after costs on unseen months",
+     "did not reliably beat holding BTC over the same days"
+    ],
+    "label": "Statistical model, retrained monthly"
+   }
+  },
+  "promoted": null,
+  "selection": {
+   "best": [
+    "TIMING:sma=200,coins=BTC,hold=365"
+   ],
+   "top3": [
+    "TIMING:sma=200,coins=BTC,hold=365",
+    "REVERT:rsi=10,sma=200,hold=7,regime=True",
+    "REVERT:rsi=5,sma=200,hold=7,regime=True"
+   ],
+   "model": {
+    "weights": [
+     -0.5857313949210915,
+     0.025598953895463798,
+     0.054114824089070056,
+     -0.09785945113472039,
+     0.019485535641969875,
+     0.08282320622372702,
+     0.2526349000893799,
+     0.015472786510870848,
+     -0.1433142484117251,
+     -0.26168937239226525,
+     -0.13976481571744692,
+     -0.09896699905273797,
+     -0.06633236361456595,
+     0.13245688842681466,
+     0.1889170746823176,
+     0.05108417696775887
+    ],
+    "mean": [
+     9.07450722072159e-05,
+     0.00018284731084093104,
+     0.0010940944133316739,
+     0.004360939320645245,
+     0.01645959766653968,
+     0.04857476750077971,
+     -0.14734426995238606,
+     -0.23697336280894346,
+     -0.004370250338051584,
+     -0.02728189293856603,
+     0.04164100081890637,
+     47.37717924537722,
+     -0.004273897701017764,
+     0.016614246381483407,
+     0.5168389463154385
+    ],
+    "scale": [
+     0.04245157589275014,
+     0.07604503449944609,
+     0.11768272322076133,
+     0.17342771727573383,
+     0.2771815674782399,
+     0.4421895205671158,
+     0.09872585917023358,
+     0.14381920274603702,
+     0.19176617886816183,
+     0.37700306535098854,
+     0.016942255418989353,
+     30.72634253419666,
+     0.42076872897012463,
+     0.12997598972734575,
+     0.4997163694406908
+    ],
+    "low": [
+     -0.11485362338770022,
+     -0.17829531308586424,
+     -0.23860847717194297,
+     -0.3079412351798009,
+     -0.40972369621808324,
+     -0.5324651115307374,
+     -0.39695147874923103,
+     -0.5717237036911818,
+     -0.3347164004908288,
+     -0.5668682321024436,
+     0.013869795882438387,
+     1.0705185151264864,
+     -0.6463324622831442,
+     -0.26624994913783506,
+     0.0
+    ],
+    "high": [
+     0.1444075918214341,
+     0.2739332475272952,
+     0.45231712824847453,
+     0.72919741795373,
+     1.349994227274338,
+     2.354848764310702,
+     0.059685587329074585,
+     0.04050701704206653,
+     0.7944379137314218,
+     1.5609178326894222,
+     0.09821793982531116,
+     99.45768076973181,
+     1.6381342837184283,
+     0.4034023782991967,
+     1.0
+    ],
+    "rows": 11996
+   }
+  },
+  "leaderboard": [
+   {
+    "id": "TIMING:sma=200,coins=BTC,hold=365",
+    "describe": "Hold BTC while above the 200-day average; sell on a close below it.",
+    "score": -0.12702975443453854,
+    "trades": 3,
+    "mean_net": -0.03737993159946421
+   },
+   {
+    "id": "REVERT:rsi=10,sma=200,hold=7,regime=True",
+    "describe": "Buy a 2-day RSI dip below 10 in a coin above its 200-day average while BTC is above its 100-day average; sell on the bounce above the 5-day average or after 7 days.",
+    "score": -0.25941321250558635,
+    "trades": 32,
+    "mean_net": -0.0009742727226769998
+   },
+   {
+    "id": "REVERT:rsi=5,sma=200,hold=7,regime=True",
+    "describe": "Buy a 2-day RSI dip below 5 in a coin above its 200-day average while BTC is above its 100-day average; sell on the bounce above the 5-day average or after 7 days.",
+    "score": -0.2760858822336822,
+    "trades": 13,
+    "mean_net": -0.008400328868088648
+   },
+   {
+    "id": "TIMING:sma=200,coins=MAJORS2,hold=365",
+    "describe": "Hold BTC and ETH while above the 200-day average; sell on a close below it.",
+    "score": -0.2928292710815139,
+    "trades": 6,
+    "mean_net": -0.043037560731221246
+   },
+   {
+    "id": "XMOM:look=7,top=1,regime=True,every=4",
+    "describe": "Every 4 weeks hold the 1 coins with the strongest 7-day run that beat BTC while BTC is above its 100-day average.",
+    "score": -0.36809328935928776,
+    "trades": 3,
+    "mean_net": -0.022783716243844305
+   },
+   {
+    "id": "TIMING:sma=50,coins=BTC,hold=365",
+    "describe": "Hold BTC while above the 50-day average; sell on a close below it.",
+    "score": -0.38680579307043084,
+    "trades": 10,
+    "mean_net": -0.027223731756313485
+   },
+   {
+    "id": "XMOM:look=91,top=3,regime=True,every=4",
+    "describe": "Every 4 weeks hold the 3 coins with the strongest 91-day run that beat BTC while BTC is above its 100-day average.",
+    "score": -0.38719018099864927,
+    "trades": 5,
+    "mean_net": 0.00615065872136149
+   },
+   {
+    "id": "REVERT:rsi=5,sma=200,hold=3,regime=True",
+    "describe": "Buy a 2-day RSI dip below 5 in a coin above its 200-day average while BTC is above its 100-day average; sell on the bounce above the 5-day average or after 3 days.",
+    "score": -0.3922110590193234,
+    "trades": 14,
+    "mean_net": -0.012964045986820232
+   },
+   {
+    "id": "REVERT:rsi=5,sma=100,hold=7,regime=True",
+    "describe": "Buy a 2-day RSI dip below 5 in a coin above its 100-day average while BTC is above its 100-day average; sell on the bounce above the 5-day average or after 7 days.",
+    "score": -0.40000476650906513,
+    "trades": 27,
+    "mean_net": -0.0069394049510114846
+   },
+   {
+    "id": "TREND:n=10,sma=0,x=10,k=2.0,hold=60,regime=True",
+    "describe": "Buy a close above the prior 10-day high while BTC is above its 100-day average; sell at a 10-day low, a 2.0\u00d7ATR trailing stop or after 60 days.",
+    "score": -0.40727807145999295,
+    "trades": 50,
+    "mean_net": 0.008385285859960772
+   },
+   {
+    "id": "XMOM:look=91,top=1,regime=True,every=4",
+    "describe": "Every 4 weeks hold the 1 coins with the strongest 91-day run that beat BTC while BTC is above its 100-day average.",
+    "score": -0.4300654100755621,
+    "trades": 3,
+    "mean_net": -0.013707078692567487
+   },
+   {
+    "id": "XMOM:look=14,top=1,regime=True,every=4",
+    "describe": "Every 4 weeks hold the 1 coins with the strongest 14-day run that beat BTC while BTC is above its 100-day average.",
+    "score": -0.45122491654854646,
+    "trades": 3,
+    "mean_net": -0.01922147926221825
+   }
+  ],
+  "cost_model": {
+   "BTC-USD": "0.0200 assumed",
+   "AAVE-USD": "0.0200 assumed",
+   "ADA-USD": "0.0200 assumed",
+   "AVAX-USD": "0.0200 assumed",
+   "BCH-USD": "0.0200 assumed",
+   "BONK-USD": "0.0200 assumed",
+   "COMP-USD": "0.0200 assumed",
+   "DOGE-USD": "0.0200 assumed",
+   "ETC-USD": "0.0200 assumed",
+   "ETH-USD": "0.0200 assumed",
+   "LINK-USD": "0.0200 assumed",
+   "LTC-USD": "0.0200 assumed",
+   "PEPE-USD": "0.0200 assumed",
+   "SHIB-USD": "0.0200 assumed",
+   "SOL-USD": "0.0200 assumed",
+   "UNI-USD": "0.0200 assumed",
+   "WIF-USD": "0.0200 assumed",
+   "XLM-USD": "0.0200 assumed",
+   "XRP-USD": "0.0200 assumed",
+   "XTZ-USD": "0.0200 assumed"
+  },
+  "lab": {
+   "version": 2,
+   "sha256": "98bd552fe58a8eedb38605ae8d0a8fc4aa4986a367a28f843b9bf6be29b02d8f"
+  }
+ },
+ "selection": [
+  {
+   "procedure": "LEARN_BEST",
+   "id": "TIMING:sma=200,coins=BTC,hold=365",
+   "describe": "Hold BTC while above the 200-day average; sell on a close below it."
+  },
+  {
+   "procedure": "LEARN_TOP3",
+   "id": "TIMING:sma=200,coins=BTC,hold=365",
+   "describe": "Hold BTC while above the 200-day average; sell on a close below it."
+  },
+  {
+   "procedure": "LEARN_TOP3",
+   "id": "REVERT:rsi=10,sma=200,hold=7,regime=True",
+   "describe": "Buy a 2-day RSI dip below 10 in a coin above its 200-day average while BTC is above its 100-day average; sell on the bounce above the 5-day average or after 7 days."
+  },
+  {
+   "procedure": "LEARN_TOP3",
+   "id": "REVERT:rsi=5,sma=200,hold=7,regime=True",
+   "describe": "Buy a 2-day RSI dip below 5 in a coin above its 200-day average while BTC is above its 100-day average; sell on the bounce above the 5-day average or after 7 days."
+  },
+  {
+   "procedure": "LEARN_MODEL",
+   "id": "MODEL",
+   "describe": "Logistic model on 15 daily features, fitted on 11996 coin-days; each Monday buys up to 3 coins it rates \u2265 55% likely to gain after costs over 7 days."
+  }
+ ]
+}
