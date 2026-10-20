@@ -676,3 +676,18 @@ implemented (details and remaining steps: `research/council/HANDOFF.md`, PLAN §
   four-request probe; RESEARCH.md). New migrations: market 0009 (SOL/USD benchmark minutes from the existing market
   context payload, only once closed beyond the provider's 60 s cache), research 0004 (council records).
 - No edge is claimed; no record can change an entry, exit, size or LIVE gate.
+
+## Operator laptop update after a crash (2026-10-20 UTC)
+
+The laptop crashed for a reason unrelated to the desk (operator's finding) during M2 run
+`run_01M590ZRP2PPM8G96ZZRXB08XR`. A run that did not end cleanly can never pass `discovery-report
+--require-hours 24`, and a restart does not join runs, so M2-14 stays **PENDING**; the captured data is kept. The
+next attempt is a `desk paper --minutes 1440` run, which schedules the same discovery jobs and records the same
+discovery statistics the acceptance check requires.
+
+Laptop after updating to `d128b9f`: `desk db check` ok for market, research, runtime and ledger-paper (WAL).
+`desk doctor`: 18 ok, 1 warning (swap 1045 of 2047 MB used), 1 failure: "Clock vs chain: getBlockTime: Block not
+available for slot …". The failure was the doctor's own race (it asked for the block time of the newest confirmed
+slot before the answering node had stored that block); it now steps back up to three slots and measures drift
+from when the slot was read. New unit tests cover it; three live doctor runs against the public endpoint read
++0.9 to +1.6 s. Python 3.12.3, 266 GB free, NTP synchronized, keyed Jupiter and RPC configured (values hidden).

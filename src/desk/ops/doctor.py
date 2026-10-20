@@ -6,6 +6,7 @@ It never prints secret values, never places orders, and never touches a wallet. 
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import time
@@ -18,17 +19,20 @@ from desk import __version__
 from desk.contracts.quotes import QuoteObservation
 from desk.core.clock import utc_now
 from desk.core.config import LoadedConfig, load_config
-from desk.core.errors import ConfigError, DeskError, ProviderError
+from desk.core.errors import ConfigError, DeskError, ProviderError, ProviderErrorKind
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import Secrets, load_secrets
 from desk.ops import system
 from desk.providers.factory import ProviderSuite, build_suite
 from desk.providers.registry import load_registry
+from desk.providers.solana_rpc import SolanaRpcClient
 from desk.storage.databases import Databases
 
 SOL = "So11111111111111111111111111111111111111112"
 USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 PUMP_TOKEN_2022_MINT = "7wrVy57WvGRxwn679U3buysv6FDdAV3hoDfJSqVrpump"  # noqa: S105 - public mint from the M0 evidence
+CHAIN_TIME_TRIES = 4          # the newest slot may be skipped or not yet stored on the node that answers
+SLOT_SECONDS = 0.4
 T = TypeVar("T")
 
 
@@ -132,6 +136,22 @@ async def _timed(report: Report, name: str, coro: Awaitable[T]) -> tuple[T | Non
         return None, (time.monotonic() - start) * 1000
 
 
+async def _chain_time(rpc: SolanaRpcClient, slot: int) -> int:
+    """Block time of ``slot`` or of the nearest earlier slot the answering node has; each step back is one slot."""
+    for back in range(CHAIN_TIME_TRIES):
+        if back:
+            await asyncio.sleep(SLOT_SECONDS)
+        try:
+            block_time = await rpc.get_block_time(slot - back)
+        except ProviderError as exc:
+            if exc.kind is not ProviderErrorKind.RPC_ERROR or back == CHAIN_TIME_TRIES - 1:
+                raise
+            continue
+        if block_time is not None:
+            return block_time
+    raise ProviderError("solana_rpc", ProviderErrorKind.RPC_ERROR, f"getBlockTime: no block time near slot {slot}")
+
+
 async def _provider_checks(report: Report, suite: ProviderSuite) -> None:
     gt, ms = await _timed(report, "GeckoTerminal", suite.geckoterminal.new_pools(1))
     if gt is not None:
@@ -162,9 +182,10 @@ async def _provider_checks(report: Report, suite: ProviderSuite) -> None:
     if slot is not None:
         endpoint = "keyed endpoint" if suite.rpc.http.has_key else "public endpoint"
         report.add("providers", "Solana RPC", Status.OK, f"slot {slot} in {ms:.0f} ms ({endpoint})")
-        block_time, _ = await _timed(report, "Clock vs chain", suite.rpc.get_block_time(slot))
+        observed = utc_now()      # drift is measured from when the slot was current, not after any retry
+        block_time, _ = await _timed(report, "Clock vs chain", _chain_time(suite.rpc, slot))
         if block_time is not None:
-            drift = utc_now().timestamp() - block_time
+            drift = observed.timestamp() - block_time
             report.add("machine", "Clock vs chain", Status.OK if abs(drift) <= 5 else Status.WARN,
                        f"local clock is {drift:+.1f} s from the latest confirmed block time",
                        None if abs(drift) <= 5 else "check NTP; large drift corrupts freshness checks")
