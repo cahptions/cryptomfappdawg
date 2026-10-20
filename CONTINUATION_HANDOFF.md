@@ -24,13 +24,15 @@ uv run desk db check
 uv run desk doctor
 ```
 
-Running processes keep the code they started with. Stop them (`Ctrl+C` in their terminals, or `uv run desk down`
-if you use the services) and start them again from the updated folder:
+Running processes keep the code they started with. Stop anything still running in a terminal (`Ctrl+C`), then
+turn everything on as background services that also start at every login:
 
 ```bash
-uv run desk paper --minutes 4320     # terminal 1: collection + discovery + paper trading + fee probes
-uv run desk dashboard                # terminal 2: then open http://127.0.0.1:8765 → Paper trading (g t)
+uv run desk up        # both dashboards, both PAPER engines, guardian, backups, menu icons
 ```
+
+Open the dashboards from the menu (**KESTREL**, **KESTREL Crypto**) or `uv run desk open`. After a later update,
+run `uv run desk down && uv run desk up` so the services restart on the new code.
 
 The first start applies one additive database migration (`fee_observations`). Existing paper positions, strategy
 versions and evidence are unchanged: every existing strategy version hash is identical, so open positions keep
@@ -62,6 +64,10 @@ Built assets are included; Node is needed only when changing UI source, via `scr
 - **Decisions on real inputs.** Every production decision had been NO_TRADE (an overlay vetoed on a value the
   builder always marks unverified) and H8 could never qualify (it needed an input never produced). Fixed by
   evaluator `shadow-rules-v4` and H8 v3; older runs still replay with their own evaluator.
+- **Runs like an app; the 24-hour test comes in pieces.** `desk up` installs and enables both dashboards, both
+  PAPER engines, the guardian and backups (they return at every login) and adds the menu icons KESTREL and KESTREL
+  Crypto (`desk open`). The Solana engine runs 4-hour pieces; every cleanly finished piece counts toward the 24 hours
+  (one must reach 4 h; sleep excluded; 14-day window); progress is on Overview and System. `desk down` turns it off.
 - **The Robinhood desk (separate, PAPER only).** `desk rh keygen|doctor|backtest|paper|report|dashboard`; its own
   databases (`robinhood-market.db`, `robinhood-ledger-paper.db`) and dashboard on port 8766. Needs a read-only
   Robinhood credential for prices; without it, history and signals are recorded and nothing trades. No order code

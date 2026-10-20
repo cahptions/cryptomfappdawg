@@ -276,6 +276,7 @@ class DashboardData:
                      "reason": "No local databases yet. Arming remains CLI-only."},
             "regime": {"label": None, "status": "missing", "reason": "No recorded market context."},
             "council": {"enabled": False, "influence": "NONE", "last_24h": {}, "latest": [], "benchmark_minutes": 0},
+            "discovery_test": None,
         }
         with self._databases() as dbs:
             if dbs is None:
@@ -305,6 +306,11 @@ class DashboardData:
 
             result["readiness"] = latest_recorded(dbs.research, now)
             result["council"] = self._council(dbs, now)
+            from desk.ops.acceptance import discovery_test
+
+            test = discovery_test(dbs.market, dbs.runtime, now)
+            test["segments"] = test["segments"][:20]
+            result["discovery_test"] = test
             result["audit"] = [_json_row(row, ("payload_json",)) for row in dbs.paper_ledger.execute(
                 "SELECT * FROM paper_events ORDER BY id DESC LIMIT 100")]
             # Replay contexts and quote arrays stay in the evidence store and detail routes. Re-sending

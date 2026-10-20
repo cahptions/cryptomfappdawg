@@ -71,6 +71,21 @@ def seed(paths: DeskPaths) -> None:
                     "volume_usd,observed_at,raw_sha256,source) VALUES (?,?,'5m',?,?,?,?,?,?,?,?,'fixture','geckoterminal.ohlcv')",
                     (pool["address"], pool["base_mint"], to_iso(at), to_epoch_millis(at), str(close),
                      str(close + Decimal("0.002")), str(close - Decimal("0.002")), str(close), "1000", to_iso(utc_now())))
+        # Recorded runs for the segmented 24-hour test panel: two counted pieces (one with sleep) and one lost.
+        import json
+
+        jobs = {name: {"scheduled": 10, "succeeded": 10} for name in (
+            "geckoterminal_new_pools", "jupiter_recent", "dexscreener_refresh", "discovery_evaluation")}
+        for run_id, hours_ago, hours, gaps in (("fixture_run_a", 30, 4.0, 0), ("fixture_run_b", 20, 2.5, 1),
+                                               ("fixture_run_c", 10, None, 0)):
+            started = utc_now() - timedelta(hours=hours_ago)
+            stats = {"discovery": {"orphans": 0}, "unhandled_exceptions": 0, "suspend_gaps": gaps,
+                     "peak_rss_mb": 120.0, "tasks": jobs,
+                     "elapsed_monotonic_seconds": None if hours is None else hours * 3600}
+            dbs.market.execute(
+                "INSERT INTO collector_runs(id, started_at, ended_at, config_hash, stats_json) VALUES (?, ?, ?, 'fixture', ?)",
+                (run_id, to_iso(started), None if hours is None else to_iso(started + timedelta(hours=hours + 0.2)),
+                 None if hours is None else json.dumps(stats)))
     finally:
         monkeypatch.undo()
         dbs.close()

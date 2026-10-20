@@ -1,4 +1,9 @@
-"""Opt-in systemd *user* units. Rendering never installs or starts anything."""
+"""Opt-in systemd *user* units. Rendering never installs or starts anything.
+
+``desk up`` installs and ENABLES the units, so the desks start again whenever the operator logs in; the Solana
+engine runs in 4-hour segments (each ends cleanly and is restarted), so switching the laptop off loses at most the
+piece in progress. ``desk down`` stops and disables the engines and dashboards; the exit guardian and backups stay.
+"""
 
 from __future__ import annotations
 
@@ -19,12 +24,17 @@ def _quote(value: str, *, command: bool = False) -> str:
     return f'"{value}"'
 
 
-def render_units(paths: DeskPaths, python_executable: str, port: int = 8765) -> dict[str, str]:
+SEGMENT_MINUTES = 240                       # one piece of the segmented 24-hour test (desk.ops.acceptance)
+ENGINES = ("desk-engine.service", "desk-rh-engine.service")
+DASHBOARDS = ("desk-dashboard.service", "desk-rh-dashboard.service")
+
+
+def render_units(paths: DeskPaths, python_executable: str, port: int = 8765, rh_port: int = 8766) -> dict[str, str]:
     """Render memory-bounded units using the existing app-owned private secrets loader."""
     if not Path(python_executable).is_absolute():
         raise ValueError("an absolute Python executable is required")
-    if not 1024 <= port <= 65535:
-        raise ValueError("dashboard port must be between 1024 and 65535")
+    if not (1024 <= port <= 65535 and 1024 <= rh_port <= 65535) or port == rh_port:
+        raise ValueError("dashboard ports must differ and be between 1024 and 65535")
     python = _quote(python_executable, command=True)
     inhibitor = "/usr/bin/systemd-inhibit --what=idle:sleep --mode=block --who=KESTREL "
     environment = "\n".join(
@@ -48,11 +58,15 @@ def render_units(paths: DeskPaths, python_executable: str, port: int = 8765) -> 
                                       inhibitor + _quote("--why=PAPER guardian supervision", command=True)
                                       + f" {python} -m desk guardian", "200M", restart="always"),
         "desk-engine.service": unit(
-            "PAPER collector and entry engine",
+            "PAPER collector and entry engine (4-hour segments)",
             inhibitor + _quote("--why=PAPER session in progress", command=True)
-            + f" {python} -m desk paper --minutes 4320",
-            "600M", extra_unit="After=desk-guardian.service\n"),
+            + f" {python} -m desk paper --minutes {SEGMENT_MINUTES}",
+            "600M", restart="always", extra_unit="After=desk-guardian.service\n"),
         "desk-dashboard.service": unit("local dashboard", f"{python} -m desk dashboard --port {port}", "200M"),
+        "desk-rh-engine.service": unit("Robinhood desk PAPER engine", f"{python} -m desk rh paper", "400M",
+                                       restart="always"),
+        "desk-rh-dashboard.service": unit("Robinhood desk dashboard", f"{python} -m desk rh dashboard --port {rh_port}",
+                                          "200M"),
         "desk-backup.service": (
             "[Unit]\nDescription=KESTREL online database backups\n\n[Service]\nType=oneshot\n"
             f"{environment}\nExecStart={python} -m desk backups run\nUMask=0077\nMemoryMax=200M\n"
@@ -67,19 +81,24 @@ def render_units(paths: DeskPaths, python_executable: str, port: int = 8765) -> 
 
 
 def control_services(action: str, *, paper: bool = False) -> None:
-    """Control only known user services. Stopping entries always leaves the guardian alive."""
+    """Control only known user services. Stopping entries always leaves the guardian alive.
+
+    start: enable and start now (they return at every login); with ``paper`` the engines and the guardian too.
+    stop: disable and stop the engines and dashboards; the guardian keeps supervising open positions.
+    """
     if action not in {"start", "stop", "status"}:
         raise ValueError("unsupported service action")
-    units = ["desk-dashboard.service", "desk-backup.timer"]
-    if action == "start" and paper:
-        # A guardian is independently supervised; it is never PartOf/BindsTo the engine.
-        _systemctl(["start", "desk-guardian.service"])
-        units.insert(0, "desk-engine.service")
+    if action == "start":
+        units = [*DASHBOARDS, "desk-backup.timer"]
+        if paper:
+            # A guardian is independently supervised; it is never PartOf/BindsTo the engine.
+            _systemctl(["enable", "--now", "desk-guardian.service"])
+            units[:0] = ENGINES
+        _systemctl(["enable", "--now", *units])
     elif action == "stop":
-        units.insert(0, "desk-engine.service")
-    elif action == "status":
-        units[:0] = ["desk-engine.service", "desk-guardian.service"]
-    _systemctl([action, *units])
+        _systemctl(["disable", "--now", *ENGINES, *DASHBOARDS])
+    else:
+        _systemctl(["status", "--no-pager", *ENGINES, "desk-guardian.service", *DASHBOARDS, "desk-backup.timer"])
 
 
 def _systemctl(arguments: list[str]) -> None:

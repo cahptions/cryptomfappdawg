@@ -193,6 +193,7 @@ export interface Snapshot {
     deciding_versions?: string[];
   } | null;
   council?: CouncilSummary;
+  discovery_test?: DiscoveryTest | null;
 }
 export type Detail = {
   title: string;
@@ -405,6 +406,26 @@ export interface LiveBookSummary {
 }
 
 /** The evidence council's latest records: two research advisors that never change a trade. */
+export interface DiscoveryTestSegment {
+  run_id: string;
+  started_at: string;
+  ended_at: string | null;
+  hours: number | null;
+  state: "COUNTED" | "NOT_COUNTED" | "RUNNING" | "INTERRUPTED";
+  problems: string[];
+  sleep_gaps: number;
+}
+export interface DiscoveryTest {
+  passed: boolean;
+  counted_hours: number;
+  required_hours: number;
+  longest_segment_hours: number;
+  segment_hours: number;
+  window_days: number;
+  segments: DiscoveryTestSegment[];
+  failures: string[];
+  rule: string;
+}
 export interface CouncilSummary {
   enabled: boolean;
   influence: "NONE";

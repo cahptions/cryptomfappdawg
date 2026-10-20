@@ -7,6 +7,8 @@ import type {
   AuditEvent,
   Candidate,
   Detail,
+  DiscoveryTest,
+  DiscoveryTestSegment,
   Health,
   Matrix,
   NumberValue,
@@ -271,6 +273,100 @@ function Badge({ children, status }: { children: ReactNode; status?: string }) {
     </span>
   );
 }
+// The 24-hour discovery test, collected in pieces: every cleanly finished run adds its active hours.
+function DiscoveryTestPanel({
+  test,
+  compact = false,
+}: {
+  test?: DiscoveryTest | null;
+  compact?: boolean;
+}) {
+  if (!test) return null;
+  const share = Math.min(1, test.counted_hours / test.required_hours);
+  const running = test.segments.find((s) => s.state === "RUNNING");
+  const label = (s: DiscoveryTestSegment) =>
+    s.state === "COUNTED"
+      ? "counted"
+      : s.state === "RUNNING"
+        ? "running now"
+        : s.state === "INTERRUPTED"
+          ? "lost (did not finish)"
+          : "not counted";
+  return (
+    <Panel
+      title="24-hour discovery test"
+      eyebrow="COLLECTED IN PIECES"
+      className="span-12"
+      action={
+        <Badge status={test.passed ? "PASS" : "PENDING"}>
+          {test.passed ? "Passed" : "In progress"}
+        </Badge>
+      }
+    >
+      <div className="pad discovery-test">
+        <div className="discovery-test-head">
+          <strong className="num">
+            {test.counted_hours.toFixed(1)} / {test.required_hours} h
+          </strong>
+          <span className="secondary">
+            longest piece {test.longest_segment_hours.toFixed(1)} h (one must
+            reach {test.segment_hours} h)
+            {running && running.hours !== null
+              ? ` · current piece running ${running.hours.toFixed(1)} h`
+              : ""}
+          </span>
+        </div>
+        <svg
+          viewBox="0 0 300 6"
+          preserveAspectRatio="none"
+          className="discovery-test-bar"
+          role="img"
+          aria-label={`${Math.round(share * 100)}% of the 24-hour test`}
+        >
+          <rect width="300" height="6" rx="3" className="meter-bg" />
+          <rect
+            width={Math.max(0, 300 * share)}
+            height="6"
+            rx="3"
+            className="discovery-test-fill"
+          />
+        </svg>
+        <p className="secondary text-small">
+          {test.rule}. Pieces run 4 hours each and restart by themselves;
+          switching the laptop off keeps what is already counted.
+        </p>
+        {!compact && test.segments.length > 0 && (
+          <ul className="discovery-test-list">
+            {test.segments.slice(0, 12).map((s) => (
+              <li key={s.run_id}>
+                <span className="num">{time(s.started_at, true)}</span>
+                <span className="num">
+                  {s.hours === null ? "—" : `${s.hours.toFixed(2)} h`}
+                </span>
+                <Badge
+                  status={
+                    s.state === "COUNTED"
+                      ? "PASS"
+                      : s.state === "RUNNING"
+                        ? "ACTIVE"
+                        : "WARN"
+                  }
+                >
+                  {label(s)}
+                </Badge>
+                <span className="secondary text-small">
+                  {s.problems.join(", ")}
+                  {s.sleep_gaps ? " (sleep excluded)" : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function Panel({
   title,
   eyebrow,
@@ -3112,6 +3208,9 @@ export default function App() {
           )}
           {view === "overview" && (
             <div className="dashboard-grid">
+              {!snapshot.discovery_test?.passed && (
+                <DiscoveryTestPanel test={snapshot.discovery_test} compact />
+              )}
               <Panel
                 title="Performance, without projection"
                 eyebrow="ACCOUNT HISTORY"
@@ -3477,6 +3576,7 @@ export default function App() {
           )}
           {view === "system" && (
             <div className="dashboard-grid">
+              <DiscoveryTestPanel test={snapshot.discovery_test} />
               <Panel
                 title="Machine resources"
                 eyebrow="SERVING HOST"

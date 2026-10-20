@@ -718,3 +718,15 @@ needs the operator's read-only key.
 Checks: Robinhood unit and integration tests (client 9, strategies 9, PAPER engine 7), dashboard data test for the
 Scanner fields, Robinhood browser smoke (populated, light and dark, phone width) and the memecoin smoke (empty and
 populated) pass; a one-minute keyless `desk rh paper` against live Coinbase history recorded a real session.
+
+## Runs like an app; the 24-hour test in pieces (2026-10-20 UTC, Claude)
+
+Operator request: split the 24-hour run into 4-hour pieces that add up in the app, resume on its own when the
+laptop is on, and stop needing a terminal. Operator decision recorded: M2-14 now counts ≥ 24 h of cleanly
+finished discovery runs within 14 days (active monotonic time, sleep excluded), with at least one 4-hour piece;
+a crash loses only its piece. `desk discovery-report --require-hours 24` uses this rule (`--continuous` keeps the
+old one). `desk up` now installs AND enables the services (both dashboards, both PAPER engines, guardian, backups)
+so they start at every login; the Solana engine runs 4-hour pieces with Restart=always. Menu icons KESTREL and
+KESTREL Crypto run `desk open`, which starts the dashboard if needed and opens it in an app window. The dashboard
+shows test progress (Overview until passed, System always). The interrupted run of 2026-10-19 shows as lost; it
+does not block the new total. Tests: segment accounting, launchers, services and CLI; both browser smokes pass.

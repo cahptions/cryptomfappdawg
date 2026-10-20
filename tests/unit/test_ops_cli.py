@@ -34,15 +34,20 @@ def arguments(*words: str) -> argparse.Namespace:
     return cli.build_parser().parse_args(words)
 
 
-@pytest.mark.parametrize("command,paper", [("up", False), ("up --paper", True), ("up --port 9877", False)])
+@pytest.mark.parametrize("command,paper", [("up", True), ("up --paper", True), ("up --port 9877", True),
+                                           ("up --dashboard-only", False)])
 def test_up_installs_and_starts_only_the_requested_services(
     paths: DeskPaths, monkeypatch: pytest.MonkeyPatch, command: str, paper: bool,
 ) -> None:
-    calls = []
+    from desk.ops import launcher
+
+    calls, icons = [], []
     monkeypatch.setattr(services, "install_services", lambda *args, **kwargs: calls.append((args, kwargs)) or [])
+    monkeypatch.setattr(launcher, "install_launchers", lambda *args, **kwargs: icons.append(kwargs) or [])
     args = arguments(*command.split())
     assert args.func(args) == 0
     assert calls == [((paths, sys.executable), {"port": args.port, "start": True, "paper": paper})]
+    assert icons == [{"port": args.port, "rh_port": 8766}]
 
 
 @pytest.mark.parametrize("command,action", [("down", "stop"), ("services status", "status")])

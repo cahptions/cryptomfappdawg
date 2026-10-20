@@ -75,7 +75,7 @@ Rules that apply to every milestone:
 | M2-11 | Missing data never passes a hard rule | U | Missing liquidity / missing holders / missing authority data ⇒ `INSUFFICIENT_DATA` reject (fail-closed), never PASS |
 | M2-12 | Rejection ledger completeness | U/R | SQL integrity check: every candidate has a terminal stage result or explicit pending state; zero orphans after a 24 h run |
 | M2-13 | Every stage result records rule id, observed values, thresholds, config hash | U | Schema test + sample assertion |
-| M2-14 | 24-hour live discovery run | L/R | Report: discoveries by source and reason, stage pass/fail counts, top rejection reasons, provider budget usage vs limits, RSS, DB growth |
+| M2-14 | 24 hours of live discovery, collected in pieces (operator decision 2026-10-20) | L/R | `desk discovery-report --require-hours 24` passes: ≥ 24 h of cleanly finished discovery runs within 14 days (active time; sleep excluded), at least one ≥ 4 h, each with no unhandled exceptions, audit integrity and every source job succeeding; report includes discoveries by source and reason, stage counts, rejection reasons, provider budget, RSS, DB growth. `--continuous` keeps the old one-run rule |
 | M2-15 | Model scores cannot override security exclusions | U | Injecting a maximal "score" into the candidate does not change a Stage-4 REJECT |
 
 ---

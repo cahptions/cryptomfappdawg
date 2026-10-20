@@ -30,6 +30,15 @@ def test_units_escape_paths_limit_memory_and_preserve_guardian(tmp_path: Path) -
     assert "EnvironmentFile" not in "".join(units.values())
     assert "Restart=always" in units["desk-guardian.service"]
     assert "desk backups run" in units["desk-backup.service"]
+    # the engine runs 4-hour pieces of the segmented 24-hour test and is restarted after each one
+    assert "desk paper --minutes 240" in units["desk-engine.service"]
+    assert "Restart=always" in units["desk-engine.service"]
+    assert "desk rh paper" in units["desk-rh-engine.service"]
+    assert "--port 8766" in units["desk-rh-dashboard.service"]
+    assert all("WantedBy=default.target" in u for name, u in units.items() if name.endswith(".service")
+               and name != "desk-backup.service")
+    with pytest.raises(ValueError, match="differ"):
+        render_units(paths, "/usr/local/bin/python", 8766, 8766)
     with pytest.raises(ValueError, match="one line"):
         render_units(paths, "/tmp/python\nExecStart=/evil")
 
@@ -37,14 +46,21 @@ def test_units_escape_paths_limit_memory_and_preserve_guardian(tmp_path: Path) -
 def test_service_install_and_start_are_explicit(tmp_path: Path) -> None:
     with patch("desk.ops.services.subprocess.run") as run:
         installed = install_services(paths_at(tmp_path), "/usr/bin/python3", unit_dir=tmp_path / "units")
-        assert len(installed) == 5
+        assert len(installed) == 7
         assert all(path.stat().st_mode & 0o777 == 0o600 for path in installed)
         run.assert_called_once_with(["systemctl", "--user", "daemon-reload"], check=True)
         run.reset_mock()
-        control_services("start", paper=True)
-        assert run.call_args_list[0].args[0] == ["systemctl", "--user", "start", "desk-guardian.service"]
+        control_services("start", paper=True)                  # enabled: they come back at every login
+        assert run.call_args_list[0].args[0] == ["systemctl", "--user", "enable", "--now", "desk-guardian.service"]
+        assert run.call_args_list[1].args[0][:4] == ["systemctl", "--user", "enable", "--now"]
+        assert {"desk-engine.service", "desk-rh-engine.service", "desk-dashboard.service"} <= set(
+            run.call_args_list[1].args[0])
+        run.reset_mock()
+        control_services("start", paper=False)
+        assert "desk-engine.service" not in run.call_args.args[0]
         run.reset_mock()
         control_services("stop", paper=True)
+        assert run.call_args.args[0][:4] == ["systemctl", "--user", "disable", "--now"]
         assert "desk-guardian.service" not in run.call_args.args[0]
         assert "desk-engine.service" in run.call_args.args[0]
         with pytest.raises(ValueError):

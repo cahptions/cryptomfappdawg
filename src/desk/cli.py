@@ -587,7 +587,7 @@ async def _liquidate_live(paths: Any) -> int:
 
 
 def cmd_discovery_report(args: argparse.Namespace) -> int:
-    from desk.ops.acceptance import discovery_run_failures
+    from desk.ops.acceptance import discovery_run_failures, discovery_test
     from desk.storage.databases import Databases
     from desk.storage.discovery_repo import DiscoveryRepository
 
@@ -596,6 +596,17 @@ def cmd_discovery_report(args: argparse.Namespace) -> int:
     dbs = Databases.open(paths)
     try:
         report = DiscoveryRepository(dbs.market, loaded.settings.discovery).report()
+        if args.require_hours is not None and not args.continuous and args.run_id is None:
+            # the 24 hours may be collected in pieces (operator decision 2026-10-20): see desk.ops.acceptance
+            test = discovery_test(dbs.market, dbs.runtime, utc_now())
+            test = {**test, "required_hours": args.require_hours,
+                    "passed": test["counted_hours"] >= args.require_hours
+                    and test["longest_segment_hours"] >= test["segment_hours"]}
+            report["acceptance"] = test
+            print(json.dumps(report, indent=2))
+            print(f"\n24-hour test: {test['counted_hours']:.2f} of {args.require_hours:g} h counted, longest piece "
+                  f"{test['longest_segment_hours']:.2f} h -> {'PASSED' if test['passed'] else 'not yet'}", flush=True)
+            return 1 if not test["passed"] or report["orphans"] else 0
         if args.require_hours is not None:
             row = dbs.market.execute("SELECT * FROM collector_runs WHERE id = ?", (args.run_id,)).fetchone() if args.run_id else (
                 dbs.market.execute("SELECT * FROM collector_runs ORDER BY started_at DESC LIMIT 1").fetchone())
@@ -755,18 +766,40 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
 
 def cmd_services(args: argparse.Namespace) -> int:
+    from desk.ops.launcher import install_launchers
     from desk.ops.services import control_services, install_services
 
     paths, _ = _bootstrap(args.verbose)
     action = getattr(args, "action", "start")
+    rh_port = load_config(paths.config_dir).settings.robinhood.dashboard_port
     if action == "install":
         for path in install_services(paths, sys.executable, port=args.port, start=False):
             print(path)
-        print("User services installed. Start dashboard: desk up. Start PAPER as well: desk up --paper")
+        print("User services installed. Turn everything on (now and at every login): desk up")
     elif action == "start":
-        install_services(paths, sys.executable, port=args.port, start=True, paper=bool(getattr(args, "paper", False)))
+        paper = not getattr(args, "dashboard_only", False)
+        install_services(paths, sys.executable, port=args.port, start=True, paper=paper)
+        install_launchers(paths, sys.executable, port=args.port, rh_port=rh_port)
+        print("KESTREL is on, and starts again by itself whenever you log in:")
+        print(f"  dashboards  http://127.0.0.1:{args.port} (Solana)   http://127.0.0.1:{rh_port} (Robinhood)")
+        if paper:
+            print("  PAPER       Solana desk in 4-hour pieces (they add up to the 24-hour test), Robinhood desk")
+        print("  app icons   'KESTREL' and 'KESTREL Crypto' in your menu (they open the dashboards)")
+        print("  turn off    desk down   (open paper positions stay supervised by the guardian)")
     else:
         control_services(action, paper=bool(getattr(args, "paper", False)))
+        if action == "stop":
+            print("Engines and dashboards stopped and will not start at login. The exit guardian keeps running.")
+    return 0
+
+
+def cmd_open(args: argparse.Namespace) -> int:
+    from desk.ops.launcher import open_desk
+
+    paths, _ = _bootstrap(args.verbose)
+    port = args.port or (load_config(paths.config_dir).settings.robinhood.dashboard_port if args.desk == "robinhood"
+                         else 8765)
+    print(open_desk(args.desk, port))
     return 0
 
 
@@ -963,7 +996,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("discovery-report", help="candidate outcomes, rejection reasons and audit completeness")
     p.add_argument("--run-id", help="run to check; defaults to the latest run")
-    p.add_argument("--require-hours", type=_positive_minutes, help="fail unless a completed M2 run meets this duration")
+    p.add_argument("--require-hours", type=_positive_minutes,
+                   help="fail unless this many hours of cleanly finished discovery runs are recorded (pieces count)")
+    p.add_argument("--continuous", action="store_true", help="require one unbroken run instead of pieces")
     p.set_defaults(func=cmd_discovery_report)
 
     p = sub.add_parser("console", help="local read-only M2 status console")
@@ -979,12 +1014,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(func=cmd_services)
 
-    p = sub.add_parser("up", help="install/start dashboard and backups; PAPER only with --paper")
-    p.add_argument("--paper", action="store_true")
+    p = sub.add_parser("up", help="turn everything on now and at every login (dashboards, PAPER, backups, app icons)")
+    p.add_argument("--dashboard-only", action="store_true", help="dashboards and backups only, no PAPER engines")
+    p.add_argument("--paper", action="store_true", help=argparse.SUPPRESS)      # the default since 2026-10-20
     p.add_argument("--port", type=int, choices=range(1024, 65536), default=8765, metavar="1024..65535")
     p.set_defaults(func=cmd_services, action="start")
-    sub.add_parser("down", help="stop engine and dashboard; keep exit guardian alive").set_defaults(
+    sub.add_parser("down", help="stop engines and dashboards and keep them off at login; the exit guardian stays").set_defaults(
         func=cmd_services, action="stop")
+
+    p = sub.add_parser("open", help="open a dashboard in its own window, starting it if needed")
+    p.add_argument("--desk", choices=["solana", "robinhood"], default="solana")
+    p.add_argument("--port", type=int, choices=range(1024, 65536), default=None, metavar="1024..65535")
+    p.set_defaults(func=cmd_open)
 
     p = sub.add_parser("backups", help="online backups, verification and typed-confirmation restore")
     p.add_argument("action", choices=["run", "create", "verify", "restore"])

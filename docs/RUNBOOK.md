@@ -40,24 +40,21 @@ Open `http://127.0.0.1:8765` in Firefox. Keep that terminal open. `Ctrl+C` stops
 close PAPER positions. The mode badge must say PAPER or SHADOW for the corresponding data. The Live page shows the
 seven gates and, once `desk live run` has created it, the LIVE book; it can disarm the signer but never arm it.
 
-## Collect and verify the 24-hour discovery run
+## The 24-hour discovery test, in pieces
+
+The 24 hours no longer have to be one unbroken run (operator decision 2026-10-20). Every discovery or PAPER run
+that finishes cleanly adds its active hours, including a run stopped by shutting the laptop down. Sleep does not
+count, and a crash or power loss loses only the piece in progress. At least one piece must last the full 4 hours,
+and only pieces from the last 14 days count. With `desk up` the engine runs in 4-hour pieces by itself; the
+dashboard shows the total on Overview and each piece on System.
 
 ```bash
-cd ~/kestrel
-systemd-inhibit --what=idle:sleep --mode=block --who=KESTREL \
-  --why="24-hour discovery test" uv run desk discover --minutes 1440
-uv run desk db check
-uv run desk discovery-report --require-hours 24
+uv run desk discovery-report --require-hours 24              # PASSED once 24 h are counted
+uv run desk discovery-report --require-hours 24 --continuous # the old rule: one unbroken run
 ```
 
-Keep the laptop plugged in and leave the lid open. An idle/sleep inhibitor does not guarantee that Cinnamon will
-honor every lid or critical-battery policy. Verify power behavior on this actual laptop. The inhibitor ends when
-the command ends. If the run is already in progress, use the separate waiting inhibitor from your handoff;
-do not start another collector just to gain an inhibitor.
-
-The acceptance report must actually pass. Restarting the command does not join two short runs into one continuous
-24-hour run. This acceptance run can continue while code is built separately. A successful discovery run alone
-does not establish a profitable strategy or complete the 72-hour PAPER or 60-day forward-validation requirements.
+A successful discovery test alone does not establish a profitable strategy or complete the 72-hour PAPER or
+60-day forward-validation requirements.
 
 ## PAPER operation and stopping entries
 
@@ -126,24 +123,28 @@ Create the Robinhood credential with read actions only. Without a key the desk s
 (SKIP NO_ROBINHOOD_PRICE) and the dashboard's System page shows the setup steps. `touch ~/desk-data/STOP` stops new
 entries on both desks; exits continue.
 
-## Optional user services
+## Run it like an app (autostart, no terminal)
 
-User services require no `sudo`. `desk up` installs the units under `~/.config/systemd/user`, uses the current
-virtual environment's absolute Python executable, reloads your user manager and starts the local dashboard and
-backup timer. It starts PAPER trading only when you include `--paper`. It does not enable boot startup:
+User services require no `sudo`. One command turns everything on, now and every time you log in:
 
 ```bash
 cd ~/kestrel
 uv run desk up
-uv run desk services status
 ```
 
-To include simulated trading, run `uv run desk up --paper`. To stop the engine, dashboard and backup timer,
-run `uv run desk down`; this leaves the independent guardian alive to supervise open positions. You can install
-units for review without starting them using `uv run desk services install`.
+That installs and enables the dashboards (Solana on 8765, Robinhood on 8766), the Solana PAPER engine (4-hour
+pieces that restart by themselves), the Robinhood PAPER engine, the independent exit guardian and hourly backups,
+and puts two icons in the menu: **KESTREL** and **KESTREL Crypto**. Clicking one opens that dashboard in its own
+window (Chrome or Chromium "app" window when installed, otherwise your browser) and starts it if it is not running.
+`uv run desk open --desk robinhood` does the same from a terminal.
 
-Units are `desk-dashboard.service`, `desk-engine.service`, `desk-guardian.service`, `desk-backup.service` and
-`desk-backup.timer`. The engine has a 600 MiB limit; guardian and dashboard each have 200 MiB limits. These limits
+`uv run desk down` stops the engines and dashboards and keeps them off at login; the guardian keeps supervising
+open paper positions and backups continue. `uv run desk up --dashboard-only` starts dashboards and backups without
+the engines. `uv run desk services status` shows every unit. Services start when you log in; to start them at boot
+before anyone logs in, run `loginctl enable-linger` once.
+
+Units are `desk-dashboard.service`, `desk-engine.service`, `desk-guardian.service`, `desk-rh-engine.service`,
+`desk-rh-dashboard.service`, `desk-backup.service` and `desk-backup.timer`. The engine has a 600 MiB limit; guardian and dashboard each have 200 MiB limits. These limits
 are enforced by systemd only when running those units. They are not promises about total desktop RAM usage.
 Both engine and guardian services hold independent idle/sleep inhibitors while running. The guardian is supervised
 independently; stopping the engine must leave

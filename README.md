@@ -212,6 +212,17 @@ Exports include the latest 10,000 positions. See [the runbook](docs/RUNBOOK.md) 
 
 ---
 
+## Run it like an app
+
+After installing, one command turns everything on now and at every login, with menu icons for both dashboards:
+
+```bash
+cd ~/kestrel && uv run desk up      # off again: uv run desk down
+```
+
+Then click **KESTREL** or **KESTREL Crypto** in the menu. The 24-hour discovery test is collected in 4-hour pieces
+that add up, so the laptop can be switched off; progress shows on the dashboard (Overview and System).
+
 ## The Robinhood desk (separate)
 
 A second desk for the liquid crypto Robinhood lists, with its own databases, PAPER book and dashboard on port 8766.
