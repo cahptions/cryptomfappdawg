@@ -15,7 +15,7 @@ import type {
 const SPANS: Span[] = ["1D", "1W", "1M", "3M", "1Y", "ALL"];
 const STRATEGY_NAMES: Record<string, string> = {
   R1_TREND: "Trend breakout",
-  R2_XMOM: "Weekly momentum",
+  R2_XMOM: "Relative momentum",
   R3_PULLBACK: "Uptrend pullback",
   B1_HOLD_BTC: "Hold BTC · baseline",
   B2_RANDOM: "Random coin · baseline",
@@ -261,8 +261,8 @@ function PositionRows({ positions }: { positions: Position[] }) {
   if (!positions.length) {
     return (
       <p className="rh-empty">
-        No paper positions. The desk buys at the daily session after 00:05 UTC
-        when a strategy's conditions are met.
+        No paper positions. The desk checks newly closed 15-minute candles as data arrives.
+        It buys only when a setup and every risk and cost check qualify.
       </p>
     );
   }
@@ -276,7 +276,7 @@ function PositionRows({ positions }: { positions: Position[] }) {
               <span>
                 <strong>{p.symbol.replace("-USD", "")}</strong>
                 <small>
-                  {STRATEGY_NAMES[p.strategy_id] ?? p.strategy_id} · {p.days}d
+                  {STRATEGY_NAMES[p.strategy_id] ?? p.strategy_id} · v{p.spec_version} · {p.days}d
                   {p.stop ? ` · stop ${price(p.stop)}` : ""}
                 </small>
               </span>
@@ -465,9 +465,10 @@ function Home({ snap }: { snap: Snapshot }) {
 
 function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
   const [span, setSpan] = useState<Span>("1M");
+  const [interval, setInterval] = useState("1h");
   const [hover, setHover] = useState<number | null>(null);
   const { data, error } = usePoll<CoinDetail>(
-    `/api/rh/coin/${symbol}?span=${span}`,
+    `/api/rh/coin/${symbol}?span=${span}&interval=${interval}`,
     60_000,
   );
   const values = useMemo(
@@ -505,12 +506,12 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
         ? pct(Number(data.roundtrip_cost)).replace("+", "")
         : "not measured yet",
     ],
-    ["28-day run", f.ret_skip28 ? pct(Number(f.ret_skip28), 1) : "—"],
-    ["2-day RSI", f.rsi2 ? Number(f.rsi2).toFixed(1) : "—"],
-    ["20-day high", price(f.high_prior20)],
-    ["50-day average", price(f.sma50)],
-    ["100-day average", price(f.sma100)],
-    ["Daily range (ATR 20)", price(f.atr20)],
+    ["24-hour return", f.return24h ? pct(Number(f.return24h), 1) : "—"],
+    ["Hourly RSI2", f.rsi2 ? Number(f.rsi2).toFixed(1) : "—"],
+    ["Prior 20-hour high", price(f.high_prior20)],
+    ["4-hour EMA20", price(f.four_ema20)],
+    ["4-hour EMA50", price(f.four_ema50)],
+    ["Hourly range (ATR 20)", price(f.atr20)],
     ["Median daily volume", usd(f.median_dollar_volume30)],
     [
       "Price from",
@@ -541,6 +542,24 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
           ariaLabel={`${data.name} price`}
         />
         <SpanPills value={span} onChange={setSpan} toneClass={tone(change)} />
+        <div className="rh-spans flat" role="tablist" aria-label="Candle interval">
+          {["15m", "1h", "4h", "1d"].map((value) => (
+            <button key={value} role="tab" aria-selected={interval === value}
+              className={interval === value ? "is-active" : ""}
+              onClick={() => { setInterval(value); setHover(null); }}>{value}</button>
+          ))}
+        </div>
+        <p className="rh-note">Closed {interval} candle prices · available stored history only.
+          Missing buckets stay missing; the line connects available closes.</p>
+      </section>
+      <section aria-label="Timeframe readiness">
+        <h2 className="rh-h2">Data for the current check</h2>
+        <dl className="rh-stats">
+          {Object.entries(data.frames).map(([frame, status]) => (
+            <div key={frame}><dt>{frame}</dt><dd>{status.ready ? "ready" : "warming up / gap / stale"}
+              {" · "}{status.available}/{status.required} bars · last close {when(status.last_close)}</dd></div>
+          ))}
+        </dl>
       </section>
       {data.positions.length > 0 && (
         <section>
@@ -554,7 +573,7 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
         </h2>
         {!data.eligible && (
           <p className="rh-empty">
-            Not eligible today: {reason(data.ineligible_reason ?? "")}.
+            Waiting for data: {reason(data.ineligible_reason ?? "")}.
           </p>
         )}
         <div className="rh-why">
@@ -588,7 +607,8 @@ function CoinPage({ symbol, snap }: { symbol: string; snap: Snapshot | null }) {
           {snap
             ? pct(Number(snap.limits.max_roundtrip_cost)).replace("+", "")
             : "the limit"}
-          , and room in the book. Decisions are made once a day after 00:05 UTC.
+          , and room in the book. Closed 15-minute candles trigger checks throughout the day,
+          using the daily regime, 4-hour trend and hourly setup. More data does not require more trades.
         </p>
       </section>
       <section aria-labelledby="stats-h">
@@ -663,6 +683,11 @@ function StrategyCard({ s, btc }: { s: Strategy; btc: Strategy | undefined }) {
         )}
       </h3>
       <p>{s.about}</p>
+      <p className="rh-note">Rules v{s.spec_version}
+        {s.spec_version === 2 ? " · experimental · no historical validation yet" : " · daily baseline"}</p>
+      {(s.legacy_open > 0 || s.legacy_closed > 0) && <p className="rh-note">
+        Daily v1 kept separately: {s.legacy_open} open · {s.legacy_closed} closed · {usd(s.legacy_realized)} realized.
+      </p>}
       <dl className="rh-stats rh-stats-tight">
         <div>
           <dt>Paper now</dt>
@@ -681,7 +706,7 @@ function StrategyCard({ s, btc }: { s: Strategy; btc: Strategy | undefined }) {
           <dd>
             {sim
               ? `${sim.trades} trades · ${sim.win_rate ? Math.round(Number(sim.win_rate) * 100) : 0}% wins`
-              : "not run yet"}
+              : "unvalidated for these rules"}
           </dd>
         </div>
         <div>
@@ -699,14 +724,14 @@ function StrategiesPage({ snap }: { snap: Snapshot }) {
     <>
       <h1 className="rh-title">Strategies</h1>
       <p className="rh-note">
-        Rules were frozen before any history was looked at. The two baselines
-        are the bar to clear: holding BTC, and picking coins at random. History
-        is a simulation on Coinbase prices with a cost assumption; only paper
-        results on Robinhood's own prices count as evidence.
+        The three v2 strategies combine daily, 4-hour, hourly and 15-minute evidence.
+        They are experimental and need forward validation. Holding BTC and random entries
+        remain daily v1 baselines. The old daily v1 simulation does not validate these new rules;
+        current v2 results and old v1 positions are counted separately.
       </p>
       {snap.backtest && (
         <p className="rh-note">
-          Simulation {snap.backtest.sessions} ·{" "}
+          Daily v1 simulation only {snap.backtest.sessions} ·{" "}
           {snap.backtest.universe.with_history} coins · round trip{" "}
           {pct(
             Number(snap.backtest.cost_model.assumed_roundtrip_fraction),
@@ -736,12 +761,14 @@ function SystemPage({ snap }: { snap: Snapshot }) {
     ["Coins", snap.universe_source],
     ["Last daily bar", when(snap.last_daily_bar, false)],
     [
-      "Last session",
+      "Last candle check",
       last
         ? `${last.day} · BTC ${last.regime === "RISK_ON" ? "uptrend" : last.regime === "RISK_OFF" ? "downtrend" : "unknown"} · ${last.eligible} coins eligible`
         : "none yet",
     ],
-    ["Next session", when(snap.session.next_at)],
+    ["Next 15-minute candle close + publication grace", when(snap.session.next_at)],
+    ["Analysis", `24/7 · checks every ${snap.session.check_interval_seconds}s as closed data arrives`],
+    ["Data ready", `${snap.session.ready_assets}/${snap.session.total_assets} assets across 1d / 4h / 1h / 15m`],
     [
       "Ticket",
       `${pct(Number(snap.limits.ticket_fraction), 0).replace("+", "")} of the $100 account (+ realized)`,
@@ -797,11 +824,11 @@ function SystemPage({ snap }: { snap: Snapshot }) {
           </ul>
         </section>
       )}
-      {last && Object.keys(last.ineligible).length > 0 && (
+      {Object.keys(snap.session.pending).length > 0 && (
         <section>
-          <h2 className="rh-h2">Coins not eligible at the last session</h2>
+          <h2 className="rh-h2">Waiting for complete current data</h2>
           <ul className="rh-list">
-            {Object.entries(last.ineligible).map(([symbol, why]) => (
+            {Object.entries(snap.session.pending).map(([symbol, why]) => (
               <li key={symbol}>
                 {symbol.replace("-USD", "")}: {reason(why)}
               </li>

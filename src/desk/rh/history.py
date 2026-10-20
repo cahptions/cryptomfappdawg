@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from desk.core.clock import utc_now
 from desk.core.config import LoadedConfig
 from desk.core.errors import DeskError
 from desk.rh import strategies as st
 from desk.rh.coinbase import CoinbaseClient
 from desk.rh.contracts import Candle
+from desk.rh.multiframe import floor_time
 from desk.rh.repo import RhMarket
 from desk.rh.simulate import SimResult, simulate
 
@@ -38,13 +41,16 @@ def today_start(now: datetime) -> datetime:
 
 
 async def sync_candles(coinbase: CoinbaseClient, market: RhMarket, symbols: list[str], *, granularity: int,
-                       days: int, now: datetime) -> dict[str, Any]:
-    """Fetch closed bars after the last stored one (or ``days`` back); a symbol Coinbase lacks is reported."""
+                       days: int, now: datetime, clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
+    """Bounded backfill plus two-bucket overlap for late publication; never fill gaps with invented bars."""
     report: dict[str, Any] = {"added": 0, "missing_products": [], "errors": {}}
-    end = today_start(now) if granularity == DAILY else now.replace(minute=0, second=0, microsecond=0)
+    end = floor_time(now, granularity)
     for symbol in symbols:
         last = market.last_candle_start(symbol, granularity)
-        begin = (last + timedelta(seconds=granularity)) if last else end - timedelta(days=days)
+        if last is not None and last + timedelta(seconds=granularity) >= end:
+            continue
+        begin = max(last - timedelta(seconds=2 * granularity), end - timedelta(days=days)) if last else (
+            end - timedelta(days=days))
         if begin >= end:
             continue
         try:
@@ -55,7 +61,7 @@ async def sync_candles(coinbase: CoinbaseClient, market: RhMarket, symbols: list
             else:
                 report["errors"][symbol] = str(exc)[:160]
             continue
-        report["added"] += market.save_candles("coinbase", bars, now)
+        report["added"] += market.save_candles("coinbase", bars, max(now, clock()))
     return report
 
 

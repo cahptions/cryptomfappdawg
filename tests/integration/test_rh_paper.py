@@ -14,6 +14,7 @@ import pytest
 from desk.core.config import load_config
 from desk.core.paths import DeskPaths
 from desk.core.secrets import Secrets
+from desk.rh import multiframe as mf
 from desk.rh import strategies as st
 from desk.rh.contracts import BidAsk, Candle, Estimate, Pair, Route
 from desk.rh.engine import RhDesk
@@ -42,6 +43,16 @@ def daily(symbol: str, closes: list[Decimal]) -> list[Candle]:
     for i, close in enumerate(closes):
         out.append(Candle(symbol, 86400, start + timedelta(days=i), prev, max(prev, close) * D("1.01"),
                           min(prev, close) * D("0.99"), close, D(1_000_000)))
+        prev = close
+    return out
+
+
+def intraday(symbol: str, closes: list[Decimal], seconds: int, end: datetime) -> list[Candle]:
+    step = timedelta(seconds=seconds)
+    prev, out = closes[0], []
+    for i, close in enumerate(closes):
+        out.append(Candle(symbol, seconds, end - (len(closes) - i) * step, prev,
+                          max(prev, close) * D("1.001"), min(prev, close) * D("0.999"), close, D(1_000_000)))
         prev = close
     return out
 
@@ -104,6 +115,12 @@ class World:
         btc = daily("BTC-USD", [D(100) + i for i in range(221)])                   # rising: RISK_ON, no breakout
         alt = daily("ALT-USD", [D(50)] * 216 + [D(52), D(54), D(56), D(58), D(60)])  # 20-day breakout
         self.market.save_candles("coinbase", btc + alt, NOW)
+        end = mf.cutoff(NOW)
+        for symbol, hours, quarters in (
+                ("BTC-USD", [D(250) + i * D("0.2") for i in range(336)], [D(320)] * 61),
+                ("ALT-USD", [D(30) + i * D("0.02") for i in range(335)] + [D(60)], [D(50)] * 60 + [D(60)])):
+            self.market.save_candles("coinbase", intraday(symbol, hours, mf.HOUR, end)
+                                     + intraday(symbol, quarters, mf.QUARTER, end), NOW)
 
     async def _sleep(self, _: float) -> None:
         return None
@@ -117,8 +134,9 @@ class World:
 
 
 @pytest.fixture
-async def world(tmp_path: Path) -> World:
+async def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
     w = World(tmp_path)
+    monkeypatch.setattr("desk.rh.view.utc_now", w.clock)
     yield w
     await w.suite.aclose()
     w.dbs.close()
@@ -138,7 +156,8 @@ async def test_session_enters_on_robinhood_prices_and_records_why(world: World) 
     assert open_[("B1_HOLD_BTC", "BTC-USD")].stop_price is None             # the hold baseline never stops out
     enters = [r for r in world.decisions() if r["action"] == "ENTER"]
     assert {r["strategy_id"] for r in enters} == {"B1_HOLD_BTC", "R1_TREND"}
-    assert "BREAKOUT_20D" in enters[-1]["reasons"]
+    assert any("MULTIFRAME_V2" in r["reasons"] and r["spec_sha256"] == mf.spec_sha256("R1_TREND") for r in enters)
+    assert trend.spec_sha256 != st.spec_sha256("R1_TREND")
     assert world.ledger.session_done(SESSION)
     await world.desk.session()                                             # once per day
     assert len(world.ledger.positions("OPEN")) == 2

@@ -14,6 +14,7 @@ from typing import Any, cast
 from desk.core.clock import parse_iso8601, to_epoch_millis, to_iso
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
+from desk.rh import multiframe as mf
 from desk.rh import strategies as st
 from desk.rh.contracts import BidAsk, Candle, Estimate, Pair
 from desk.storage.db import DbKind, StorageError, connect, integrity_check, journal_mode, migrate, transaction
@@ -70,15 +71,16 @@ class RhMarket:
 
     def register_specs(self, at: datetime) -> None:
         with transaction(self.conn):
-            for sid, spec in st.SPECS.items():
-                digest = st.spec_sha256(sid)
+            for sid, spec, content, digest in [
+                    (sid, module.SPECS[sid], module.spec_content(sid), module.spec_sha256(sid))
+                    for module in (st, mf) for sid in module.SPECS]:
                 existing = self.conn.execute("SELECT spec_sha256 FROM rh_specs WHERE strategy_id = ? AND version = ?",
                                              (sid, spec["version"])).fetchone()
                 if existing is not None and existing["spec_sha256"] != digest:
                     raise StorageError(f"{sid} v{spec['version']} changed without a new version")
                 self.conn.execute("INSERT OR IGNORE INTO rh_specs(spec_sha256, strategy_id, version, registered_at,"
                                   " content_json) VALUES (?, ?, ?, ?, ?)",
-                                  (digest, sid, spec["version"], to_iso(at), canonical_json(st.spec_content(sid))))
+                                  (digest, sid, spec["version"], to_iso(at), canonical_json(content)))
 
     def save_pairs(self, pairs: Iterable[Pair], at: datetime) -> int:
         changed = 0
@@ -171,13 +173,15 @@ class RhMarket:
             return self.conn.total_changes - before
 
     def candles(self, product: str, granularity: int, *, since: datetime | None = None,
-                source: str = "coinbase") -> list[Candle]:
+                source: str = "coinbase", as_of: datetime | None = None) -> list[Candle]:
         lower = to_epoch_millis(since) if since else 0
+        upper = to_epoch_millis(as_of) if as_of else 2**63 - 1
         return [Candle(product, granularity, parse_iso8601(r["start"]), Decimal(r["open"]), Decimal(r["high"]),
                        Decimal(r["low"]), Decimal(r["close"]), Decimal(r["volume"]))
                 for r in self.conn.execute(
                     "SELECT * FROM candles WHERE source = ? AND product = ? AND granularity = ? AND start_ms >= ?"
-                    " ORDER BY start_ms", (source, product, granularity, lower))]
+                    " AND first_received_at_ms <= ? AND start_ms + granularity * 1000 <= ? ORDER BY start_ms",
+                    (source, product, granularity, lower, upper, upper))]
 
     def last_candle_start(self, product: str, granularity: int, source: str = "coinbase") -> datetime | None:
         row = self.conn.execute("SELECT MAX(start_ms) FROM candles WHERE source = ? AND product = ? AND granularity = ?",
@@ -189,16 +193,33 @@ class RhMarket:
         reasons = tuple(reasons)
         inputs_sha = sha256_hex(canonical_json(inputs))
         digest = sha256_hex(canonical_json({"day": day.isoformat(), "strategy": signal.strategy_id,
-                                            "spec": st.spec_sha256(signal.strategy_id), "symbol": signal.symbol,
+                                            "spec": mf.signal_spec(signal), "symbol": signal.symbol,
                                             "action": action, "reasons": reasons, "inputs": inputs_sha,
-                                            "position": signal.position_id}))
+                                            "features": signal.features, "position": signal.position_id}))
         with transaction(self.conn):
             self.conn.execute(
                 "INSERT OR IGNORE INTO rh_decisions(decided_at, session_day, strategy_id, spec_sha256, symbol, action,"
                 " reasons, features_json, inputs_sha256, decision_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (to_iso(at), day.isoformat(), signal.strategy_id, st.spec_sha256(signal.strategy_id), signal.symbol,
+                (to_iso(at), day.isoformat(), signal.strategy_id, mf.signal_spec(signal), signal.symbol,
                  action, ",".join(reasons), canonical_json(signal.features), inputs_sha, digest))
         return digest
+
+    def claim_frame_check(self, state: mf.FrameState, at: datetime, evidence: dict[str, Any]) -> bool:
+        bundle = sha256_hex(canonical_json({sid: mf.spec_sha256(sid) for sid in mf.IDS}))
+        with transaction(self.conn):
+            return self.conn.execute(
+                "INSERT OR IGNORE INTO rh_frame_checks(symbol, bar_end, spec_bundle_sha256, decided_at,"
+                " input_sha256, evidence_json) VALUES (?, ?, ?, ?, ?, ?)",
+                (state.symbol, to_iso(state.bar_end), bundle, to_iso(at), state.input_hash,
+                 canonical_json(evidence))).rowcount == 1
+
+    def setup_entered(self, signal: st.Signal) -> bool:
+        """A closed position still consumes its hourly setup; restart cannot reopen the same setup."""
+        end = mf.floor_time(datetime.fromisoformat(signal.features["bar_end"]), mf.HOUR).isoformat()
+        return self.conn.execute(
+            "SELECT 1 FROM rh_decisions WHERE strategy_id = ? AND symbol = ? AND spec_sha256 = ?"
+            " AND action = 'ENTER' AND json_extract(features_json, '$.setup_end') = ? LIMIT 1",
+            (signal.strategy_id, signal.symbol, mf.signal_spec(signal), end)).fetchone() is not None
 
     def decided(self, day: date) -> bool:
         return self.conn.execute("SELECT 1 FROM rh_decisions WHERE session_day = ? LIMIT 1",
@@ -225,6 +246,7 @@ class Position:
     exit_reason: str | None
     closed_at: datetime | None
     realized_pnl: Decimal | None
+    spec_sha256: str = ""
 
 
 class RhLedger:
@@ -263,7 +285,7 @@ class RhLedger:
             Decimal(r["roundtrip_cost_fraction"]), r["state"],
             None if r["exit_credit_micros"] is None else usd(r["exit_credit_micros"]), r["exit_reason"],
             None if r["closed_at"] is None else parse_iso8601(r["closed_at"]),
-            None if r["realized_pnl_micros"] is None else usd(r["realized_pnl_micros"]))
+            None if r["realized_pnl_micros"] is None else usd(r["realized_pnl_micros"]), r["spec_sha256"])
 
     def positions(self, state: str | None = None) -> list[Position]:
         sql, args = "SELECT * FROM rh_positions", cast(tuple[str, ...], ())
@@ -272,7 +294,8 @@ class RhLedger:
         return [self._position(r) for r in self.conn.execute(sql + " ORDER BY opened_at", args)]
 
     def open_position(self, *, at: datetime, day: date, strategy_id: str, symbol: str, decision_hash: str,
-                      buy: Estimate, roundtrip: Decimal, stop_price: Decimal | None, plan: dict[str, Any]) -> str:
+                      buy: Estimate, roundtrip: Decimal, stop_price: Decimal | None, plan: dict[str, Any],
+                      spec_sha256: str | None = None) -> str:
         position_id = "rhp_" + uuid.uuid4().hex[:20]
         cost = to_micros(buy.total, cost=True)
         with transaction(self.conn):
@@ -283,7 +306,8 @@ class RhLedger:
                 " quantity, entry_route, entry_unit_price, entry_fee, entry_cost_micros, entry_estimate_sha256,"
                 " roundtrip_cost_fraction, stop_price, plan_json, peak_close, state)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')",
-                (position_id, strategy_id, st.spec_sha256(strategy_id), symbol, decision_hash, to_iso(at), day.isoformat(),
+                (position_id, strategy_id, spec_sha256 or st.spec_sha256(strategy_id), symbol,
+                 decision_hash, to_iso(at), day.isoformat(),
                  str(buy.quantity), buy.route, str(buy.unit_price), str(buy.fee), cost, buy.raw_sha256, str(roundtrip),
                  "0" if stop_price is None else str(stop_price),
                  canonical_json({**plan, "stop": "none" if stop_price is None else str(stop_price)}),

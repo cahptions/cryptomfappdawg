@@ -761,3 +761,46 @@ so they load the new code. With installed user services this is
 `systemctl --user restart desk-rh-engine.service desk-rh-dashboard.service`; otherwise stop/restart those terminals.
 Do not restart the Solana collector for this fix. Robinhood remains PAPER-only. Keyed forward PAPER results and
 real-laptop acceptance are still pending; no additional 24-hour wait is needed before opening its dashboard.
+
+## Continuous Robinhood multi-timeframe PAPER checks (2026-10-20 UTC, Codex)
+
+Operator requested continuous data/analysis and multiple candle intervals rather than a daily entry appointment:
+data frequency does not require trade frequency. Branch `codex/robinhood-multitimeframe` descends from the quote
+fix `ec55bc0` and Claude `71e2140`; no unrelated Solana LIVE prototype was incorporated.
+
+New version-2 R1/R2/R3 PAPER rules combine daily BTC regime, locally aggregated complete 4h trends, hourly
+setups and 15m confirmation. Data downloads rotate bounded batches on the existing free quota while quote/stop
+and analysis tasks run independently. Closed/available-at-decision data only; exact warm-ups and missing buckets
+abstain. There is no 00:05 UTC gate on v2 entries and no historical catch-up fills after sleep. The original
+daily backtest, two baselines and legacy position exit rules remain version 1; new performance is counted by
+spec hash, without attaching the old v1 backtest to v2.
+
+Added immutable per-asset/candle/spec claims (migration rh_market/0002) and an hourly-setup decision index
+(0003). Repeated polls/restarts cannot replay a claimed candle or reopen a closed position on its same hourly
+setup. Claims precede execution awaits; a crash can miss a PAPER opportunity rather than duplicate it.
+Replay evidence includes bounded source-candle hashes, features, frame state, comparison-universe hashes,
+missing assets and conditions. The source candle query now honors first receipt via `as_of`.
+
+PAPER entries additionally recheck STOP/halt, fresh second estimate, current candle boundary and the relative
+ticket cap after awaiting prices, and recompute the round trip at the worse estimated entry cost. Quotes in
+the future are stale. Exit attempts are serialized per position. No real Robinhood order method, credential
+change, LIVE activation, collector restart or wallet action was performed.
+
+Dashboard coin charts now offer 15m/1h/4h/1d intervals and frame readiness; the System/report schedule shows
+continuous checks and the next 15m candle close plus publication grace. Old v1 holdings/results are explicit.
+See [ROBINHOOD_MULTIFRAME.md](docs/ROBINHOOD_MULTIFRAME.md) for exact rules, resource estimates, migration
+behavior, failure policy, laptop commands and outstanding validation.
+
+Validation: the broader offline suite passed **873 tests, 5 deselected** with one existing Starlette/httpx
+deprecation warning. Four further timing/strategy/legacy cases were then added; the final affected Robinhood
+suite passed **48 tests**. Ruff over src/tests, strict mypy over **158 source files**, TypeScript and Vite passed.
+Final Chromium checks passed for populated AND empty fixtures in light/dark and at 375px; the populated check
+exercised all four chart intervals, readiness, System timing and no phone overflow. Synthetic 90-asset feature
+loading/conditions took 1.142s with 48.6 MiB peak process RSS in the cloud, not measured on the Dell. At that
+fixture's 11,185-byte mean audit JSON, 90 × 96 checks imply about 92 MiB/day before SQLite/quote overhead.
+
+Still outstanding: keyed laptop forward operation, actual sleep/network behavior, sustained resource/provider
+budgets, Robinhood-specific backups/retention, and evidence that v2 improves after costs. The existing automatic
+backup kinds do not include the two Robinhood databases. No historical or synthetic result validates v2 or
+permits real-money promotion. Source data updates automatically as it is received; no import or 24-hour wait
+is required to use this feature.

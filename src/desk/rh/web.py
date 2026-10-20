@@ -42,10 +42,11 @@ def create_rh_app(paths: DeskPaths, loaded: LoadedConfig | None = None) -> FastA
         return await asyncio.to_thread(view.equity, span)
 
     @app.get("/api/rh/coin/{symbol}")
-    async def coin(symbol: str, span: Span = "1M") -> dict[str, object]:
+    async def coin(symbol: str, span: Span = "1M", interval: Literal["15m", "1h", "4h", "1d"] | None = None
+                   ) -> dict[str, object]:
         if not SYMBOL.fullmatch(symbol):
             raise HTTPException(422, "symbol must look like BTC-USD")
-        found = await asyncio.to_thread(view.coin, symbol, span)
+        found = await asyncio.to_thread(view.coin, symbol, span, interval)
         if found is None:
             raise HTTPException(404, "no history for this coin yet")
         return found

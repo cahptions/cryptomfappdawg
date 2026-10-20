@@ -1,5 +1,10 @@
 # The Robinhood desk (KESTREL Crypto)
 
+Current PAPER behavior: [continuous multi-timeframe v2](ROBINHOOD_MULTIFRAME.md).
+The daily v1 rules and simulations below remain archived experiments and govern existing v1 positions;
+they do not validate the new v2 rules. New R1/R2/R3 entries use closed 15m, 1h, 4h and daily data throughout
+the day. The two original baselines remain on their daily schedule.
+
 A second, separate desk for the liquid crypto Robinhood lists, next to the Solana memecoin desk. It has its own
 databases, its own PAPER book, its own dashboard (port 8766) and the same discipline: preregistered,
 deterministic strategies; PAPER on the venue's own executable prices before any money; recorded evidence against
@@ -40,7 +45,8 @@ estimated totals, including the route's spread or fees. This fix needs no databa
 
 ## Strategies (v1, frozen before any history was looked at)
 
-All decisions are made once a day after 00:05 UTC from closed daily bars (D uses bars that ended by D 00:00).
+The original v1 experiment made decisions once a day after 00:05 UTC from closed daily bars
+(D uses bars that ended by D 00:00). This is now the legacy exit/baseline and historical-simulation schedule.
 Every strategy except the BTC baseline trades only while BTC closes above its 100-day average, and every position
 has a hard stop at 2×ATR(20) below entry, clamped to 5-25%, checked every minute on Robinhood's best bid.
 

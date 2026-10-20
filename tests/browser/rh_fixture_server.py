@@ -17,6 +17,7 @@ import uvicorn
 from desk.core.clock import utc_now
 from desk.core.config import load_config
 from desk.core.paths import REPO_ROOT, DeskPaths
+from desk.rh import multiframe as mf
 from desk.rh import strategies as st
 from desk.rh.contracts import BidAsk, Candle, Estimate, Pair
 from desk.rh.history import write_backtest
@@ -60,6 +61,8 @@ def build(scenario: str, home: Path) -> DeskPaths:
             market.save_candles("coinbase", walk(symbol, price, 400, timedelta(days=1), today, i), now)
             hour = now.replace(minute=0, second=0, microsecond=0)
             market.save_candles("coinbase", walk(symbol, price, 24 * 14, timedelta(hours=1), hour, i + 100), now)
+            market.save_candles("coinbase", walk(symbol, price, 3 * 96, timedelta(minutes=15),
+                                                mf.cutoff(now), i + 200), now)
         market.save_pairs([Pair(s, s.split("-")[0], "USD", D("0.00000001"), D("0.01"), D(1_000_000), D(1), "tradable",
                                 True) for s in COINS], now)
         market.save_quotes([BidAsk(s, p * D("0.9995"), p * D("1.0005"), now, "fixture") for s, p in COINS.items()])

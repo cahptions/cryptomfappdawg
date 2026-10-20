@@ -11,6 +11,7 @@ from typing import Any
 from desk.core.clock import parse_iso8601, utc_now
 from desk.core.config import LoadedConfig
 from desk.core.paths import DeskPaths
+from desk.rh import multiframe as mf
 from desk.rh import strategies as st
 from desk.rh.history import DAILY, HOURLY, today_start, universe
 from desk.rh.repo import RhDatabases, RhLedger, RhMarket
@@ -120,6 +121,7 @@ class RhView:
             rows.append({
                 "id": p.id, "symbol": p.symbol, "name": NAMES.get(p.symbol.split("-")[0], p.symbol.split("-")[0]),
                 "strategy_id": p.strategy_id, "quantity": str(p.quantity), "cost": _f(p.entry_cost),
+                "spec_version": 2 if p.strategy_id in mf.IDS and p.spec_sha256 == mf.spec_sha256(p.strategy_id) else 1,
                 "value": _f(value), "pnl": _f(value - p.entry_cost) if value is not None else None,
                 "pnl_fraction": _f(value / p.entry_cost - 1, 6) if value is not None else None,
                 "entry_price": str(p.entry_unit_price), "stop": None if p.stop_price is None else str(p.stop_price),
@@ -133,15 +135,21 @@ class RhView:
         open_ = ledger.positions("OPEN")
         rows = []
         for sid in st.ORDER:
-            mine = [p for p in closed if p.strategy_id == sid]
+            digest = mf.spec_sha256(sid) if sid in mf.IDS else st.spec_sha256(sid)
+            mine = [p for p in closed if p.strategy_id == sid and p.spec_sha256 == digest]
+            legacy = [p for p in closed + open_ if p.strategy_id == sid and p.spec_sha256 != digest]
             pnl = [p.realized_pnl or Decimal(0) for p in mine]
             rows.append({
-                "id": sid, "kind": st.SPECS[sid]["kind"], "about": ABOUT[sid], "spec_sha256": st.spec_sha256(sid),
-                "closed": len(mine), "open": sum(1 for p in open_ if p.strategy_id == sid),
+                "id": sid, "kind": st.SPECS[sid]["kind"], "about": mf.ABOUT.get(sid, ABOUT[sid]),
+                "spec_sha256": digest, "spec_version": 2 if sid in mf.IDS else 1,
+                "legacy_open": sum(p.state == "OPEN" for p in legacy),
+                "legacy_closed": sum(p.state == "CLOSED" for p in legacy),
+                "legacy_realized": _f(sum((p.realized_pnl or Decimal(0) for p in legacy), Decimal(0))),
+                "closed": len(mine), "open": sum(1 for p in open_ if p.strategy_id == sid and p.spec_sha256 == digest),
                 "wins": sum(1 for v in pnl if v > 0), "realized": _f(sum(pnl, Decimal(0))),
                 "mean_return": _f(sum(((p.exit_credit or Decimal(0)) / p.entry_cost - 1 for p in mine), Decimal(0))
                                   / len(mine), 6) if mine else None,
-                "backtest": (backtest or {}).get("strategies", {}).get(sid),
+                "backtest": None if sid in mf.IDS else (backtest or {}).get("strategies", {}).get(sid),
             })
         return rows
 
@@ -156,12 +164,16 @@ class RhView:
                                               (limit,))]
         return sorted(events + skips, key=lambda e: e["at"], reverse=True)[:limit]
 
-    def _session(self, ledger: RhLedger, now: datetime) -> dict[str, Any]:
-        row = ledger.conn.execute("SELECT at, payload_json FROM rh_events WHERE kind = 'SESSION' ORDER BY id DESC LIMIT 1"
+    def _session(self, ledger: RhLedger, market: RhMarket, now: datetime) -> dict[str, Any]:
+        row = ledger.conn.execute("SELECT at, payload_json FROM rh_events WHERE kind = 'FRAME_SESSION' ORDER BY id DESC LIMIT 1"
                                   ).fetchone()
         last = json.loads(row["payload_json"]) if row else None
+        states = {s: mf.load(market, s, now) for s in universe(market)[0]}
+        pending = {s: ",".join(v.missing) for s, v in states.items() if not v.ready}
         return {"last": last, "last_at": row["at"] if row else None,
-                "next_at": (today_start(now) + timedelta(days=1, minutes=5)).isoformat()}
+                "next_at": (mf.cutoff(now) + timedelta(seconds=mf.QUARTER) + mf.GRACE).isoformat(),
+                "ready_assets": len(states) - len(pending), "total_assets": len(states), "pending": pending,
+                "regime": mf.regime(states.get("BTC-USD")), "check_interval_seconds": 60}
 
     def _backtest(self) -> dict[str, Any] | None:
         path = backtest_path(self.paths)
@@ -190,7 +202,7 @@ class RhView:
                 "last_daily_bar": last_bar, "account": self._account(ledger, market, now),
                 "positions": self._positions(ledger, market, now), "coins": coins,
                 "strategies": self._strategies(ledger, backtest), "activity": self._activity(ledger, market),
-                "session": self._session(ledger, now),
+                "session": self._session(ledger, market, now),
                 "backtest": None if backtest is None else {k: backtest.get(k) for k in (
                     "kind", "sessions", "generated_at", "btc_buy_and_hold_return", "cost_model", "universe", "caveats")},
                 "limits": {"ticket_fraction": str(self.settings.fixed_fraction),
@@ -212,7 +224,7 @@ class RhView:
         finally:
             dbs.close()
 
-    def coin(self, symbol: str, span: str) -> dict[str, Any] | None:
+    def coin(self, symbol: str, span: str, interval: str | None = None) -> dict[str, Any] | None:
         now = utc_now()
         dbs = self._open()
         try:
@@ -223,15 +235,21 @@ class RhView:
                 bars = market.candles(symbol, HOURLY, since=now - timedelta(hours=hours + 1))
             else:
                 bars = market.candles(symbol, DAILY, since=now - timedelta(days=days + 1))
+            if interval is not None:
+                seconds = {"15m": mf.QUARTER, "1h": HOURLY, "4h": mf.FOUR_HOURS, "1d": DAILY}[interval]
+                since = now - (timedelta(hours=hours) if hours else timedelta(days=days))
+                if seconds == mf.FOUR_HOURS:
+                    bars = mf.aggregate(market.candles(symbol, HOURLY, since=since - timedelta(hours=4), as_of=now))
+                    bars = [b for b in bars if b.start >= since]
+                else:
+                    bars = market.candles(symbol, seconds, since=since, as_of=now)
+                bars = bars[-1200:]
             if not bars and not market.candles(symbol, DAILY, since=now - timedelta(days=5)):
                 return None
-            daily = market.candles(symbol, DAILY, since=today_start(now) - timedelta(days=260))
-            day = now.date()
-            snap, reason = st.snapshot(symbol, daily, day)
-            btc_daily = market.candles("BTC-USD", DAILY, since=today_start(now) - timedelta(days=260))
-            reg = st.regime(st.snapshot("BTC-USD", btc_daily, day)[0])
+            states = {s: mf.load(market, s, now) for s in set(universe(market)[0]) | {symbol}}
+            state = states[symbol]
+            reg = mf.regime(states.get("BTC-USD"))
             prices = self._prices(market, [symbol], now)
-            ranking = _momentum_rank(market, symbol, day, now) if snap is not None and reason is None else None
             decisions = [{"at": r["decided_at"], "strategy_id": r["strategy_id"], "action": r["action"],
                           "reasons": r["reasons"].split(",")}
                          for r in dbs.market.execute("SELECT * FROM rh_decisions WHERE symbol = ? ORDER BY id DESC"
@@ -239,10 +257,12 @@ class RhView:
             places = _price_places(bars[-1].close) if bars else 2
             return {
                 "symbol": symbol, "name": NAMES.get(symbol.split("-")[0], symbol.split("-")[0]), "span": span,
-                **prices.get(symbol, {}), "regime": reg, "eligible": reason is None, "ineligible_reason": reason,
+                **prices.get(symbol, {}), "regime": reg, "eligible": state.ready,
+                "ineligible_reason": ",".join(state.missing) or None,
+                "interval": interval, "frames": state.frames, "analysis_at": state.bar_end.isoformat(),
                 "points": [[b.start.isoformat(), _f(b.close, places)] for b in bars],
-                "features": snap.as_json() if snap else None,
-                "signals": _signals(snap, reg, ranking) if snap and reason is None else [],
+                "features": state.features if state.ready else None,
+                "signals": mf.conditions(state, states, reg),
                 "roundtrip_cost": _f(market.measured_roundtrip(symbol), 6),
                 "decisions": decisions,
                 "positions": [p for p in self._positions(ledger, market, now) if p["symbol"] == symbol],
@@ -250,61 +270,6 @@ class RhView:
         finally:
             dbs.close()
 
-
-def _momentum_rank(market: RhMarket, symbol: str, day: Any, now: datetime) -> dict[str, Any]:
-    """Where the coin stands in R2's ranking today: its 28-day run against BTC's, and its rank among eligible coins."""
-    symbols, _ = universe(market)
-    since = today_start(now) - timedelta(days=260)
-    eligible = {}
-    for other in symbols:
-        snap, reason = st.snapshot(other, market.candles(other, DAILY, since=since), day)
-        if snap is not None and reason is None:
-            eligible[other] = snap
-    btc = eligible.get(str(st.COMMON["regime_symbol"]))
-    floor = max(Decimal(0), btc.ret_skip28 if btc else Decimal(0))
-    ranked = sorted((s for s in eligible.values() if s.ret_skip28 > floor), key=lambda s: (-s.ret_skip28, s.symbol))
-    names = [s.symbol for s in ranked]
-    return {"btc_run": btc.ret_skip28 if btc else None, "rank": names.index(symbol) + 1 if symbol in names else None,
-            "top_k": int(st.SPECS["R2_XMOM"]["top_k"]), "monday": day.weekday() == 0}
-
-
-def _pct(value: Decimal | None) -> str:
-    return "?" if value is None else f"{(value * 100).quantize(Decimal('0.1'))}%"
-
-
-def _px(value: Decimal) -> str:
-    """A price the way a person reads it: cents above $1, significant digits below."""
-    if value >= 1:
-        return f"${value.quantize(Decimal('0.01')):,}"
-    return f"${value.quantize(Decimal(1).scaleb(-_price_places(value))).normalize():f}"
-
-
-def _signals(snap: st.Snapshot, reg: str, ranking: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Each strategy's conditions for this coin today, each marked met or not (the 'why' behind a decision)."""
-    on = reg == "RISK_ON"
-    ranking = ranking or {}
-    rank, top_k = ranking.get("rank"), ranking.get("top_k", 3)
-    return [
-        {"strategy_id": "R1_TREND", "conditions": [
-            {"label": "BTC above its 100-day average", "met": on},
-            {"label": f"close {_px(snap.close)} above the prior 20-day high {_px(snap.high_prior20)}",
-             "met": snap.close > snap.high_prior20},
-            {"label": f"close above the 50-day average {_px(snap.sma50)}", "met": snap.close > snap.sma50}]},
-        {"strategy_id": "R2_XMOM", "conditions": [
-            {"label": "BTC above its 100-day average", "met": on},
-            {"label": "BTC is the benchmark this strategy must beat, so it is never picked", "met": False}
-            if snap.symbol == st.COMMON["regime_symbol"] else
-            {"label": f"28-day run {_pct(snap.ret_skip28)} beats BTC's {_pct(ranking.get('btc_run'))} and is positive",
-             "met": rank is not None},
-            {"label": f"ranks in the top {top_k}" + (f" (now #{rank})" if rank else ""),
-             "met": rank is not None and rank <= top_k},
-            {"label": "today is a Monday (weekly rebalance)", "met": bool(ranking.get("monday"))}]},
-        {"strategy_id": "R3_PULLBACK", "conditions": [
-            {"label": "BTC above its 100-day average", "met": on},
-            {"label": f"2-day RSI {snap.rsi2.quantize(Decimal('0.1'))} below 10", "met": snap.rsi2 < 10},
-            {"label": "uptrend: close and 50-day average above the 100-day average",
-             "met": snap.close > snap.sma100 and snap.sma50 > snap.sma100}]},
-    ]
 
 
 __all__ = ["NAMES", "SYMBOL", "RhView", "backtest_path"]

@@ -26,12 +26,24 @@ try {
       await page.getByText("Your paper position").waitFor();
       await page.getByRole("tab", { name: "1W" }).click();
       await page.locator(".rh-chart-line").waitFor();
+      for (const interval of ["15m", "4h", "1d", "1h"]) {
+        const loaded = page.waitForResponse((r) => r.url().includes(`/api/rh/coin/ETH-USD?span=1W&interval=${interval}`)
+          && r.ok());
+        await page.getByRole("tab", { name: interval, exact: true }).click();
+        const detail = await (await loaded).json();
+        assert.equal(detail.interval, interval);
+        assert.ok(detail.points.length > 0, `${interval} history present`);
+        assert.equal(Object.keys(detail.frames).length, 4);
+        await page.locator(".rh-chart-line").waitFor();
+      }
+      await page.getByRole("heading", { name: "Data for the current check" }).waitFor();
     }
     await page.goto(`${base}/#/strategies`);
     await page.locator(".rh-strategy").first().waitFor();
     assert.equal(await page.locator(".rh-strategy").count(), 5);
     await page.goto(`${base}/#/system`);
     await page.getByText(scenario === "populated" ? /^live · last/ : "Connect Robinhood prices (read-only)").waitFor();
+    await page.getByText("Next 15-minute candle close + publication grace", { exact: true }).waitFor();
     await page.goto(`${base}/#/activity`);
     await page.getByRole("heading", { name: "Activity" }).waitFor();
     await page.close();
@@ -43,6 +55,12 @@ try {
     "no horizontal scroll at phone width");
   for (const label of ["Investing", "Strategies", "Activity", "System"]) {
     assert.ok(await phone.getByRole("link", { name: label, exact: true }).isVisible(), `${label} visible on a phone`);
+  }
+  if (scenario === "populated") {
+    await phone.goto(`${base}/#/coin/ETH-USD`);
+    await phone.getByRole("heading", { name: "Data for the current check" }).waitFor();
+    assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+      "timeframe readiness fits a phone");
   }
   assert.deepEqual(errors, []);
   console.log(`rh smoke ok (${scenario})`);

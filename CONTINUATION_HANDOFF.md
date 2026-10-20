@@ -1,9 +1,13 @@
 # Continuing Claude's work
 
-Current Robinhood quote fix: **`codex/robinhood-quote-validation`**, based on Claude's **`71e2140`**.
-It accepts and labels finite positive crossed aggregate quotes, preserves both reported sides, and excludes
-pairs without `is_api_tradable=true` from the v2 quote universe. Exact-size PAPER cost checks remain in force.
-See the latest entry in `PROGRESS.md` and `docs/ROBINHOOD.md`. No migration or credential changes are needed.
+Current Robinhood continuation: **`codex/robinhood-multitimeframe`**, including the quote fix `ec55bc0`,
+based on Claude's **`71e2140`**. New R1/R2/R3 PAPER entries check closed 15m candles using 1h setups,
+locally assembled 4h trends and the daily BTC regime; they no longer wait for the daily session.
+Versioned v2 specs, immutable candle checkpoints, point-in-time data queries and hourly setup deduplication
+separate new evidence from the archived daily v1 experiment. Existing v1 positions retain their exit rules.
+See [the multi-timeframe handoff](docs/ROBINHOOD_MULTIFRAME.md), including laptop commands, rules,
+data gaps, resource estimates and outstanding forward validation. Two additive Robinhood-market migrations
+apply automatically; no credentials or existing candles/positions are rewritten. Robinhood remains PAPER only.
 
 The underlying **`claude/funny-rubin-gq99vj`** build contains all of Codex's `codex/continue-claude` (through `32344da`)
 plus the Paper trading tab, measured paper fees, the H8 moonshot hypothesis with evidence-gated conviction sizing,
@@ -22,7 +26,7 @@ still going, let it finish before updating the folder it runs from (a restart wo
 ```bash
 cd ~/kestrel                     # or ~/kestrel-dashboard, if that is the folder you use for the dashboard
 git status --short               # should print nothing; if it lists files, stop and keep them
-git fetch origin codex/robinhood-quote-validation
+git fetch origin codex/robinhood-multitimeframe
 git merge --ff-only FETCH_HEAD   # preserves local work; stop if Git reports conflicts or divergent history
 uv sync --frozen
 uv run desk db check

@@ -35,6 +35,7 @@ export interface Position {
   symbol: string;
   name: string;
   strategy_id: string;
+  spec_version: number;
   quantity: string;
   cost: string;
   value: string | null;
@@ -66,6 +67,10 @@ export interface Strategy {
   kind: "STRATEGY" | "BASELINE";
   about: string;
   spec_sha256: string;
+  spec_version: number;
+  legacy_open: number;
+  legacy_closed: number;
+  legacy_realized: string;
   closed: number;
   open: number;
   wins: number;
@@ -104,6 +109,11 @@ export interface Snapshot {
     } | null;
     last_at: string | null;
     next_at: string;
+    ready_assets: number;
+    total_assets: number;
+    pending: Record<string, string>;
+    regime: string;
+    check_interval_seconds: number;
   };
   backtest: {
     kind: string;
@@ -133,6 +143,9 @@ export interface CoinDetail extends Partial<Coin> {
   ineligible_reason: string | null;
   points: [string, string][];
   features: Record<string, string> | null;
+  analysis_at: string;
+  frames: Record<string, { required: number; available: number; ready: boolean;
+    last_close: string | null; expected_close: string }>;
   signals: {
     strategy_id: string;
     conditions: { label: string; met: boolean }[];

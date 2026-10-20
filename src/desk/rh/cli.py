@@ -179,12 +179,19 @@ def print_report(data: dict[str, Any]) -> None:
           f" ticket ${account['ticket']}; open {account['open_positions']}"
           + (f"; ENTRIES HALTED: {account['halted']}" if account["halted"] else ""))
     last = (data["session"] or {}).get("last") or {}
-    print(f"  last session {last.get('day', 'none yet')} regime {last.get('regime', '-')}; next {data['session']['next_at']}")
+    print(f"  closed-candle checks: every 60s; last {last.get('bar_end', 'none yet')}; "
+          f"next 15m close + grace {data['session']['next_at']}")
+    print(f"  complete 1d/4h/1h/15m data: {data['session']['ready_assets']}/{data['session']['total_assets']} assets; "
+          f"BTC regime {data['session']['regime']}")
     print(f"\n  {'strategy':<13}{'open':>5}{'closed':>7}{'wins':>5}{'P&L $':>9}   history (3y sim, per $·yr)")
     for row in data["strategies"]:
         bt = row["backtest"] or {}
         sim = "-" if bt.get("pnl_per_dollar_year") is None else f"{float(bt['pnl_per_dollar_year']) * 100:+.0f}%"
-        print(f"  {row['id']:<13}{row['open']:>5}{row['closed']:>7}{row['wins']:>5}{row['realized']:>9}   {sim}")
+        print(f"  {row['id']:<13}{row['open']:>5}{row['closed']:>7}{row['wins']:>5}{row['realized']:>9}   "
+              f"{sim} (v{row['spec_version']})")
+        if row["legacy_open"] or row["legacy_closed"]:
+            print(f"    daily v1 separately: {row['legacy_open']} open, {row['legacy_closed']} closed, "
+                  f"${row['legacy_realized']} realized")
 
 
 def cmd_rh(args: argparse.Namespace) -> int:

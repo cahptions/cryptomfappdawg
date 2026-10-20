@@ -246,6 +246,7 @@ of forward PAPER evidence on the laptop; no tooling can shorten that.
 | R-06 | Ledger integrity and halts | I | Entries and closed positions immutable; hard stops on the best bid (none on hold-BTC); $1,000 cumulative loss halts entries |
 | R-07 | Works before the key exists | I | History and signals recorded as SKIP NO_ROBINHOOD_PRICE; nothing trades |
 | R-08 | Separate dashboard | U/B | Port 8766, loopback only, read-only; $100-account view, coins, coin "why" checklist, strategies vs baselines, light/dark, phone width |
+| R-10 | Continuous v2 checks | I/B | Closed 15m / 1h / 4h / 1d readiness; afternoon checks without a daily session; no synthetic gap filling, stale inputs or restart replay; chart intervals and version-separated evidence |
 | R-09 | Forward evidence | R | Weeks of PAPER on Robinhood's prices with measured costs; until then the history simulation is labelled as such |
 
 R-01…R-08 pass automated tests (2026-10-20). R-09 needs the operator's read-only key and time.
