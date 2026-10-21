@@ -5,6 +5,12 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Home readiness correction:** unrecorded lists now show history download counts, research collection status,
+and pending-analysis guidance instead of claiming no qualifying names or asking an already configured user to
+connect data. Only a dated, empty list receives the no-matches message. A dedicated Chromium check covered
+unconfigured,20-session running/stopped,60-session pending, and recorded-empty states at1366px/375px.
+This is presentation only: historical warmup, liquidity filters, collection and order behavior are unchanged.
+
 **Operator market-data acceptance:** the laptop's `desk stocks doctor --online` returned Schwab
 `connected=true`, `quote_received=true`, `options_provider=schwab`, `problems={}`, and integrity=ok/WAL for
 all three Stocks databases. Quote timestamp: 2026-10-21 17:43:06.135 UTC. Orders remained disabled. This

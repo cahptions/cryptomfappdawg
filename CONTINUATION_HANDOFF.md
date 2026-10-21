@@ -1,5 +1,13 @@
 # Continuing Claude's work
 
+> **Dashboard history status:** an operator screenshot showed benchmark/sector prices but unrecorded mover
+> lists. Home previously called this "No qualifying names" and linked to "Connect data" even when configured.
+> It now distinguishes unconfigured history, incomplete history, pending analysis, and recorded empty lists,
+> showing downloaded-session counts and whether collection is running/stopped. Counts describe market sessions,
+> not proof of eligibility for every stock. No warmup/filter, collector, PAPER or LIVE behavior changed.
+> Five synthetic startup/list states passed in Chromium at1366px and375px. Actual laptop progress after the
+> operator's20-session doctor report is unknown; do not claim this screenshot proves current collection health.
+
 > **Operator quote check passed:** laptop `desk stocks doctor --online` returned Schwab connected, a quote
 > received (2026-10-21 17:43:06.135 UTC), no configuration problems, and healthy WAL/integrity for all Stocks DBs.
 > Orders remain disabled. Initial20-session history is not yet the per-stock60-observation research warmup.

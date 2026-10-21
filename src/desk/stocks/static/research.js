@@ -47,6 +47,33 @@ const KestrelResearch = (() => {
     if (href) box.append(link(action, href));
     return box;
   }
+  function researchReadiness() {
+    const progress = snapshot.price_progress || {},
+      running = snapshot.worker_running || snapshot.collection?.running,
+      sessions = progress.sessions || 0,
+      minimum = progress.minimum_sessions || 60;
+    if (!snapshot.source_keys.MASSIVE_API_KEY)
+      return {
+        title: "Connect stock history",
+        message:
+          "Add a free Massive Stocks Basic key in Settings to download the history used by these lists.",
+        href: "#settings",
+        action: "Set up stock history",
+      };
+    const history =
+      sessions < minimum
+        ? `${number(sessions)} price sessions downloaded. Scoring needs at least ${minimum} real observations per eligible stock. These are historical downloads, not days you must wait.`
+        : `${number(sessions)} price sessions downloaded. The first research lists have not been computed yet; each stock must also meet history and liquidity requirements.`;
+    return {
+      title:
+        sessions < minimum
+          ? "Downloading research history"
+          : "First research lists pending",
+      message: `${history} ${running ? "The collector is running; lists appear after analysis completes. Check System for source errors." : "Research collection is stopped. Use Start research above to continue from saved data."}`,
+      href: running ? "#system" : "#settings",
+      action: running ? "View collection status" : "Open research controls",
+    };
+  }
   function svgElement(tag, attributes = {}) {
     const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [key, value] of Object.entries(attributes))
@@ -250,9 +277,9 @@ const KestrelResearch = (() => {
         keyed = snapshot.source_keys.MASSIVE_API_KEY;
       const message = !keyed
         ? "Stock prices are not connected. Add a free Massive Stocks Basic key in Settings; Schwab can wait."
-        : !progress.sessions
-          ? "Waiting for the first price history download. Start research below; connection errors appear in System."
-          : `${number(progress.sessions)} price sessions stored · latest close ${progress.latest}. ${snapshot.asof ? "Research updates as new observations arrive." : `Research needs at least ${progress.minimum_sessions} sessions per eligible stock; longer lookbacks need more history.`}`;
+        : !snapshot.asof
+          ? researchReadiness().message
+          : `${number(progress.sessions)} price sessions stored · latest close ${progress.latest}. Research updates as new observations arrive.`;
       setup.append(
         el("div", message),
         link("Set up data sources ↗", "#settings"),
@@ -313,6 +340,16 @@ const KestrelResearch = (() => {
             table(["#", "Underlying", "Research signal"], researchRows),
           );
         } else content.append(stocksTable(list.rows, hub.stocks));
+      } else if (!list?.asof) {
+        const readiness = researchReadiness();
+        content.append(
+          empty(
+            readiness.title,
+            readiness.message,
+            readiness.href,
+            readiness.action,
+          ),
+        );
       } else
         content.append(
           empty(
@@ -320,15 +357,17 @@ const KestrelResearch = (() => {
             selected === "trending"
               ? "Trending combines observed attention and trading activity. Missing coverage stays missing."
               : "The saved research list has no qualifying stocks for this session.",
-            snapshot.asof ? "#lists" : "#settings",
-            snapshot.asof ? "Explore other lists" : "Connect data",
+            "#lists",
+            "Explore other lists",
           ),
         );
       const note = el("div", undefined, "table-note");
       note.append(
         el(
           "span",
-          `${list?.preview ? "Current research preview" : "Recorded list"}: ${list?.asof || "not recorded"} · up to 10 qualified names`,
+          list?.asof
+            ? `${list.preview ? "Current research preview" : "Recorded list"}: ${list.asof} · up to 10 qualified names`
+            : "First research list pending",
         ),
         el("span", "Prices are the latest stored close"),
       );

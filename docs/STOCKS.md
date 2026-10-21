@@ -81,6 +81,9 @@ The mockup's displayed prices were examples. Production does not include a demo-
 can populate as the first real price sessions arrive. Research lists require at least60 actual observations per
 eligible stock, sufficient price/liquidity, and any inputs required by that particular list; longer lookbacks need
 more history. Backfill is downloaded history, not60 days you must wait through. There is no24-hour build gate.
+Before the first list is recorded, Home shows downloaded-session counts and whether collection is running or
+stopped. "No qualifying names" refers to a recorded empty list. The session count covers downloaded market
+dates; it does not guarantee that every stock has enough usable observations. Use **System** for source errors.
 
 The research-only collector maintains a **current research preview**, including re-analysis on the same closing
 date as history arrives. It does not write frozen list/score history, PAPER accounts, orders or steps. Old frozen
