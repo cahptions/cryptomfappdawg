@@ -1,0 +1,138 @@
+{
+ "kind": "STOCKS DATA SOURCE VERIFICATION (live probes from the build container, 2026-10-21)",
+ "note": "Requests to www.sec.gov carried a placeholder contact (research-desk@example.org) for fixture recording only; the desk sends the operator's SEC_CONTACT_EMAIL.",
+ "requests": {
+  "https://apewisdom.io/api/v1.0/filter/all-stocks/page/1": {
+   "bytes": 12338,
+   "content_type": "application/json",
+   "seconds": 0.35,
+   "status": 200
+  },
+  "https://apewisdom.io/api/v1.0/filter/wallstreetbets/page/1": {
+   "bytes": 12115,
+   "content_type": "application/json",
+   "seconds": 0.4,
+   "status": 200
+  },
+  "https://api.openfigi.com/v3/mapping": {
+   "bytes": 124357,
+   "content_type": "application/json; charset=utf-8",
+   "seconds": 0.34,
+   "status": 200
+  },
+  "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/2026/all": {
+   "bytes": 16391,
+   "content_type": "text/csv; charset=UTF-8",
+   "seconds": 0.61,
+   "status": 200
+  }
+ },
+ "results": {
+  "apewisdom": {
+   "fields": [
+    "rank",
+    "ticker",
+    "name",
+    "mentions",
+    "upvotes",
+    "rank_24h_ago",
+    "mentions_24h_ago"
+   ],
+   "wallstreetbets": "200, 681 tickers in 7 pages, no key"
+  },
+  "cboe_delayed_cdn": {
+   "decision": "NOT USED: cboe.com/terms allows viewing and downloading 'one copy of the Materials for your personal non-commercial use' and forbids storing them 'in an electronic retrieval system'",
+   "history": "200 (AAPL daily since 2004)",
+   "options_chain": "200 (AAPL 3,320 contracts with iv, greeks, open interest)"
+  },
+  "finra_api": {
+   "consolidated_short_interest": "200, no key; settlementDate is a partition key (EQUAL filter needed to sort); 2026-10-15 not yet published (204); latest 2026-09-30, 22,581 records incl. OTC"
+  },
+  "finra_cdn": {
+   "reg_sho_daily": "200, CNMSshvol20261020.txt 12,293 lines, no key"
+  },
+  "fred": {
+   "fredgraph_csv": "200 once (DGS10, 269,107 bytes), then repeated 'Remote end closed connection' and 30-90 s timeouts from this host; the official API needs a free key"
+  },
+  "massive": {
+   "auth": "apiKey query parameter (OpenAPI securitySchemes, api.massive.com/openapi)",
+   "endpoints": [
+    "/v2/aggs/grouped/locale/us/market/stocks/{date}",
+    "/stocks/v1/splits",
+    "/stocks/v1/dividends"
+   ],
+   "plans": {
+    "Options Basic": {
+     "calls": "5 / minute",
+     "decision": "not usable for chains: one contract per call, no open interest, IV or quotes",
+     "history": "2 years",
+     "price_usd_month": 0,
+     "timeframe": "end of day",
+     "unavailable": [
+      "greeks",
+      "quotes",
+      "snapshot",
+      "trades",
+      "flat_files"
+     ]
+    },
+    "Stocks Basic": {
+     "available": [
+      "aggregates incl. grouped daily",
+      "minute aggregates",
+      "reference data",
+      "corporate actions",
+      "technical indicators"
+     ],
+     "calls": "5 / minute",
+     "history": "2 years",
+     "license": "personal",
+     "price_usd_month": 0,
+     "timeframe": "end of day",
+     "unavailable": [
+      "flat_files",
+      "quotes",
+      "snapshot",
+      "trades",
+      "websocket"
+     ]
+    }
+   }
+  },
+  "massive_and_tradier_fixtures": "documentation examples (no key available in the build container)",
+  "nasdaq_trader": {
+   "key": "none",
+   "nasdaqlisted_rows": 5619,
+   "otherlisted_rows": 7674
+  },
+  "openfigi": {
+   "mapping": "200 without a key (10 identifiers per request, 25 requests a minute)"
+  },
+  "reddit": {
+   "public_json": "403 without OAuth"
+  },
+  "sec_data": {
+   "companyfacts_zip_bulk_bytes": 1410727880,
+   "host": "data.sec.gov",
+   "submissions_and_companyfacts": "200 without a contact in the User-Agent",
+   "submissions_zip_bulk_bytes": 1569965048
+  },
+  "sec_www": {
+   "host": "www.sec.gov",
+   "with_contact": "200/206",
+   "without_contact": "403 for company_tickers_exchange.json, daily index, fails-to-deliver, insider and 13F data sets"
+  },
+  "stooq": {
+   "csv_and_bulk": "connection reset by peer from this host"
+  },
+  "tradier": {
+   "auth": "Authorization: Bearer <token>",
+   "brokerage": "real-time for Tradier Brokerage account holders, greeks hourly (ORATS), 120 requests/minute",
+   "keyless": "401 Invalid access token",
+   "sandbox": "15-minute delayed equities and options, greeks not available, 60 market-data requests/minute"
+  },
+  "treasury": {
+   "daily_treasury_yield_curve_csv": "200, no key, through 2026-10-20"
+  }
+ }
+}

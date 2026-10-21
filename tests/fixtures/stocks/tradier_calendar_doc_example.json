@@ -1,0 +1,1 @@
+{"calendar": {"days": {"day": [{"date": "2021-02-01", "status": "open", "description": "Market is open", "premarket": {"start": "04:00", "end": "09:30"}, "open": {"start": "09:30", "end": "16:00"}, "postmarket": {"start": "16:00", "end": "20:00"}}, {"date": "2021-02-06", "status": "closed", "description": "Market is closed"}]}, "month": 2, "year": 2021}}

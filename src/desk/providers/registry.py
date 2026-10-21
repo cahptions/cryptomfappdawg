@@ -44,9 +44,12 @@ class ProviderSpec(_Strict):
     display_name: str
     base_url: str
     keyless_base_url: str | None = None
-    auth: Literal["none", "header", "url", "ed25519"]   # ed25519: key header plus a per-request signature
+    # ed25519: key header plus a per-request signature; query: ``key_param=<key>`` in the query string (URLs are never
+    # logged); bearer: ``Authorization: Bearer <key>``
+    auth: Literal["none", "header", "url", "ed25519", "query", "bearer"]
     key_env: str | None = None
     key_header: str | None = None
+    key_param: str | None = None
     cost_usd_month: Decimal = Field(ge=0)
     documented_limit: str
     measured_limit: str
@@ -63,8 +66,10 @@ class ProviderSpec(_Strict):
     def _consistent(self) -> Self:
         if self.auth == "header" and not (self.key_env and self.key_header):
             raise ValueError("header auth needs key_env and key_header")
-        if self.auth in ("url", "ed25519") and not self.key_env:
+        if self.auth in ("url", "ed25519", "bearer") and not self.key_env:
             raise ValueError(f"{self.auth} auth needs key_env")
+        if self.auth == "query" and not (self.key_env and self.key_param):
+            raise ValueError("query auth needs key_env and key_param")
         for name, endpoint in self.endpoints.items():
             if endpoint.bucket not in self.buckets:
                 raise ValueError(f"endpoint {name} uses unknown bucket {endpoint.bucket!r}")

@@ -1,0 +1,13 @@
+ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol
+AMC|AMC Entertainment Holdings, Inc. Class A Common Stock|N|AMC|N|100|N|AMC
+BRK.B|Berkshire Hathaway Inc. New Common Stock|N|BRK.B|N|40|N|BRK.B
+GME|GameStop Corporation Common Stock|N|GME|N|100|N|GME
+IWM|iShares Russell 2000 Index Fund|P|IWM|Y|40|N|IWM
+JPM|JP Morgan Chase & Co. Common Stock|N|JPM|N|40|N|JPM
+O|Realty Income Corporation Common Stock|N|O|N|100|N|O
+SPY|State Street SPDR S&P 500 ETF Trust|P|SPY|Y|40|N|SPY
+ALUB.W|Alussa Energy Acquisition Corp. II Redeemable Warrants, each whole warrant exercisable for one Class A ordinary share at an exercise price of $11.50 per share|N|ALUB.WS|N|100|N|ALUB+
+AAC.U|Ares Acquisition Corporation III Units, each consisting of one Class A ordinary share and one-tenth of one redeemable warrant|N|AAC.U|N|100|N|AAC=
+ABEV|Ambev S.A. American Depositary Shares (Each representing 1 Common Share)|N|ABEV|N|100|N|ABEV
+AAA|Alternative Access First Priority CLO Bond ETF|P|AAA|Y|100|N|AAA
+File Creation Time: 1020202621:31||||||

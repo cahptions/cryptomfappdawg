@@ -250,3 +250,359 @@ verified_fields = ["[0] bucket start epoch s", "[1] low", "[2] high", "[3] open"
 path = "/products"
 status = "verified"
 verified_fields = ["id", "base_currency", "quote_currency", "status", "trading_disabled"]
+
+# ═════════════════════════════════════════════════════════════════════════════
+# KESTREL Stocks (docs/STOCKS_SOURCES.md). Verified live 2026-10-21; every plan is free.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── SEC EDGAR, data.sec.gov (submissions, XBRL company facts) ────────────────
+[providers.sec_data]
+display_name = "SEC EDGAR (data.sec.gov)"
+base_url = "https://data.sec.gov"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "fair access: at most 10 requests/second across SEC hosts, declared User-Agent"
+measured_limit = "200 without a contact in the User-Agent (2026-10-21)"
+freshness_seconds = 3600
+failure_handling = "429/5xx -> shared backoff; a company with no XBRL facts is recorded as such, never filled"
+fallback = "none: SEC filings are the only free source of fundamentals"
+allowed_usage = "public government data; SEC privacy and security policy (fair access)"
+evidence = ["research/evidence/2026-10-21/stocks_sources_verification.json", "tests/fixtures/stocks/sec_submissions_AAPL.json",
+  "tests/fixtures/stocks/sec_companyfacts_AAPL.json"]
+
+[providers.sec_data.buckets.default]
+windows = [[4, 1], [200, 60]]
+
+[providers.sec_data.endpoints.submissions]
+path = "/submissions/CIK{cik10}.json"
+status = "verified"
+verified_fields = ["cik", "name", "sic", "sicDescription", "tickers", "exchanges", "fiscalYearEnd",
+  "filings.recent.{accessionNumber,filingDate,reportDate,acceptanceDateTime,form,items,primaryDocument}"]
+
+[providers.sec_data.endpoints.companyfacts]
+path = "/api/xbrl/companyfacts/CIK{cik10}.json"
+status = "verified"
+verified_fields = ["facts.<taxonomy>.<Concept>.units.<unit>[].{start,end,val,accn,fy,fp,form,filed,frame}"]
+
+# ── SEC EDGAR, www.sec.gov (company list, daily index, filings, fails) ───────
+[providers.sec_www]
+display_name = "SEC EDGAR (www.sec.gov)"
+base_url = "https://www.sec.gov"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "fair access: at most 10 requests/second across SEC hosts; User-Agent must name a contact"
+measured_limit = "403 without a contact address in the User-Agent, 200 with one (2026-10-21)"
+freshness_seconds = 3600
+failure_handling = "403 -> SEC_CONTACT_EMAIL missing (reported by doctor); 429/5xx -> shared backoff"
+fallback = "data.sec.gov submissions per company for filings when the daily index is unavailable"
+allowed_usage = "public government data; the operator's contact goes in the User-Agent (SEC_CONTACT_EMAIL)"
+evidence = ["research/evidence/2026-10-21/stocks_sources_verification.json", "tests/fixtures/stocks/sec_form.20261020.idx",
+  "tests/fixtures/stocks/sec_form4_P.xml"]
+
+[providers.sec_www.buckets.default]
+windows = [[4, 1], [200, 60]]
+
+[providers.sec_www.endpoints.company_tickers]
+path = "/files/company_tickers_exchange.json"
+status = "verified"
+verified_fields = ["fields = [cik, name, ticker, exchange]", "data[]"]
+
+[providers.sec_www.endpoints.daily_index]
+path = "/Archives/edgar/daily-index/{year}/QTR{q}/form.{yyyymmdd}.idx"
+status = "verified"
+verified_fields = ["Form Type", "Company Name", "CIK", "Date Filed", "File Name"]
+
+[providers.sec_www.endpoints.filing_index]
+path = "/Archives/edgar/data/{cik}/{accession}/index.json"
+status = "verified"
+verified_fields = ["directory.item[].name"]
+
+[providers.sec_www.endpoints.filing_document]
+path = "/Archives/edgar/data/{cik}/{accession}/{name}"
+status = "verified"
+verified_fields = ["ownershipDocument (Form 4 XML)"]
+
+[providers.sec_www.endpoints.fails_to_deliver]
+path = "/files/data/fails-deliver-data/cnsfailsYYYYMM{a|b}.zip"
+status = "verified"
+verified_fields = ["SETTLEMENT DATE", "CUSIP", "SYMBOL", "QUANTITY (FAILS)", "DESCRIPTION", "PRICE"]
+
+# ── Nasdaq Trader symbol directories ─────────────────────────────────────────
+[providers.nasdaq_trader]
+display_name = "Nasdaq Trader symbol directory"
+base_url = "https://www.nasdaqtrader.com"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "public files, rebuilt daily"
+measured_limit = "nasdaqlisted 5,619 rows, otherlisted 7,674 rows (2026-10-21)"
+freshness_seconds = 86400
+failure_handling = "keep yesterday's listings; a symbol missing from today's file is marked inactive, never deleted"
+fallback = "SEC company_tickers_exchange.json"
+allowed_usage = "public reference data"
+evidence = ["tests/fixtures/stocks/nasdaqlisted.txt", "tests/fixtures/stocks/otherlisted.txt"]
+
+[providers.nasdaq_trader.buckets.default]
+windows = [[2, 1], [30, 60]]
+
+[providers.nasdaq_trader.endpoints.nasdaq_listed]
+path = "/dynamic/SymDir/nasdaqlisted.txt"
+status = "verified"
+verified_fields = ["Symbol", "Security Name", "Market Category", "Test Issue", "Financial Status", "Round Lot Size", "ETF"]
+
+[providers.nasdaq_trader.endpoints.other_listed]
+path = "/dynamic/SymDir/otherlisted.txt"
+status = "verified"
+verified_fields = ["ACT Symbol", "Security Name", "Exchange", "CQS Symbol", "ETF", "Round Lot Size", "Test Issue"]
+
+# ── FINRA Query API (short interest) ─────────────────────────────────────────
+[providers.finra_api]
+display_name = "FINRA Query API"
+base_url = "https://api.finra.org"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "public datasets without credentials; at most 5,000 records per request"
+measured_limit = "200 keyless; 204 when a settlement date is not yet published (2026-10-21)"
+freshness_seconds = 86400
+failure_handling = "204 -> not yet published, try the previous settlement; 429/5xx -> shared backoff"
+fallback = "daily short sale volume (Reg SHO files)"
+allowed_usage = "FINRA public data; private local use"
+evidence = ["tests/fixtures/stocks/finra_consolidated_short_interest.json"]
+
+[providers.finra_api.buckets.default]
+windows = [[2, 1], [60, 60]]
+
+[providers.finra_api.endpoints.consolidated_short_interest]
+path = "/data/group/otcMarket/name/consolidatedShortInterest"
+status = "verified"
+verified_fields = ["symbolCode", "settlementDate", "currentShortPositionQuantity", "previousShortPositionQuantity",
+  "averageDailyVolumeQuantity", "daysToCoverQuantity"]
+
+# ── FINRA CDN (daily short sale volume) ──────────────────────────────────────
+[providers.finra_cdn]
+display_name = "FINRA Reg SHO daily short sale volume"
+base_url = "https://cdn.finra.org"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "public files, one per trading day"
+measured_limit = "200 keyless (2026-10-21)"
+freshness_seconds = 86400
+failure_handling = "404 -> not yet published (or a holiday), retried later"
+fallback = "none"
+allowed_usage = "FINRA public data; private local use"
+evidence = ["tests/fixtures/stocks/finra_CNMSshvol20261020.txt"]
+
+[providers.finra_cdn.buckets.default]
+windows = [[2, 1], [60, 60]]
+
+[providers.finra_cdn.endpoints.reg_sho_daily]
+path = "/equity/regsho/daily/CNMSshvolYYYYMMDD.txt"
+status = "verified"
+verified_fields = ["Date", "Symbol", "ShortVolume", "ShortExemptVolume", "TotalVolume", "Market"]
+
+# ── US Treasury daily yield curve ────────────────────────────────────────────
+[providers.treasury]
+display_name = "US Treasury daily par yield curve"
+base_url = "https://home.treasury.gov"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "public CSV, one file per year"
+measured_limit = "200 keyless (2026-10-21)"
+freshness_seconds = 86400
+failure_handling = "keep the stored curve; rates older than five trading days are reported stale"
+fallback = "FRED DGS series"
+allowed_usage = "public government data"
+evidence = ["tests/fixtures/stocks/treasury_yield_curve_2026.csv"]
+
+[providers.treasury.buckets.default]
+windows = [[1, 1], [20, 60]]
+
+[providers.treasury.endpoints.yield_curve]
+path = "/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/{year}/all"
+status = "verified"
+verified_fields = ["Date", "3 Mo", "2 Yr", "10 Yr", "30 Yr"]
+
+# ── FRED (credit spreads, VIX) ───────────────────────────────────────────────
+[providers.fred]
+display_name = "FRED (St. Louis Fed) graph CSV"
+base_url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "public CSV download"
+measured_limit = "200 once, then connection drops and timeouts from the build container (2026-10-21)"
+freshness_seconds = 86400
+failure_handling = "unreliable -> keep the stored series and report it stale; never blocks the daily refresh"
+fallback = "none for credit spreads and VIX (shown as unavailable)"
+allowed_usage = "FRED terms of use; series copyright stays with the source (ICE, Cboe)"
+evidence = ["research/evidence/2026-10-21/stocks_sources_verification.json"]
+
+[providers.fred.buckets.default]
+windows = [[1, 2], [20, 60]]
+
+[providers.fred.endpoints.graph_csv]
+path = ""
+status = "verified"
+verified_fields = ["observation_date", "<series id>"]
+
+# ── ApeWisdom (Reddit and 4chan mention counts) ──────────────────────────────
+[providers.apewisdom]
+display_name = "ApeWisdom"
+base_url = "https://apewisdom.io"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "public API, 100 results per page, no published rate limit"
+measured_limit = "200 keyless; wallstreetbets 681 tickers in 7 pages (2026-10-21)"
+freshness_seconds = 3600
+failure_handling = "skip the hour; mentions are a snapshot, never interpolated"
+fallback = "none (the crowd desk reports no data)"
+allowed_usage = "public API; private local use"
+evidence = ["tests/fixtures/stocks/apewisdom_wallstreetbets_p1.json", "tests/fixtures/stocks/apewisdom_all_stocks_p1.json"]
+
+[providers.apewisdom.buckets.default]
+windows = [[1, 1], [30, 60]]
+
+[providers.apewisdom.endpoints.mentions]
+path = "/api/v1.0/filter/{filter}/page/{page}"
+status = "verified"
+verified_fields = ["count", "pages", "results[].{rank,ticker,name,mentions,upvotes,rank_24h_ago,mentions_24h_ago}"]
+
+# ── OpenFIGI (CUSIP -> ticker for 13F holdings) ──────────────────────────────
+[providers.openfigi]
+display_name = "OpenFIGI"
+base_url = "https://api.openfigi.com"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "without a key: 25 mapping requests a minute, 10 identifiers each"
+measured_limit = "200 keyless (2026-10-21)"
+freshness_seconds = 0
+failure_handling = "unmapped CUSIPs stay unmapped; mappings are cached permanently"
+fallback = "none (institutional holder counts skip unmapped securities)"
+allowed_usage = "OpenFIGI terms; free public mapping service"
+evidence = ["tests/fixtures/stocks/openfigi_mapping.json"]
+
+[providers.openfigi.buckets.default]
+windows = [[1, 2], [24, 60]]
+
+[providers.openfigi.endpoints.mapping]
+path = "/v3/mapping"
+status = "verified"
+verified_fields = ["[].data[].{ticker,exchCode,marketSector,securityType}"]
+
+# ── Massive (formerly Polygon.io) Stocks Basic, free ─────────────────────────
+[providers.massive]
+display_name = "Massive Stocks Basic (free)"
+base_url = "https://api.massive.com"
+auth = "query"
+key_env = "MASSIVE_API_KEY"
+key_param = "apiKey"
+cost_usd_month = 0
+documented_limit = "Stocks Basic $0: 5 API calls/minute, 2 years history, end of day (massive.com/pricing 2026-10-21)"
+measured_limit = "not measured: needs the operator's free key"
+freshness_seconds = 86400
+failure_handling = "429 -> shared backoff; a missing day stays missing; 401/403 -> key problem"
+fallback = "none for prices (the desk shows only what it has stored)"
+allowed_usage = "personal licence ('Individual use'); private local research"
+evidence = ["research/evidence/2026-10-21/stocks_sources_verification.json", "tests/fixtures/stocks/massive_grouped_daily_doc_example.json"]
+
+[providers.massive.buckets.default]
+windows = [[5, 62]]
+
+[providers.massive.endpoints.grouped_daily]
+path = "/v2/aggs/grouped/locale/us/market/stocks/{date}"
+status = "to_verify"
+notes = "documented example; adjusted=false; one request returns every US stock's day"
+verified_fields = ["results[].{T,o,h,l,c,v,vw,n,t}"]
+
+[providers.massive.endpoints.splits]
+path = "/stocks/v1/splits"
+status = "to_verify"
+verified_fields = ["results[].{ticker,execution_date,split_from,split_to}", "next_url"]
+
+[providers.massive.endpoints.dividends]
+path = "/stocks/v1/dividends"
+status = "to_verify"
+verified_fields = ["results[].{ticker,ex_dividend_date,cash_amount,split_adjusted_cash_amount,pay_date,frequency}", "next_url"]
+
+# ── Tradier market data (options chains) ─────────────────────────────────────
+[providers.tradier]
+display_name = "Tradier Brokerage API (market data)"
+base_url = "https://api.tradier.com/v1/markets"
+auth = "bearer"
+key_env = "TRADIER_TOKEN"
+cost_usd_month = 0
+documented_limit = "market data 120 requests/minute (brokerage account holders, real-time)"
+measured_limit = "not measured: needs the operator's token (keyless: 401)"
+freshness_seconds = 900
+failure_handling = "401 -> token problem; 429 -> shared backoff; quotes older than a session are never used for fills"
+fallback = "tradier_sandbox (15-minute delayed)"
+allowed_usage = "Tradier Brokerage account holders; market data only (the desk calls no order or account endpoint)"
+evidence = ["research/evidence/2026-10-21/stocks_sources_verification.json", "tests/fixtures/stocks/tradier_chains_doc_example.json"]
+
+[providers.tradier.buckets.default]
+windows = [[100, 60], [5, 1]]
+
+[providers.tradier.endpoints.expirations]
+path = "/options/expirations"
+status = "to_verify"
+verified_fields = ["expirations.date[]"]
+
+[providers.tradier.endpoints.chains]
+path = "/options/chains"
+status = "to_verify"
+verified_fields = ["options.option[].{symbol,underlying,option_type,strike,expiration_date,bid,ask,last,volume,open_interest,average_volume,bid_date,ask_date}"]
+
+[providers.tradier.endpoints.quotes]
+path = "/quotes"
+status = "to_verify"
+verified_fields = ["quotes.quote[].{symbol,last,bid,ask,prevclose,volume,trade_date}"]
+
+[providers.tradier.endpoints.history]
+path = "/history"
+status = "to_verify"
+verified_fields = ["history.day[].{date,open,high,low,close,volume}"]
+
+[providers.tradier.endpoints.calendar]
+path = "/calendar"
+status = "to_verify"
+verified_fields = ["calendar.days.day[].{date,status}"]
+
+[providers.tradier_sandbox]
+display_name = "Tradier developer sandbox (market data, 15-minute delayed)"
+base_url = "https://sandbox.tradier.com/v1/markets"
+auth = "bearer"
+key_env = "TRADIER_TOKEN"
+cost_usd_month = 0
+documented_limit = "sandbox market data 60 requests/minute, 15-minute delayed, no greeks"
+measured_limit = "not measured: needs the operator's token (keyless: 401)"
+freshness_seconds = 900
+failure_handling = "401 -> token problem; 429 -> shared backoff"
+fallback = "none (options desk reports no chain data)"
+allowed_usage = "Tradier developer sandbox terms; market data only"
+evidence = ["research/evidence/2026-10-21/stocks_sources_verification.json", "tests/fixtures/stocks/tradier_chains_doc_example.json"]
+
+[providers.tradier_sandbox.buckets.default]
+windows = [[50, 60], [3, 1]]
+
+[providers.tradier_sandbox.endpoints.expirations]
+path = "/options/expirations"
+status = "to_verify"
+verified_fields = ["expirations.date[]"]
+
+[providers.tradier_sandbox.endpoints.chains]
+path = "/options/chains"
+status = "to_verify"
+verified_fields = ["options.option[].{symbol,underlying,option_type,strike,expiration_date,bid,ask,last,volume,open_interest}"]
+
+[providers.tradier_sandbox.endpoints.quotes]
+path = "/quotes"
+status = "to_verify"
+verified_fields = ["quotes.quote[].{symbol,last,bid,ask,prevclose,volume}"]
+
+[providers.tradier_sandbox.endpoints.history]
+path = "/history"
+status = "to_verify"
+verified_fields = ["history.day[].{date,open,high,low,close,volume}"]
+
+[providers.tradier_sandbox.endpoints.calendar]
+path = "/calendar"
+status = "to_verify"
+verified_fields = ["calendar.days.day[].{date,status}"]

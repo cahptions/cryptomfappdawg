@@ -205,6 +205,25 @@ class RobinhoodSection(_Section):
     dashboard_port: int = Field(default=8766, ge=1024, le=65535)
 
 
+class StocksSection(_Section):
+    """KESTREL Stocks (docs/STOCKS.md): research plus PAPER trading of stocks and options. No order code exists."""
+
+    dashboard_port: int = Field(default=8767, ge=1024, le=65535)
+    tradier_env: Literal["sandbox", "production"] = "sandbox"   # sandbox = free developer token, 15-minute delayed
+    history_days: int = Field(default=730, ge=60)              # Massive's free plan keeps 2 years
+    min_price_usd: Decimal = Decimal("1")                       # the research universe: listed common stock and ADRs
+    min_median_dollar_volume_usd: Decimal = Decimal("1000000")  # ... trading at least this much a day (median of 20)
+    options_focus_symbols: int = Field(default=150, ge=0, le=1000)   # chains collected daily for this many names
+    refresh_after_close_minutes: int = Field(default=75, ge=15)      # daily refresh this long after the 16:00 close
+    # PAPER (operator request 2026-10-21: paper trade stocks and options to test and refine strategies)
+    paper_starting_capital_usd: Decimal = Decimal("10000")
+    paper_max_position_fraction: Fraction = Decimal("0.10")     # one stock position at most 10% of equity
+    paper_max_option_premium_fraction: Fraction = Decimal("0.02")   # one option trade risks at most 2% of equity
+    paper_max_options_at_risk_fraction: Fraction = Decimal("0.10")  # all open option premium at most 10%
+    paper_max_open_positions: int = Field(default=30, ge=1)
+    learning: Literal["paper", "record", "off"] = "paper"
+
+
 class DeskConfig(_Section):
     desk: DeskSection
     paper: PaperSection
@@ -219,6 +238,7 @@ class DeskConfig(_Section):
     research: ResearchSection = ResearchSection()
     live: LiveSection
     robinhood: RobinhoodSection = RobinhoodSection()
+    stocks: StocksSection = StocksSection()
 
 
 @dataclass(frozen=True)

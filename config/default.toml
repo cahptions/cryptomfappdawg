@@ -130,3 +130,18 @@ quote_interval_seconds = 60
 learning = "paper"          # learning lab: "paper" (a procedure that passes unseen months may PAPER trade), "record", "off"
 backtest_roundtrip_cost_fraction = "0.02"   # the universe rules live in the frozen strategy spec (desk/rh/strategies.py)
 dashboard_port = 8766
+
+[stocks]                        # KESTREL Stocks (docs/STOCKS.md): research + PAPER stocks and options; no order code exists
+dashboard_port = 8767
+tradier_env = "sandbox"         # "sandbox" (free developer token, 15-min delayed) or "production" (Tradier Brokerage token)
+history_days = 730              # Massive's free plan keeps 2 years of end-of-day bars
+min_price_usd = "1"
+min_median_dollar_volume_usd = "1000000"
+options_focus_symbols = 150     # option chains collected each day for this many names (watchlist and lists first)
+refresh_after_close_minutes = 75
+paper_starting_capital_usd = "10000"
+paper_max_position_fraction = "0.10"
+paper_max_option_premium_fraction = "0.02"
+paper_max_options_at_risk_fraction = "0.10"
+paper_max_open_positions = 30
+learning = "paper"              # "paper": strategies that pass on unseen periods may PAPER trade; "record"; "off"

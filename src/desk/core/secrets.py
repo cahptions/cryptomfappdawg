@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 KNOWN_SECRET_NAMES = ("JUPITER_API_KEY", "SOLANA_RPC_URL", "SOLANA_WS_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
-                      "ROBINHOOD_API_KEY")
+                      "ROBINHOOD_API_KEY", "MASSIVE_API_KEY", "TRADIER_TOKEN", "SEC_CONTACT_EMAIL")
 SECRET_NAME_MARKERS = ("KEY", "SECRET", "TOKEN", "PASSPHRASE", "PASSWORD", "PRIVATE", "RPC_URL", "WS_URL")
 
 

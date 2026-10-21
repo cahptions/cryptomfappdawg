@@ -82,6 +82,8 @@ class ProviderHttp:
         self._rng = rng
         # per-attempt request signing (method, path with query as sent, body bytes) -> auth headers
         self.signer = signer
+        # a provider that asks callers to identify themselves (SEC EDGAR: a contact address) gets its own agent
+        self.user_agent: str | None = None
 
     # ── configuration ──────────────────────────────────────────────────────────────────────────────
     @property
@@ -110,9 +112,11 @@ class ProviderHttp:
         return spec.windows
 
     def _headers(self) -> dict[str, str]:
-        headers = {"User-Agent": self.settings.user_agent, **self.spec.default_headers}
+        headers = {"User-Agent": self.user_agent or self.settings.user_agent, **self.spec.default_headers}
         if self.spec.auth == "header" and self.spec.key_header and self.key:
             headers[self.spec.key_header] = self.key
+        elif self.spec.auth == "bearer" and self.key:
+            headers["Authorization"] = f"Bearer {self.key}"
         return headers
 
     # ── request ────────────────────────────────────────────────────────────────────────────────────
@@ -131,6 +135,8 @@ class ProviderHttp:
     ) -> HttpResponse:
         endpoint_spec = self.spec.endpoints[endpoint]
         url = self.base_url(prefer_keyless_host=prefer_keyless_host) + (path if path is not None else endpoint_spec.path)
+        if self.spec.auth == "query" and self.spec.key_param and self.key:
+            params = {**(params or {}), self.spec.key_param: self.key}
 
         async def fetch() -> HttpResponse:
             return await self._request_with_retries(label or endpoint, endpoint_spec.bucket, method, url, params,
