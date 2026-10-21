@@ -1,5 +1,15 @@
 # Continuing Claude's work
 
+> **Latest collector failure:** operator pasted a traceback showing `fundamentals.scores` divided cost of
+> revenue by zero prior-year revenue while building the research preview. Both gross-margin paths now guard
+> nonpositive revenue. Undefined Piotroski/Beneish components keep the composite unavailable, including zero
+> current-liability, asset-quality, depreciation, SGA and leverage denominators; no neutral ratio is substituted.
+> Other computable metrics remain available. Reproduced both old gross-margin crashes;115 offline Stocks tests,
+> Ruff and mypy passed. Research lists survive the synthetic zero-revenue company without any PAPER ledger writes.
+> Ask the operator to pull `codex/finish-schwab-stocks`, then click Start research; dashboard can remain open.
+> Existing data is reused. Do not claim laptop recovery until observed. The failure reached analysis, so the
+> earlier20-session count is stale. Evidence: research/evidence/2026-10-21/operator_zero_revenue_crash.json.
+
 > **Dashboard history status:** an operator screenshot showed benchmark/sector prices but unrecorded mover
 > lists. Home previously called this "No qualifying names" and linked to "Connect data" even when configured.
 > It now distinguishes unconfigured history, incomplete history, pending analysis, and recorded empty lists,

@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-21",
+  "provenance": "Operator-pasted laptop research log; no operator database or credentials accessed",
+  "observed": {
+    "exception": "ZeroDivisionError: float division by zero",
+    "path": "research_preview -> Analyzer.build -> fundamentals.base -> fundamentals.scores",
+    "expression": "1 - cogs[0].value / rev[0].value"
+  },
+  "reproduction": "Previous committed scores implementation raises ZeroDivisionError on synthetic prior-year zero revenue with either reported gross profit or cost-of-revenue inputs",
+  "correction": "Guard revenue and component denominators; preserve undefined financial composites as missing; retain independently computable metrics",
+  "validation": {
+    "offline_stocks_tests_passed": 115,
+    "ruff": "passed",
+    "mypy_stocks_files": 38,
+    "pipeline": "Research lists generated despite synthetic zero-revenue company; PAPER ledger unchanged"
+  },
+  "limitations": "Synthetic regression checks establish handling of the failure, not profitability or observed laptop recovery. Current downloaded-session count is unknown; traceback shows the history guard had passed."
+}

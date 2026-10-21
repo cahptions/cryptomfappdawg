@@ -181,9 +181,10 @@ class Fundamentals:
 
 
 def _div(a: float | None, b: float | None) -> float | None:
-    if a is None or b is None or b == 0 or math.isnan(a) or math.isnan(b):
+    if a is None or b is None or b == 0 or not math.isfinite(a) or not math.isfinite(b):
         return None
-    return a / b
+    result = a / b
+    return result if math.isfinite(result) else None
 
 
 def _pos_div(a: float | None, b: float | None) -> float | None:
@@ -337,27 +338,29 @@ def scores(f: Fundamentals, as_of: date, *, financial: str | None = None) -> dic
         return out
     prev_end, end = rev[0].end, rev[1].end
     ta, ta0 = bs("assets", end), bs("assets", prev_end)
-    if not ta or not ta0:
+    if ta is None or ta0 is None or ta <= 0 or ta0 <= 0:
         return out
     gross = annual("gross_profit")
     cogs = annual("cost_of_revenue")
     gm = gm0 = None
     if gross:
-        gm, gm0 = gross[1].value / rev[1].value, gross[0].value / rev[0].value
+        gm, gm0 = _pos_div(gross[1].value, rev[1].value), _pos_div(gross[0].value, rev[0].value)
     elif cogs:
-        gm, gm0 = 1 - cogs[1].value / rev[1].value, 1 - cogs[0].value / rev[0].value
+        cost, cost0 = _pos_div(cogs[1].value, rev[1].value), _pos_div(cogs[0].value, rev[0].value)
+        gm, gm0 = None if cost is None else 1 - cost, None if cost0 is None else 1 - cost0
     ltd, ltd0 = bs("lt_debt", end), bs("lt_debt", prev_end)
     ca, ca0, cl, cl0 = bs("current_assets", end), bs("current_assets", prev_end), bs("current_liabilities", end), bs(
         "current_liabilities", prev_end)
     shares = annual("diluted_shares")
-    tests = [ni[1].value > 0, cfo is not None and cfo[1].value > 0,
-             ni[1].value / ta > ni[0].value / ta0, cfo is not None and cfo[1].value > ni[1].value,
-             ltd is not None and ltd0 is not None and ltd / ta < ltd0 / ta0,
-             ca is not None and cl is not None and ca0 is not None and cl0 is not None and cl and cl0
-             and ca / cl > ca0 / cl0,
-             shares is not None and shares[1].value <= shares[0].value * 1.005,
-             gm is not None and gm0 is not None and gm > gm0, rev[1].value / ta > rev[0].value / ta0]
-    out["piotroski"] = float(sum(bool(t) for t in tests))
+    current, current0 = _pos_div(ca, cl), _pos_div(ca0, cl0)
+    tests: list[bool | None] = [ni[1].value > 0, None if cfo is None else cfo[1].value > 0,
+             ni[1].value / ta > ni[0].value / ta0, None if cfo is None else cfo[1].value > ni[1].value,
+             None if ltd is None or ltd0 is None else ltd / ta < ltd0 / ta0,
+             None if current is None or current0 is None else current > current0,
+             None if shares is None else shares[1].value <= shares[0].value * 1.005,
+             None if gm is None or gm0 is None else gm > gm0, rev[1].value / ta > rev[0].value / ta0]
+    # An unknown component is not a failed financial test or a zero-valued observation.
+    out["piotroski"] = None if any(t is None for t in tests) else float(sum(bool(t) for t in tests))
     if financial is None:
         tl = bs("liabilities", end)
         re_ = bs("retained_earnings", end)
@@ -367,21 +370,24 @@ def scores(f: Fundamentals, as_of: date, *, financial: str | None = None) -> dic
         recv, recv0 = bs("receivables", end), bs("receivables", prev_end)
         ppe, ppe0 = bs("ppe", end), bs("ppe", prev_end)
         dep, sga = annual("dna"), annual("sga")
-        if all(x is not None for x in (recv, recv0, gm, gm0, ca, ca0, ppe, ppe0, dep, cfo, tl)) and recv0 and gm and ppe and ppe0:
+        if (rev[0].value > 0 and rev[1].value > 0 and
+                all(x is not None for x in (recv, recv0, gm, gm0, ca, ca0, ppe, ppe0, dep, cfo, tl))
+                and recv0 and gm and ppe and ppe0):
             assert recv is not None and recv0 is not None and gm is not None and gm0 is not None and ca is not None
             assert ca0 is not None and ppe is not None and ppe0 is not None and dep is not None and cfo is not None
             tl0 = bs("liabilities", prev_end)
             dsri = (recv / rev[1].value) / (recv0 / rev[0].value)
-            gmi = gm0 / gm if gm else 1.0
-            aqi = (1 - (ca + ppe) / ta) / (1 - (ca0 + ppe0) / ta0) if (1 - (ca0 + ppe0) / ta0) else 1.0
+            gmi = _div(gm0, gm)
+            aqi = _div(1 - (ca + ppe) / ta, 1 - (ca0 + ppe0) / ta0)
             sgi = rev[1].value / rev[0].value
-            depi = ((dep[0].value / (dep[0].value + ppe0)) / (dep[1].value / (dep[1].value + ppe))
-                    if dep[1].value and (dep[0].value + ppe0) and (dep[1].value + ppe) else 1.0)
-            sgai = ((sga[1].value / rev[1].value) / (sga[0].value / rev[0].value)) if sga and sga[0].value else 1.0
-            lvgi = ((tl / ta) / (tl0 / ta0)) if tl and tl0 else 1.0
+            depi = _div(_div(dep[0].value, dep[0].value + ppe0), _div(dep[1].value, dep[1].value + ppe))
+            sgai = _div(sga[1].value / rev[1].value, sga[0].value / rev[0].value) if sga else None
+            lvgi = _div(_div(tl, ta), _div(tl0, ta0))
             tata = (ni[1].value - cfo[1].value) / ta
-            out["beneish_m"] = (-4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi
-                                - 0.172 * sgai + 4.679 * tata - 0.327 * lvgi)
+            if gmi is not None and aqi is not None and depi is not None and sgai is not None and lvgi is not None:
+                value = (-4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi
+                         - 0.172 * sgai + 4.679 * tata - 0.327 * lvgi)
+                out["beneish_m"] = value if math.isfinite(value) else None
     return out
 
 

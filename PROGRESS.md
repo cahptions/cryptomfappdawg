@@ -5,6 +5,17 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Collector crash identified and corrected:** the operator's research log reported `ZeroDivisionError` in
+`fundamentals.scores`, cost-of-revenue / prior annual revenue. The old code was reproduced failing with synthetic
+zero-revenue statements in both cost and reported-gross-profit paths. Both years now use guarded margin ratios;
+an incomplete Piotroski score stays unavailable rather than counting unknown components as failures. Beneish
+requires positive revenue and defined component ratios rather than neutral1 fallbacks. Invalid/non-finite ratio
+results stay missing; valid independent metrics can still be used. This can reduce score coverage for incomplete
+statements. Offline Stocks validation:115 tests passed, Ruff clean, strict mypy38files clean. A research-pipeline
+regression confirms lists are produced with a zero-revenue company and the PAPER ledger is unchanged. Laptop
+recovery still requires pulling the fix and starting research again; existing downloaded data remains saved.
+The traceback passed the history guard, so the earlier20-session report no longer measures current progress.
+
 **Home readiness correction:** unrecorded lists now show history download counts, research collection status,
 and pending-analysis guidance instead of claiming no qualifying names or asking an already configured user to
 connect data. Only a dated, empty list receives the no-matches message. A dedicated Chromium check covered

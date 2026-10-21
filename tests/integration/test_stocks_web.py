@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from threading import Event
@@ -19,6 +20,26 @@ from desk.stocks.runner import process, saved
 from desk.stocks.web import create_app
 from tests.conftest import REPO
 from tests.stocks_world import NOW, make_world
+
+
+def test_zero_revenue_company_does_not_abort_research_or_write_paper(tmp_path: Path) -> None:
+    world = make_world(tmp_path, n=12)
+    try:
+        cik = world.dbs.market.execute("SELECT cik FROM stk_listings WHERE symbol='CHEAP'").fetchone()[0]
+        facts = world.market.facts(cik)
+        for concept in ("us-gaap:Revenues", "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"):
+            if concept in facts:
+                facts[concept] = [replace(fact, value=0.0) for fact in facts[concept]]
+        world.market.save_facts(cik, facts, "synthetic-zero-revenue", NOW)
+        ledger = list(world.dbs.ledger.iterdump())
+        result = process(world.paths, load_config(REPO / "config"), world.dbs, NOW, research_only=True)
+        assert result["universe"] > 1 and result["paper"] is None
+        assert saved(world.paths, "research")["lists"]
+        detail = world.research.latest("CHEAP")
+        assert detail is not None and detail["fundamentals"]["piotroski"] is None
+        assert list(world.dbs.ledger.iterdump()) == ledger
+    finally:
+        world.close()
 
 
 def test_empty_dashboard_and_secret_form_boundary(tmp_path: Path) -> None:
