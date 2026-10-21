@@ -122,23 +122,25 @@ function collectionControls() {
     button = el(
       "button",
       state.stopping
-        ? "Pausing after this pass…"
+        ? "Pausing PAPER…"
         : running
-          ? "Pause research"
-          : "Start research",
+          ? "Pause PAPER"
+          : "Start PAPER",
       "primary",
     );
   button.type = "button";
   button.disabled = Boolean(state.stopping || (running && !state.owned));
   status.textContent = state.stopping
-    ? "Stopping research collection safely. Completed imports stay saved."
+    ? "Pausing PAPER and collection safely. Completed imports and simulated trades stay saved."
     : running
       ? state.owned
-        ? "Research collection is running. Prices appear as they arrive."
+        ? "PAPER and collection are running. Eligible strategies simulate trades as their required data becomes available."
         : "An existing Stocks worker is collecting. Control it from its terminal."
-      : state.exit_code
-        ? "Collection stopped unexpectedly. Check System and stocks-research.log for details."
-        : "Collects research for up to 24 hours while this app and laptop stay running. No paper trades are created.";
+      : state.error
+        ? state.error
+        : state.exit_code
+          ? "PAPER worker stopped unexpectedly. Check System and stocks-research.log for details."
+          : "PAPER is paused. Start PAPER resumes collection and simulated trading; this choice is remembered.";
   button.onclick = async () => {
     button.disabled = true;
     try {
@@ -161,12 +163,12 @@ function connectionWorkerControls() {
     state = snapshot.collection || {},
     running = state.running || snapshot.worker_running;
   const text = state.stopping
-    ? "Research is pausing. Keep this dashboard open; your typed settings stay here. Save becomes available when the collector stops."
+    ? "PAPER is pausing. Leave this dashboard running; your typed settings stay here. Save becomes available when the collector stops."
     : running && state.owned
-      ? "Research collection is running. Pause it here before saving this connection. Keep the dashboard terminal open."
+      ? "PAPER and collection are running. Pause them here before saving this connection. Leave the dashboard running."
       : running
         ? "A Stocks collector is running in another terminal. Stop only the terminal running desk stocks collect, desk stocks paper, or desk stocks refresh. Keep the terminal running desk stocks dashboard open. Ctrl+C inside the browser does not pause collection."
-        : "Collection is paused. You can save this connection now. Keep the dashboard terminal open.";
+        : "Collection is paused. You can save this connection now. Leave the dashboard running.";
   box.append(el("p", text, "muted"));
   if (running && state.owned) {
     const pause = el(
@@ -234,7 +236,7 @@ function updateConnectionControls() {
 function sourceSetup() {
   const box = panel(
       "Start here · free stock research",
-      "You can populate stock research before Schwab is approved. Save the settings here, then click Start research. No configuration-file editing is needed.",
+      "PAPER and collection start automatically with the app. Save these sources to add stock history and filings; unavailable inputs make the affected strategies wait. If paused, use Start PAPER.",
     ),
     form = el("form"),
     fields = {},
@@ -329,7 +331,7 @@ function sourceSetup() {
           : "Not saved";
       }
       message.textContent =
-        "Saved privately. Click Start research below. A running collector picks up changes on its next pass. Your existing credentials were preserved.";
+        "Saved privately. Running PAPER picks up changes on its next pass. If paused, use Start PAPER below. Your existing credentials were preserved.";
     } catch (error) {
       message.textContent = error.message;
     } finally {
@@ -497,7 +499,7 @@ function systemPage() {
         : "Stocks worker is stopped",
       snapshot.stop
         ? "STOP is active: pending entries are cancelled and no new entries are created. Existing positions continue to be managed when the worker runs."
-        : "Use Start research to collect data without paper trades. Source updates appear as collection proceeds.",
+        : "PAPER and collection start with the dashboard. Each strategy waits only for its required data; optional source failures remain visible.",
     ),
   );
   app.append(collectionControls());
@@ -517,19 +519,12 @@ function systemPage() {
       snapshot.worker || { waiting: "No pass recorded" },
     ),
   );
-  const guide = panel("Optional · start forward PAPER simulation");
-  guide.append(
-    el(
-      "pre",
-      "cd ~/kestrel\nuv run desk stocks doctor\nuv run desk stocks paper --minutes 1440",
-    ),
-    el(
-      "p",
-      "Pause research first and wait for the pass to finish. This separate command starts paper simulation. Keep its terminal and the laptop running; it does not keep the laptop awake.",
-      "muted",
+  app.append(
+    panel(
+      "Automatic PAPER simulation",
+      "PAPER starts with this dashboard and keeps collecting while individual strategies wait for data. Pause PAPER also pauses its collection; Start PAPER resumes both. No brokerage orders are sent.",
     ),
   );
-  app.append(guide);
 }
 async function settingsPage() {
   heading(

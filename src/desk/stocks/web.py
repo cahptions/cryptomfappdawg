@@ -7,7 +7,7 @@ import json
 import secrets
 import sqlite3
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -98,7 +98,8 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
                 "events": book.events(limit=100)}
 
 
-def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: ResearchWorker | None = None) -> FastAPI:
+def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: ResearchWorker | None = None,
+               auto_start: bool = True) -> FastAPI:
     config = loaded or load_config(paths.config_dir)
     csrf = secrets.token_urlsafe(32)
     attempt: LoginAttempt | None = None
@@ -112,10 +113,24 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         dbs = StocksDatabases.open(paths)
         dbs.close()
+        automation_stop = asyncio.Event()
+
+        async def maintain() -> None:
+            while not automation_stop.is_set():
+                await asyncio.to_thread(collector.maintain)
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 5)
+
+        if auto_start:
+            await asyncio.to_thread(collector.maintain)
+        automation = asyncio.create_task(maintain()) if auto_start else None
         try:
             yield
         finally:
-            await asyncio.to_thread(collector.stop)
+            if automation is not None:
+                automation_stop.set()
+                await asyncio.gather(automation, return_exceptions=True)
+            await asyncio.to_thread(collector.stop, pause=False)
             if attempt is not None:
                 await asyncio.to_thread(attempt.stop)
 

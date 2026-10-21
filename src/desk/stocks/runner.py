@@ -118,6 +118,10 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
     available = [d for d in market.bar_days() if d <= target]
     if not available or available[-1] != target:
         return {"waiting": f"Waiting for published {target.isoformat()} closing prices", "paper": None}
+    history = [d for d in available if d >= target - timedelta(days=settings.history_days)]
+    if book.last_step() is None and len(history) < MIN_BARS:
+        return {"waiting": f"PAPER is running; downloading history ({len(history)}/{MIN_BARS} sessions minimum). "
+                           "Eligible strategies will simulate trades automatically when data is ready.", "paper": None}
     if book.last_step() == target:
         return {"asof": target.isoformat(), "waiting": "Session already processed; collection/backfill continues"}
     _memory_guard()
@@ -197,7 +201,8 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                 detail = {**jobs["options"], "next_offset": (offset + option_limit) % len(candidates)}
                 market.job("options", now, detail=detail)
         try:
-            analysis = process(paths, loaded, dbs, utc_now(), research_only=research_only)
+            preview = process(paths, loaded, dbs, utc_now(), research_only=True)
+            analysis = preview if research_only else process(paths, loaded, dbs, utc_now())
         except MemoryPressure as exc:
             analysis = {"waiting": str(exc), "paper": None}
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",

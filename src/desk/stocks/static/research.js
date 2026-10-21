@@ -69,7 +69,7 @@ const KestrelResearch = (() => {
         sessions < minimum
           ? "Downloading research history"
           : "First research lists pending",
-      message: `${history} ${running ? "The collector is running; lists appear after analysis completes. Check System for source errors." : "Research collection is stopped. Use Start research above to continue from saved data."}`,
+      message: `${history} ${running ? "The collector is running; lists appear after analysis completes. Check System for source errors." : "PAPER and collection are stopped. Use Start PAPER above to continue from saved data."}`,
       href: running ? "#system" : "#settings",
       action: running ? "View collection status" : "Open research controls",
     };

@@ -46,7 +46,7 @@ def main() -> None:
             world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
             process(paths, load_config(paths.config_dir), world.dbs, NOW)
             world.close()
-        uvicorn.run(create_app(paths), host="127.0.0.1", port=args.port, access_log=False)
+        uvicorn.run(create_app(paths, auto_start=False), host="127.0.0.1", port=args.port, access_log=False)
 
 
 if __name__ == "__main__":

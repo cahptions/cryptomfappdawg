@@ -52,6 +52,8 @@ def add_parser(sub: Any) -> None:
         if name in {"paper", "collect"}:
             cmd.add_argument("--minutes", type=float, default=1440)
             cmd.add_argument("--interval", type=float, default=300)
+        if name == "paper":
+            cmd.add_argument("--continuous", action="store_true", help="keep PAPER and collection running until paused")
         cmd.set_defaults(func=run)
     for name in ("report", "validate", "learn"):
         commands.add_parser(name, help="stored PAPER report" if name == "report" else
@@ -179,15 +181,15 @@ def run(args: argparse.Namespace) -> int:
                 with contextlib.suppress(NotImplementedError):
                     loop.add_signal_handler(sig, stop.set)
             repeating = action in {"paper", "collect"}
-            end = time.monotonic() + (args.minutes * 60 if repeating else 0)
+            end = math.inf if getattr(args, "continuous", False) else time.monotonic() + (args.minutes * 60 if repeating else 0)
             while True:
                 if stop.is_set():
                     return 0
                 work = runner.cycle(paths, loaded, price_days=args.price_days, company_limit=args.companies,
                                     option_limit=args.options, research_only=action == "collect")
-                if action == "collect":
-                    # Research has no paper orders. Cancel network/rate-limit waits promptly, while synchronous
-                    # SQLite transactions finish atomically. cycle's finally closes clients/databases before unlock.
+                if action in {"collect", "paper"}:
+                    # Cancel network/rate-limit waits; synchronous PAPER transactions finish atomically before
+                    # the event loop can deliver cancellation. Cleanup finishes before releasing the worker lock.
                     task, stopping = asyncio.create_task(work), asyncio.create_task(stop.wait())
                     try:
                         done, _ = await asyncio.wait((task, stopping), return_when=asyncio.FIRST_COMPLETED)

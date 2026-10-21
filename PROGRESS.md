@@ -5,6 +5,17 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Automatic PAPER requested and implemented:** opening the Stocks dashboard now starts its combined PAPER and
+collection worker automatically unless the user has explicitly paused it. It runs continuously, refreshes mutable
+research previews, and processes ready forward PAPER sessions without requiring a second terminal command.
+Pause is persisted; normal shutdown preserves the startup preference. A lifespan monitor waits for any external
+Stocks worker to release its lock before starting; GET never spawns or duplicates work. Unexpected exits remain
+visible without restart loops. First-session warmup now defers stepping rather than freezing an incomplete
+history date. PAPER network waits cancel safely before unlock; synchronous ledger transactions remain atomic.
+No capital, strategy entry/fill timing, STOP or LIVE authorization changes. Validation:124 offline Stocks tests,
+Ruff/mypy and empty/populated desktop/phone browser controls/readiness passed. Actual laptop activation remains
+an operator update/restart; no remote laptop process was started here.
+
 **Stocks menu application:** added the missing Stocks desktop entry/icon to launcher installation. A selected-only
 `desk open --desk stocks --install` creates its menu shortcut and opens the research dashboard without installing
 services or launching collectors/engines. It preserves other desks' launchers; configured/custom ports persist in

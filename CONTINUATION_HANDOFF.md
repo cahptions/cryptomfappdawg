@@ -1,5 +1,20 @@
 # Continuing Claude's work
 
+> **Current automation policy — supersedes earlier manual research/PAPER instructions:** operator explicitly
+> requested automatic PAPER operation. Stocks dashboard lifespan now starts one combined collection/PAPER worker
+> (`stocks paper --continuous --price-days20`). It runs while the dashboard server runs, without a24-hour cutoff.
+> Missing inputs defer affected strategies; optional source failures do not block usable stored-data PAPER.
+> Explicit Pause persists in private `stocks-automation.json`; shutdown preserves the auto-start preference.
+> GET requests never spawn workers. Existing external workers are observed, not duplicated/signalled; when their
+> lock releases, the lifespan monitor starts PAPER. Crashes/disk/preference errors surface without restart loops.
+> PAPER/collect cancellation closes network resources before releasing locks; synchronous ledger transactions
+> finish atomically. First PAPER processing waits for minimum history, so warmup does not consume the session.
+> Mutable research previews continue after the day's PAPER step. Simulation timing/costs/capital/STOP and disabled
+> brokerage orders are preserved. UI uses Pause PAPER / Start PAPER and no longer asks for a separate terminal.
+> Validation:124 offline Stocks tests, Ruff, mypy38files; populated/empty Chromium navigation and PAPER/Settings
+> flows plus readiness cases at1366px and375px passed. Production autostart was tested with mocked child processes;
+> no operator process or provider was accessed. Laptop activation needs a one-time update and dashboard restart.
+
 > **Stocks desktop launcher:** the common icon installer omitted Stocks even though `desk open --desk stocks`
 > already existed. Installer now includes all three by default, supports selected-only installation, and respects
 > the Stocks port. Operator command `uv run desk open --desk stocks --install` installs only its lime menu icon

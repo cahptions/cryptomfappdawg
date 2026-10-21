@@ -142,8 +142,8 @@ it (each has its own small browser profile in `~/desk-data/windows`, and its own
 `Super+→` snap a window to half the screen.
 
 Stocks can be installed and opened independently with `uv run desk open --desk stocks --install`. Its lime icon
-opens the research hub on8767 on demand; it initially uses the full work area. **Start research** in that app
-controls its collector. Stocks is not added to the older desks' autostart services by installing its icon.
+opens the research hub on8767 on demand; it initially uses the full work area. Dashboard startup automatically
+starts its combined PAPER/collection worker unless paused. **Pause PAPER / Start PAPER** controls both. Stocks is not added to the older desks' autostart services by installing its icon.
 
 `uv run desk down` stops the engines and dashboards and keeps them off at login; the guardian keeps supervising
 open paper positions and backups continue. `uv run desk up --dashboard-only` starts dashboards and backups without

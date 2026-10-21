@@ -5,7 +5,7 @@ The saved Claude branch completed the research/data modules, eleven desks, valid
 and a Schwab **market-data-only** adapter. There is no Schwab account/order endpoint or LIVE trading in this desk.
 Code and synthetic tests cannot establish a profitable strategy or finish prospective validation.
 
-## 1. Open the dashboard first
+## 1. Open the Stocks app — PAPER starts automatically
 
 After updating to the continuation branch and installing the locked dependencies:
 
@@ -41,11 +41,12 @@ Then find **KESTREL Stocks** in the Linux Mint menu; right-click it to add it to
 in its own Chrome/Chromium app window when available, otherwise a new browser window. Its lime icon and browser
 profile are separate from the other desks. The first window uses the screen's full work area; later opens restore
 its saved position. The command reuses an answering dashboard or starts it in the background, so a newly started
-dashboard needs no open terminal. **Start research** inside the app controls collection. Installing this shortcut
-preserves other launchers and does not start collectors, PAPER engines or login services.
+dashboard needs no open terminal. Opening the dashboard automatically starts one combined PAPER/collection
+worker. Installing the shortcut preserves other launchers and does not install login services.
 
 You can also open the Stocks desk with `uv run desk open --desk stocks`; it starts only the dashboard if
-needed and opens its app window. It does not start the collector. The existing `desk up/down` services still
+needed and opens its app window. Stocks dashboard startup also starts its PAPER/collection worker unless
+previously paused. The existing `desk up/down` services still
 manage the two older desks. After pulling code while a Stocks dashboard is already running, stop its old
 terminal process with Ctrl+C and restart it so the backend and page assets use the same version.
 
@@ -68,10 +69,16 @@ Open **Settings → Start here · free stock research**:
 2. Enter your email in **Company filings · SEC**. There is no SEC signup or key; the address identifies requests.
 3. Skip **Options while waiting for Schwab** unless you already want to use a Tradier sandbox token. It is optional;
    waiting for Schwab does not block stock price history, charts or price-based research.
-4. Click **Save research sources**, then **Start research**. Return to **Home**. Keep the dashboard terminal and
-   laptop running; data appears as it is stored and the page refreshes every30seconds. No paper orders are created
-   by this button. **Pause research** or closing the dashboard interrupts research network/rate-limit waits and
-   completes cleanup before releasing the collection lock. Completed imports stay saved; an unfinished batch retries.
+4. Click **Save research sources** and return to **Home**. The PAPER worker starts with the dashboard and
+   reloads these sources on its next pass. Downloaded data appears as it is stored; eligible strategies simulate
+   trades automatically. **Pause PAPER** pauses both simulation and collection and remembers that choice across
+   app restarts. **Start PAPER** resumes both. No extra PAPER terminal command is required.
+
+Closing a browser window leaves a background dashboard running. Stopping the dashboard process requests a clean
+worker stop; reopening the dashboard automatically starts it again unless explicitly paused. Network/rate-limit
+waits can be interrupted; synchronous database/PAPER transactions finish atomically before the worker unlocks.
+Existing terminal workers are observed, not signalled or duplicated. When an external worker finishes, the
+background startup monitor starts PAPER. Unexpected worker exits remain visible instead of restarting endlessly.
 
 No file editing is needed. Settings writes the existing owner-only secrets file atomically, preserves other desks'
 keys, and leaves Schwab authorization intact. Blank fields preserve saved values; saved keys/email are never
@@ -101,49 +108,35 @@ dates; it does not guarantee that every stock has enough usable observations. Us
 The research-only collector maintains a **current research preview**, including re-analysis on the same closing
 date as history arrives. It does not write frozen list/score history, PAPER accounts, orders or steps. Old frozen
 lists (including any empty warm-up records) are preserved. A preview is labeled separately and is not prospective
-evidence. Forward PAPER collection remains an explicit separate command below.
+evidence. The automatic worker refreshes these previews as well as advancing the separate forward PAPER record.
 
 Source provenance and limits are in [STOCKS_SOURCES.md](STOCKS_SOURCES.md). Never paste keys, codes or token files into chat.
 Environment variables override secrets.env, so remove an obsolete exported value if it overrides a new key.
 
-## 3. Collect and PAPER trade
+## 3. Automatic collection and PAPER trading
 
-The Settings button runs research only. Its equivalent terminal command is:
+Opening Stocks starts `desk stocks paper --continuous --price-days 20` in the background. There is no24-hour
+cutoff for this app-owned worker. It checks again five minutes after each completed pass, collects up to20
+missing price sessions,20 companies and5 rotating option underlyings per pass, and respects the free provider
+limits. Saved history is reused. Unavailable optional sources are recorded; each strategy still requires its own
+inputs and a qualifying setup. "Running PAPER" does not promise an immediate simulated trade.
 
-```bash
-uv run desk stocks collect --minutes 1440
-```
+Initial history must pass the minimum research warmup before the first PAPER session is consumed. Existing
+positions remain subject to their normal management rules. Closed-session decisions and next-session fills
+retain their original timing; historical backfill does not fabricate historical entries. STOP continues to block
+new entries. Broker orders remain disabled.
 
-It fetches up to20 missing daily price sessions per pass, respecting the existing free5requests/minute budget,
-and repeats at five-minute intervals after each pass. Initial history takes time; delays/errors are shown rather
-than replaced with invented prices. The full two-year backfill is not required for the first chart or eligible list.
+Use **Pause PAPER / Start PAPER** in the app. Pausing for a credential change also pauses this worker; resume
+with Start PAPER after saving/authorizing. Pause is persistent. A damaged automation preference or unexpected
+worker crash is shown as an error instead of silently restarting. Logs remain in `~/desk-data/logs/stocks-research.log`.
 
-Do not start a second Stocks worker while this one runs. To start forward PAPER simulation instead, **Pause research**
-and wait until it has finished its current pass. Then, in a **second terminal**, run one bounded PAPER pass:
-
-```bash
-cd ~/kestrel
-uv run desk stocks refresh
-```
-
-Then repeat automatically:
+The laptop must stay awake and connected. Tailscale does not host the app or keep a sleeping laptop online.
+Advanced terminal commands still exist for an explicitly chosen bounded experiment, but do not start one while
+the automatic worker runs:
 
 ```bash
 uv run desk stocks paper --minutes 1440
-```
-
-This is an upper runtime, **not a 24-hour build gate**. The dashboard reads saved data as collection proceeds
-and refreshes its display every30seconds. Closing/stopping the dashboard does not stop a worker in another
-terminal. Closing the worker terminal or pressing Ctrl+C stops that worker; no auto-login service is installed.
-For `paper`/`refresh`, Ctrl+C requests a clean stop after the in-flight pass; research-only `collect` interrupts
-network/rate-limit waits promptly and closes its resources before unlocking. The laptop must stay awake and connected; Tailscale
-does not run the app on another machine or keep a sleeping laptop online.
-
-Each pass fetches up to5 missing price sessions,20 company records and5 rotating option underlyings, plus
-held contracts and periodic public feeds. Defaults may be changed with bounded flags, for example:
-
-```bash
-uv run desk stocks refresh --price-days 20 --companies 40 --options 10
+uv run desk stocks collect --minutes 1440  # research-only alternative, no PAPER ledger changes
 ```
 
 The ranked option focus is capped at150 names; the pilot rotates small batches no more often than every4hours.

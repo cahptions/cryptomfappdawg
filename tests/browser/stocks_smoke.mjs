@@ -133,15 +133,18 @@ try {
     await page.locator("#sec-contact").fill("fixture@example.org");
     await page.getByRole("button", { name: "Save research sources" }).click();
     await page
-      .getByText("Saved privately. Click Start research below.", {
-        exact: false,
-      })
+      .getByText(
+        "Saved privately. Running PAPER picks up changes on its next pass.",
+        {
+          exact: false,
+        },
+      )
       .waitFor();
     assert.equal(await page.locator("#massive-key").inputValue(), "");
     assert.equal(await page.locator("#sec-contact").inputValue(), "");
     assert.equal(
       await page
-        .getByRole("button", { name: "Start research", exact: true })
+        .getByRole("button", { name: "Start PAPER", exact: true })
         .count(),
       1,
     );
@@ -169,10 +172,10 @@ try {
       await route.fulfill({ json: collection });
     });
     await page
-      .getByRole("button", { name: "Start research", exact: true })
+      .getByRole("button", { name: "Start PAPER", exact: true })
       .click();
     await page
-      .getByRole("button", { name: "Pause research", exact: true })
+      .getByRole("button", { name: "Pause PAPER", exact: true })
       .waitFor();
     assert.equal(
       await page
@@ -194,7 +197,7 @@ try {
     });
     await page.getByRole("button", { name: "Pause collector to save" }).click();
     await page
-      .getByRole("button", { name: "Start research", exact: true })
+      .getByRole("button", { name: "Start PAPER", exact: true })
       .waitFor();
     assert.equal(
       await page.locator("#app-key").inputValue(),

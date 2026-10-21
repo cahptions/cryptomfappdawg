@@ -44,7 +44,7 @@ def test_zero_revenue_company_does_not_abort_research_or_write_paper(tmp_path: P
 
 def test_empty_dashboard_and_secret_form_boundary(tmp_path: Path) -> None:
     paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "private" / "secrets.env")
-    with TestClient(create_app(paths), base_url="http://127.0.0.1:8767") as client:
+    with TestClient(create_app(paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
         assert client.get("/").status_code == 200
         response = client.get("/api/stocks/snapshot")
         assert response.status_code == 200 and response.json()["orders_enabled"] is False
@@ -100,7 +100,7 @@ def test_forward_pipeline_and_populated_dashboard_are_idempotent(tmp_path: Path)
         previous = world.dbs.ledger.execute("SELECT COUNT(*) FROM stk_decisions").fetchone()[0]
         assert "already processed" in process(world.paths, loaded, world.dbs, NOW)["waiting"]
         assert world.dbs.ledger.execute("SELECT COUNT(*) FROM stk_decisions").fetchone()[0] == previous
-        with TestClient(create_app(world.paths), base_url="http://127.0.0.1:8767") as client:
+        with TestClient(create_app(world.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
             snapshot = client.get("/api/stocks/snapshot").json()
             assert snapshot["asof"] == NOW.date().isoformat() and snapshot["lists"]
             detail = client.get("/api/stocks/stock/CHEAP").json()
@@ -151,7 +151,7 @@ def test_research_backfill_refreshes_same_session_without_paper_or_frozen_histor
         assert world.dbs.research.execute("SELECT COUNT(*) FROM stk_score_history").fetchone()[0] == history
         assert list(world.dbs.research.execute("SELECT * FROM stk_list_snapshots")) == frozen
         assert "current" in process(world.paths, loaded, world.dbs, NOW, research_only=True)["waiting"]
-        with TestClient(create_app(world.paths), base_url="http://127.0.0.1:8767") as client:
+        with TestClient(create_app(world.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
             snapshot = client.get("/api/stocks/snapshot").json()
             assert any(v["preview"] and v["rows"] for v in snapshot["lists"])
             assert client.get("/api/stocks/home").json()["stocks"]
@@ -185,7 +185,7 @@ def test_explicit_start_and_pause_routes_never_start_on_get(tmp_path: Path) -> N
     worker.status.return_value = {"owned": False, "running": False, "stopping": False, "exit_code": None}
     worker.start.return_value = {"owned": True, "running": True, "stopping": False, "exit_code": None}
     worker.stop.return_value = {"owned": True, "running": True, "stopping": True, "exit_code": None}
-    with TestClient(create_app(paths, worker=worker), base_url="http://127.0.0.1:8767") as client:
+    with TestClient(create_app(paths, worker=worker, auto_start=False), base_url="http://127.0.0.1:8767") as client:
         client.get("/")
         client.get("/api/stocks/home")
         client.get("/api/stocks/snapshot")
@@ -198,6 +198,44 @@ def test_explicit_start_and_pause_routes_never_start_on_get(tmp_path: Path) -> N
         worker.stop.assert_called_once()
 
 
+def test_dashboard_lifespan_starts_paper_once_and_shutdown_does_not_persist_pause(tmp_path: Path, monkeypatch: Any) -> None:
+    paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "secrets.env")
+    child = Mock()
+    child.poll.return_value = None
+    spawn = Mock(return_value=child)
+    monkeypatch.setattr("desk.stocks.research_worker.subprocess.Popen", spawn)
+    with TestClient(create_app(paths), base_url="http://127.0.0.1:8767") as client:
+        assert spawn.call_count == 1
+        for _ in range(3):
+            status = client.get("/api/stocks/snapshot").json()["collection"]
+            assert status["owned"] and status["mode"] == "PAPER"
+        assert spawn.call_count == 1
+        assert "paper" in spawn.call_args.args[0] and "--continuous" in spawn.call_args.args[0]
+    child.send_signal.assert_called_once()
+    assert json.loads((paths.home / "stocks-automation.json").read_text())["enabled"]
+
+
+def test_paper_waits_for_history_without_consuming_session_then_runs_automatically(tmp_path: Path) -> None:
+    world = make_world(tmp_path, n=12)
+    try:
+        receipts = [tuple(r) for r in world.dbs.market.execute("SELECT * FROM stk_bar_days ORDER BY day")]
+        keep = set(world.days[-20:])
+        world.dbs.market.execute("DELETE FROM stk_bar_days")
+        for row in receipts:
+            if any(value.toordinal() == row[0] for value in keep):
+                world.dbs.market.execute("INSERT INTO stk_bar_days VALUES (?,?,?,?)", row)
+        loaded = load_config(REPO / "config")
+        assert "downloading history" in process(world.paths, loaded, world.dbs, NOW)["waiting"]
+        assert world.dbs.ledger.execute("SELECT COUNT(*) FROM stk_decisions").fetchone()[0] == 0
+        for row in receipts:
+            world.dbs.market.execute("INSERT OR IGNORE INTO stk_bar_days VALUES (?,?,?,?)", row)
+        result = process(world.paths, loaded, world.dbs, NOW)
+        assert result["paper"]["skipped"] is None
+        assert "already processed" in process(world.paths, loaded, world.dbs, NOW)["waiting"]
+    finally:
+        world.close()
+
+
 def test_failed_authorization_can_be_cancelled_before_correcting_credentials(tmp_path: Path, monkeypatch: Any) -> None:
     paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "secrets.env")
     attempt = Mock()
@@ -208,7 +246,7 @@ def test_failed_authorization_can_be_cancelled_before_correcting_credentials(tmp
     attempt.start.return_value = "https://api.schwabapi.com/v1/oauth/authorize?client_id=fixture"
     login = Mock(return_value=attempt)
     monkeypatch.setattr("desk.stocks.web.new_login", login)
-    with TestClient(create_app(paths), base_url="http://127.0.0.1:8767") as client:
+    with TestClient(create_app(paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
         headers = {"X-CSRF-Token": client.get("/api/stocks/session").json()["csrf_token"]}
         assert client.post("/api/stocks/connect", json={}, headers=headers).status_code == 400
         login.assert_not_called()

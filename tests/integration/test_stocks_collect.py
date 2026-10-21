@@ -110,6 +110,31 @@ async def test_no_signup_jobs_run_without_price_sec_or_options_credentials(tmp_p
     assert result["problems"]
 
 
+async def test_paper_uses_ready_data_despite_unavailable_optional_sources(tmp_path: Path, monkeypatch: Any) -> None:
+    from desk.stocks import runner
+    from tests.stocks_world import make_world
+
+    world = make_world(tmp_path, n=12)
+    monkeypatch.setattr(runner, "utc_now", lambda: NOW)
+
+    async def unavailable(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"ok": False, "error": "fixture source unavailable"}
+
+    for name in ("listings", "mentions", "rates", "short_interest", "short_volume"):
+        monkeypatch.setattr(collect, name, unavailable)
+    try:
+        result = await runner.cycle(world.paths, load_config(REPO / "config"))
+        assert not result["research_only"] and all(not job["ok"] for job in result["jobs"].values())
+        assert result["analysis"]["paper"]["skipped"] is None
+        assert runner.saved(world.paths, "research")["lists"]
+        ledger = list(world.dbs.ledger.iterdump())
+        again = await runner.cycle(world.paths, load_config(REPO / "config"))
+        assert "already processed" in again["analysis"]["waiting"]
+        assert list(world.dbs.ledger.iterdump()) == ledger
+    finally:
+        world.close()
+
+
 @respx.mock
 async def test_prices_backfill_newest_first_and_reject_mislabelled_days(world: World) -> None:
     world.market.save_listings([Listing("AAA", "A Common Stock", "NYSE", False, False, "common")], {}, NOW)

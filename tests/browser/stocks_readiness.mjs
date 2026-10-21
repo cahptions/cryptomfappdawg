@@ -103,7 +103,7 @@ try {
         } else
           assert.match(
             await movers.innerText(),
-            /Research collection is stopped/,
+            /PAPER and collection are stopped/,
           );
       }
       if (state.recorded)
