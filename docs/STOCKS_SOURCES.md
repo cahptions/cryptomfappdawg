@@ -11,6 +11,14 @@ price. The probes are recorded in `research/evidence/2026-10-21/stocks_sources_v
 responses are in `tests/fixtures/stocks/`. Every plan used is free. Keys and the SEC contact live only in
 `~/.config/desk/secrets.env`.
 
+**Operator follow-up:** a laptop Schwab online doctor subsequently confirmed authorization and one market
+quote, with no configuration problems. This does not validate all option chains or trading performance.
+The laptop's FINRA JSON error matched the default CSV header format; the client now explicitly requests JSON
+and accepts schema-checked CSV too. Pagination counts received rows before filtering missing measurements.
+FRED is requested as CSV and its series/date columns are checked. An HTML or other non-data response stays
+unavailable; the operator's FRED availability is still under diagnosis. The extra FINRA CSV fixture is a
+synthetic serialization of existing recorded values, not additional live evidence.
+
 ## Set up in Settings (stock prices, SEC contact, and optional options)
 
 Use **Settings → Start here · free stock research** to save these privately; no file editing is needed.

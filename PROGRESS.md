@@ -5,6 +5,22 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Operator market-data acceptance:** the laptop's `desk stocks doctor --online` returned Schwab
+`connected=true`, `quote_received=true`, `options_provider=schwab`, `problems={}`, and integrity=ok/WAL for
+all three Stocks databases. Quote timestamp: 2026-10-21 17:43:06.135 UTC. Orders remained disabled. This
+confirms this quote/login path, not full option-chain coverage, refresh over time or prospective performance.
+Listings, Massive bars/actions, SEC companies, mentions, Treasury rates and short volume also had successful
+jobs. Twenty price sessions were stored; the minimum60 observations per eligible stock still need backfill.
+The initial corporate-actions history took1488.3seconds and completed; it is not a repeated full download.
+Two optional feeds failed. FINRA's exact JSON error was reproduced with a CSV header beginning
+`accountingYearMonthNumber`; requests now explicitly ask for JSON and the parser also accepts validated CSV,
+keeps missing values missing, rejects non-finite/wrong-settlement records and paginates by received rows.
+FRED explicitly asks for CSV and validates the requested series/date schema. Non-data/HTML responses remain
+unavailable rather than becoming measurements; the laptop's actual FRED response still needs diagnosis.
+The CSV test fixture is a serialization variant of recorded JSON rows, not a new live source capture.
+Validation: 31 relevant offline source/collection tests, Ruff and strict mypy passed. No running laptop
+collector was changed here; the free rate ceilings and trading behavior remain unchanged.
+
 **Schwab setup recovery:** operator hit the ambiguous "stop the Stocks worker" instruction, stopped the
 dashboard instead, and then hit an expired browser CSRF token. Settings now distinguishes the dashboard
 from collection, presents an owned-collector pause button beside the Schwab fields, disables saving while

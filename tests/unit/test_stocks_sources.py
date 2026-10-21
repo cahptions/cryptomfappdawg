@@ -111,6 +111,32 @@ def test_finra_short_data() -> None:
     assert date(2026, 8, 14) in candidates            # Saturday the 15th moves back to Friday
 
 
+def test_finra_csv_matches_recorded_json_and_preserves_missing_values() -> None:
+    # A synthetic CSV serialization of the first two recorded JSON rows, not a new live probe.
+    body = read("finra_short_interest_csv_variant.csv")
+    with pytest.raises(json.JSONDecodeError, match="line 1 column 28"):
+        json.loads(body)  # the exact parser failure reported by the operator
+    assert feeds.parse_short_interest(body) == feeds.parse_short_interest(read("finra_consolidated_short_interest.json"))[:2]
+    rows = feeds.parse_short_interest(b"\xef\xbb\xbf" + body.replace(b'"43340153"', b'""'))
+    assert rows[1].previous_short_shares is None and rows[1].short_shares == 49060479
+
+
+@pytest.mark.parametrize("body", [b"<html>unavailable</html>", b'{"error":"unavailable"}', b"[1]",
+                                  b'[{"symbolCode":"AAPL","currentShortPositionQuantity":NaN}]'])
+def test_finra_non_data_and_invalid_numbers_are_not_observations(body: bytes) -> None:
+    with pytest.raises(SchemaError):
+        feeds.parse_short_interest(body)
+
+
+def test_fred_requires_the_requested_series_and_accepts_legacy_dates_bom_and_missing() -> None:
+    body = "\ufeffDATE,VIXCLS\n2026-10-19,17.31\n2026-10-20,.\n"
+    assert [(r.day, r.value) for r in feeds.parse_fred_csv(body, "VIXCLS")] == [(date(2026, 10, 19), 17.31)]
+    for invalid in ("<html>not a download</html>", "Access unavailable", "DATE,OTHER\n2026-10-19,17.31\n",
+                    "DATE,VIXCLS\n2026-10-19,NaN\n", "DATE,VIXCLS\nbad-date,17.31\n"):
+        with pytest.raises(SchemaError):
+            feeds.parse_fred_csv(invalid, "VIXCLS")
+
+
 def test_rates_and_crowd_and_cusips() -> None:
     curve = feeds.parse_treasury_curve(read("treasury_yield_curve_2026.csv").decode())
     ten = sorted((p for p in curve if p.series == "UST10Y"), key=lambda p: p.day)

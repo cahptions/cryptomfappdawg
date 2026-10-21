@@ -372,6 +372,7 @@ verified_fields = ["ACT Symbol", "Security Name", "Exchange", "CQS Symbol", "ETF
 display_name = "FINRA Query API"
 base_url = "https://api.finra.org"
 auth = "none"
+default_headers = { Accept = "application/json" }
 cost_usd_month = 0
 documented_limit = "public datasets without credentials; at most 5,000 records per request"
 measured_limit = "200 keyless; 204 when a settlement date is not yet published (2026-10-21)"
@@ -439,6 +440,7 @@ verified_fields = ["Date", "3 Mo", "2 Yr", "10 Yr", "30 Yr"]
 display_name = "FRED (St. Louis Fed) graph CSV"
 base_url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 auth = "none"
+default_headers = { Accept = "text/csv" }
 cost_usd_month = 0
 documented_limit = "public CSV download"
 measured_limit = "200 once, then connection drops and timeouts from the build container (2026-10-21)"

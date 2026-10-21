@@ -175,9 +175,10 @@ async def test_insider_history_loads_each_quarter_once(world: World) -> None:
 @respx.mock
 async def test_short_interest_finds_the_newest_published_settlement(world: World) -> None:
     world.market.save_listings([Listing("AAPL", "Apple Inc. Common Stock", "Nasdaq", False, False, "common")], {}, NOW)
-    recorded = (F / "finra_consolidated_short_interest.json").read_bytes()
+    recorded = (F / "finra_short_interest_csv_variant.csv").read_bytes()
 
     def answer(request: httpx.Request) -> httpx.Response:
+        assert request.headers["accept"] == "application/json"
         body = json.loads(request.content)
         settlement = body["compareFilters"][0]["fieldValue"]
         return httpx.Response(200, content=recorded) if settlement == "2026-09-30" else httpx.Response(204)
@@ -187,6 +188,47 @@ async def test_short_interest_finds_the_newest_published_settlement(world: World
     assert report["ok"] and report["settlement"] == "2026-09-30"
     [row] = world.market.short_interest("AAPL")
     assert row["days_to_cover"] == 3.03 and row["short_shares"] == 120763539
+
+
+@respx.mock
+async def test_finra_paging_uses_received_records_not_filtered_rows(world: World) -> None:
+    offsets = []
+    sample = {"symbolCode": "AAA", "settlementDate": "2026-09-30", "currentShortPositionQuantity": 100}
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        offset = json.loads(request.content)["offset"]
+        offsets.append(offset)
+        rows = [sample] if offset else [*([sample] * 4999), {**sample, "currentShortPositionQuantity": None}]
+        return httpx.Response(200, json=rows)
+
+    respx.post("https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest").mock(side_effect=answer)
+    rows = await world.suite.feeds.short_interest(date(2026, 9, 30))
+    assert offsets == [0, 5000] and len(rows) == 5000
+
+
+@respx.mock
+async def test_finra_refuses_an_unexpected_settlement_partition(world: World) -> None:
+    from desk.core.errors import SchemaError
+
+    respx.post("https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest").mock(
+        return_value=httpx.Response(200, content=(F / "finra_short_interest_csv_variant.csv").read_bytes()))
+    with pytest.raises(SchemaError, match="unexpected settlement"):
+        await world.suite.feeds.short_interest(date(2026, 10, 15))
+
+
+@respx.mock
+async def test_fred_non_csv_remains_unavailable_without_blocking_treasury(world: World) -> None:
+    respx.get(url__startswith="https://home.treasury.gov/").mock(
+        return_value=httpx.Response(200, content=(F / "treasury_yield_curve_2026.csv").read_bytes()))
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        assert request.headers["accept"] == "text/csv"
+        return httpx.Response(200, text="<html>not a CSV download</html>", headers={"content-type": "text/html"})
+
+    respx.get(url__startswith="https://fred.stlouisfed.org/").mock(side_effect=answer)
+    result = await collect.rates(world.suite, world.market, NOW)
+    assert result["ok"] and "HTML page" in result["fred_errors"]["VIXCLS"]
+    assert world.market.rates("UST10Y") and world.market.rates("VIXCLS") == []
 
 
 @respx.mock

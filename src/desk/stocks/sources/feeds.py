@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 from datetime import date, timedelta
 from typing import Any
@@ -70,19 +71,43 @@ def parse_other_listed(text: str) -> list[Listing]:
     return out
 
 
-def parse_short_interest(body: bytes) -> list[ShortInterest]:
-    """FINRA consolidated short interest (Query API JSON)."""
+def _short_interest_page(body: bytes) -> tuple[list[ShortInterest], int]:
+    """FINRA consolidated short interest. Request JSON, accepting schema-checked CSV responses too."""
     try:
-        rows = json.loads(body)
+        text = body.decode("utf-8-sig").strip()
+        if text.startswith("["):
+            rows = json.loads(text)
+            if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
+                raise ValueError("expected a JSON array of records")
+        else:
+            reader = csv.DictReader(io.StringIO(text))
+            required = {"symbolCode", "settlementDate", "currentShortPositionQuantity"}
+            if not reader.fieldnames or not required.issubset(reader.fieldnames):
+                raise ValueError("expected FINRA JSON records or CSV with symbol, settlement and short-position columns")
+            rows = list(reader)
         def opt(r: dict[str, Any], key: str) -> float | None:
-            return None if r.get(key) is None else float(r[key])
+            if r.get(key) in (None, "", "null"):
+                return None
+            value = float(r[key])
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("invalid nonnegative short-interest value")
+            return value
 
-        return [ShortInterest(str(r["symbolCode"]).replace("/", "."), date.fromisoformat(r["settlementDate"]),
-                              float(r["currentShortPositionQuantity"]), opt(r, "previousShortPositionQuantity"),
-                              opt(r, "averageDailyVolumeQuantity"), opt(r, "daysToCoverQuantity"))
-                for r in rows if r.get("symbolCode") and r.get("currentShortPositionQuantity") is not None]
-    except (ValueError, KeyError, TypeError) as exc:
+        out = []
+        for row in rows:
+            quantity = opt(row, "currentShortPositionQuantity")
+            if not row.get("symbolCode") or quantity is None:
+                continue
+            out.append(ShortInterest(str(row["symbolCode"]).replace("/", "."), date.fromisoformat(row["settlementDate"]),
+                                     quantity, opt(row, "previousShortPositionQuantity"),
+                                     opt(row, "averageDailyVolumeQuantity"), opt(row, "daysToCoverQuantity")))
+        return out, len(rows)
+    except (ValueError, KeyError, TypeError, UnicodeError, csv.Error) as exc:
         raise SchemaError(f"finra short interest: {exc}") from exc
+
+
+def parse_short_interest(body: bytes) -> list[ShortInterest]:
+    return _short_interest_page(body)[0]
 
 
 def parse_reg_sho(text: str) -> list[ShortVolume]:
@@ -120,16 +145,27 @@ def parse_treasury_curve(text: str) -> list[RatePoint]:
 
 
 def parse_fred_csv(text: str, series: str) -> list[RatePoint]:
-    reader = csv.reader(io.StringIO(text))
-    header = next(reader, None)
-    if not header or len(header) < 2:
-        raise SchemaError(f"fred {series}: unexpected header")
-    out = []
-    for row in reader:
-        if len(row) < 2 or not row[1].strip() or row[1].strip() == ".":
-            continue
-        out.append(RatePoint(series, date.fromisoformat(row[0]), float(row[1])))
-    return out
+    text = text.lstrip("\ufeff\r\n \t")
+    if text.startswith("<"):
+        raise SchemaError(f"fred {series}: received an HTML page instead of CSV; series unavailable")
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        fields = reader.fieldnames or []
+        dated = next((name for name in fields if name in {"DATE", "observation_date"}), None)
+        if dated is None or series not in fields:
+            raise ValueError("expected date and requested series columns; received a non-data response")
+        out = []
+        for row in reader:
+            value = (row.get(series) or "").strip()
+            if value in {"", "."}:
+                continue
+            number = float(value)
+            if not math.isfinite(number):
+                raise ValueError("non-finite rate observation")
+            out.append(RatePoint(series, date.fromisoformat(row[dated]), number))
+        return out
+    except (ValueError, TypeError, csv.Error) as exc:
+        raise SchemaError(f"fred {series}: {exc}") from exc
 
 
 def parse_apewisdom(body: bytes, source: str) -> tuple[list[Mention], int]:
@@ -195,10 +231,12 @@ class FeedsClient:
                 {"compareType": "EQUAL", "fieldName": "settlementDate", "fieldValue": settlement.isoformat()}]}
             if symbols:
                 body["domainFilters"] = [{"fieldName": "symbolCode", "values": symbols}]
-            page = parse_short_interest(await _ok(self.finra_api, "consolidated_short_interest", method="POST",
-                                                  json_body=body, empty=b"[]"))
+            page, received = _short_interest_page(await _ok(self.finra_api, "consolidated_short_interest", method="POST",
+                                                            json_body=body, empty=b"[]"))
+            if any(row.settlement != settlement for row in page):
+                raise SchemaError("finra short interest: response contains an unexpected settlement date")
             out += page
-            if len(page) < 5000:
+            if received < 5000:
                 return out
             offset += 5000
 
@@ -224,7 +262,11 @@ class FeedsClient:
 
     async def fred_series(self, series: str, since: date) -> list[RatePoint]:
         body = await _ok(self.fred, "graph_csv", params={"id": series, "cosd": since.isoformat()})
-        return parse_fred_csv(body.decode(), series)
+        try:
+            text = body.decode("utf-8-sig")
+        except UnicodeError as exc:
+            raise SchemaError(f"fred {series}: invalid CSV encoding") from exc
+        return parse_fred_csv(text, series)
 
     async def mentions(self, source: str, pages: int = 10) -> list[Mention]:
         out: list[Mention] = []
