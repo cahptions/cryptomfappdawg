@@ -317,13 +317,18 @@ def pick_expirations(expirations: Sequence[date], today: date, earnings: date | 
 
 
 async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime, symbols: Sequence[str], *, rate: float,
-                        last_prices: dict[str, float], earnings: dict[str, date] | None = None) -> dict[str, Any]:
+                        last_prices: dict[str, float], earnings: dict[str, date] | None = None,
+                        held: dict[str, set[date]] | None = None) -> dict[str, Any]:
+    """Chains for ``symbols`` (and every underlying in ``held``): the picked expirations plus any expiration a PAPER
+    position holds, so a held contract is quoted every day until it closes."""
     async def work() -> dict[str, Any]:
         today = cal.new_york(now).date()
         done, contracts, skipped = 0, 0, []
-        for symbol in symbols:
+        wanted = list(dict.fromkeys([*symbols, *(held or {})]))
+        for symbol in wanted:
             expirations = await suite.tradier.expirations(symbol)
-            chosen = pick_expirations(expirations, today, (earnings or {}).get(symbol))
+            chosen = sorted(set(pick_expirations(expirations, today, (earnings or {}).get(symbol)))
+                            | {e for e in (held or {}).get(symbol, set()) if e in expirations and e >= today})
             if not chosen:
                 skipped.append(symbol)
                 continue

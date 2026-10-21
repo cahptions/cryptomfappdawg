@@ -174,8 +174,9 @@ async def test_crowd_rates_and_option_chains(world: World) -> None:
     assert world.market.rates("UST10Y")[-1].value == 5.12
 
     exps = [date(2026, 10, 23), date(2026, 11, 20), date(2026, 12, 18), date(2027, 1, 15)]
+    far = date(2027, 3, 19)                    # listed, but not one the collector picks
     respx.get(url__startswith="https://sandbox.tradier.com/v1/markets/options/expirations").mock(
-        return_value=httpx.Response(200, json={"expirations": {"date": [d.isoformat() for d in exps]}}))
+        return_value=httpx.Response(200, json={"expirations": {"date": [d.isoformat() for d in [*exps, far]]}}))
 
     def chain(request: httpx.Request) -> httpx.Response:
         exp = request.url.params["expiration"]
@@ -196,6 +197,11 @@ async def test_crowd_rates_and_option_chains(world: World) -> None:
     assert summary["price"] == 100.0 and len(summary["expiries"]) == 4
     assert collect.pick_expirations(exps, date(2026, 10, 21)) == exps
     assert collect.pick_expirations(exps, date(2026, 10, 21), earnings=date(2026, 11, 25)) == exps
+    # a PAPER position holding the far expiration keeps it quoted
+    report = await collect.option_chains(world.suite, world.market, NOW, [], rate=0.04, last_prices={"SPCX": 100.0},
+                                         held={"SPCX": {far}})
+    assert report["ok"] and report["symbols"] == 1
+    assert sorted(world.market.option_chain("SPCX")[1]) == [*exps, far]
 
 
 async def test_without_keys_jobs_report_what_is_missing(tmp_path: Path) -> None:

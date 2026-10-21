@@ -217,4 +217,42 @@ def make_world(tmp_path: Path, *, n: int = 60, seed: int = 7, through: date = AS
     return StocksWorld(paths, dbs, market, research, all_specs, days)
 
 
-__all__ = ["ASOF", "NOW", "Spec", "StocksWorld", "facts_for", "make_world", "quarter_ends", "specs"]
+def third_friday(year: int, month: int) -> date:
+    first = date(year, month, 1)
+    return first + timedelta(days=(4 - first.weekday()) % 7 + 14)
+
+
+def occ(symbol: str, expiration: date, kind: str, strike: float) -> str:
+    return f"{symbol}{expiration:%y%m%d}{'C' if kind == 'call' else 'P'}{round(strike * 1000):08d}"
+
+
+def add_chains(world: StocksWorld, symbols: list[str], days: list[date], *, iv: float = 0.4, spread: float = 0.06) -> None:
+    """Monthly-expiry chains priced with Black-Scholes at ``iv`` around each day's close, quoted ``spread`` wide."""
+    from desk.stocks import options as opt
+    from desk.stocks.contracts import OptionQuote
+    expirations = sorted({third_friday(y, m) for y in range(days[0].year, days[-1].year + 2) for m in range(1, 13)})
+    for sym in symbols:
+        closes = {b.day: b.close for b in world.market.bars(sym, days[0])}
+        for d in days:
+            s0 = closes.get(d)
+            if s0 is None:
+                continue
+            step = 1.0 if s0 < 50 else 2.5 if s0 < 200 else 5.0
+            strikes = [round(k * step, 2) for k in range(int(s0 * 0.6 / step), int(s0 * 1.4 / step) + 1)]
+            observed = datetime.combine(d, time(21, 30), UTC)
+            for e in (e for e in expirations if 2 <= (e - d).days <= 100):
+                t = opt.year_fraction(d, e)
+                quotes = []
+                for kind in ("call", "put"):
+                    for k in strikes:
+                        mid = opt.bs_price(kind, s0, k, t, iv, 0.04)
+                        if mid < 0.05:
+                            continue
+                        half = max(mid * spread / 2, 0.01)
+                        quotes.append(OptionQuote(occ(sym, e, kind, k), sym, kind, k, e, round(mid - half, 2),
+                                                  round(mid + half, 2), round(mid, 2), 800, 5000, 700, observed))
+                world.market.save_option_chain(sym, d, e, observed, s0, quotes)
+
+
+__all__ = ["ASOF", "NOW", "Spec", "StocksWorld", "add_chains", "facts_for", "make_world", "occ", "quarter_ends", "specs",
+           "third_friday"]

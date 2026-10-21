@@ -217,6 +217,9 @@ class StocksSection(_Section):
     refresh_after_close_minutes: int = Field(default=75, ge=15)      # daily refresh this long after the 16:00 close
     # PAPER (operator request 2026-10-21: paper trade stocks and options to test and refine strategies)
     paper_starting_capital_usd: Decimal = Decimal("10000")
+    # options accounts get more paper capital so 2% of it buys one contract of most liquid names (results are compared
+    # in percentages, so the size doesn't flatter anyone)
+    paper_option_capital_usd: Decimal = Decimal("50000")
     paper_max_position_fraction: Fraction = Decimal("0.10")     # one stock position at most 10% of equity
     paper_max_option_premium_fraction: Fraction = Decimal("0.02")   # one option trade risks at most 2% of equity
     paper_max_options_at_risk_fraction: Fraction = Decimal("0.10")  # all open option premium at most 10%
