@@ -46,12 +46,18 @@ async def _job(market: StocksMarket, name: str, now: datetime, work: Callable[[]
 async def listings(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict[str, Any]:
     async def work() -> dict[str, Any]:
         rows = await suite.feeds.listings()
-        ciks: dict[str, int] = {}
+        ciks = {r["symbol"]: int(r["cik"]) for r in market.listings() if r["cik"]}
+        warning = None
         if suite.sec.contact_configured:
-            ciks = {symbol: cik for cik, _, symbol, _ in await suite.sec.tickers()}
+            try:
+                ciks.update({symbol: cik for cik, _, symbol, _ in await suite.sec.tickers()})
+            except DeskError:
+                # Optional enrichment must not discard a successfully fetched exchange directory.
+                warning = "SEC company mapping unavailable; listings saved and existing company IDs preserved"
         counts = market.save_listings(rows, ciks, now)
         research = research_listings(market)
-        return {**counts, "listings": len(rows), "research": len(research), "with_cik": sum(1 for r in research if r["cik"])}
+        return {**counts, "listings": len(rows), "research": len(research), "with_cik": sum(1 for r in research if r["cik"]),
+                "warning": warning}
     return await _job(market, "listings", now, work)
 
 

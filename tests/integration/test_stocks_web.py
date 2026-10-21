@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
 from desk.core.config import load_config
 from desk.core.paths import DeskPaths
 from desk.core.worker_lock import WorkerLock
+from desk.stocks.research_worker import ResearchWorker
 from desk.stocks.runner import process, saved
 from desk.stocks.web import create_app
 from tests.conftest import REPO
@@ -43,6 +45,21 @@ def test_empty_dashboard_and_secret_form_boundary(tmp_path: Path) -> None:
         home = client.get("/api/stocks/home").json()
         assert home["breadth"]["researched"] == 0 and home["stocks"] == {}
         assert all(b["price"] is None and b["change"] is None for b in home["benchmarks"])
+        # Auxiliary source setup does not require stopping a worker or invalidate Schwab credentials.
+        payload = {"massive_key": "PRIVATE-STOCK-KEY", "sec_contact": "private-contact@example.org"}
+        assert client.post("/api/stocks/sources", json=payload).status_code == 403
+        with WorkerLock(paths, "stocks-worker"):
+            response = client.post("/api/stocks/sources", json=payload, headers=headers)
+        assert response.status_code == 200 and response.json()["source_keys"]["MASSIVE_API_KEY"]
+        assert "PRIVATE-STOCK-KEY" not in response.text and "private-contact" not in response.text
+        assert "PRIVATE-STOCK-KEY" not in client.get("/api/stocks/snapshot").text
+        assert client.post("/api/stocks/sources", json={"app_secret": "wrong-route"}, headers=headers).status_code == 400
+        assert client.post("/api/stocks/sources", content="x" * 9000, headers=headers).status_code == 413
+        assert client.post("/api/stocks/research/start").status_code == 403
+        assert client.post("/api/stocks/research/pause").status_code == 403
+        with WorkerLock(paths, "stocks-worker"):
+            assert client.post("/api/stocks/research/start", json={}, headers=headers).status_code == 400
+            assert client.post("/api/stocks/research/pause", json={}, headers=headers).json()["owned"] is False
 
 
 def test_forward_pipeline_and_populated_dashboard_are_idempotent(tmp_path: Path) -> None:
@@ -87,3 +104,67 @@ def test_missing_latest_session_waits_and_does_not_fabricate_forward_trades(tmp_
         assert world.dbs.ledger.execute("SELECT COUNT(*) FROM stk_decisions").fetchone()[0] == 0
     finally:
         world.close()
+
+
+def test_research_backfill_refreshes_same_session_without_paper_or_frozen_history_writes(tmp_path: Path) -> None:
+    world = make_world(tmp_path, n=12)
+    loaded = load_config(REPO / "config")
+    try:
+        process(world.paths, loaded, world.dbs, NOW)
+        world.paths.stop_file.touch()
+        ledger = list(world.dbs.ledger.iterdump())
+        history = world.dbs.research.execute("SELECT COUNT(*) FROM stk_score_history").fetchone()[0]
+        frozen = list(world.dbs.research.execute("SELECT * FROM stk_list_snapshots"))
+        # An already processed PAPER session must not prevent a research preview as backfill arrives.
+        result = process(world.paths, loaded, world.dbs, NOW + timedelta(seconds=5), research_only=True)
+        assert result["universe"] > 0 and result["paper"] is None
+        assert saved(world.paths, "research")["lists"]
+        assert list(world.dbs.ledger.iterdump()) == ledger
+        assert world.dbs.research.execute("SELECT COUNT(*) FROM stk_score_history").fetchone()[0] == history
+        assert list(world.dbs.research.execute("SELECT * FROM stk_list_snapshots")) == frozen
+        assert "current" in process(world.paths, loaded, world.dbs, NOW, research_only=True)["waiting"]
+        with TestClient(create_app(world.paths), base_url="http://127.0.0.1:8767") as client:
+            snapshot = client.get("/api/stocks/snapshot").json()
+            assert any(v["preview"] and v["rows"] for v in snapshot["lists"])
+            assert client.get("/api/stocks/home").json()["stocks"]
+            revision = snapshot["revision"]
+            world.dbs.market.execute("UPDATE stk_bar_days SET received_at=? WHERE day=(SELECT MAX(day) FROM stk_bar_days)",
+                                     ((NOW + timedelta(minutes=1)).isoformat(),))
+            assert client.get("/api/stocks/snapshot").json()["revision"] != revision
+        assert process(world.paths, loaded, world.dbs, NOW + timedelta(minutes=1), research_only=True)["research_only"]
+        assert list(world.dbs.ledger.iterdump()) == ledger
+    finally:
+        world.close()
+
+
+def test_research_warmup_waits_without_freezing_empty_lists(tmp_path: Path) -> None:
+    world = make_world(tmp_path, n=12)
+    try:
+        days = world.market.bar_days()
+        world.dbs.market.execute("DELETE FROM stk_bar_days WHERE day<?", (days[-5].toordinal(),))
+        result = process(world.paths, load_config(REPO / "config"), world.dbs, NOW, research_only=True)
+        assert "5/60" in result["waiting"]
+        assert world.dbs.research.execute("SELECT COUNT(*) FROM stk_list_days").fetchone()[0] == 0
+        assert world.dbs.ledger.execute("SELECT COUNT(*) FROM stk_decisions").fetchone()[0] == 0
+        assert saved(world.paths, "research") is None
+    finally:
+        world.close()
+
+
+def test_explicit_start_and_pause_routes_never_start_on_get(tmp_path: Path) -> None:
+    paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "secrets.env")
+    worker = Mock(spec=ResearchWorker)
+    worker.status.return_value = {"owned": False, "running": False, "stopping": False, "exit_code": None}
+    worker.start.return_value = {"owned": True, "running": True, "stopping": False, "exit_code": None}
+    worker.stop.return_value = {"owned": True, "running": True, "stopping": True, "exit_code": None}
+    with TestClient(create_app(paths, worker=worker), base_url="http://127.0.0.1:8767") as client:
+        client.get("/")
+        client.get("/api/stocks/home")
+        client.get("/api/stocks/snapshot")
+        worker.start.assert_not_called()
+        csrf = client.get("/api/stocks/session").json()["csrf_token"]
+        headers = {"X-CSRF-Token": csrf}
+        assert client.post("/api/stocks/research/start", json={}, headers=headers).json()["owned"]
+        worker.start.assert_called_once()
+        assert client.post("/api/stocks/research/pause", json={}, headers=headers).json()["stopping"]
+        worker.stop.assert_called_once()

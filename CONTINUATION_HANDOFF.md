@@ -1,5 +1,17 @@
 # Continuing Claude's work
 
+> **Free-source onboarding correction, 2026-10-21:** Settings now has an owner-only source form, signup links,
+> explanations of required/optional inputs, and explicit Start/Pause research controls. No-signup public feeds are
+> integrated; actual stock history still requires the operator's free Massive Stocks Basic key. SEC needs only
+> their contact email; Tradier is optional if waiting for Schwab. No operator credentials were created or read.
+> The dashboard starts only its own fixed-command `desk stocks collect` child on an explicit CSRF-checked POST;
+> it never starts on GET or signals a terminal-owned collector. Pause/closing requests a safe end after the pass.
+> Source changes preserve unrelated keys and Schwab tokens and take effect at the next collection pass.
+> The research-only path can refresh the same session as backfill arrives, using mutable preview lists/latest
+> scores with no PAPER ledger or frozen history writes. Price-receipt/job revisions trigger UI updates while
+> a pass is running. Optional SEC mapping failure does not block Nasdaq listings. Tests use isolated fixtures;
+> authenticated finance-source access and actual laptop collection remain operator checks, not claimed successes.
+
 > **Latest continuation, 2026-10-21:** Stocks/Schwab work is on **`codex/finish-schwab-stocks`**, based on
 > Claude's M6 commit `972565b`. Read [docs/STOCKS.md](docs/STOCKS.md) for operator commands, architecture,
 > bounded data/resource behavior, tests and outstanding validation; [docs/SCHWAB.md](docs/SCHWAB.md) for

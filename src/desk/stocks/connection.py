@@ -98,6 +98,30 @@ def save_connection(paths: DeskPaths, *, app_key: str, app_secret: str, callback
             _atomic_private(preference_path(paths), local_json)
 
 
+def save_sources(paths: DeskPaths, *, massive_key: str = "", sec_contact: str = "", tradier_token: str = "") -> None:
+    """Update only auxiliary sources, preserving other desks and Schwab authorization. Blanks mean keep."""
+    updates = {"MASSIVE_API_KEY": massive_key.strip(), "SEC_CONTACT_EMAIL": sec_contact.strip(),
+               "TRADIER_TOKEN": tradier_token.strip()}
+    if any(len(v) > 2000 or any(c in v for c in "\r\n\x00") for v in updates.values()):
+        raise SchwabAuthError("Source settings must be single-line values")
+    if updates["SEC_CONTACT_EMAIL"] and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", updates["SEC_CONTACT_EMAIL"]):
+        raise SchwabAuthError("Enter your contact email for SEC requests")
+    with private_lock(paths.secrets_file.with_name(".stocks-credentials.lock")):
+        old = ""
+        if paths.secrets_file.exists():
+            descriptor = os.open(paths.secrets_file, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(descriptor, encoding="utf-8") as handle:
+                info = os.fstat(handle.fileno())
+                if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+                    raise SchwabAuthError("Existing secrets.env must be owned by this user and private (chmod 600)")
+                old = handle.read()
+        replacing = {key: value for key, value in updates.items() if value}
+        lines = [line for line in old.splitlines() if not any(
+            re.match(r"^\s*(?:export\s+)?" + re.escape(key) + r"\s*=", line) for key in replacing)]
+        lines.extend(f"{key}='{value}'" for key, value in replacing.items())
+        _atomic_private(paths.secrets_file, "\n".join(lines) + "\n")
+
+
 def local_tls(paths: DeskPaths) -> ssl.SSLContext:
     """A self-signed loopback certificate, never added to the system/browser trust store."""
     import ipaddress

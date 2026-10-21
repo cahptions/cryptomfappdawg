@@ -94,6 +94,163 @@ function heading(title, subtitle) {
   app.append(el("h1", title));
   if (subtitle) app.append(el("p", subtitle, "muted"));
 }
+function collectionControls() {
+  const box = el("div", undefined, "collection-controls"),
+    state = snapshot.collection || {},
+    running = state.running || snapshot.worker_running,
+    status = el("p", undefined, "muted"),
+    button = el(
+      "button",
+      state.stopping
+        ? "Pausing after this pass…"
+        : running
+          ? "Pause research"
+          : "Start research",
+      "primary",
+    );
+  button.type = "button";
+  button.disabled = Boolean(state.stopping || (running && !state.owned));
+  status.textContent = state.stopping
+    ? "Finishing the current pass safely. Saved data stays on this laptop."
+    : running
+      ? state.owned
+        ? "Research collection is running. Prices appear as they arrive."
+        : "An existing Stocks worker is collecting. Control it from its terminal."
+      : state.exit_code
+        ? "Collection stopped unexpectedly. Check System and stocks-research.log for details."
+        : "Collects research for up to 24 hours while this app and laptop stay running. No paper trades are created.";
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      snapshot.collection = await api(
+        `research/${running ? "pause" : "start"}`,
+        {},
+      );
+      await refresh(true);
+    } catch (error) {
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  };
+  box.append(button, status);
+  return box;
+}
+function sourceSetup() {
+  const box = panel(
+      "Start here · free stock research",
+      "You can populate stock research before Schwab is approved. Save the settings here, then click Start research. No configuration-file editing is needed.",
+    ),
+    form = el("form"),
+    fields = {},
+    message = el("p", undefined, "muted");
+  for (const [id, name, title, text, type, href, action] of [
+    [
+      "massive-key",
+      "MASSIVE_API_KEY",
+      "1. Stock price history · Massive",
+      "Create a free account, choose Stocks Basic ($0), then copy the API key from your account dashboard. End-of-day prices, not live quotes. Choose the free plan; no paid upgrade is needed.",
+      "password",
+      "https://massive.com/",
+      "Open Massive signup ↗",
+    ],
+    [
+      "sec-contact",
+      "SEC_CONTACT_EMAIL",
+      "2. Company filings · SEC",
+      "Enter your contact email below. No account, signup or SEC key is required. This address identifies the app's requests to the SEC.",
+      "email",
+      null,
+      null,
+    ],
+    [
+      "tradier-token",
+      "TRADIER_TOKEN",
+      "3. Options while waiting for Schwab · optional",
+      "Skip this if you are waiting for Schwab. An existing Tradier sandbox token supplies delayed option chains when Tradier is selected below. Stock price history does not require it.",
+      "password",
+      "https://developer.tradier.com/",
+      "Tradier developer information ↗",
+    ],
+  ]) {
+    const section = el("div", undefined, "source-step"),
+      input = el("input"),
+      label = el("label", title);
+    label.htmlFor = id;
+    input.id = id;
+    input.type = type;
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.maxLength = 2000;
+    input.placeholder = snapshot.source_keys[name]
+      ? "Saved · leave blank to keep"
+      : type === "email"
+        ? "Your contact email"
+        : "Paste your key here";
+    fields[id] = input;
+    section.append(label, el("p", text, "muted"));
+    if (href) {
+      const external = link(action, href);
+      external.target = "_blank";
+      external.rel = "noopener noreferrer";
+      section.append(external);
+    }
+    section.append(
+      input,
+      el(
+        "small",
+        snapshot.source_keys[name]
+          ? "Saved privately · collection will check access"
+          : "Not saved",
+        "source-presence muted",
+      ),
+    );
+    form.append(section);
+  }
+  const save = el("button", "Save research sources", "primary");
+  save.type = "submit";
+  form.append(save, message);
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    save.disabled = true;
+    try {
+      const result = await api("sources", {
+        massive_key: fields["massive-key"].value,
+        sec_contact: fields["sec-contact"].value,
+        tradier_token: fields["tradier-token"].value,
+      });
+      snapshot.source_keys = result.source_keys;
+      for (const input of Object.values(fields)) input.value = "";
+      for (const [id, name] of [
+        ["massive-key", "MASSIVE_API_KEY"],
+        ["sec-contact", "SEC_CONTACT_EMAIL"],
+        ["tradier-token", "TRADIER_TOKEN"],
+      ]) {
+        fields[id].placeholder = result.source_keys[name]
+          ? "Saved · leave blank to keep"
+          : "Not saved";
+        fields[id].nextElementSibling.textContent = result.source_keys[name]
+          ? "Saved privately · collection will check access"
+          : "Not saved";
+      }
+      message.textContent =
+        "Saved privately. Click Start research below. A running collector picks up changes on its next pass. Your existing credentials were preserved.";
+    } catch (error) {
+      message.textContent = error.message;
+    } finally {
+      save.disabled = false;
+    }
+  };
+  box.append(
+    form,
+    collectionControls(),
+    el(
+      "p",
+      "No-signup feeds for listings, market mentions, short activity and Treasury rates are already wired in. Collection starts them automatically. Price history and option chains need the credentials described above.",
+      "muted",
+    ),
+  );
+  return box;
+}
 function discover(selected) {
   heading(
     "Find the evidence.",
@@ -130,7 +287,7 @@ function discover(selected) {
       el(
         "small",
         list.asof
-          ? `Closed session: ${list.asof}`
+          ? `${list.preview ? "Current research preview · not a frozen forward record" : "Recorded list"} · closed session: ${list.asof}`
           : "Waiting for the first eligible daily analysis",
       ),
     );
@@ -244,9 +401,10 @@ function systemPage() {
         : "Stocks worker is stopped",
       snapshot.stop
         ? "STOP is active: pending entries are cancelled and no new entries are created. Existing positions continue to be managed when the worker runs."
-        : "The dashboard only reads saved records. It does not start a collector.",
+        : "Use Start research to collect data without paper trades. Source updates appear as collection proceeds.",
     ),
   );
+  app.append(collectionControls());
   app.append(
     table(
       ["Source job", "Last success", "Last error"],
@@ -263,7 +421,7 @@ function systemPage() {
       snapshot.worker || { waiting: "No pass recorded" },
     ),
   );
-  const guide = panel("Start the separate Stocks worker");
+  const guide = panel("Optional · start forward PAPER simulation");
   guide.append(
     el(
       "pre",
@@ -271,7 +429,7 @@ function systemPage() {
     ),
     el(
       "p",
-      "Keep this terminal and the laptop running. This command collects bounded batches; it does not make the laptop stay awake.",
+      "Pause research first and wait for the pass to finish. This separate command starts paper simulation. Keep its terminal and the laptop running; it does not keep the laptop awake.",
       "muted",
     ),
   );
@@ -282,6 +440,7 @@ async function settingsPage() {
     "Connect your data.",
     "Keys stay on this laptop. The Stocks desk remains PAPER and cannot place a brokerage order.",
   );
+  app.append(sourceSetup());
   const box = panel("Schwab connection"),
     form = el("form"),
     message = el("p", undefined, "muted");
@@ -404,25 +563,6 @@ async function settingsPage() {
     link("Full local HTTPS and optional Tailscale guide", "/connection-guide"),
   );
   app.append(guide);
-  const source = panel(
-    "Other free research sources",
-    "Schwab supplies quotes and option chains. The existing broad end-of-day research uses a free Massive Stocks Basic key and an SEC contact email; missing inputs stay missing.",
-  );
-  source.append(
-    table(
-      ["Private setting", "Present"],
-      Object.entries(snapshot.source_keys).map(([k, v]) => [
-        k,
-        v ? "Yes" : "No",
-      ]),
-    ),
-    el(
-      "p",
-      "Edit ~/.config/desk/secrets.env on the laptop for these settings, then run chmod 600 ~/.config/desk/secrets.env. Keep existing keys. Source setup and limits are in docs/STOCKS.md and docs/STOCKS_SOURCES.md.",
-      "muted",
-    ),
-  );
-  app.append(source);
   const health = panel("Authorization status");
   const output = el("div");
   health.append(output);
@@ -506,12 +646,22 @@ async function refresh(initial = false) {
   try {
     const previous = snapshot;
     snapshot = await api("snapshot");
+    snapshot.worker_running ||= snapshot.collection?.running;
     statusLine.textContent = `PAPER · ${snapshot.worker_running ? "Worker running" : "Worker stopped"} · Latest analysis: ${snapshot.asof || "not ready"} · ${snapshot.listings} active listings`;
     statusLine.className = "";
     const changed =
       previous?.asof !== snapshot.asof ||
-      previous?.worker?.finished_at !== snapshot.worker?.finished_at;
+      previous?.worker?.finished_at !== snapshot.worker?.finished_at ||
+      previous?.worker_running !== snapshot.worker_running ||
+      JSON.stringify(previous?.collection) !==
+        JSON.stringify(snapshot.collection) ||
+      JSON.stringify(previous?.revision) !== JSON.stringify(snapshot.revision);
     if (initial || (changed && location.hash !== "#settings")) render();
+    else if (changed && location.hash === "#settings") {
+      // Keep unsaved credentials intact while updating start/pause state during a long collection pass.
+      for (const node of document.querySelectorAll(".collection-controls"))
+        node.replaceWith(collectionControls());
+    }
   } catch (error) {
     statusLine.textContent = error.message;
     statusLine.className = "error";

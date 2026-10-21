@@ -23,13 +23,13 @@ from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import load_secrets
 from desk.core.worker_lock import WorkerLock
 from desk.stocks.cli import new_login
-from desk.stocks.connection import LoginAttempt, connection_status, save_connection
+from desk.stocks.connection import LoginAttempt, connection_status, save_connection, save_sources
 from desk.stocks.desks import DESK_LABELS
-from desk.stocks.hub import adjusted_bars, option_table
+from desk.stocks.hub import adjusted_bars, option_table, research_lists
 from desk.stocks.hub import home as hub_home
-from desk.stocks.lists import LISTS
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE, StocksDatabases, StocksMarket, StocksResearch
+from desk.stocks.research_worker import ResearchWorker
 from desk.stocks.runner import saved
 from desk.storage.db import DbKind
 from desk.storage.db import connect as open_database
@@ -51,23 +51,28 @@ def reader(paths: DeskPaths, name: str) -> Iterator[sqlite3.Connection]:
 def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
     with reader(paths, RESEARCH_FILE) as conn:
         research = StocksResearch(conn)
-        lists = []
-        for spec in LISTS:
-            day, rows = research.list_on(spec.id)
-            lists.append({"id": spec.id, "title": spec.title, "blurb": spec.blurb,
-                          "asof": str(day) if day else None, "rows": [dict(r) for r in rows[:25]]})
+        lists = research_lists(research, saved(paths, "research"))
         latest = research.latest_asof()
+        computed = conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0]
     with reader(paths, MARKET_FILE) as conn:
         market = StocksMarket(conn)
         jobs = market.jobs()
         count = conn.execute("SELECT COUNT(*) FROM stk_listings WHERE active=1").fetchone()[0]
+        progress = conn.execute("SELECT COUNT(*) sessions, SUM(rows) rows, MAX(day) latest, MAX(received_at) received "
+                                "FROM stk_bar_days WHERE rows>0").fetchone()
+        price_progress = {"sessions": progress["sessions"], "rows": progress["rows"] or 0,
+                          "latest": date.fromordinal(progress["latest"]).isoformat() if progress["latest"] else None,
+                          "received_at": progress["received"], "minimum_sessions": 60}
     credentials = load_secrets(paths.secrets_file)
     return {"mode": "PAPER", "orders_enabled": False, "asof": str(latest) if latest else None, "lists": lists,
             "desks": DESK_LABELS, "listings": count, "jobs": jobs, "worker": saved(paths, "worker"),
             "worker_running": WorkerLock(paths, "stocks-worker").held(), "stop": paths.stop_file.exists(),
             "connection": connection_status(paths, loaded.settings.stocks, credentials),
             "source_keys": {name: credentials.configured(name) for name in
-                            ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")}}
+                            ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")},
+            "price_progress": price_progress,
+            "revision": [count, progress["sessions"], progress["received"], computed,
+                         [(k, v.get("last_run_at")) for k, v in sorted(jobs.items())]]}
 
 
 def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
@@ -93,11 +98,12 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
                 "events": book.events(limit=100)}
 
 
-def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None) -> FastAPI:
+def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: ResearchWorker | None = None) -> FastAPI:
     config = loaded or load_config(paths.config_dir)
     csrf = secrets.token_urlsafe(32)
     attempt: LoginAttempt | None = None
     login_lock = asyncio.Lock()
+    collector = worker or ResearchWorker(paths)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -106,6 +112,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await asyncio.to_thread(collector.stop)
             if attempt is not None:
                 await asyncio.to_thread(attempt.stop)
 
@@ -130,12 +137,39 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None) -> FastAPI:
 
     @app.get("/api/stocks/snapshot")
     def overview() -> dict[str, Any]:
-        return snapshot(paths, config)
+        return {**snapshot(paths, config), "collection": collector.status()}
 
     @app.get("/api/stocks/home")
     def research_home() -> dict[str, Any]:
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
-            return hub_home(market, research)
+            return hub_home(market, research, preview=saved(paths, "research"))
+
+    @app.post("/api/stocks/research/start")
+    async def start_research() -> dict[str, Any]:
+        return await asyncio.to_thread(collector.start)
+
+    @app.post("/api/stocks/research/pause")
+    async def pause_research() -> dict[str, Any]:
+        return await asyncio.to_thread(collector.stop)
+
+    @app.post("/api/stocks/sources")
+    async def configure_sources(request: Request) -> dict[str, Any]:
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 8192:
+                raise HTTPException(413, "Settings request too large")
+        try:
+            data = json.loads(raw)
+            if (not isinstance(data, dict) or set(data) - {"massive_key", "sec_contact", "tradier_token"}
+                    or any(not isinstance(v, str) for v in data.values())):
+                raise ValueError
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(400, "Invalid source settings") from exc
+        await asyncio.to_thread(save_sources, paths, **data)
+        credentials = load_secrets(paths.secrets_file)
+        return {"saved": True, "source_keys": {name: credentials.configured(name) for name in
+                                               ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")}}
 
     @app.get("/api/stocks/stock/{symbol}")
     def stock(symbol: str) -> dict[str, Any]:

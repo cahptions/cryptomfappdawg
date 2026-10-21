@@ -10,12 +10,14 @@ from typing import Any
 from desk.core.clock import utc_now
 from desk.core.config import LoadedConfig
 from desk.core.errors import DeskError
+from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
 from desk.core.secrets import load_secrets
 from desk.stocks import calendar as cal
 from desk.stocks import collect, daily, validation
-from desk.stocks.analysis import Analyzer
+from desk.stocks.analysis import MIN_BARS, Analyzer, stock_detail
 from desk.stocks.connection import _atomic_private
+from desk.stocks.lists import LISTS, build_lists
 from desk.stocks.paper import lab
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.paper.engine import PaperEngine
@@ -31,7 +33,7 @@ class MemoryPressure(DeskError):
 
 
 def saved_path(paths: DeskPaths, name: str) -> Path:
-    if name not in {"worker", "paper"}:
+    if name not in {"worker", "paper", "research"}:
         raise ValueError("unknown Stocks record")
     return paths.home / f"stocks-{name}.json"
 
@@ -65,8 +67,46 @@ def _due(market: StocksMarket, name: str, now: datetime, hours: float) -> bool:
     return not at or now - datetime.fromisoformat(at) >= timedelta(hours=hours)
 
 
-def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
+def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
+    """Refresh a mutable research view during backfill; never step PAPER or rewrite frozen evidence."""
+    settings = loaded.settings.stocks
+    market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
+    target = cal.last_closed_session(now, timedelta(minutes=settings.refresh_after_close_minutes))
+    days = [d for d in market.bar_days() if target - timedelta(days=settings.history_days) <= d <= target]
+    if not days or days[-1] != target:
+        return {"waiting": f"Waiting for published {target.isoformat()} closing prices", "paper": None}
+    if len(days) < MIN_BARS:
+        return {"waiting": f"Collecting history: {len(days)}/{MIN_BARS} sessions minimum for research eligibility. "
+                           "Charts update as prices arrive; longer-lookback measures need more history.", "paper": None}
+    # Receipts change as history arrives; successful source jobs can add new fundamentals/options/crowd data.
+    receipts = [tuple(r) for r in market.conn.execute(
+        "SELECT day, rows, received_at FROM stk_bar_days WHERE day<=? ORDER BY day", (target.toordinal(),))]
+    jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k != "prices"}
+    signature = sha256_hex(canonical_json({"target": target.isoformat(), "receipts": receipts, "jobs": jobs,
+                                         "config": loaded.snapshot_hash, "preview_version": 1}))
+    previous = saved(paths, "research")
+    if previous and previous.get("input_hash") == signature:
+        return {"asof": target.isoformat(), "waiting": "Research is current; watching for new data", "paper": None}
+    _memory_guard()
+    panel = load_panel(market, target - timedelta(days=settings.history_days), target)
+    analyzer = Analyzer(market, research, settings)
+    day = analyzer.build(panel, target, now=now)  # no persistent fundamentals cache during an incomplete backfill
+    research.save_scores(target, {s: stock_detail(day, s) for s in day.ctx.symbols}, {}, now, record_history=False)
+    selected = build_lists(day)
+    value = {"asof": target.isoformat(), "computed_at": now.isoformat(), "input_hash": signature,
+             "universe": day.universe_size, "basis": "Current research preview, not a frozen forward record",
+             "lists": [{"id": spec.id, "title": spec.title, "blurb": spec.blurb, "asof": target.isoformat(),
+                        "rows": [{**row, "rank": rank} for rank, row in enumerate(selected[spec.id][:25], 1)],
+                        "preview": True} for spec in LISTS]}
+    _atomic_private(saved_path(paths, "research"), json.dumps(value, allow_nan=False))
+    return {"asof": target.isoformat(), "universe": day.universe_size, "research_only": True, "paper": None}
+
+
+def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime, *,
+            research_only: bool = False) -> dict[str, Any]:
     """Only today's actually available closed-session analysis creates forward orders; no historical entry replay."""
+    if research_only:
+        return research_preview(paths, loaded, dbs, now)
     settings = loaded.settings.stocks
     market, research, book = StocksMarket(dbs.market), StocksResearch(dbs.research), PaperBook(dbs.ledger)
     if paths.stop_file.exists():
@@ -108,7 +148,7 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
 
 
 async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, company_limit: int = 20,
-                option_limit: int = 5) -> dict[str, Any]:
+                option_limit: int = 5, research_only: bool = False) -> dict[str, Any]:
     now = utc_now()
     dbs = StocksDatabases.open(paths)
     suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), dbs.runtime)
@@ -116,7 +156,9 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
     settings = loaded.settings.stocks
     jobs: dict[str, Any] = {}
     try:
-        if _due(market, "listings", now, 24):
+        directory = market.jobs().get("listings", {}).get("detail", {})
+        needs_mapping = suite.sec.contact_configured and (not directory.get("with_cik") or directory.get("warning"))
+        if _due(market, "listings", now, 24) or needs_mapping:
             jobs["listings"] = await collect.listings(suite, market, now)
         if suite.massive.configured:
             jobs["prices"] = await collect.prices(suite, market, now, history_days=settings.history_days,
@@ -132,9 +174,11 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                 jobs["filings"] = await collect.filings_feed(suite, market, now,
                                                             start=now.date() - timedelta(days=7), max_days=1)
         for name, work, hours in (("mentions", collect.mentions, 1), ("rates", collect.rates, 24),
-                                   ("short_interest", collect.short_interest, 24), ("fails", collect.fails, 24)):
+                                   ("short_interest", collect.short_interest, 24)):
             if _due(market, name, now, hours):
                 jobs[name] = await work(suite, market, now)
+        if suite.sec.contact_configured and _due(market, "fails", now, 24):
+            jobs["fails"] = await collect.fails(suite, market, now)
         if _due(market, "short_volume", now, 24):
             jobs["short_volume"] = await collect.short_volume(suite, market, now, days=5)
         if suite.options.configured and cal.is_trading_day(cal.new_york(now).date()) and _due(market, "options", now, 4):
@@ -153,11 +197,12 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                 detail = {**jobs["options"], "next_offset": (offset + option_limit) % len(candidates)}
                 market.job("options", now, detail=detail)
         try:
-            analysis = process(paths, loaded, dbs, utc_now())
+            analysis = process(paths, loaded, dbs, utc_now(), research_only=research_only)
         except MemoryPressure as exc:
             analysis = {"waiting": str(exc), "paper": None}
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",
-                  "options_provider": suite.option_source, "problems": suite.problems, "jobs": jobs,
+                  "research_only": research_only, "options_provider": suite.option_source,
+                  "problems": suite.problems, "jobs": jobs,
                   "analysis": analysis}
         _atomic_private(saved_path(paths, "worker"), json.dumps(result, allow_nan=False))
         return result

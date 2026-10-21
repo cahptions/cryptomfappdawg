@@ -11,7 +11,11 @@ price. The probes are recorded in `research/evidence/2026-10-21/stocks_sources_v
 responses are in `tests/fixtures/stocks/`. Every plan used is free. Keys and the SEC contact live only in
 `~/.config/desk/secrets.env`.
 
-## What you need to create (three things, all free)
+## Set up in Settings (stock prices, SEC contact, and optional options)
+
+Use **Settings → Start here · free stock research** to save these privately; no file editing is needed.
+Then click **Start research**. No-signup public feeds start with the collector. Stock charts/history need the
+Massive key; SEC email requires no registration, and Tradier is optional while waiting for Schwab.
 
 | Put in `secrets.env` | What it unlocks | Where to get it |
 |---|---|---|
@@ -22,7 +26,7 @@ responses are in `tests/fixtures/stocks/`. Every plan used is free. Keys and the
 Without these, the desk still runs and says exactly what is missing (System page and `desk stocks doctor`):
 - no price key: no prices;
 - no token: no option chains;
-- no contact: fundamentals only, from data.sec.gov, with no company list or filings feed.
+- no contact: SEC collection waits; Nasdaq listings and other no-signup feeds continue independently.
 
 ## Sources used
 

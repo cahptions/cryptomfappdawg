@@ -244,14 +244,19 @@ const KestrelResearch = (() => {
       o.value = symbol;
       suggestions.append(o);
     }
-    if (!snapshot.asof) {
+    if (!snapshot.asof || !snapshot.worker_running) {
       const setup = el("div", undefined, "setup-strip");
+      const progress = snapshot.price_progress || {},
+        keyed = snapshot.source_keys.MASSIVE_API_KEY;
+      const message = !keyed
+        ? "Stock prices are not connected. Add a free Massive Stocks Basic key in Settings; Schwab can wait."
+        : !progress.sessions
+          ? "Waiting for the first price history download. Start research below; connection errors appear in System."
+          : `${number(progress.sessions)} price sessions stored · latest close ${progress.latest}. ${snapshot.asof ? "Research updates as new observations arrive." : `Research needs at least ${progress.minimum_sessions} sessions per eligible stock; longer lookbacks need more history.`}`;
       setup.append(
-        el(
-          "div",
-          "Your workspace is ready. Connect free data to populate the research.",
-        ),
+        el("div", message),
         link("Set up data sources ↗", "#settings"),
+        collectionControls(),
       );
       app.append(setup);
     }
@@ -323,7 +328,7 @@ const KestrelResearch = (() => {
       note.append(
         el(
           "span",
-          `List: ${list?.asof || "not recorded"} · up to 10 qualified names`,
+          `${list?.preview ? "Current research preview" : "Recorded list"}: ${list?.asof || "not recorded"} · up to 10 qualified names`,
         ),
         el("span", "Prices are the latest stored close"),
       );

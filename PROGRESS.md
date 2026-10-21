@@ -5,6 +5,22 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Empty-dashboard/onboarding correction:** Settings now accepts the free Massive key, SEC contact email and
+optional Tradier token directly, with signup links and required/optional explanations; no manual secrets-file
+editing is needed. Blanks preserve credentials, unrelated providers/comments survive, private permissions are
+enforced, and auxiliary saves do not invalidate Schwab tokens. Start/Pause controls explicitly launch only a
+dashboard-owned, bounded research-only collector (`desk stocks collect`); no worker starts on GET and a
+terminal-owned worker cannot be signalled from this UI. Collection reads keys again on each pass. Nasdaq
+listings survive optional SEC mapping errors; adding SEC contact triggers mapping retry on the next pass.
+Home refreshes on stored price/job revisions while a pass runs. Research previews can recompute on the same
+session as backfill arrives without writing PAPER or frozen evidence. Existing frozen records are preserved.
+Public reference/attention/short/rates feeds are wired, but do not replace the required price key. The mockup
+used example data; the operator still needs to create their own free price account. Validation: 1,018 offline
+tests (5 live deselected), Ruff/strict mypy, and isolated desktop/phone empty/populated browser checks passed.
+No real finance endpoint was probed in this pass: the managed HTTP policy currently excludes those hosts,
+and the operator's credentials/data remain on their laptop. Authenticated access, full-universe performance
+and prospective evidence still need laptop observations. Start instructions are in [docs/STOCKS.md](docs/STOCKS.md).
+
 **Research hub correction:** operator clarified that Home must be a polished stock/options discovery workspace,
 not a portfolio summary or a dropdown-only list browser. Default landing is now the Market overview, with
 benchmark ETF strip, Trending/Rising trends/Gainers/Losers top10 tabs, six research collections, three options

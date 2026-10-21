@@ -48,33 +48,56 @@ Basic key. An SEC contact email identifies the research client to EDGAR. Tradier
 options source; its sandbox is delayed. Choose one options provider explicitly in Settings. Schwab is not a paid
 data requirement, and missing sources stay visibly missing.
 
-The full source/limits register is [STOCKS_SOURCES.md](STOCKS_SOURCES.md). Edit existing secrets on the laptop:
+Open **Settings → Start here · free stock research**:
 
-```bash
-mkdir -p ~/.config/desk
-chmod 700 ~/.config/desk
-nano ~/.config/desk/secrets.env
-```
+1. Click **Open Massive signup**. Create a free account, select **Stocks Basic ($0)**, and copy its API key
+   from the account dashboard into the **Stock price history** field. Do not select a paid upgrade.
+2. Enter your email in **Company filings · SEC**. There is no SEC signup or key; the address identifies requests.
+3. Skip **Options while waiting for Schwab** unless you already want to use a Tradier sandbox token. It is optional;
+   waiting for Schwab does not block stock price history, charts or price-based research.
+4. Click **Save research sources**, then **Start research**. Return to **Home**. Keep the dashboard terminal and
+   laptop running; data appears as it is stored and the page refreshes every30seconds. No paper orders are created
+   by this button. Closing the dashboard requests a clean stop after the current pass; **Pause research** does the same.
 
-Add or edit these lines with your own values, preserving any existing Jupiter/Helius/Robinhood credentials:
+No file editing is needed. Settings writes the existing owner-only secrets file atomically, preserves other desks'
+keys, and leaves Schwab authorization intact. Blank fields preserve saved values; saved keys/email are never
+returned to the browser. A running collector reloads these auxiliary sources on its next pass. Switching the
+Schwab/Tradier connection still requires stopping the Stocks worker first. A collector started in another
+terminal is reported but cannot be paused by the dashboard.
 
-```text
-MASSIVE_API_KEY=your_free_stocks_basic_key
-SEC_CONTACT_EMAIL=your_own_email_address
-```
+Nasdaq listings, mentions, FINRA short activity and Treasury rates are already integrated and need no signup;
+they run when collection starts. They do not supply the missing stock price history. Missing optional SEC mapping
+cannot discard successfully downloaded listings. If you add an SEC contact after collecting listings without one,
+the next pass retries the mapping rather than waiting24hours. **System** shows actual successes/errors; a saved
+key indicates configuration, not verified provider access.
 
-In nano, **Ctrl+O**, Enter saves; **Ctrl+X** exits. Then:
+The mockup's displayed prices were examples. Production does not include a demo-price fallback. Benchmark charts
+can populate as the first real price sessions arrive. Research lists require at least60 actual observations per
+eligible stock, sufficient price/liquidity, and any inputs required by that particular list; longer lookbacks need
+more history. Backfill is downloaded history, not60 days you must wait through. There is no24-hour build gate.
 
-```bash
-chmod 600 ~/.config/desk/secrets.env
-```
+The research-only collector maintains a **current research preview**, including re-analysis on the same closing
+date as history arrives. It does not write frozen list/score history, PAPER accounts, orders or steps. Old frozen
+lists (including any empty warm-up records) are preserved. A preview is labeled separately and is not prospective
+evidence. Forward PAPER collection remains an explicit separate command below.
 
-Use the Settings password fields for Schwab; do not paste keys, codes or token files into chat or commit them.
+Source provenance and limits are in [STOCKS_SOURCES.md](STOCKS_SOURCES.md). Never paste keys, codes or token files into chat.
 Environment variables override secrets.env, so remove an obsolete exported value if it overrides a new key.
 
 ## 3. Collect and PAPER trade
 
-In a **second terminal**, first run one bounded pass:
+The Settings button runs research only. Its equivalent terminal command is:
+
+```bash
+uv run desk stocks collect --minutes 1440
+```
+
+It fetches up to20 missing daily price sessions per pass, respecting the existing free5requests/minute budget,
+and repeats at five-minute intervals after each pass. Initial history takes time; delays/errors are shown rather
+than replaced with invented prices. The full two-year backfill is not required for the first chart or eligible list.
+
+Do not start a second Stocks worker while this one runs. To start forward PAPER simulation instead, **Pause research**
+and wait until it has finished its current pass. Then, in a **second terminal**, run one bounded PAPER pass:
 
 ```bash
 cd ~/kestrel

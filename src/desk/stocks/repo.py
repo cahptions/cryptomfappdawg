@@ -459,13 +459,14 @@ class StocksResearch:
         self.conn = conn
 
     def save_scores(self, asof: date, detail: dict[str, dict[str, Any]], compact: dict[str, dict[str, Any]],
-                    at: datetime) -> None:
+                    at: datetime, *, record_history: bool = True) -> None:
         with transaction(self.conn):
             self.conn.execute("DELETE FROM stk_scores_latest")
             self.conn.executemany("INSERT INTO stk_scores_latest(symbol, asof, computed_at, detail_json) VALUES (?, ?, ?, ?)",
                                   [(s, day_of(asof), to_iso(at), canonical_json(d)) for s, d in detail.items()])
-            self.conn.executemany("INSERT OR IGNORE INTO stk_score_history(asof, symbol, scores_json) VALUES (?, ?, ?)",
-                                  [(day_of(asof), s, canonical_json(c)) for s, c in compact.items()])
+            if record_history:
+                self.conn.executemany("INSERT OR IGNORE INTO stk_score_history(asof, symbol, scores_json) VALUES (?, ?, ?)",
+                                      [(day_of(asof), s, canonical_json(c)) for s, c in compact.items()])
 
     def latest(self, symbol: str) -> dict[str, Any] | None:
         row = self.conn.execute("SELECT detail_json FROM stk_scores_latest WHERE symbol = ?", (symbol,)).fetchone()

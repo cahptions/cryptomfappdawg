@@ -101,6 +101,84 @@ try {
       await page.locator("#app-secret").getAttribute("type"),
       "password",
     );
+    await page
+      .getByRole("heading", { name: "Start here · free stock research" })
+      .waitFor();
+    assert.equal(
+      await page.locator("#massive-key").getAttribute("type"),
+      "password",
+    );
+    assert.equal(
+      await page.locator("#sec-contact").getAttribute("type"),
+      "email",
+    );
+    assert.equal(
+      await page.locator("#tradier-token").getAttribute("type"),
+      "password",
+    );
+    // Fixture data directory only. No actual provider is contacted or collector started.
+    await page.locator("#massive-key").fill("browser-fixture-key");
+    await page.locator("#sec-contact").fill("fixture@example.org");
+    await page.getByRole("button", { name: "Save research sources" }).click();
+    await page
+      .getByText("Saved privately. Click Start research below.", {
+        exact: false,
+      })
+      .waitFor();
+    assert.equal(await page.locator("#massive-key").inputValue(), "");
+    assert.equal(await page.locator("#sec-contact").inputValue(), "");
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Start research", exact: true })
+        .count(),
+      1,
+    );
+    // Exercise controls without spawning a real collector or making provider requests.
+    let collection = {
+      owned: false,
+      running: false,
+      stopping: false,
+      exit_code: null,
+    };
+    await page.route("**/api/stocks/snapshot", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.collection = collection;
+      body.worker_running = collection.running;
+      await route.fulfill({ response, json: body });
+    });
+    await page.route("**/api/stocks/research/start", async (route) => {
+      collection = {
+        owned: true,
+        running: true,
+        stopping: false,
+        exit_code: null,
+      };
+      await route.fulfill({ json: collection });
+    });
+    await page
+      .getByRole("button", { name: "Start research", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Pause research", exact: true })
+      .waitFor();
+    await page.locator("#massive-key").fill("unfinished-private-edit");
+    collection = {
+      owned: false,
+      running: false,
+      stopping: false,
+      exit_code: 0,
+    };
+    await page.evaluate(() => refresh());
+    await page
+      .getByRole("button", { name: "Start research", exact: true })
+      .waitFor();
+    assert.equal(
+      await page.locator("#massive-key").inputValue(),
+      "unfinished-private-edit",
+      "polling must preserve unsaved form values",
+    );
+    await page.locator("#massive-key").fill("");
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

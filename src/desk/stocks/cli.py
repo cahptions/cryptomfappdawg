@@ -42,13 +42,14 @@ def add_parser(sub: Any) -> None:
     connect.add_argument("--listen-port", type=int)
     connect.add_argument("--manual", action="store_true", help="paste redirect privately in this terminal instead of a listener")
     connect.set_defaults(func=run)
-    for name in ("refresh", "paper"):
-        cmd = commands.add_parser(name, help="one bounded collection/PAPER pass" if name == "refresh" else
+    for name in ("refresh", "paper", "collect"):
+        cmd = commands.add_parser(name, help="research collection only, no PAPER orders" if name == "collect" else
+                                  "one bounded collection/PAPER pass" if name == "refresh" else
                                   "repeat collection and forward PAPER while this terminal stays open")
-        cmd.add_argument("--price-days", type=_bounded, default=5)
+        cmd.add_argument("--price-days", type=_bounded, default=20 if name == "collect" else 5)
         cmd.add_argument("--companies", type=_bounded, default=20)
         cmd.add_argument("--options", type=_bounded, default=5)
-        if name == "paper":
+        if name in {"paper", "collect"}:
             cmd.add_argument("--minutes", type=float, default=1440)
             cmd.add_argument("--interval", type=float, default=300)
         cmd.set_defaults(func=run)
@@ -167,7 +168,7 @@ def run(args: argparse.Namespace) -> int:
         if action in {"validate", "learn"}:
             print(json.dumps(runner.evaluate(paths, loaded, learning=action == "learn"), indent=2))
             return 0
-        if action == "paper" and (not math.isfinite(args.minutes) or args.minutes <= 0
+        if action in {"paper", "collect"} and (not math.isfinite(args.minutes) or args.minutes <= 0
                                   or not math.isfinite(args.interval) or args.interval < 60):
             raise DeskError("Use positive finite minutes and an interval of at least 60 seconds")
 
@@ -177,14 +178,15 @@ def run(args: argparse.Namespace) -> int:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 with contextlib.suppress(NotImplementedError):
                     loop.add_signal_handler(sig, stop.set)
-            end = time.monotonic() + (args.minutes * 60 if action == "paper" else 0)
+            repeating = action in {"paper", "collect"}
+            end = time.monotonic() + (args.minutes * 60 if repeating else 0)
             while True:
                 if stop.is_set():
                     return 0
                 result = await runner.cycle(paths, loaded, price_days=args.price_days, company_limit=args.companies,
-                                            option_limit=args.options)
+                                            option_limit=args.options, research_only=action == "collect")
                 print(json.dumps(result, indent=2), flush=True)
-                if action != "paper" or stop.is_set() or time.monotonic() >= end:
+                if not repeating or stop.is_set() or time.monotonic() >= end:
                     return 0
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop.wait(), min(args.interval, max(0, end - time.monotonic())))

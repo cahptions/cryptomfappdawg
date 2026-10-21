@@ -77,6 +77,40 @@ async def test_listings_join_sec_ciks_and_keep_only_researchable_stock(world: Wo
 
 
 @respx.mock
+async def test_optional_sec_mapping_failure_preserves_public_listings_and_prior_ciks(world: World) -> None:
+    world.market.save_listings([Listing("AAPL", "Apple Common Stock", "NASDAQ", False, False, "common")],
+                               {"AAPL": 320193}, NOW)
+    for filename in ("nasdaqlisted.txt", "otherlisted.txt"):
+        respx.get(f"https://www.nasdaqtrader.com/dynamic/SymDir/{filename}").mock(
+            return_value=httpx.Response(200, content=(F / filename).read_bytes()))
+    respx.get(f"{SEC_WWW}/files/company_tickers_exchange.json").mock(return_value=httpx.Response(403))
+    result = await collect.listings(world.suite, world.market, NOW)
+    assert result["ok"] and result["warning"] and result["listings"] > 1
+    assert next(r for r in world.market.listings() if r["symbol"] == "AAPL")["cik"] == 320193
+
+
+async def test_no_signup_jobs_run_without_price_sec_or_options_credentials(tmp_path: Path, monkeypatch: Any) -> None:
+    from desk.stocks import runner
+
+    paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "secrets.env")
+    calls = []
+
+    def fake(name: str) -> Any:
+        async def job(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            calls.append(name)
+            return {"ok": True}
+        return job
+
+    for name in ("listings", "mentions", "rates", "short_interest", "short_volume", "fails", "prices", "companies",
+                 "filings_feed", "option_chains", "corporate_actions"):
+        monkeypatch.setattr(collect, name, fake(name))
+    result = await runner.cycle(paths, load_config(REPO / "config"), research_only=True)
+    assert set(calls) == {"listings", "mentions", "rates", "short_interest", "short_volume"}
+    assert result["research_only"] and result["analysis"]["paper"] is None
+    assert result["problems"]
+
+
+@respx.mock
 async def test_prices_backfill_newest_first_and_reject_mislabelled_days(world: World) -> None:
     world.market.save_listings([Listing("AAA", "A Common Stock", "NYSE", False, False, "common")], {}, NOW)
     days = cal.trading_days(date(2026, 10, 13), date(2026, 10, 21))

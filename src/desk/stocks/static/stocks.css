@@ -161,6 +161,27 @@ a:focus-visible {
   align-items: center;
   flex-wrap: wrap;
 }
+.source-step {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border, #263024);
+  margin-bottom: 1rem;
+}
+.source-step input {
+  display: block;
+  width: min(100%, 38rem);
+  margin: 0.75rem 0 0.4rem;
+}
+.source-presence {
+  display: block;
+}
+.collection-controls {
+  margin: 1rem 0;
+  max-width: 50rem;
+}
+.collection-controls p {
+  margin: 0.5rem 0;
+  font-size: 0.8rem;
+}
 .row p {
   margin: 0;
 }

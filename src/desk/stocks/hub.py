@@ -8,6 +8,7 @@ from datetime import date
 from typing import Any
 
 from desk.stocks import calendar as cal
+from desk.stocks.lists import LISTS
 from desk.stocks.repo import StocksMarket, StocksResearch, date_of
 
 INDEX_NAMES = {"SPY": "S&P 500", "QQQ": "Nasdaq 100", "IWM": "Russell 2000", "DIA": "Dow Jones",
@@ -56,14 +57,33 @@ def price_card(conn: sqlite3.Connection, symbol: str, name: str | None = None, *
                         for r in reversed(rows)]}
 
 
-def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection) -> dict[str, Any]:
+def research_lists(research: StocksResearch, preview: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Prefer a newer mutable research preview, without altering any dated evidence list."""
+    current = {v["id"]: v for v in (preview or {}).get("lists", [])}
+    output = []
+    for spec in LISTS:
+        day, rows = research.list_on(spec.id)
+        latest = research.conn.execute("SELECT created_at FROM stk_list_days WHERE list_id=? ORDER BY asof DESC LIMIT 1",
+                                       (spec.id,)).fetchone()
+        value = current.get(spec.id)
+        if (value and (day is None or value["asof"] >= day.isoformat()) and
+                (latest is None or (preview or {}).get("computed_at", "") > latest[0])):
+            output.append(value)
+        else:
+            output.append({"id": spec.id, "title": spec.title, "blurb": spec.blurb,
+                           "asof": str(day) if day else None, "rows": [dict(r) for r in rows[:25]], "preview": False})
+    return output
+
+
+def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
+         preview: dict[str, Any] | None = None) -> dict[str, Any]:
     research = StocksResearch(research_conn)
     priority = ["trending", "gainers", "losers", "momentum", "committee", "undervalued", "squeeze", "unusual_options",
                 "cheap_iv", "big_moves", "earnings_week", "insider_buying", "quality_fair", "new_highs"]
     wanted = research.watchlist()[:25]
+    lists = {value["id"]: value for value in research_lists(research, preview)}
     for list_id in priority:
-        _, rows = research.list_on(list_id)
-        wanted.extend(r["symbol"] for r in rows[:10])
+        wanted.extend(r["symbol"] for r in lists[list_id]["rows"][:10])
     wanted = list(dict.fromkeys(wanted))[:150]
     stocks = {}
     for symbol in wanted:
