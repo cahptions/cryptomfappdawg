@@ -21,6 +21,7 @@ net edge — and stays in PAPER mode indefinitely if it doesn't.
 | [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md) | Latest Claude continuation, update commands and checks |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Dashboard, services, backups and recovery on the laptop |
 | [docs/ROBINHOOD.md](docs/ROBINHOOD.md) | The separate Robinhood desk: liquid crypto, PAPER on Robinhood's prices, its own dashboard |
+| [docs/STOCKS.md](docs/STOCKS.md) | Separate Stocks/options PAPER desk, private Settings, free local HTTPS and optional Schwab market data |
 | [config/](config/) | `default.toml` (all settings), `safety_ceilings.toml` (hard limits), `providers.toml` (data sources) |
 | [docs/design/kestrel-concept.html](docs/design/kestrel-concept.html) | Static visual concept of the dashboard (sample data only) |
 

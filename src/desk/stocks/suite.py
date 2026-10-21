@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import date
+from typing import Protocol
 
 import httpx
 
@@ -15,10 +17,22 @@ from desk.providers.health import HealthTracker
 from desk.providers.http import ProviderHttp
 from desk.providers.ratelimit import RateLimiter
 from desk.providers.registry import load_registry
+from desk.stocks.connection import preferences
+from desk.stocks.contracts import OptionQuote, StockQuote
+from desk.stocks.schwab_auth import SchwabTokens, token_path
 from desk.stocks.sources.feeds import FeedsClient
 from desk.stocks.sources.massive import MassiveClient
+from desk.stocks.sources.schwab import SchwabClient
 from desk.stocks.sources.sec import SecClient, sec_user_agent
 from desk.stocks.sources.tradier import TradierClient
+
+
+class OptionData(Protocol):
+    @property
+    def configured(self) -> bool: ...
+    async def expirations(self, symbol: str) -> list[date]: ...
+    async def chain(self, symbol: str, expiration: date) -> list[OptionQuote]: ...
+    async def quotes(self, symbols: list[str]) -> list[StockQuote]: ...
 
 
 @dataclass
@@ -26,11 +40,16 @@ class StocksSuite:
     sec: SecClient
     feeds: FeedsClient
     massive: MassiveClient
-    tradier: TradierClient
+    tradier: OptionData  # retained alias for existing integrations; selected by options_provider
     limiter: RateLimiter
     health: HealthTracker
     client: httpx.AsyncClient
     problems: dict[str, str] = field(default_factory=dict)   # source → what the operator must do
+    option_source: str = "tradier_sandbox"
+
+    @property
+    def options(self) -> OptionData:
+        return self.tradier
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -60,13 +79,18 @@ def build_stocks_suite(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets,
                         FeedsClient(http("nasdaq_trader"), http("finra_api"), http("finra_cdn"), http("treasury"), http("fred"),
                                     http("apewisdom"), http("openfigi")),
                         MassiveClient(http("massive")), TradierClient(tradier), limiter, health, http_client)
+    suite.option_source = tradier.name
+    if preferences(paths, settings.stocks)["options_provider"] == "schwab":
+        suite.tradier = SchwabClient(http("schwab"), SchwabTokens(token_path(paths), secrets))
+        suite.option_source = "schwab"
     if sec_www.user_agent is None:
         suite.problems["sec"] = ("SEC_CONTACT_EMAIL is not in secrets.env: the SEC asks every program to name a contact, "
                                  "and www.sec.gov refuses requests without one")
     if not suite.massive.configured:
         suite.problems["prices"] = "MASSIVE_API_KEY is not in secrets.env (free key: massive.com, Stocks Basic)"
     if not suite.tradier.configured:
-        suite.problems["options"] = "TRADIER_TOKEN is not in secrets.env (free developer sandbox token: tradier.com)"
+        suite.problems["options"] = ("Schwab is not connected; run desk stocks connect" if suite.option_source == "schwab"
+                                     else "TRADIER_TOKEN is not in secrets.env (free developer sandbox token: tradier.com)")
     return suite
 
 

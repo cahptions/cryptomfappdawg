@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
@@ -101,6 +103,15 @@ class PaperBook:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
+    @contextmanager
+    def atomic(self) -> Iterator[None]:
+        """A whole session commits once; individual position operations may join that session transaction."""
+        if self.conn.in_transaction:
+            yield
+        else:
+            with transaction(self.conn):
+                yield
+
     # accounts and cash ────────────────────────────────────────────────────────────────────────────
     def accounts(self) -> list[str]:
         return [r["account"] for r in self.conn.execute("SELECT DISTINCT account FROM stk_cash ORDER BY account")]
@@ -182,7 +193,7 @@ class PaperBook:
                       plan: dict[str, Any]) -> str:
         pid = new_id("pos", int(at.timestamp() * 1000))
         cost_m, fees_m = to_micros(cost, cost=True), to_micros(fees, cost=True)
-        with transaction(self.conn):
+        with self.atomic():
             self.conn.execute(
                 "INSERT INTO stk_positions(id, account, spec_sha256, asset, symbol, structure, legs_json, decision_id,"
                 " opened_at, entry_day, entry_cost_micros, entry_fees_micros, max_loss_micros, stop_price, expires_day,"
@@ -214,7 +225,7 @@ class PaperBook:
                        evidence: dict[str, Any], cash_reason: str = "CLOSE") -> float:
         credit_m = to_micros(credit, cost=False) if credit >= 0 else -to_micros(-credit, cost=True)
         fees_m = to_micros(fees, cost=True)
-        with transaction(self.conn):
+        with self.atomic():
             self.conn.execute(
                 "UPDATE stk_positions SET state = 'CLOSED', closed_at = ?, exit_day = ?, exit_credit_micros = ?,"
                 " exit_fees_micros = ?, exit_reason = ?, exit_evidence_json = ?, last_value_micros = ? WHERE id = ?"

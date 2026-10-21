@@ -938,6 +938,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"desk {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
+    from desk.stocks.cli import add_parser as add_stocks_parser
+
+    add_stocks_parser(sub)
 
     p = sub.add_parser("doctor", help="check this machine and every data provider")
     p.add_argument("--offline", action="store_true", help="skip network checks")

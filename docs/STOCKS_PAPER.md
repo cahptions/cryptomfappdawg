@@ -1,14 +1,15 @@
 # KESTREL Stocks — PAPER trading
 
 KESTREL Stocks paper-trades stocks and options to test strategies, refine them, and try new ones. **Everything here is
-PAPER**: there is no brokerage connection, no order code and no money. The ledger (`stocks-ledger-paper.db`) refuses
+PAPER**: Schwab/Tradier connections supply market data only, with no brokerage order code or real money. The ledger refuses
 to open as anything but PAPER.
 
 ## Accounts
 
 Every strategy trades its own paper account, so strategies never compete for cash and each has a clean record.
 Stock accounts start with $10,000 and option accounts with $50,000 (so that 2% of the account buys one contract of
-most liquid names; results are compared in percentages, so the size flatters no one). Both are set in
+most liquid names). Results are compared in percentages, but contract minimums/capacity differ by capital:
+these experiments do not establish feasibility for the $500 crypto reference account. Both are set in
 `config/default.toml` (`[stocks] paper_*`).
 
 | Limit | Default |
@@ -18,8 +19,9 @@ most liquid names; results are compared in percentages, so the size flatters no 
 | All open option premium | at most 10% of the account |
 | Open positions | at most 30 per account |
 
-Options strategies are **defined-risk only**: long calls, long puts, long straddles and debit spreads. Nothing is ever
-sold naked, so no paper account can lose more than it put in.
+Options strategies use long calls, long puts, long straddles and debit spreads. The PAPER model budgets their
+initial debit and fees, and sells no naked options. Its simplified intrinsic settlement does not model early
+assignment, exercise financing or every operational loss; it is not a guarantee about a real options account.
 
 ## How a trade happens
 
@@ -31,6 +33,8 @@ the engine steps every account through that session (`desk.stocks.paper.engine`)
    short legs at the bid, and only if the spread is fair (≤ 35% of the mid) and the ask hasn't run past the order's
    limit (10% or 5 cents above what the decision saw). Otherwise the order is cancelled, as a limit order would be.
    Orders that can't fill for 5 sessions (stocks) or 3 (options) are cancelled.
+   An order created after a session's opening waits for a future opening. Option entries require dated quotes
+   after the decision; a captured snapshot from before the decision cannot fill that order.
 2. **Corporate actions.** A split changes the share count from its execution date; cash dividends are paid on the
    ex-date to positions held before it. An option whose underlying splits is closed at its last mark.
 3. **Stops.** A resting stop sells at the stop price if the day's low reached it, or at the open if the stock gapped
@@ -49,6 +53,9 @@ is conservative).
 
 Every decision (ENTER, EXIT, and SKIP with its reason), order, fill, cash movement and daily equity is append-only.
 A position's entry never changes and a closed position never changes (SQLite triggers refuse it).
+The whole ledger session commits in one transaction. STOP cancels pending entries and suppresses new ones while
+existing positions remain managed. Recovery through missed sessions is simulation and must be identified in the
+evaluation; it is not evidence of fills while a laptop was asleep.
 
 ## The strategies (v1)
 

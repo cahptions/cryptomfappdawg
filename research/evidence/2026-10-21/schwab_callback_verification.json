@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-21",
+  "sources": [
+    {
+      "url": "https://github.com/alexgolec/schwab-py/blob/master/docs/auth.rst",
+      "access": "partial SDK documentation read",
+      "sections": "Examples using https://127.0.0.1; access/refresh token lifetime explanation; Browser Warnings About Invalid/Self-Signed Certificates",
+      "download_sha256": "ef2e6abfe9fe83076a1a36d5e3118a933bf08d05a7fe2d959f3f5ca202a3253c",
+      "bytes": 17468
+    },
+    {
+      "url": "https://github.com/alexgolec/schwab-py/blob/master/schwab/client/base.py",
+      "access": "partial SDK source read",
+      "sections": "get_quotes; get_option_chain; get_option_expiration_chain",
+      "download_sha256": "214f7ae3daeec95a9e9da0ae5e7b15112ed9ac38f868cc064492f804ac4c9b36",
+      "bytes": 45410
+    },
+    {
+      "url": "https://github.com/tailscale/tailscale/blob/main/cmd/tailscale/cli/serve_v2.go",
+      "access": "partial official CLI source read",
+      "sections": "Serve private HTTPS proxy CLI help; distinction from public Funnel",
+      "download_sha256": "7290ac5072b96450f2321f721d03aae7fdb49aa54f3a4c2d66e906278d02d227",
+      "bytes": 54639
+    }
+  ],
+  "official_portal": {
+    "url": "https://developer.schwab.com/products/trader-api--individual",
+    "access": "Unavailable from this workspace: proxy CONNECT 403",
+    "effect": "Current app-registration acceptance and data entitlements remain unverified"
+  },
+  "conclusion": "No blanket ban on 127.0.0.1 was verified. Try exact approved local HTTPS callback first; private Tailscale Serve is optional, registration acceptance still required.",
+  "implementation_tests": "Synthetic OAuth transports, local self-signed HTTPS, normalized market-data fixtures and browser fixtures only; no broker account login, live data probe or order submission.",
+  "limits": "SDK master references can change. Content hashes identify downloaded versions; do not treat fixture success as broker acceptance."
+}

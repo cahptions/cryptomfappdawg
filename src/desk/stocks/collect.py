@@ -343,12 +343,13 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                 skipped.append(symbol)
                 continue
             for e, quotes in chains.items():
-                market.save_option_chain(symbol, today, e, now, price, quotes)
+                market.save_option_chain(symbol, today, e, now, price, quotes, source=suite.option_source)
                 contracts += len(quotes)
             market.save_option_daily(symbol, today, now, opt.daily_summary(chains, price, today, rate))
             done += 1
         pruned = market.prune_option_chains(today - timedelta(days=45))
-        return {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned}
+        return {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned,
+                "source": suite.option_source}
     return await _job(market, "options", now, work)
 
 

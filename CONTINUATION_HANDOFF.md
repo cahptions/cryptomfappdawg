@@ -1,5 +1,15 @@
 # Continuing Claude's work
 
+> **Latest continuation, 2026-10-21:** Stocks/Schwab work is on **`codex/finish-schwab-stocks`**, based on
+> Claude's M6 commit `972565b`. Read [docs/STOCKS.md](docs/STOCKS.md) for operator commands, architecture,
+> bounded data/resource behavior, tests and outstanding validation; [docs/SCHWAB.md](docs/SCHWAB.md) for
+> the default free local HTTPS callback and optional Tailscale fallback. Saved evidence is
+> `research/evidence/2026-10-21/schwab_callback_verification.json`. No real Schwab login or order was made.
+> The latest fetched Claude branch remained `972565b`; all earlier opportunity/$500 work is preserved.
+> Next operator step: update this branch, `uv sync --frozen`, then `uv run desk stocks dashboard --open`.
+> Configure the approved app privately in Settings, verify with `uv run desk stocks doctor --online`, then
+> run the separate bounded Stocks PAPER worker. Broker approval and prospective evidence remain outstanding.
+
 
 > **New continuation, 2026-10-20:** use [research/opportunities/HANDOFF.md](research/opportunities/HANDOFF.md).
 > The reference account is now $500 on both desks. Earlier $100 notes below are historical. The new

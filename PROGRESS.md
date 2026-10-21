@@ -3,6 +3,37 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-21 — Stocks continuation and optional Schwab market data
+
+Branch `codex/finish-schwab-stocks` continues Claude's saved M1–M6 through `972565b`, including the earlier
+Robinhood/Solana research and $500 reference changes. Added `desk stocks doctor/connect/refresh/paper/report/
+validate/learn/dashboard`, a loopback dashboard on8767, eleven-desk stock pages, PAPER records, evidence and
+private Settings. It implements no brokerage account/order endpoint and does not arm LIVE.
+
+Schwab credentials/tokens stay owner-only beside secrets.env. Token POSTs bypass raw-response storage;
+refresh is serialized and rotating tokens are atomically persisted. Exact HTTPS callbacks and random OAuth
+state are checked. A self-signed local HTTPS listener on8182 needs no paid domain. Tailscale Serve is optional
+for a `.ts.net` callback if needed; no VPN, public Funnel or operator machine was configured by this session.
+The accessible SDK still documents `https://127.0.0.1`; the official portal was proxy-denied, so a blanket
+2024 ban was not verified. See [Schwab evidence/guide](docs/SCHWAB.md).
+
+PAPER now commits a whole ledger session atomically, obeys STOP, and refuses stock openings and option
+snapshots from before order creation. Missed-session recovery is recorded as simulation; it discovers no
+retrospective entries. Chain provenance is recorded and one asset/session cannot mix sources. Collection
+uses bounded batches; below1.5GB available RAM the worker defers broad analysis. The dashboard reads stored
+data and performs no research backtest on a request. Tradier remains the default until explicitly changed.
+
+Validation: 1,007 offline tests passed (5 live tests deselected); Ruff and strict mypy passed. Chromium smoke
+passed empty/populated desktop and375px layouts, chart, eleven desks, PAPER/evidence/system/settings and CSP.
+OAuth/provider fixtures are synthetic; loopback HTTPS is actually exercised. No authenticated broker probe,
+real credentials, funding or brokerage order was used. Follow-up checks are recorded in the continuation guide.
+
+Unknown/outstanding: actual Schwab app approval/callback acceptance/entitlements/live schema, full-universe
+laptop RAM/disk/time measurements and prospective evidence. Options coverage is a deliberately sparse pilot;
+dated fee assumptions, modeled marks/expiry and survivor bias prevent executable-edge/LIVE claims. Stocks
+$10k/$50k experiments are distinct from $500 crypto reference and $100k learning cash. Start/update commands
+and the durable handoff are [docs/STOCKS.md](docs/STOCKS.md); earlier milestone notes below remain history.
+
 ## Current status
 
 | Milestone | Status | Date | Notes |

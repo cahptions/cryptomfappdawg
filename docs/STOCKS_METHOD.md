@@ -2,7 +2,8 @@
 
 KESTREL Stocks is a research desk. It reads free public data, scores every liquid US stock with eleven desks, builds
 daily Robinhood-style lists with a plain reason for every name, and then keeps score on itself: every list and every
-desk is graded against what the market did next. It never connects to a brokerage and has no order code.
+desk is graded against what the market did next. Brokerage adapters supply market data only; no brokerage
+order code is present in this desk.
 **Research, not financial advice.**
 
 This document is the methodology. Every rule here is frozen by version: the desks, each list and the validation rules

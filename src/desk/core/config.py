@@ -210,6 +210,8 @@ class StocksSection(_Section):
 
     dashboard_port: int = Field(default=8767, ge=1024, le=65535)
     tradier_env: Literal["sandbox", "production"] = "sandbox"   # sandbox = free developer token, 15-minute delayed
+    options_provider: Literal["tradier", "schwab"] = "tradier"
+    schwab_callback_url: str = "https://127.0.0.1:8182/oauth/callback"
     history_days: int = Field(default=730, ge=60)              # Massive's free plan keeps 2 years
     min_price_usd: Decimal = Decimal("1")                       # the research universe: listed common stock and ADRs
     min_median_dollar_volume_usd: Decimal = Decimal("1000000")  # ... trading at least this much a day (median of 20)

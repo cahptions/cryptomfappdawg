@@ -619,3 +619,34 @@ verified_fields = ["history.day[].{date,open,high,low,close,volume}"]
 path = "/calendar"
 status = "to_verify"
 verified_fields = ["calendar.days.day[].{date,status}"]
+
+[providers.schwab]
+display_name = "Schwab approved-app market data (no account or order requests)"
+base_url = "https://api.schwabapi.com/marketdata/v1"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "Not independently verified; local pacing is provisional and subject to the approved app entitlement"
+measured_limit = "not measured: operator authorization required"
+freshness_seconds = 900
+failure_handling = "private rotating bearer headers; expired refresh -> reconnect; 401 not blindly retried"
+fallback = "none; no silent switch of data delay/provider"
+allowed_usage = "approved personal Schwab application and operator's market-data entitlements; GET market data only"
+evidence = ["docs/SCHWAB.md"]
+
+[providers.schwab.buckets.default]
+windows = [[90, 60], [3, 1]]
+
+[providers.schwab.endpoints.expirations]
+path = "/expirationchain"
+status = "to_verify"
+verified_fields = []
+
+[providers.schwab.endpoints.chains]
+path = "/chains"
+status = "to_verify"
+verified_fields = []
+
+[providers.schwab.endpoints.quotes]
+path = "/quotes"
+status = "to_verify"
+verified_fields = []

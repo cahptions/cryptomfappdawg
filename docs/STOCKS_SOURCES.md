@@ -1,5 +1,11 @@
 # KESTREL Stocks: data sources
 
+**Continuation note (2026-10-21):** the source checks below are Claude's saved M1 evidence. Schwab is a new,
+optional quote/options adapter, with a private local HTTPS callback and Tailscale only as a fallback. No
+authenticated Schwab probe was performed here; its credentials, entitlements, live schema and registration
+policy remain to verify. [Schwab setup and evidence limitations](SCHWAB.md). The original Tradier sandbox
+remains the default until the operator explicitly selects Schwab. [Start the desk](STOCKS.md).
+
 Every source was checked live on 2026-10-21 from the build machine, for reachability, format, limits, terms and
 price. The probes are recorded in `research/evidence/2026-10-21/stocks_sources_verification.json`, and trimmed real
 responses are in `tests/fixtures/stocks/`. Every plan used is free. Keys and the SEC contact live only in

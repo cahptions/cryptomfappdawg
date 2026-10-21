@@ -68,6 +68,7 @@ class ProviderHttp:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         rng: Callable[[], float] = random.random,
         signer: Callable[[str, str, bytes], Mapping[str, str]] | None = None,
+        auth_headers: Callable[[], Awaitable[Mapping[str, str]]] | None = None,
     ) -> None:
         self.name = name
         self.spec = spec
@@ -82,6 +83,7 @@ class ProviderHttp:
         self._rng = rng
         # per-attempt request signing (method, path with query as sent, body bytes) -> auth headers
         self.signer = signer
+        self.auth_headers = auth_headers
         # a provider that asks callers to identify themselves (SEC EDGAR: a contact address) gets its own agent
         self.user_agent: str | None = None
 
@@ -162,6 +164,8 @@ class ProviderHttp:
             requested_at = utc_now()
             started = time.monotonic()
             headers = self._headers()
+            if self.auth_headers is not None:
+                headers.update(await self.auth_headers())
             if self.signer is not None:
                 # signed requests carry their query in ``url`` so the signed path is exactly what is sent
                 target = httpx.URL(url)

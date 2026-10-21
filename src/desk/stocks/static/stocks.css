@@ -1,0 +1,297 @@
+:root {
+  color-scheme: dark;
+  --green: #b5f33b;
+  --muted: #9a9e97;
+  --line: #2a2d27;
+  font:
+    15px/1.55 system-ui,
+    sans-serif;
+  background: #080a08;
+  color: #f2f5ef;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  color: var(--green);
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 24px 5%;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.brand {
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+.brand span {
+  color: var(--muted);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+nav {
+  display: flex;
+  gap: 24px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+nav a[aria-current="page"] {
+  color: var(--green);
+}
+.badge {
+  border: 1px solid var(--line);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+#status {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 12px 5%;
+  border-bottom: 1px solid var(--line);
+}
+main {
+  max-width: 1200px;
+  margin: auto;
+  padding: 36px 24px;
+  min-height: 75vh;
+}
+h1 {
+  font-size: 38px;
+  line-height: 1.15;
+  margin: 0 0 12px;
+  letter-spacing: -1px;
+}
+h2 {
+  font-size: 22px;
+  margin-top: 0;
+}
+h3 {
+  font-size: 17px;
+  margin-top: 0;
+}
+p {
+  max-width: 78ch;
+}
+.muted,
+small {
+  color: var(--muted);
+}
+.green {
+  color: var(--green);
+}
+.big {
+  font-size: 48px;
+  letter-spacing: -2px;
+  margin: 8px 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.panel {
+  border: 1px solid var(--line);
+  padding: 22px;
+  border-radius: 12px;
+  margin: 20px 0;
+  background: #0e110d;
+}
+.panel .panel {
+  background: #13170f;
+}
+button,
+input,
+select {
+  font: inherit;
+  border: 1px solid #43493c;
+  border-radius: 7px;
+  padding: 10px 14px;
+  background: #151a11;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--green);
+}
+button.primary {
+  background: var(--green);
+  color: #172007;
+  border-color: var(--green);
+  font-weight: 700;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+label {
+  display: block;
+  margin: 18px 0 6px;
+}
+input {
+  width: 100%;
+  max-width: 600px;
+}
+select {
+  max-width: 100%;
+  margin: 12px 12px 12px 0;
+}
+input:focus,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+.row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.row p {
+  margin: 0;
+}
+.spacer {
+  flex: 1;
+}
+.table-wrap {
+  overflow: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+td,
+th {
+  text-align: left;
+  padding: 14px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+th {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+td.reason {
+  white-space: normal;
+  min-width: 220px;
+}
+td a {
+  font-weight: 700;
+  color: var(--green);
+}
+progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--green);
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.6 ui-monospace,
+    monospace;
+  max-height: 500px;
+  overflow: auto;
+}
+code {
+  font-size: 13px;
+  color: var(--green);
+  overflow-wrap: anywhere;
+}
+ul,
+ol {
+  padding-left: 22px;
+}
+li {
+  margin: 8px 0;
+}
+.chart {
+  width: 100%;
+  height: 250px;
+  display: block;
+  margin: 22px 0;
+}
+.chart polyline {
+  stroke: var(--green);
+  stroke-width: 2;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.error {
+  color: #ffb7a7;
+}
+.notice {
+  border-left: 3px solid var(--green);
+  padding: 10px 18px;
+  background: #11170c;
+}
+.desk-score {
+  font-size: 30px;
+  color: var(--green);
+}
+footer {
+  max-width: 1200px;
+  margin: auto;
+  padding: 25px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.link-button {
+  display: inline-block;
+  margin: 12px 0;
+  padding: 12px 18px;
+  border-radius: 8px;
+  background: var(--green);
+  color: #132000;
+}
+details > summary {
+  cursor: pointer;
+  color: var(--green);
+}
+@media (max-width: 650px) {
+  header {
+    gap: 15px;
+    padding: 18px;
+  }
+  nav {
+    order: 3;
+    width: 100%;
+    gap: 18px;
+    font-size: 13px;
+  }
+  main {
+    padding: 24px 16px;
+  }
+  h1 {
+    font-size: 30px;
+  }
+  .panel {
+    padding: 16px;
+  }
+  .big {
+    font-size: 38px;
+  }
+  .chart {
+    height: 180px;
+  }
+  #status {
+    padding: 10px 18px;
+  }
+}

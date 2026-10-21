@@ -367,13 +367,17 @@ class StocksMarket:
 
     # options ──────────────────────────────────────────────────────────────────────────────────────
     def save_option_chain(self, underlying: str, day: date, expiration: date, observed_at: datetime,
-                          underlying_price: float | None, quotes: Sequence[OptionQuote]) -> None:
+                          underlying_price: float | None, quotes: Sequence[OptionQuote], *, source: str = "tradier") -> None:
+        existing = self.conn.execute("SELECT DISTINCT source FROM stk_option_chains WHERE underlying=? AND day=?",
+                                     (underlying, day_of(day))).fetchall()
+        if any(r[0] != source for r in existing):
+            raise StorageError("Refusing to mix option providers for one asset/session; use a separate data directory")
         rows = [[q.occ, q.kind, q.strike, q.bid, q.ask, q.last, q.volume, q.open_interest, q.average_volume,
                  to_iso(q.quoted_at) if q.quoted_at else None] for q in quotes]
         self.conn.execute(
             "INSERT OR REPLACE INTO stk_option_chains(underlying, day, expiration, observed_at, underlying_price, contracts,"
-            " chain_zlib) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (underlying, day_of(day), day_of(expiration), to_iso(observed_at), underlying_price, len(rows), _pack(rows)))
+            " chain_zlib, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (underlying, day_of(day), day_of(expiration), to_iso(observed_at), underlying_price, len(rows), _pack(rows), source))
 
     def option_chain(self, underlying: str, day: date | None = None) -> tuple[date | None, dict[date, list[OptionQuote]]]:
         """The newest stored chain for ``underlying`` (on or before ``day``), every expiration."""

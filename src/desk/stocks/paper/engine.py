@@ -102,7 +102,11 @@ class PaperEngine:
         return None if b is None else b.close * b.volume
 
     # ── the session ────────────────────────────────────────────────────────────────────────────────
-    def step(self, asof: date, now: datetime, day: Day | None) -> StepReport:
+    def step(self, asof: date, now: datetime, day: Day | None, *, allow_entries: bool = True) -> StepReport:
+        with self.book.atomic():
+            return self._step(asof, now, day, allow_entries=allow_entries)
+
+    def _step(self, asof: date, now: datetime, day: Day | None, *, allow_entries: bool) -> StepReport:
         rep = StepReport(asof)
         if self.book.stepped(asof):
             rep.skipped = f"{asof.isoformat()} was already stepped"
@@ -124,6 +128,11 @@ class PaperEngine:
             self.market.register_spec(f"stocks_paper_{st.id}", st.version, st.content(), now)
             capital = self.settings.paper_option_capital_usd if st.asset == "option" else self.settings.paper_starting_capital_usd
             self.book.open_account(st.id, float(capital), now, asof)
+        if not allow_entries:
+            for order in self.book.pending():
+                if order.order["action"] == "ENTER":
+                    self.book.resolve(order.id, "CANCELLED", now, "STOP: new entries disabled")
+                    rep.cancelled += 1
         self._fill(asof, now, bars, day, rep)
         self._corporate_actions(asof, now, last, rep)
         self._stops(asof, now, bars, day, rep)
@@ -132,7 +141,7 @@ class PaperEngine:
         pending = self.book.pending()
         for st in self.strategies.values():
             self._exits(st, asof, now, day, pending, rep)
-            if day is not None and day.asof == asof and st.id not in self.retired:
+            if allow_entries and day is not None and day.asof == asof and st.id not in self.retired:
                 self._entries(st, asof, now, bars, day, values, pending, rep)
         for st in self.strategies.values():
             cash = self.book.cash(st.id)
@@ -147,6 +156,17 @@ class PaperEngine:
         for o in sorted(orders, key=lambda o: (o.order["action"] != "EXIT", o.id)):
             waited = sessions_between(o.fill_after, asof)
             stock = o.order["asset"] == "stock"
+            if stock:
+                opening = datetime.combine(asof, datetime.min.time().replace(hour=9, minute=30), cal.NEW_YORK)
+                if datetime.fromisoformat(o.created_at) >= opening:
+                    rep.notes.append("An order created after this session opened waits for a future opening")
+                    continue
+            else:
+                captured = self.market.conn.execute(
+                    "SELECT MIN(observed_at) FROM stk_option_chains WHERE underlying=? AND day=?",
+                    (o.order["symbol"], asof.toordinal())).fetchone()[0]
+                if captured is not None and datetime.fromisoformat(captured) <= datetime.fromisoformat(o.created_at):
+                    continue
             try:
                 done = (self._fill_stock if stock else self._fill_option)(o, asof, now, bars, day, rep)
             except _Cancel as c:
@@ -224,6 +244,12 @@ class PaperEngine:
             return True
         if quotes is None or bar is None:
             return False
+        created = datetime.fromisoformat(o.created_at)
+        for leg in spec["legs"]:
+            quote = quotes.get(leg["occ"])
+            if (quote is None or quote.quoted_at is None or quote.quoted_at <= created
+                    or cal.new_york(quote.quoted_at).date() != asof or quote.quoted_at > now):
+                return False
         legs = [{**leg, "quantity": leg["quantity"] * spec["units"]} for leg in spec["legs"]]
         f = fills.open_legs(legs, quotes)
         if f.problem:

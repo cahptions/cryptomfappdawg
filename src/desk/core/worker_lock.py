@@ -21,7 +21,8 @@ class WorkerBusy(DeskError):
 
 class WorkerLock:
     def __init__(self, paths: DeskPaths, name: str = "entry-worker") -> None:
-        if name not in {"entry-worker", "dashboard", "guardian", "guardian-live", "telegram", "rh-worker", "rh-dashboard"}:
+        if name not in {"entry-worker", "dashboard", "guardian", "guardian-live", "telegram", "rh-worker", "rh-dashboard",
+                        "stocks-worker", "stocks-dashboard"}:
             raise ValueError("unsupported worker lock")
         self.paths, self.name = paths, name
         self.path = paths.home / "run" / f"{name}.lock"

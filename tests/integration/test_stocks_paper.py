@@ -85,6 +85,58 @@ def test_stock_orders_fill_at_the_next_open_and_a_day_steps_once(world: StocksWo
     assert [e[0] for e in equity] == days[:2] and equity[0][3] == pytest.approx(10_000)
 
 
+def test_late_restart_never_fills_an_open_before_the_order_was_created(world: StocksWorld, tmp_path: Path) -> None:
+    b = book(tmp_path)
+    days = world.days[-6:]
+    # Monday's stale analysis was only available after Tuesday closed: Tuesday's opening is already gone.
+    analyzer = Analyzer(world.market, world.research, SETTINGS)
+    d = analyzer.build(load_panel(world.market, world.days[0], days[0]), days[0], now=at(days[1]))
+    engine = PaperEngine(world.market, b, SETTINGS, (BY_STRATEGY["spy_hold"],))
+    engine.step(days[0], at(days[1]), d)
+    engine.step(days[1], at(days[1]), None)
+    assert b.positions() == [] and len(b.pending()) == 1
+    engine.step(days[2], at(days[2]), None)
+    assert b.positions()[0].entry_day == days[2]
+
+
+def test_stop_cancels_pending_entries_and_still_marks_existing_positions(world: StocksWorld,
+                                                                       analyses: dict[date, Day], tmp_path: Path) -> None:
+    b = book(tmp_path)
+    days = world.days[-45:-40]
+    engine = PaperEngine(world.market, b, SETTINGS, (BY_STRATEGY["spy_hold"],))
+    engine.step(days[0], at(days[0]), analyses[days[0]])
+    engine.step(days[1], at(days[1]), analyses[days[1]], allow_entries=False)
+    assert not b.pending() and not b.positions()
+    engine.step(days[2], at(days[2]), analyses[days[2]])
+    engine.step(days[3], at(days[3]), analyses[days[3]])
+    assert b.positions()
+    engine.step(days[4], at(days[4]), analyses[days[4]], allow_entries=False)
+    assert b.equity("spy_hold")[-1][0] == days[4] and b.positions()
+
+
+def test_interrupted_session_rolls_back_all_accounts_and_can_retry(world: StocksWorld, analyses: dict[date, Day],
+                                                                  tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = book(tmp_path)
+    d = world.days[-45]
+    engine = PaperEngine(world.market, b, SETTINGS, (BY_STRATEGY["spy_hold"], BY_STRATEGY["committee_top"]))
+    original = b.snapshot
+    calls = []
+
+    def crash(*args: object) -> None:
+        calls.append(args)
+        if len(calls) == 2:
+            raise RuntimeError("simulated power loss")
+        original(*args)
+
+    monkeypatch.setattr(b, "snapshot", crash)
+    with pytest.raises(RuntimeError, match="power loss"):
+        engine.step(d, at(d), analyses[d])
+    assert b.accounts() == [] and b.pending() == [] and b.last_step() is None
+    monkeypatch.setattr(b, "snapshot", original)
+    assert engine.step(d, at(d), analyses[d]).skipped is None
+    assert len(b.accounts()) == 2 and len(b.pending()) == 11
+
+
 def test_stops_and_holds_exit_and_events_respect_capacity(world: StocksWorld, analyses: dict[date, Day],
                                                          tmp_path: Path) -> None:
     b = book(tmp_path)
