@@ -1,0 +1,169 @@
+<SEC-DOCUMENT>0001813477-26-000008.txt : 20261020
+<SEC-HEADER>0001813477-26-000008.hdr.sgml : 20261020
+<ACCEPTANCE-DATETIME>20261020160544
+ACCESSION NUMBER:		0001813477-26-000008
+CONFORMED SUBMISSION TYPE:	4
+PUBLIC DOCUMENT COUNT:		1
+CONFORMED PERIOD OF REPORT:	20261016
+FILED AS OF DATE:		20261020
+DATE AS OF CHANGE:		20261020
+
+REPORTING-OWNER:	
+
+	OWNER DATA:	
+		COMPANY CONFORMED NAME:			O'Shaughnessy Laura
+		CENTRAL INDEX KEY:			0001813477
+		ORGANIZATION NAME:           	
+
+	FILING VALUES:
+		FORM TYPE:		4
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	001-16583
+		FILM NUMBER:		261472760
+
+	MAIL ADDRESS:	
+		STREET 1:		C/O VROOM, INC.
+		STREET 2:		1375 BROADWAY, FLOOR 11
+		CITY:			NEW YORK
+		STATE:			NY
+		ZIP:			10018
+
+	FORMER NAME:	
+		FORMER CONFORMED NAME:	OShaughnessy Laura
+		DATE OF NAME CHANGE:	20200528
+
+ISSUER:		
+
+	COMPANY DATA:	
+		COMPANY CONFORMED NAME:			ACUITY INC. (DE)
+		CENTRAL INDEX KEY:			0001144215
+		STANDARD INDUSTRIAL CLASSIFICATION:	ELECTRIC LIGHTING & WIRING EQUIPMENT [3640]
+		ORGANIZATION NAME:           	04 Manufacturing
+		EIN:				582632672
+		STATE OF INCORPORATION:			DE
+		FISCAL YEAR END:			0831
+
+	BUSINESS ADDRESS:	
+		STREET 1:		1170 PEACHTREE STREET NE
+		STREET 2:		SUITE 1200
+		CITY:			ATLANTA
+		STATE:			GA
+		ZIP:			30309
+		BUSINESS PHONE:		404-853-1400
+
+	MAIL ADDRESS:	
+		STREET 1:		1170 PEACHTREE STREET NE
+		STREET 2:		SUITE 1200
+		CITY:			ATLANTA
+		STATE:			GA
+		ZIP:			30309
+
+	FORMER COMPANY:	
+		FORMER CONFORMED NAME:	ACUITY BRANDS INC
+		DATE OF NAME CHANGE:	20011108
+
+	FORMER COMPANY:	
+		FORMER CONFORMED NAME:	L&C SPINCO INC
+		DATE OF NAME CHANGE:	20010629
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>4
+<SEQUENCE>1
+<FILENAME>wk-form4_1792526742.xml
+<DESCRIPTION>FORM 4
+<TEXT>
+<XML>
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2026-10-16</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001144215</issuerCik>
+        <issuerName>ACUITY INC. (DE)</issuerName>
+        <issuerTradingSymbol>AYI</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001813477</rptOwnerCik>
+            <rptOwnerName>O'Shaughnessy Laura</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>C/O ACUITY INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>1170 PEACHTREE STREET NE, STE 1200</rptOwnerStreet2>
+            <rptOwnerCity>ATLANTA</rptOwnerCity>
+            <rptOwnerState>GA</rptOwnerState>
+            <rptOwnerZipCode>30309</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2026-10-16</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>73</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>302.32</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>3184</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes></footnotes>
+
+    <remarks></remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Chanda Kirchner, Attorney-in-Fact for Laura O'Shaughnessy</signatureName>
+        <signatureDate>2026-10-20</signatureDate>
+    </ownerSignature>
+</ownershipDocument>
+</XML>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>

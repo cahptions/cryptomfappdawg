@@ -322,6 +322,19 @@ path = "/Archives/edgar/data/{cik}/{accession}/{name}"
 status = "verified"
 verified_fields = ["ownershipDocument (Form 4 XML)"]
 
+[providers.sec_www.endpoints.insider_datasets]
+path = "/data-research/sec-markets-data/insider-transactions-data-sets"
+status = "verified"
+verified_fields = ["href=/files/.../YYYYqN_form345.zip"]
+
+[providers.sec_www.endpoints.insider_dataset]
+path = "/files/.../YYYYqN_form345.zip"
+status = "verified"
+notes = "2026q3: 8.7 MB; SUBMISSION, REPORTINGOWNER, NONDERIV_TRANS (tab-separated)"
+verified_fields = ["SUBMISSION.{ACCESSION_NUMBER,FILING_DATE,DOCUMENT_TYPE,ISSUERCIK,ISSUERTRADINGSYMBOL,AFF10B5ONE}",
+  "REPORTINGOWNER.{RPTOWNERCIK,RPTOWNERNAME,RPTOWNER_RELATIONSHIP,RPTOWNER_TITLE}",
+  "NONDERIV_TRANS.{TRANS_DATE,TRANS_CODE,TRANS_SHARES,TRANS_PRICEPERSHARE,TRANS_ACQUIRED_DISP_CD,SHRS_OWND_FOLWNG_TRANS,DIRECT_INDIRECT_OWNERSHIP}"]
+
 [providers.sec_www.endpoints.fails_to_deliver]
 path = "/files/data/fails-deliver-data/cnsfailsYYYYMM{a|b}.zip"
 status = "verified"

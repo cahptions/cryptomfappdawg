@@ -177,6 +177,69 @@ def parse_form4(xml: bytes | str, accession: str) -> list[InsiderTrade]:
     return trades
 
 
+_MONTHS = {m: i + 1 for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV",
+                                           "DEC"))}
+
+
+def _sec_day(text: str) -> date | None:
+    """The insider data sets write dates as 31-JUL-2026."""
+    try:
+        d, m, y = text.strip().split("-")
+        return date(int(y), _MONTHS[m.upper()], int(d))
+    except (ValueError, KeyError):
+        return None
+
+
+def parse_insider_dataset(body: bytes) -> list[tuple[InsiderTrade, date]]:
+    """A quarterly Insider Transactions Data Set (Forms 3, 4, 5): Form 4 non-derivative transactions with the date
+    each was filed, one row per transaction per reporting owner (as ``parse_form4``)."""
+    def table(zf: zipfile.ZipFile, name: str) -> list[dict[str, str]]:
+        lines = zf.read(name).decode("utf-8", "replace").splitlines()
+        head = lines[0].split("\t")
+        return [dict(zip(head, line.split("\t"), strict=False)) for line in lines[1:] if line]
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(body)) as zf:
+            subs = {r["ACCESSION_NUMBER"]: r for r in table(zf, "SUBMISSION.tsv") if r.get("DOCUMENT_TYPE") in ("4", "4/A")}
+            owners: dict[str, list[dict[str, str]]] = {}
+            for r in table(zf, "REPORTINGOWNER.tsv"):
+                owners.setdefault(r["ACCESSION_NUMBER"], []).append(r)
+            rows = table(zf, "NONDERIV_TRANS.tsv")
+    except (zipfile.BadZipFile, KeyError, IndexError) as exc:
+        raise SchemaError(f"insider data set: {exc}") from exc
+    out = []
+    for r in rows:
+        sub = subs.get(r["ACCESSION_NUMBER"])
+        if sub is None or not sub.get("ISSUERTRADINGSYMBOL"):
+            continue
+        filed, day, shares = _sec_day(sub["FILING_DATE"]), _sec_day(r.get("TRANS_DATE", "")), _num(r.get("TRANS_SHARES"))
+        if filed is None or day is None or shares is None or not r.get("TRANS_CODE"):
+            continue
+        for o in owners.get(r["ACCESSION_NUMBER"], []):
+            rel = {x.strip() for x in o.get("RPTOWNER_RELATIONSHIP", "").split(",")}
+            trade = InsiderTrade(r["ACCESSION_NUMBER"], int(sub["ISSUERCIK"] or 0), canonical_symbol(sub["ISSUERTRADINGSYMBOL"]),
+                                 o.get("RPTOWNERNAME", ""), int(o.get("RPTOWNERCIK") or 0), "Director" in rel, "Officer" in rel,
+                                 o.get("RPTOWNER_TITLE") or None, "TenPercentOwner" in rel, day, r["TRANS_CODE"], shares,
+                                 _num(r.get("TRANS_PRICEPERSHARE")), r.get("TRANS_ACQUIRED_DISP_CD", "A") == "A",
+                                 _num(r.get("SHRS_OWND_FOLWNG_TRANS")), r.get("DIRECT_INDIRECT_OWNERSHIP", "D") == "D",
+                                 sub.get("AFF10B5ONE", "0").strip() in ("1", "true"))
+            out.append((trade, filed))
+    return out
+
+
+_ACCEPTED = re.compile(r"<ACCEPTANCE-DATETIME>(\d{14})")
+_XML = re.compile(r"<XML>\s*(.*?)\s*</XML>", re.S)
+
+
+def parse_submission_text(text: str) -> tuple[datetime | None, str | None]:
+    """A full submission (``edgar/data/<cik>/<accession>.txt``): its acceptance time (New York time, naive) and its
+    first XML document."""
+    m = _ACCEPTED.search(text)
+    accepted = datetime.strptime(m.group(1), "%Y%m%d%H%M%S") if m else None
+    x = _XML.search(text)
+    return accepted, (x.group(1) if x else None)
+
+
 def parse_fails(text: str) -> list[Fail]:
     """SEC fails-to-deliver text (pipe-separated, one settlement date per row)."""
     out = []
@@ -250,6 +313,19 @@ class SecClient:
             return []
         return parse_form4(await self.document(cik, accession, xmls[0]), accession)
 
+    async def submission_text(self, path: str) -> str:
+        """``path`` as the daily index lists it (``edgar/data/<cik>/<accession>.txt``)."""
+        return (await self._get(self.www, "filing_document", "/Archives/" + path, label="submission_text")).decode(
+            "utf-8", "replace")
+
+    async def insider_dataset_paths(self) -> list[str]:
+        page = (await self._get(self.www, "insider_datasets", "/data-research/sec-markets-data/insider-transactions-data-sets")
+                ).decode("utf-8", "replace")
+        return sorted(set(re.findall(r'href="(/files/[^"]+_form345\.zip)"', page)), reverse=True)
+
+    async def insider_dataset(self, path: str) -> list[tuple[InsiderTrade, date]]:
+        return parse_insider_dataset(await self._get(self.www, "insider_dataset", path))
+
     async def fails(self, name: str) -> list[Fail]:
         return parse_fails_zip(await self._get(self.www, "fails_to_deliver", f"/files/data/fails-deliver-data/{name}"))
 
@@ -267,4 +343,5 @@ def sec_user_agent(contact: str | None) -> str | None:
 
 
 __all__ = ["SecClient", "canonical_symbol", "ftd_file_names", "parse_companyfacts", "parse_daily_index", "parse_fails",
-           "parse_fails_zip", "parse_form4", "parse_submissions", "parse_tickers_exchange", "sec_user_agent"]
+           "parse_fails_zip", "parse_form4", "parse_insider_dataset", "parse_submission_text", "parse_submissions",
+           "parse_tickers_exchange", "sec_user_agent"]
