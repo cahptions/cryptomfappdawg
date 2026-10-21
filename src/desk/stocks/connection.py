@@ -82,6 +82,10 @@ def save_connection(paths: DeskPaths, *, app_key: str, app_secret: str, callback
         # Blank password fields preserve an existing value. Other providers/comments are retained.
         replacing = {key: value for key, value in updates.items() if value}
         old_values, _ = _parse_env_file(old)
+        effective = {**old_values, **replacing}
+        if effective.get("SCHWAB_APP_KEY") and effective.get("SCHWAB_APP_KEY") == effective.get("SCHWAB_APP_SECRET"):
+            raise SchwabAuthError("App key (Client ID) and Client Secret must be different. "
+                                  "Copy each from its labeled Schwab field.")
         lines = [line for line in old.splitlines() if not any(
             re.match(r"^\s*(?:export\s+)?" + re.escape(key) + r"\s*=", line) for key in replacing)]
         lines.extend(f"{key}='{value}'" for key, value in replacing.items())
@@ -240,5 +244,7 @@ class LoginAttempt:
 
 
 def connection_status(paths: DeskPaths, settings: StocksSection, credentials: Secrets) -> dict[str, Any]:
-    return {**preferences(paths, settings), "schwab": SchwabTokens(token_path(paths), credentials).status(),
+    return {**preferences(paths, settings), "schwab": {**SchwabTokens(token_path(paths), credentials).status(),
+            "app_key_set": credentials.configured("SCHWAB_APP_KEY"),
+            "app_secret_set": credentials.configured("SCHWAB_APP_SECRET")},
             "orders_enabled": False, "mode": "PAPER"}

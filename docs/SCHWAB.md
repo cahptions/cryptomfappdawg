@@ -27,7 +27,20 @@ Start `uv run desk stocks dashboard --open`, open Settings, choose Schwab, save 
 callback, then click **Start browser authorization → Open Schwab authorization**. The page is local HTTP on
 port8767; the separate OAuth callback is local **HTTPS** on8182. They have different jobs. The app key and secret
 are password fields, blanks preserve existing values, and changing app credentials invalidates old tokens.
-Stop the Stocks worker before changing its data connection; the Settings page enforces that lock.
+Keep the dashboard's terminal (`desk stocks dashboard`) running throughout setup. If its research collector is
+active, click **Pause collector to save** in the Schwab connection form. It interrupts research waits safely, then
+**Save privately** becomes available without discarding typed credentials. If you started collection separately,
+press Ctrl+C only in the terminal running `desk stocks collect`, `desk stocks paper`, or `desk stocks refresh`.
+Ctrl+C in the dashboard terminal shuts down the web server and causes a connection error; Ctrl+C in a browser
+does not stop collection. A page left open across a dashboard restart renews an expired session token once
+when you submit; a hard reload (Ctrl+Shift+R) also fetches a fresh page/session.
+
+Schwab labels **App key** as **Client ID**, and **App secret** as **Client Secret**. Copy each into its corresponding
+field; a secret entered as the Client ID produces an `invalid_client` authorization error. Identical values are
+rejected before saving. Choose **Schwab market data** and save it before starting authorization. If an attempt
+fails, **Cancel pending authorization** closes that local callback attempt so you can correct the fields and
+start again without waiting five minutes. Cancellation waits for the callback thread to finish before allowing
+credential replacement. Keep any exposed secret out of future screenshots and replace it through Schwab's portal.
 
 Terminal alternative after privately saving credentials:
 

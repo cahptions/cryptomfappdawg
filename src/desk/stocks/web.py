@@ -105,6 +105,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     login_lock = asyncio.Lock()
     collector = worker or ResearchWorker(paths)
 
+    def login_pending() -> bool:
+        return attempt is not None and (not attempt.complete.is_set() or attempt.thread.is_alive())
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         dbs = StocksDatabases.open(paths)
@@ -210,7 +213,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.get("/api/stocks/connection")
     def connection() -> dict[str, Any]:
         return {**connection_status(paths, config.settings.stocks, load_secrets(paths.secrets_file)),
-                "login": {"pending": attempt is not None and not attempt.complete.is_set(),
+                "login": {"pending": login_pending(),
                           "error": attempt.error if attempt is not None else None}}
 
     @app.post("/api/stocks/connection")
@@ -228,11 +231,16 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         except (ValueError, TypeError) as exc:
             raise HTTPException(400, "Invalid connection settings") from exc
         async with login_lock:
-            if attempt is not None and not attempt.complete.is_set():
-                raise HTTPException(409, "Finish the pending authorization before changing settings")
+            if login_pending():
+                raise HTTPException(409, "Use Cancel pending authorization before correcting and saving these settings")
             lock = WorkerLock(paths, "stocks-worker")
             if lock.held():
-                raise HTTPException(409, "Stop the Stocks worker with Ctrl+C before changing its data connection")
+                owned = collector.status()["owned"]
+                raise HTTPException(409, "Pause collector to save in Settings, then wait for the collector to stop. "
+                                    "Keep the dashboard terminal open." if owned else
+                                    "A collector is running in another terminal. Stop only desk stocks collect, "
+                                    "desk stocks paper, or desk stocks refresh in that terminal. "
+                                    "Keep desk stocks dashboard running; then try Save privately again.")
             with lock:
                 await asyncio.to_thread(save_connection, paths, app_key=data.get("app_key", ""),
                                         app_secret=data.get("app_secret", ""), callback=data.get("callback_url", ""),
@@ -243,13 +251,26 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     async def connect() -> dict[str, str]:
         nonlocal attempt
         async with login_lock:
-            if attempt is not None and not attempt.complete.is_set():
-                raise HTTPException(409, "A login is already pending; finish it or wait five minutes")
+            if login_pending():
+                raise HTTPException(409, "A login is already pending; finish it or use Cancel pending authorization")
             if attempt is not None:
                 await asyncio.to_thread(attempt.stop)
             status = connection_status(paths, config.settings.stocks, load_secrets(paths.secrets_file))
+            if status["options_provider"] != "schwab":
+                raise HTTPException(400, "Choose Schwab market data and Save privately before starting Schwab authorization")
             attempt = await asyncio.to_thread(new_login, paths, status["callback_url"])
             return {"authorize_url": attempt.start(), "expires_in_seconds": "300"}
+
+    @app.post("/api/stocks/connect/cancel")
+    async def cancel_connect() -> dict[str, Any]:
+        nonlocal attempt
+        async with login_lock:
+            if attempt is not None:
+                await asyncio.to_thread(attempt.stop)
+                if attempt.thread.is_alive():
+                    raise HTTPException(409, "The current Schwab request is finishing. Retry cancellation shortly.")
+                attempt = None
+        return connection()
 
     app.mount("/assets", StaticFiles(directory=STATIC), name="stocks-assets")
     return app

@@ -7,12 +7,24 @@ const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_EXECUTABLE || undefined,
 });
 const errors = [];
+const expectedForbidden = new Map();
+const expectForbidden = (url) =>
+  expectedForbidden.set(url, (expectedForbidden.get(url) || 0) + 1);
 try {
   for (const width of [1366, 375]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => {
-      if (m.type() === "error") errors.push(m.text());
+      if (m.type() !== "error") return;
+      const url = m.location().url,
+        expected = expectedForbidden.get(url) || 0;
+      if (
+        expected &&
+        m.text() ===
+          "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+      ) {
+        expectedForbidden.set(url, expected - 1);
+      } else errors.push(`${m.text()} (${url})`);
     });
     await page.goto(base);
     await page.getByRole("heading", { name: "Market overview" }).waitFor();
@@ -162,21 +174,153 @@ try {
     await page
       .getByRole("button", { name: "Pause research", exact: true })
       .waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Save privately", exact: true })
+        .isDisabled(),
+      true,
+    );
     await page.locator("#massive-key").fill("unfinished-private-edit");
-    collection = {
-      owned: false,
-      running: false,
-      stopping: false,
-      exit_code: 0,
-    };
-    await page.evaluate(() => refresh());
+    await page.locator("#app-key").fill("browser-fixture-schwab-key");
+    await page.locator("#app-secret").fill("browser-fixture-schwab-secret");
+    await page.route("**/api/stocks/research/pause", async (route) => {
+      collection = {
+        owned: false,
+        running: false,
+        stopping: false,
+        exit_code: 0,
+      };
+      await route.fulfill({ json: collection });
+    });
+    await page.getByRole("button", { name: "Pause collector to save" }).click();
     await page
       .getByRole("button", { name: "Start research", exact: true })
       .waitFor();
     assert.equal(
+      await page.locator("#app-key").inputValue(),
+      "browser-fixture-schwab-key",
+    );
+    assert.equal(
+      await page.locator("#app-secret").inputValue(),
+      "browser-fixture-schwab-secret",
+    );
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Save privately", exact: true })
+        .isEnabled(),
+      true,
+    );
+    assert.equal(
       await page.locator("#massive-key").inputValue(),
       "unfinished-private-edit",
       "polling must preserve unsaved form values",
+    );
+    // A restart invalidates the old token: only the specific rejected-session response is retried, once.
+    let attempts = 0,
+      pendingLogin = false;
+    await page.route("**/api/stocks/connection", async (route) => {
+      if (route.request().method() !== "POST") {
+        const response = await route.fetch();
+        const body = await response.json();
+        body.login = { pending: pendingLogin, error: null };
+        return route.fulfill({ response, json: body });
+      }
+      attempts += 1;
+      if (attempts === 1) {
+        expectForbidden(route.request().url());
+        return route.fulfill({
+          status: 403,
+          json: { detail: "valid dashboard session required" },
+        });
+      }
+      return route.continue();
+    });
+    await page.locator("#provider").selectOption("schwab");
+    await page
+      .getByRole("button", { name: "Save privately", exact: true })
+      .click();
+    await page
+      .getByText("Saved privately. Start browser authorization next.", {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(attempts, 2);
+    assert.equal(await page.locator("#app-key").inputValue(), "");
+    assert.equal(await page.locator("#app-secret").inputValue(), "");
+    assert.match(
+      await page.locator("#app-secret-presence").textContent(),
+      /Saved on this laptop/,
+    );
+    assert.equal(
+      (await page.locator("body").innerText()).includes(
+        "browser-fixture-schwab-secret",
+      ),
+      false,
+    );
+    await page.route("**/api/stocks/connect", async (route) => {
+      pendingLogin = true;
+      await route.fulfill({
+        json: {
+          authorize_url:
+            "https://api.schwabapi.com/v1/oauth/authorize?client_id=fixture",
+          expires_in_seconds: "300",
+        },
+      });
+    });
+    await page.route("**/api/stocks/connect/cancel", async (route) => {
+      pendingLogin = false;
+      return route.continue();
+    });
+    await page
+      .getByRole("button", { name: "Start browser authorization", exact: true })
+      .click();
+    await page
+      .getByRole("link", { name: "Open Schwab authorization", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", {
+        name: "Cancel pending authorization",
+        exact: true,
+      })
+      .click();
+    await page
+      .getByText(
+        "Authorization cancelled. Correct Client ID and Client Secret, then Save privately and start a new authorization.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("link", { name: "Open Schwab authorization", exact: true })
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page
+        .getByRole("button", {
+          name: "Start browser authorization",
+          exact: true,
+        })
+        .isEnabled(),
+      true,
+    );
+    let denied = 0;
+    await page.route("**/api/stocks/sources", async (route) => {
+      denied += 1;
+      expectForbidden(route.request().url());
+      await route.fulfill({
+        status: 403,
+        json: { detail: "same-origin requests required" },
+      });
+    });
+    await page.getByRole("button", { name: "Save research sources" }).click();
+    await page
+      .getByText("same-origin requests required", { exact: true })
+      .waitFor();
+    assert.equal(denied, 1, "other 403 failures must not trigger retries");
+    assert.equal(
+      await page.locator("#massive-key").inputValue(),
+      "unfinished-private-edit",
     );
     await page.locator("#massive-key").fill("");
     assert.equal(
@@ -193,6 +337,10 @@ try {
     await page.close();
   }
   assert.deepEqual(errors, []);
+  assert.equal(
+    [...expectedForbidden.values()].reduce((a, b) => a + b, 0),
+    0,
+  );
   console.log(
     `Stocks ${scenario}: desktop/phone navigation, chart, desk coverage, PAPER, Settings and CSP passed.`,
   );

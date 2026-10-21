@@ -183,8 +183,25 @@ def run(args: argparse.Namespace) -> int:
             while True:
                 if stop.is_set():
                     return 0
-                result = await runner.cycle(paths, loaded, price_days=args.price_days, company_limit=args.companies,
-                                            option_limit=args.options, research_only=action == "collect")
+                work = runner.cycle(paths, loaded, price_days=args.price_days, company_limit=args.companies,
+                                    option_limit=args.options, research_only=action == "collect")
+                if action == "collect":
+                    # Research has no paper orders. Cancel network/rate-limit waits promptly, while synchronous
+                    # SQLite transactions finish atomically. cycle's finally closes clients/databases before unlock.
+                    task, stopping = asyncio.create_task(work), asyncio.create_task(stop.wait())
+                    try:
+                        done, _ = await asyncio.wait((task, stopping), return_when=asyncio.FIRST_COMPLETED)
+                        if stopping in done and not task.done():
+                            print("Research collection paused; completed imports remain saved.", flush=True)
+                            return 0
+                        result = await task
+                    finally:
+                        for pending in (task, stopping):
+                            if not pending.done():
+                                pending.cancel()
+                        await asyncio.gather(task, stopping, return_exceptions=True)
+                else:
+                    result = await work
                 print(json.dumps(result, indent=2), flush=True)
                 if not repeating or stop.is_set() or time.monotonic() >= end:
                     return 0

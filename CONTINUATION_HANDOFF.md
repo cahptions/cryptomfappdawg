@@ -1,5 +1,17 @@
 # Continuing Claude's work
 
+> **Schwab onboarding follow-up:** keep `desk stocks dashboard` running while setting up credentials. Stop
+> collection, not the dashboard. Settings now has an owned-collector pause control directly beside the Schwab
+> form; a terminal collector must be stopped in its own collect/paper/refresh terminal. Saving is disabled until
+> collection ends. Typed inputs survive pause/polling. Saved credentials deliberately are not filled back into
+> fields; individual saved indicators report their presence. An exact stale-session rejection renews CSRF once
+> and retries only the rejected request; other forbidden/network errors remain errors. Operator screenshot
+> confirms local HTTPS callback registration accepted/Ready For Use. OAuth completion and quotes remain to verify.
+> `collect` now cancels network/rate-limit waits on stop and waits for cleanup before releasing its lock; PAPER
+> stop semantics are unchanged. Failed login attempts have an explicit Cancel button, with callback-thread
+> termination checked before credential replacement. Identical Client ID/Secret values are rejected. Validation:
+> 35 relevant offline tests plus Ruff/mypy and empty/populated desktop/phone browser flows passed.
+
 > **Free-source onboarding correction, 2026-10-21:** Settings now has an owner-only source form, signup links,
 > explanations of required/optional inputs, and explicit Start/Pause research controls. No-signup public feeds are
 > integrated; actual stock history still requires the operator's free Massive Stocks Basic key. SEC needs only

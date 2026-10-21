@@ -28,7 +28,14 @@
     "access": "Unavailable from this workspace: proxy CONNECT 403",
     "effect": "Current app-registration acceptance and data entitlements remain unverified"
   },
-  "conclusion": "No blanket ban on 127.0.0.1 was verified. Try exact approved local HTTPS callback first; private Tailscale Serve is optional, registration acceptance still required.",
+  "operator_observation": {
+    "date": "2026-10-21",
+    "provenance": "Operator-supplied Schwab app details screenshot in this conversation; no credentials copied",
+    "registered_callback": "https://127.0.0.1:8182/oauth/callback",
+    "portal_status": "Ready For Use",
+    "scope": "Acceptance of this app registration only; OAuth completion and authenticated market data remain unverified"
+  },
+  "conclusion": "Operator screenshot confirms the exact local HTTPS callback was accepted for their app. No blanket 127.0.0.1 ban is supported by this evidence. Private Tailscale Serve is unnecessary for this accepted registration; it remains an optional fallback for other registrations.",
   "implementation_tests": "Synthetic OAuth transports, local self-signed HTTPS, normalized market-data fixtures and browser fixtures only; no broker account login, live data probe or order submission.",
   "limits": "SDK master references can change. Content hashes identify downloaded versions; do not treat fixture success as broker acceptance."
 }

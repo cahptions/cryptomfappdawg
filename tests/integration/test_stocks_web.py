@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from pathlib import Path
+from threading import Event
+from typing import Any
 from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
@@ -32,12 +34,17 @@ def test_empty_dashboard_and_secret_form_boundary(tmp_path: Path) -> None:
         payload = {"app_key": "test-public-key", "app_secret": "DO-NOT-RETURN-THIS", "options_provider": "schwab",
                    "callback_url": "https://127.0.0.1:8182/oauth/callback"}
         assert client.post("/api/stocks/connection", json=payload).status_code == 403
+        stale = client.post("/api/stocks/connection", json=payload, headers={"X-CSRF-Token": "old-session"})
+        assert stale.status_code == 403 and stale.json()["detail"] == "valid dashboard session required"
+        assert not paths.secrets_file.exists()
         csrf = client.get("/api/stocks/session").json()["csrf_token"]
         headers = {"X-CSRF-Token": csrf, "Origin": "http://127.0.0.1:8767"}
         with WorkerLock(paths, "stocks-worker"):
-            assert client.post("/api/stocks/connection", json=payload, headers=headers).status_code == 409
+            busy = client.post("/api/stocks/connection", json=payload, headers=headers)
+            assert busy.status_code == 409 and "Keep desk stocks dashboard running" in busy.json()["detail"]
         response = client.post("/api/stocks/connection", json=payload, headers=headers)
         assert response.status_code == 200 and "DO-NOT-RETURN-THIS" not in response.text
+        assert response.json()["schwab"]["app_key_set"] and response.json()["schwab"]["app_secret_set"]
         assert "test-public-key" not in client.get("/api/stocks/snapshot").text
         assert client.post("/api/stocks/connection", content="x" * 9000, headers=headers).status_code == 413
         assert client.get("/api/stocks/paper").json()["report"] is None
@@ -168,3 +175,36 @@ def test_explicit_start_and_pause_routes_never_start_on_get(tmp_path: Path) -> N
         worker.start.assert_called_once()
         assert client.post("/api/stocks/research/pause", json={}, headers=headers).json()["stopping"]
         worker.stop.assert_called_once()
+
+
+def test_failed_authorization_can_be_cancelled_before_correcting_credentials(tmp_path: Path, monkeypatch: Any) -> None:
+    paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "secrets.env")
+    attempt = Mock()
+    attempt.complete = Event()
+    attempt.error = None
+    attempt.thread.is_alive.return_value = False
+    attempt.stop.side_effect = attempt.complete.set
+    attempt.start.return_value = "https://api.schwabapi.com/v1/oauth/authorize?client_id=fixture"
+    login = Mock(return_value=attempt)
+    monkeypatch.setattr("desk.stocks.web.new_login", login)
+    with TestClient(create_app(paths), base_url="http://127.0.0.1:8767") as client:
+        headers = {"X-CSRF-Token": client.get("/api/stocks/session").json()["csrf_token"]}
+        assert client.post("/api/stocks/connect", json={}, headers=headers).status_code == 400
+        login.assert_not_called()
+        payload = {"app_key": "fixture-id", "app_secret": "fixture-secret", "options_provider": "schwab",
+                   "callback_url": "https://127.0.0.1:8182/oauth/callback"}
+        assert client.post("/api/stocks/connection", json=payload, headers=headers).status_code == 200
+        assert client.post("/api/stocks/connect", json={}, headers=headers).status_code == 200
+        assert client.get("/api/stocks/connection").json()["login"]["pending"]
+        assert client.post("/api/stocks/connection", json=payload, headers=headers).status_code == 409
+        assert client.post("/api/stocks/connect/cancel", json={}).status_code == 403
+        # Closing the listener must finish before credentials can be replaced.
+        attempt.thread.is_alive.return_value = True
+        assert client.post("/api/stocks/connect/cancel", json={}, headers=headers).status_code == 409
+        assert client.post("/api/stocks/connection", json=payload, headers=headers).status_code == 409
+        attempt.thread.is_alive.return_value = False
+        assert client.post("/api/stocks/connect/cancel", json={}, headers=headers).status_code == 200
+        assert not client.get("/api/stocks/connection").json()["login"]["pending"]
+        payload["app_secret"] = "corrected-fixture-secret"
+        result = client.post("/api/stocks/connection", json=payload, headers=headers)
+        assert result.status_code == 200 and "corrected-fixture-secret" not in result.text

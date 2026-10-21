@@ -5,6 +5,23 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Schwab setup recovery:** operator hit the ambiguous "stop the Stocks worker" instruction, stopped the
+dashboard instead, and then hit an expired browser CSRF token. Settings now distinguishes the dashboard
+from collection, presents an owned-collector pause button beside the Schwab fields, disables saving while
+collection is active, preserves typed fields across pause/status updates, and shows individual saved key/secret
+presence without returning values. Only an explicit stale-session 403 renews the token and retries once;
+other 403s and network failures are not automatically retried. Research-only collection now interrupts stalled
+network/rate-limit waits on pause, awaiting cleanup before releasing the worker lock. PAPER shutdown semantics
+are preserved. Failed OAuth attempts can be cancelled before correcting credentials; cancellation must close
+the callback thread before a replacement save. Authorization requires Schwab selected/saved, and identical
+Client ID/Client Secret values are rejected before any write. The operator's portal screenshot confirms
+registration of https://127.0.0.1:8182/oauth/callback with Ready For Use status for their app. This is portal
+acceptance, not an authenticated data or OAuth-completion check. No operator process was stopped from here.
+Validation: 35 relevant offline credential/dashboard/PAPER checks, Ruff, strict mypy, and both empty/populated
+desktop/phone browser flows passed. Browser cases explicitly exercise pause with typed inputs preserved,
+one stale-session retry, no retry of other 403s, saved presence, and cancel/retry of authorization. Broker
+credentials and successful authenticated market data remain unverified on the operator's laptop.
+
 **Empty-dashboard/onboarding correction:** Settings now accepts the free Massive key, SEC contact email and
 optional Tradier token directly, with signup links and required/optional explanations; no manual secrets-file
 editing is needed. Blanks preserve credentials, unrelated providers/comments survive, private permissions are

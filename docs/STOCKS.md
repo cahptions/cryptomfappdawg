@@ -57,13 +57,19 @@ Open **Settings → Start here · free stock research**:
    waiting for Schwab does not block stock price history, charts or price-based research.
 4. Click **Save research sources**, then **Start research**. Return to **Home**. Keep the dashboard terminal and
    laptop running; data appears as it is stored and the page refreshes every30seconds. No paper orders are created
-   by this button. Closing the dashboard requests a clean stop after the current pass; **Pause research** does the same.
+   by this button. **Pause research** or closing the dashboard interrupts research network/rate-limit waits and
+   completes cleanup before releasing the collection lock. Completed imports stay saved; an unfinished batch retries.
 
 No file editing is needed. Settings writes the existing owner-only secrets file atomically, preserves other desks'
 keys, and leaves Schwab authorization intact. Blank fields preserve saved values; saved keys/email are never
 returned to the browser. A running collector reloads these auxiliary sources on its next pass. Switching the
-Schwab/Tradier connection still requires stopping the Stocks worker first. A collector started in another
-terminal is reported but cannot be paused by the dashboard.
+Schwab/Tradier connection still requires pausing collection first. **Keep the dashboard terminal open**.
+The Schwab form has **Pause collector to save** for its owned research collector, and **Save privately** stays
+disabled until the collector stops. A collector started outside this dashboard is reported but cannot be paused by
+the dashboard: press Ctrl+C only in its `desk stocks collect/paper/refresh` terminal, never the dashboard terminal.
+Pausing from Settings preserves unsaved form values. Saved Schwab key/secret fields stay blank on reload, with
+individual **Saved on this laptop** indicators; blank inputs keep the stored credentials. Restarted-dashboard
+session tokens are renewed once on submission without weakening the same-origin/CSRF boundary.
 
 Nasdaq listings, mentions, FINRA short activity and Treasury rates are already integrated and need no signup;
 they run when collection starts. They do not supply the missing stock price history. Missing optional SEC mapping
@@ -113,7 +119,8 @@ uv run desk stocks paper --minutes 1440
 This is an upper runtime, **not a 24-hour build gate**. The dashboard reads saved data as collection proceeds
 and refreshes its display every30seconds. Closing/stopping the dashboard does not stop a worker in another
 terminal. Closing the worker terminal or pressing Ctrl+C stops that worker; no auto-login service is installed.
-Ctrl+C requests a clean stop after the in-flight pass. The laptop must stay awake and connected; Tailscale
+For `paper`/`refresh`, Ctrl+C requests a clean stop after the in-flight pass; research-only `collect` interrupts
+network/rate-limit waits promptly and closes its resources before unlocking. The laptop must stay awake and connected; Tailscale
 does not run the app on another machine or keep a sleeping laptop online.
 
 Each pass fetches up to5 missing price sessions,20 company records and5 rotating option underlyings, plus

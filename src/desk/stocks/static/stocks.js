@@ -3,7 +3,8 @@ const app = document.getElementById("app"),
   statusLine = document.getElementById("status");
 let snapshot = null,
   csrf = "",
-  generation = 0;
+  generation = 0,
+  pauseRefresh = null;
 const money = (x) =>
   x === null || x === undefined
     ? "—"
@@ -73,19 +74,38 @@ function table(headers, rows) {
   wrap.append(t);
   return wrap;
 }
-async function api(path, body) {
-  const response = await fetch(`/api/stocks/${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers:
-      body === undefined
-        ? {}
-        : { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(15000),
-  });
+async function api(path, body, renewSession = true) {
+  let response;
+  try {
+    response = await fetch(`/api/stocks/${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers:
+        body === undefined
+          ? {}
+          : { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    throw Error(
+      error.name === "TimeoutError"
+        ? "The dashboard took too long to respond. Keep its terminal open and try again."
+        : "Cannot reach the dashboard. Keep the terminal running desk stocks dashboard open; restart it if it was stopped.",
+    );
+  }
   const value = await response.json();
+  if (
+    body !== undefined &&
+    renewSession &&
+    response.status === 403 &&
+    value.detail === "valid dashboard session required"
+  ) {
+    // The rejected request has not reached its handler. Renew only this specific failure, once.
+    csrf = (await api("session")).csrf_token;
+    return api(path, body, false);
+  }
   if (!response.ok)
     throw Error(value.detail || `Request failed (${response.status})`);
   return value;
@@ -111,7 +131,7 @@ function collectionControls() {
   button.type = "button";
   button.disabled = Boolean(state.stopping || (running && !state.owned));
   status.textContent = state.stopping
-    ? "Finishing the current pass safely. Saved data stays on this laptop."
+    ? "Stopping research collection safely. Completed imports stay saved."
     : running
       ? state.owned
         ? "Research collection is running. Prices appear as they arrive."
@@ -126,7 +146,8 @@ function collectionControls() {
         `research/${running ? "pause" : "start"}`,
         {},
       );
-      await refresh(true);
+      await refresh();
+      if (location.hash !== "#settings") render();
     } catch (error) {
       status.textContent = error.message;
       button.disabled = false;
@@ -134,6 +155,81 @@ function collectionControls() {
   };
   box.append(button, status);
   return box;
+}
+function connectionWorkerControls() {
+  const box = el("div", undefined, "connection-worker-controls"),
+    state = snapshot.collection || {},
+    running = state.running || snapshot.worker_running;
+  const text = state.stopping
+    ? "Research is pausing. Keep this dashboard open; your typed settings stay here. Save becomes available when the collector stops."
+    : running && state.owned
+      ? "Research collection is running. Pause it here before saving this connection. Keep the dashboard terminal open."
+      : running
+        ? "A Stocks collector is running in another terminal. Stop only the terminal running desk stocks collect, desk stocks paper, or desk stocks refresh. Keep the terminal running desk stocks dashboard open. Ctrl+C inside the browser does not pause collection."
+        : "Collection is paused. You can save this connection now. Keep the dashboard terminal open.";
+  box.append(el("p", text, "muted"));
+  if (running && state.owned) {
+    const pause = el(
+      "button",
+      state.stopping
+        ? "Waiting for collector to pause…"
+        : "Pause collector to save",
+    );
+    pause.type = "button";
+    pause.disabled = Boolean(state.stopping);
+    pause.onclick = async () => {
+      pause.disabled = true;
+      try {
+        snapshot.collection = await api("research/pause", {});
+        await refresh();
+      } catch (error) {
+        box.append(el("p", error.message, "error"));
+        pause.disabled = false;
+      }
+    };
+    box.append(pause);
+  }
+  return box;
+}
+function updateConnectionControls() {
+  const running = snapshot.collection?.running || snapshot.worker_running;
+  for (const node of document.querySelectorAll(".connection-worker-controls"))
+    node.replaceWith(connectionWorkerControls());
+  const save = document.getElementById("save-connection");
+  if (save) {
+    save.disabled = Boolean(running || save.dataset.saving);
+    save.title = running
+      ? "Pause collection using the instructions above. Leave the dashboard running."
+      : "";
+  }
+  const connect = document.getElementById("connect-schwab");
+  if (connect) {
+    connect.disabled =
+      connect.dataset.pending === "true" ||
+      snapshot.connection.options_provider !== "schwab" ||
+      !snapshot.connection.schwab.credentials_set;
+    connect.title =
+      snapshot.connection.options_provider !== "schwab"
+        ? "Choose Schwab market data and Save privately first."
+        : !snapshot.connection.schwab.credentials_set
+          ? "Save your Client ID and Client Secret first."
+          : "";
+  }
+  for (const [id, configured] of [
+    ["app-key", snapshot.connection.schwab.app_key_set],
+    ["app-secret", snapshot.connection.schwab.app_secret_set],
+  ]) {
+    const input = document.getElementById(id),
+      presence = document.getElementById(`${id}-presence`);
+    if (input)
+      input.placeholder = configured
+        ? "Saved on this laptop · leave blank to keep"
+        : "Not saved yet";
+    if (presence)
+      presence.textContent = configured
+        ? "Saved on this laptop. A blank field keeps the saved value."
+        : "Not saved yet.";
+  }
 }
 function sourceSetup() {
   const box = panel(
@@ -455,6 +551,13 @@ async function settingsPage() {
     provider.append(o);
   }
   provider.value = snapshot.connection.options_provider;
+  form.append(
+    el(
+      "p",
+      "For Schwab, choose Schwab market data. Copy Client ID into App key and Client Secret into App secret.",
+      "muted",
+    ),
+  );
   form.append(el("label", "Options data provider"), provider);
   function field(label, id, type, value) {
     const l = el("label", label);
@@ -466,15 +569,20 @@ async function settingsPage() {
     input.spellcheck = false;
     input.value = value || "";
     form.append(l, input);
+    if (type === "password") {
+      const presence = el("small", undefined, "muted source-presence");
+      presence.id = `${id}-presence`;
+      form.append(presence);
+    }
     return input;
   }
   const key = field(
-      "Schwab app key · leave blank to preserve",
+      "Schwab app key (Client ID) · leave blank to preserve",
       "app-key",
       "password",
     ),
     secret = field(
-      "App secret · leave blank to preserve",
+      "App secret (Client Secret) · leave blank to preserve",
       "app-secret",
       "password",
     ),
@@ -492,14 +600,17 @@ async function settingsPage() {
     ),
   );
   const save = el("button", "Save privately", "primary");
+  save.id = "save-connection";
   save.type = "submit";
-  form.append(save);
+  message.setAttribute("role", "status");
+  form.append(connectionWorkerControls(), save, message);
   form.onsubmit = async (e) => {
     e.preventDefault();
+    save.dataset.saving = "true";
     save.disabled = true;
     message.textContent = "Saving…";
     try {
-      await api("connection", {
+      snapshot.connection = await api("connection", {
         app_key: key.value,
         app_secret: secret.value,
         callback_url: callback.value,
@@ -509,17 +620,24 @@ async function settingsPage() {
       secret.value = "";
       message.textContent =
         "Saved privately. Start browser authorization next.";
+      update();
     } catch (error) {
       message.textContent = error.message;
     } finally {
-      save.disabled = false;
+      delete save.dataset.saving;
+      updateConnectionControls();
     }
   };
   const connect = el("button", "Start browser authorization");
+  connect.id = "connect-schwab";
   connect.type = "button";
+  const cancel = el("button", "Cancel pending authorization");
+  cancel.type = "button";
+  cancel.disabled = true;
   const authorization = el("div");
   connect.onclick = async () => {
     connect.disabled = true;
+    connect.dataset.pending = "true";
     authorization.replaceChildren();
     try {
       const data = await api("connect", {});
@@ -538,18 +656,35 @@ async function settingsPage() {
       message.textContent = "Login pending.";
       update();
     } catch (error) {
+      delete connect.dataset.pending;
       message.textContent = error.message;
     } finally {
-      connect.disabled = false;
+      updateConnectionControls();
     }
   };
-  box.append(form, el("p"), connect, authorization, message);
+  cancel.onclick = async () => {
+    cancel.disabled = true;
+    try {
+      snapshot.connection = await api("connect/cancel", {});
+      delete connect.dataset.pending;
+      authorization.replaceChildren();
+      message.textContent =
+        "Authorization cancelled. Correct Client ID and Client Secret, then Save privately and start a new authorization.";
+    } catch (error) {
+      message.textContent = error.message;
+    } finally {
+      await update();
+      updateConnectionControls();
+    }
+  };
+  box.append(form, el("p"), connect, cancel, authorization);
   app.append(box);
   const guide = panel("Connection guide");
   const steps = el("ol");
   for (const text of [
     "Create a free developer app in the Schwab developer portal, request the appropriate market-data product and wait for its approval. KESTREL cannot grant data entitlements.",
-    "Try registering the exact default HTTPS callback above. Copy the approved app key and secret into this local form, select Schwab and save. Stop the Stocks worker with Ctrl+C before changing its connection.",
+    "Keep the dashboard terminal running. If collection is active, use Pause collector to save above. A collector started in a separate terminal must be stopped in that collector's terminal; do not stop desk stocks dashboard.",
+    "Copy Client ID and Client Secret from the approved Schwab app into these fields. Choose Schwab market data, keep the registered callback identical, then click Save privately. Blank fields preserve already saved values.",
     "Click Start browser authorization, then Open Schwab authorization. Complete the broker login in your browser. Allow a self-signed warning only for your exact local callback address.",
     "Check the connection below, then run uv run desk stocks doctor --online. That makes one SPY market quote request and places no order.",
     "If Schwab rejects the local callback registration, a free Tailscale .ts.net HTTPS hostname is the optional fallback. Read docs/SCHWAB.md before configuring Serve; KESTREL never enables public Funnel.",
@@ -571,6 +706,10 @@ async function settingsPage() {
     try {
       const data = await api("connection");
       if (location.hash === "#settings") {
+        cancel.disabled = !data.login?.pending;
+        if (data.login?.pending) connect.dataset.pending = "true";
+        else delete connect.dataset.pending;
+        updateConnectionControls();
         output.replaceChildren(
           el(
             "p",
@@ -608,6 +747,7 @@ async function settingsPage() {
     }
   }
   update();
+  updateConnectionControls();
 }
 async function render() {
   const ticket = ++generation,
@@ -657,14 +797,20 @@ async function refresh(initial = false) {
         JSON.stringify(snapshot.collection) ||
       JSON.stringify(previous?.revision) !== JSON.stringify(snapshot.revision);
     if (initial || (changed && location.hash !== "#settings")) render();
-    else if (changed && location.hash === "#settings") {
+    else if (location.hash === "#settings") {
       // Keep unsaved credentials intact while updating start/pause state during a long collection pass.
       for (const node of document.querySelectorAll(".collection-controls"))
         node.replaceWith(collectionControls());
+      updateConnectionControls();
     }
   } catch (error) {
     statusLine.textContent = error.message;
     statusLine.className = "error";
+  } finally {
+    if (pauseRefresh) clearTimeout(pauseRefresh);
+    pauseRefresh = snapshot?.collection?.stopping
+      ? setTimeout(() => refresh(), 1000)
+      : null;
   }
 }
 window.addEventListener("hashchange", render);
