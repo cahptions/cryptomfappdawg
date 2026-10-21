@@ -108,14 +108,38 @@ The new read-only dashboard endpoint is `/api/rh/opportunities`, backed by
 report is `opportunities-solana.json`. Group summaries cap at latest10000outcomes and disclose truncation.
 Reports record REPLAY vs PROSPECTIVE_SHADOW counts, missing outcomes and quote coverage; none estimates profit.
 
-Keep the laptop awake with its screen off, in another terminal if needed (Mint/X11):
+For the operator's Mint Cinnamon laptop, set persistent plugged-in lid/idle behavior from a normal desktop
+terminal. The earlier temporary `systemd-inhibit` command was followed by an operator-reported two-hour
+collection gap after closing the lid, so do not treat it as a verified solution on this laptop.
 
 ```bash
-systemd-inhibit --what=sleep:handle-lid-switch --mode=block --why="KESTREL running" bash -c 'xset dpms force off; exec sleep infinity'
+gsettings set org.cinnamon.settings-daemon.plugins.power lid-close-ac-action 'nothing'
+gsettings set org.cinnamon.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+gsettings set org.cinnamon.settings-daemon.plugins.power sleep-inactive-ac-timeout 0
 ```
 
-Keep it plugged in; Ctrl+C restores normal sleep. This command blocks lid/sleep only while it remains running.
-If a timed run already had a sleep gap, keeping it awake now does not erase that gap or manufacture data.
+These preferences persist after closing the terminal; the commands do not change battery-power actions.
+Keep it plugged in. Turn off the display while the lid is open on this X11 session with:
+
+```bash
+xset dpms force off
+```
+
+Check the saved preferences with:
+
+```bash
+gsettings get org.cinnamon.settings-daemon.plugins.power lid-close-ac-action
+gsettings get org.cinnamon.settings-daemon.plugins.power sleep-inactive-ac-type
+gsettings get org.cinnamon.settings-daemon.plugins.power sleep-inactive-ac-timeout
+```
+
+Expected: `'nothing'`, `'nothing'`, `0`. The keys and zero-timeout semantics were checked against
+[Cinnamon's power schema](https://github.com/linuxmint/cinnamon-settings-daemon/blob/master/data/org.cinnamon.settings-daemon.plugins.power.gschema.xml.in.in).
+This is source verification, not a successful laptop test. Close/reopen for two minutes while plugged in and
+check collection before another unattended run. If another gap occurs, distinguish actual suspend from Wi-Fi
+or worker failure; e.g. `journalctl -b -u systemd-suspend.service --since "3 hours ago" --no-pager` shows recent
+systemd suspend events. Use Mint's Power Management preferences to restore the desired AC behavior later.
+If a timed run already had a gap, changing power settings now does not erase it or manufacture observations.
 
 ## Verified scope and remaining work
 
