@@ -11,7 +11,7 @@ import pytest
 from desk.core.config import load_config
 from desk.stocks import desks as dk
 from desk.stocks.analysis import Analyzer, compact, stock_detail
-from desk.stocks.contracts import Bar, Filing, Company, InsiderTrade
+from desk.stocks.contracts import Bar, Company, Filing, InsiderTrade
 from desk.stocks.lists import BY_ID, LISTS, build_lists
 from desk.stocks.prices import load_panel
 from tests.conftest import REPO
@@ -47,7 +47,8 @@ def test_every_desk_scores_the_universe_and_finds_the_planted_traits(world: Stoc
     assert day.results["shorts"]["SQZ"].facts["squeeze"] >= 50
     assert day.results["quality"]["TRAP"].score < day.results["quality"]["CHEAP"].score
     assert day.results["quality"]["DILUT"].facts["dilution"] > 0.15
-    assert day.results["crowd"]["SQZ"].verdict in ("Heating up", "Talked about") and day.results["crowd"]["S20"].verdict == "Quiet"
+    assert day.results["crowd"]["SQZ"].verdict in ("Heating up", "Talked about")
+    assert day.results["crowd"]["S20"].verdict == "Quiet"
     assert all(r.reasons for r in val.values() if r.score is not None)
     detail = stock_detail(day, "CHEAP")
     assert detail["committee"]["score"] is not None and detail["desks"]["valuation"]["verdict"] in ("Cheap", "Reasonable")
@@ -61,7 +62,7 @@ def test_lists_pick_the_planted_names_and_are_appended_once(world: StocksWorld) 
     assert set(lists) == {spec.id for spec in LISTS}
     assert "CHEAP" in [r["symbol"] for r in lists["undervalued"]]
     assert "PRICEY" in [r["symbol"] for r in lists["overvalued"]]
-    assert [r["symbol"] for r in lists["insider_buying"]][0] == "INSDR"
+    assert lists["insider_buying"][0]["symbol"] == "INSDR"
     assert "SQZ" in [r["symbol"] for r in lists["squeeze"]]
     assert "DILUT" in [r["symbol"] for r in lists["dilution"]]
     assert "TRAP" not in [r["symbol"] for r in lists["undervalued"]]
@@ -87,7 +88,8 @@ def test_a_past_day_is_not_changed_by_anything_published_after_it(world: StocksW
         Filing(1010, "late-8k", "8-K", asof, datetime(2026, 9, 15, 23, 0, tzinfo=UTC), asof, ("4.02",), "x.htm"),)),
         None, NOW)
     after = analyse(world, asof)
-    assert {s: (after.committee[s]["score"], {d: after.results[d][s].score for d in dk.DESKS}) for s in after.ctx.symbols} == snapshot
+    assert {s: (after.committee[s]["score"], {d: after.results[d][s].score for d in dk.DESKS})
+            for s in after.ctx.symbols} == snapshot
     assert build_lists(after) == lists_before
 
 

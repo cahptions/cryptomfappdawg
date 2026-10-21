@@ -96,7 +96,8 @@ def facts_for(sp: Spec, through: date) -> dict[str, list[Fact]]:
         rev_ytd = sum(quarterly_revenue(x) for x in ytd_quarters)
         op = sp.margin
         for concept, factor in (("us-gaap:Revenues", 1.0), ("us-gaap:OperatingIncomeLoss", op),
-                                ("us-gaap:NetIncomeLoss", op * 0.8), ("us-gaap:NetCashProvidedByUsedInOperatingActivities", op * 1.05),
+                                ("us-gaap:NetIncomeLoss", op * 0.8),
+                                ("us-gaap:NetCashProvidedByUsedInOperatingActivities", op * 1.05),
                                 ("us-gaap:PaymentsToAcquirePropertyPlantAndEquipment", 0.04), ("us-gaap:GrossProfit", 0.45),
                                 ("us-gaap:DepreciationDepletionAndAmortization", 0.03)):
             add(concept, "USD", ytd_start, qe, rev_ytd * factor, form, filed)
@@ -107,10 +108,12 @@ def facts_for(sp: Spec, through: date) -> dict[str, list[Fact]]:
         annual_rev = rev_q * 4
         assets = annual_rev * 1.2 + sp.debt
         for concept, value in (("us-gaap:Assets", assets), ("us-gaap:AssetsCurrent", annual_rev * 0.5),
-                               ("us-gaap:Liabilities", sp.debt + annual_rev * 0.3), ("us-gaap:LiabilitiesCurrent", annual_rev * 0.25),
+                               ("us-gaap:Liabilities", sp.debt + annual_rev * 0.3),
+                               ("us-gaap:LiabilitiesCurrent", annual_rev * 0.25),
                                ("us-gaap:StockholdersEquity", assets - sp.debt - annual_rev * 0.3),
                                ("us-gaap:CashAndCashEquivalentsAtCarryingValue", annual_rev * 0.15),
-                               ("us-gaap:LongTermDebtNoncurrent", sp.debt), ("us-gaap:RetainedEarningsAccumulatedDeficit", annual_rev * 0.2),
+                               ("us-gaap:LongTermDebtNoncurrent", sp.debt),
+                               ("us-gaap:RetainedEarningsAccumulatedDeficit", annual_rev * 0.2),
                                ("us-gaap:AccountsReceivableNetCurrent", annual_rev * 0.12),
                                ("us-gaap:PropertyPlantAndEquipmentNet", annual_rev * 0.3)):
             add(concept, "USD", None, qe, value, form, filed)
