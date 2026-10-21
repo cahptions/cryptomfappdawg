@@ -16,7 +16,10 @@ Two optional feeds failed. FINRA's exact JSON error was reproduced with a CSV he
 `accountingYearMonthNumber`; requests now explicitly ask for JSON and the parser also accepts validated CSV,
 keeps missing values missing, rejects non-finite/wrong-settlement records and paginates by received rows.
 FRED explicitly asks for CSV and validates the requested series/date schema. Non-data/HTML responses remain
-unavailable rather than becoming measurements; the laptop's actual FRED response still needs diagnosis.
+unavailable rather than becoming measurements. The operator's subsequent public curl probe returned an HTML
+page titled **Site Maintenance | St. Louis Fed**, confirming a source-maintenance response for the VIX CSV
+endpoint at that time. No FRED credential/configuration change is indicated; its next scheduled rates job can
+retry. This probe does not establish when maintenance ends or separately verify the credit-spread endpoint.
 The CSV test fixture is a serialization variant of recorded JSON rows, not a new live source capture.
 Validation: 31 relevant offline source/collection tests, Ruff and strict mypy passed. No running laptop
 collector was changed here; the free rate ceilings and trading behavior remain unchanged.

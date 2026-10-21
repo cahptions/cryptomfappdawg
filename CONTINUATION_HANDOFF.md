@@ -4,8 +4,10 @@
 > received (2026-10-21 17:43:06.135 UTC), no configuration problems, and healthy WAL/integrity for all Stocks DBs.
 > Orders remain disabled. Initial20-session history is not yet the per-stock60-observation research warmup.
 > FINRA format handling was corrected: explicit JSON Accept, CSV support, partition/number validation and
-> paging by response record count. FRED now requests/validates CSV; the actual laptop non-CSV response remains
-> to diagnose from the requested public probe. Source/collection regression suite:31 passed, Ruff/mypy clean.
+> paging by response record count. FRED now requests/validates CSV. The operator's public VIX probe returned
+> an HTML Site Maintenance page from the St. Louis Fed; this source outage needs no credential change.
+> Retry at the next scheduled rates job; source recovery is not yet observed. Source/collection regression
+> suite:31 passed, Ruff/mypy clean. Evidence: research/evidence/2026-10-21/operator_fred_maintenance.json.
 > Do not describe a single successful quote as complete options coverage or forward trading acceptance.
 
 > **Schwab onboarding follow-up:** keep `desk stocks dashboard` running while setting up credentials. Stop

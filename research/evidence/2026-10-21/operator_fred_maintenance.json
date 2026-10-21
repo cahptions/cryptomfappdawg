@@ -1,0 +1,11 @@
+{
+  "date": "2026-10-21",
+  "provenance": "Operator-pasted laptop curl output; no network probe performed from the cloud workspace",
+  "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS",
+  "method": "GET, curl with a 20-second timeout, first 300 response bytes displayed",
+  "observed_format": "HTML",
+  "observed_page_title": "Site Maintenance | St. Louis Fed",
+  "conclusion": "The requested VIX CSV endpoint returned source-maintenance HTML rather than observations",
+  "handling": "Keep FRED observations unavailable; retain other working feeds and retry at the next scheduled rates collection",
+  "limitations": "HTTP status and response headers were not captured. No recovery time was provided. This single VIX probe does not separately verify the credit-spread endpoint."
+}

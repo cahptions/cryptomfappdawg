@@ -16,7 +16,9 @@ quote, with no configuration problems. This does not validate all option chains 
 The laptop's FINRA JSON error matched the default CSV header format; the client now explicitly requests JSON
 and accepts schema-checked CSV too. Pagination counts received rows before filtering missing measurements.
 FRED is requested as CSV and its series/date columns are checked. An HTML or other non-data response stays
-unavailable; the operator's FRED availability is still under diagnosis. The extra FINRA CSV fixture is a
+unavailable. The operator's subsequent VIX CSV probe returned a St. Louis Fed **Site Maintenance** HTML page.
+This requires source recovery, not different API credentials; the next scheduled rates refresh can retry.
+Recovery and the separate credit-spread endpoint were not verified by that probe. The extra FINRA CSV fixture is a
 synthetic serialization of existing recorded values, not additional live evidence.
 
 ## Set up in Settings (stock prices, SEC contact, and optional options)
