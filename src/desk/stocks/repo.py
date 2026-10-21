@@ -411,6 +411,11 @@ class StocksMarket:
         return {r["underlying"]: json.loads(r["summary_json"]) for r in self.conn.execute(
             "SELECT underlying, summary_json FROM stk_option_daily WHERE day = ?", (day_of(day),))}
 
+    def option_daily_all(self, since: date | None = None) -> Iterable[tuple[str, date, dict[str, Any]]]:
+        for r in self.conn.execute("SELECT underlying, day, summary_json FROM stk_option_daily WHERE day >= ?"
+                                   " ORDER BY day, underlying", (day_of(since) if since else 0,)):
+            yield r["underlying"], date_of(r["day"]), json.loads(r["summary_json"])
+
     def latest_option_day(self) -> date | None:
         row = self.conn.execute("SELECT MAX(day) AS d FROM stk_option_daily").fetchone()
         return None if row is None or row["d"] is None else date_of(row["d"])
@@ -474,11 +479,12 @@ class StocksResearch:
             "SELECT asof, scores_json FROM stk_score_history WHERE symbol = ? ORDER BY asof", (symbol,))]
 
     def save_list(self, asof: date, list_id: str, rows: Sequence[dict[str, Any]], spec_sha256: str, at: datetime) -> bool:
-        """Append a day's list once; a list already recorded for that day is never replaced."""
-        if self.conn.execute("SELECT 1 FROM stk_list_snapshots WHERE asof = ? AND list_id = ? LIMIT 1",
-                             (day_of(asof), list_id)).fetchone():
-            return False
+        """Append a day's list once (an empty list too); a list already recorded for that day is never replaced."""
         with transaction(self.conn):
+            cur = self.conn.execute("INSERT OR IGNORE INTO stk_list_days(asof, list_id, size, spec_sha256, created_at)"
+                                    " VALUES (?, ?, ?, ?, ?)", (day_of(asof), list_id, len(rows), spec_sha256, to_iso(at)))
+            if cur.rowcount == 0:
+                return False
             self.conn.executemany(
                 "INSERT INTO stk_list_snapshots(asof, list_id, rank, symbol, value, reason, price, spec_sha256, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -487,7 +493,7 @@ class StocksResearch:
         return True
 
     def list_on(self, list_id: str, asof: date | None = None) -> tuple[date | None, list[sqlite3.Row]]:
-        row = self.conn.execute("SELECT MAX(asof) AS d FROM stk_list_snapshots WHERE list_id = ? AND asof <= ?",
+        row = self.conn.execute("SELECT MAX(asof) AS d FROM stk_list_days WHERE list_id = ? AND asof <= ?",
                                 (list_id, day_of(asof) if asof else 2**31)).fetchone()
         if row is None or row["d"] is None:
             return None, []
@@ -503,7 +509,7 @@ class StocksResearch:
                                  (symbol, day_of(asof))).fetchall()
 
     def snapshot_days(self) -> list[date]:
-        return [date_of(r["asof"]) for r in self.conn.execute("SELECT DISTINCT asof FROM stk_list_snapshots ORDER BY asof")]
+        return [date_of(r["asof"]) for r in self.conn.execute("SELECT DISTINCT asof FROM stk_list_days ORDER BY asof")]
 
     def record_run(self, kind: str, started: datetime, finished: datetime, asof: date | None, ok: bool,
                    detail: dict[str, Any]) -> int:
@@ -528,6 +534,39 @@ class StocksResearch:
             return None
         return {"id": row["id"], "created_at": row["created_at"], "asof": date_of(row["asof"]).isoformat(),
                 "method_sha256": row["method_sha256"], **json.loads(row["report_json"])}
+
+    def snapshots(self) -> dict[str, list[tuple[date, list[str]]]]:
+        """Every recorded list, by list, oldest first: (day, symbols in rank order)."""
+        out: dict[str, dict[int, list[str]]] = {}
+        for r in self.conn.execute("SELECT asof, list_id FROM stk_list_days ORDER BY list_id, asof"):
+            out.setdefault(r["list_id"], {})[r["asof"]] = []
+        for r in self.conn.execute("SELECT asof, list_id, symbol FROM stk_list_snapshots ORDER BY list_id, asof, rank"):
+            out[r["list_id"]][r["asof"]].append(r["symbol"])
+        return {k: [(date_of(d), syms) for d, syms in days.items()] for k, days in out.items()}
+
+    def score_days(self) -> list[date]:
+        return [date_of(r["asof"]) for r in self.conn.execute("SELECT DISTINCT asof FROM stk_score_history ORDER BY asof")]
+
+    def scores_on(self, asof: date) -> dict[str, dict[str, Any]]:
+        return {r["symbol"]: json.loads(r["scores_json"]) for r in self.conn.execute(
+            "SELECT symbol, scores_json FROM stk_score_history WHERE asof = ?", (day_of(asof),))}
+
+    # point-in-time rebuilds ───────────────────────────────────────────────────────────────────────
+    def rebuilt_days(self, method_sha256: str) -> list[date]:
+        return [date_of(r["asof"]) for r in self.conn.execute(
+            "SELECT asof FROM stk_rebuild_months WHERE method_sha256 = ? ORDER BY asof", (method_sha256,))]
+
+    def save_rebuild(self, asof: date, method_sha256: str, scores: dict[str, Any], lists: dict[str, list[str]],
+                     universe: int, at: datetime) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO stk_rebuild_months(asof, method_sha256, built_at, universe, scores_zlib, lists_json)"
+            " VALUES (?, ?, ?, ?, ?, ?)", (day_of(asof), method_sha256, to_iso(at), universe,
+                                          zlib.compress(canonical_json(scores).encode(), 6), canonical_json(lists)))
+
+    def rebuilds(self, method_sha256: str) -> list[tuple[date, int, dict[str, Any], dict[str, list[str]]]]:
+        return [(date_of(r["asof"]), r["universe"], json.loads(zlib.decompress(r["scores_zlib"])), json.loads(r["lists_json"]))
+                for r in self.conn.execute("SELECT * FROM stk_rebuild_months WHERE method_sha256 = ? ORDER BY asof",
+                                           (method_sha256,))]
 
     def fund_cached(self, ciks: Sequence[int], asof: date) -> dict[int, dict[str, Any]]:
         out: dict[int, dict[str, Any]] = {}

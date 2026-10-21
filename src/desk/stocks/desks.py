@@ -545,6 +545,13 @@ def crowd(ctx: Context, symbols: Sequence[str], hype_vs: dict[str, float | None]
     attention = {s: _attention(ctx.crowd.get(s)) for s in symbols}
     ranked = percentiles({s: v for s, v in attention.items() if v is not None}, higher_is_better=True)
     out: dict[str, DeskResult] = {}
+    if not ctx.crowd:            # nothing collected for the day (a rebuilt month, or the crowd feed was down): no view
+        out = {}
+        for s in symbols:
+            meter, why = degen_meter(ctx, s)
+            out[s] = DeskResult(None, 0.0, "No crowd data", ["No crowd counts were collected for this day"],
+                                {"degen_meter": meter, "degen_reasons": why})
+        return out
     for s in symbols:
         c = ctx.crowd.get(s, {})
         wsb, allc = c.get("wsb"), c.get("all")
@@ -736,12 +743,12 @@ def run_desks(ctx: Context, symbols: Sequence[str]) -> dict[str, dict[str, DeskR
                      ("earnings", earnings), ("insiders", insiders), ("shorts", shorts), ("risk", risk), ("macro", macro),
                      ("options", options)):
         out[name] = fn(ctx, symbols)
-    fundamentals = {s: _blend({d: out[d].get(s) for d in ("valuation", "quality", "growth")}, None) for s in symbols}
+    fundamentals = {s: blend({d: out[d].get(s) for d in ("valuation", "quality", "growth")}, None) for s in symbols}
     out["crowd"] = crowd(ctx, symbols, fundamentals)
     return out
 
 
-def _blend(results: dict[str, DeskResult | None], weights: dict[str, float] | None) -> float | None:
+def blend(results: dict[str, DeskResult | None], weights: dict[str, float] | None) -> float | None:
     num = den = 0.0
     for name, r in results.items():
         if r is None or r.score is None:
@@ -753,7 +760,7 @@ def _blend(results: dict[str, DeskResult | None], weights: dict[str, float] | No
 
 
 def committee(desk_results: dict[str, DeskResult | None], weights: dict[str, float]) -> dict[str, Any]:
-    score = _blend({k: v for k, v in desk_results.items() if weights.get(k, 0) > 0}, weights)
+    score = blend({k: v for k, v in desk_results.items() if weights.get(k, 0) > 0}, weights)
     positive = [k for k, r in desk_results.items() if r is not None and r.score is not None and r.score >= 55]
     negative = [k for k, r in desk_results.items() if r is not None and r.score is not None and r.score <= 45]
     counted = [k for k, r in desk_results.items() if r is not None and r.score is not None]
@@ -812,6 +819,6 @@ def method_sha256() -> str:
     return sha256_hex(canonical_json(method_content()))
 
 
-__all__ = ["DEFAULT_WEIGHTS", "DESKS", "DESK_LABELS", "METHOD_VERSION", "Context", "DeskResult", "bull_bear", "change_view",
-           "committee", "degen_meter", "fair_value", "method_content", "method_sha256", "percentiles", "run_desks",
+__all__ = ["DEFAULT_WEIGHTS", "DESKS", "DESK_LABELS", "METHOD_VERSION", "Context", "DeskResult", "blend", "bull_bear",
+           "change_view", "committee", "degen_meter", "fair_value", "method_content", "method_sha256", "percentiles", "run_desks",
            "squeeze_score"]

@@ -26,9 +26,11 @@ class ListSpec:
     badge: str                 # the UI's icon key
     tracked: bool              # does the list make a claim worth a track record?
     select: Callable[[Day], list[dict[str, Any]]]
+    claim: str = "describe"    # outperform / underperform (tested, Holm-adjusted) or describe (what happened next)
+    history: bool = True       # can it be rebuilt for past months? (crowd and options data exist only from today on)
 
     def content(self) -> dict[str, Any]:
-        return {"id": self.id, "version": self.version, "rule": self.rule, "size": LIST_SIZE}
+        return {"id": self.id, "version": self.version, "rule": self.rule, "size": LIST_SIZE, "claim": self.claim}
 
     @property
     def spec_sha256(self) -> str:
@@ -316,44 +318,47 @@ def committee_top(day: Day) -> list[dict[str, Any]]:
 
 LISTS: tuple[ListSpec, ...] = (
     ListSpec("trending", "Trending today", "What retail is talking about and trading", "crowd attention 50%, volume vs normal "
-             "30%, size of today's move 20%; crowd score >= 30 or volume >= 2.5x normal", 1, "rocket", True, trending),
+             "30%, size of today's move 20%; crowd score >= 30 or volume >= 2.5x normal", 1, "rocket", True, trending,
+             history=False),
     ListSpec("gainers", "Top gainers", "Biggest gains today", "1-day return, highest", 1, "up", True, gainers),
     ListSpec("losers", "Top losers", "Biggest drops today", "1-day return, lowest", 1, "down", True, losers),
     ListSpec("undervalued", "Undervalued", "Cheap by these measures, and not junk", "valuation >= 70, quality >= 40, no red "
-             "flag, valuation confidence >= 0.5; ranked by valuation + 0.1 x quality", 1, "diamond", True, undervalued),
+             "flag, valuation confidence >= 0.5; ranked by valuation + 0.1 x quality", 1, "diamond", True, undervalued,
+             claim="outperform"),
     ListSpec("overvalued", "Overvalued", "Expensive by these measures", "valuation <= 25 with confidence >= 0.5; cheapest-scored "
-             "first", 1, "bear", True, overvalued),
+             "first", 1, "bear", True, overvalued, claim="underperform"),
     ListSpec("quality_fair", "Quality at a fair price", "Great businesses not priced for perfection", "quality >= 70, valuation "
-             ">= 45, no red flag; ranked by quality + valuation", 1, "diamond", True, quality_fair),
+             ">= 45, no red flag; ranked by quality + valuation", 1, "diamond", True, quality_fair, claim="outperform"),
     ListSpec("momentum", "Momentum leaders", "Strongest trends", "momentum >= 75 and above the 200-day average", 1, "bull",
-             True, momentum_leaders),
+             True, momentum_leaders, claim="outperform"),
     ListSpec("earnings_week", "Earnings this week", "Reports expected in the next 7 days", "next report window (median gap of "
              "past 8-K 2.02 filings, ±7 days) centred within 7 days", 1, "calendar", False, earnings_week),
     ListSpec("just_reported", "Just reported", "Results in the last week, by the size of the reaction", "8-K 2.02 within 8 days; "
              "ranked by |abnormal return on results day|", 1, "doc", False, just_reported),
     ListSpec("insider_buying", "Insider buying", "Officers and directors buying with their own money", "open-market buys (P) > "
              "sales outside 10b5-1 plans in 90 days; ranked by buys / market value, cluster buys first", 1, "people", True,
-             insider_buying),
+             insider_buying, claim="outperform"),
     ListSpec("squeeze", "Squeeze watch", "Heavily shorted and moving against the shorts", "squeeze score >= 50 (short % of "
              "shares, days to cover, 21-day return, relative volume)", 1, "flame", True, squeeze_watch),
     ListSpec("unusual_options", "Unusual options activity", "Contracts trading far above normal", "largest premium among "
-             "contracts with volume >= 500 and >= 3x their usual volume", 1, "zap", True, unusual_options),
+             "contracts with volume >= 500 and >= 3x their usual volume", 1, "zap", True, unusual_options, history=False),
     ListSpec("cheap_iv", "Cheapest IV", "Options priced below what the stock actually moves", "lowest 30-day implied volatility "
-             "/ 20-day realized volatility", 1, "tag", True, cheapest_iv),
+             "/ 20-day realized volatility", 1, "tag", True, cheapest_iv, history=False),
     ListSpec("big_moves", "Biggest expected moves this week", "Where options price the biggest swings", "expected move "
-             "(at-the-money straddle / price) of the first expiry within 10 days", 1, "wave", False, biggest_moves_week),
+             "(at-the-money straddle / price) of the first expiry within 10 days", 1, "wave", False, biggest_moves_week,
+             history=False),
     ListSpec("value_traps", "Value traps to avoid", "Cheap for a reason", "valuation >= 70 with quality <= 35, growth <= 25 or "
-             "a red flag", 1, "alert", True, value_traps),
+             "a red flag", 1, "alert", True, value_traps, claim="underperform"),
     ListSpec("dilution", "Dilution watch", "Shareholders getting diluted", "diluted shares >= +5% in a year or a registration / "
-             "offering filing in 90 days", 1, "drop", True, dilution_watch),
+             "offering filing in 90 days", 1, "drop", True, dilution_watch, claim="underperform"),
     ListSpec("wsb_vs_reality", "WSB vs reality", "Where the hype and the numbers disagree", "crowd score >= 50 and |crowd - "
-             "fundamentals (valuation, quality, growth)| >= 25", 1, "eyes", True, wsb_vs_reality),
+             "fundamentals (valuation, quality, growth)| >= 25", 1, "eyes", True, wsb_vs_reality, history=False),
     ListSpec("new_highs", "New 52-week highs", "Closing at a one-year high", "close within 0.3% of the 52-week high", 1,
              "up", True, new_highs),
     ListSpec("new_lows", "New 52-week lows", "Closing at a one-year low", "close within 0.3% of the 52-week low", 1, "down",
              True, new_lows),
     ListSpec("committee", "The committee's picks", "Where the desks agree most", "highest committee score with at least 6 "
-             "desks counted", 1, "star", True, committee_top),
+             "desks counted", 1, "star", True, committee_top, claim="outperform"),
 )
 BY_ID = {spec.id: spec for spec in LISTS}
 
