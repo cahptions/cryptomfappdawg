@@ -5,6 +5,17 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Research hub correction:** operator clarified that Home must be a polished stock/options discovery workspace,
+not a portfolio summary or a dropdown-only list browser. Default landing is now the Market overview, with
+benchmark ETF strip, Trending/Rising trends/Gainers/Losers top10 tabs, six research collections, three options
+collections, breadth, sectors, estimated catalysts and a watchlist. The mockup's stock-page structure is reflected
+in the chart/metrics/evidence/chain layout and right-hand committee. Options has a dedicated overview.
+`desk open --desk stocks` is wired without starting a trading worker. All data comes from stored research;
+there are no sample-market fallbacks or new trading signals. Split adjustment/gap handling, bounded option
+tables and CSRF-protected watch updates have regression checks. Validation: 1,009 offline tests, Ruff, strict
+mypy, and populated/empty desktop/phone browser flows passed. Browser fixtures are synthetic and isolated
+from operator data. Restart an old dashboard after pulling, before opening the new home.
+
 Branch `codex/finish-schwab-stocks` continues Claude's saved M1–M6 through `972565b`, including the earlier
 Robinhood/Solana research and $500 reference changes. Added `desk stocks doctor/connect/refresh/paper/report/
 validate/learn/dashboard`, a loopback dashboard on8767, eleven-desk stock pages, PAPER records, evidence and

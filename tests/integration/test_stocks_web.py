@@ -40,6 +40,9 @@ def test_empty_dashboard_and_secret_form_boundary(tmp_path: Path) -> None:
         assert client.post("/api/stocks/connection", content="x" * 9000, headers=headers).status_code == 413
         assert client.get("/api/stocks/paper").json()["report"] is None
         assert client.get("/api/stocks/proof").json()["validation"] is None
+        home = client.get("/api/stocks/home").json()
+        assert home["breadth"]["researched"] == 0 and home["stocks"] == {}
+        assert all(b["price"] is None and b["change"] is None for b in home["benchmarks"])
 
 
 def test_forward_pipeline_and_populated_dashboard_are_idempotent(tmp_path: Path) -> None:
@@ -61,6 +64,17 @@ def test_forward_pipeline_and_populated_dashboard_are_idempotent(tmp_path: Path)
             assert accounts and all(a["deposits"] in {10000, 50000} for a in accounts)
             assert client.get("/api/stocks/stock/TOO_LONG_SYMBOL").status_code == 400
             assert "DO-NOT-RETURN" not in json.dumps(snapshot)
+            home = client.get("/api/stocks/home").json()
+            assert home["breadth"]["researched"] > 0
+            assert len(home["benchmarks"]) == 6 and len(home["stocks"]) <= 150
+            assert all(len(card["history"]) <= 24 for card in home["stocks"].values())
+            assert client.post("/api/stocks/watch/CHEAP?action=add").status_code == 403
+            csrf = client.get("/api/stocks/session").json()["csrf_token"]
+            watched = client.post("/api/stocks/watch/CHEAP?action=add", headers={"X-CSRF-Token": csrf})
+            assert watched.status_code == 200 and watched.json()["watchlisted"] is True
+            assert "CHEAP" in client.get("/api/stocks/home").json()["watchlist"]
+            assert client.post("/api/stocks/watch/UNKNOWN?action=add", headers={"X-CSRF-Token": csrf}).status_code == 404
+            assert client.get("/api/stocks/stock/CHEAP/options").json()["contracts"] == []
     finally:
         world.close()
 

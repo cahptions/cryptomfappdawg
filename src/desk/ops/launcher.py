@@ -38,6 +38,9 @@ DESKS = {
     "robinhood": {"name": "KESTREL Crypto", "comment": "Robinhood crypto desk (paper trading)",
                   "service": "desk-rh-dashboard.service", "icon": "kestrel-crypto",
                   "dashboard": ["rh", "dashboard", "--port"]},
+    "stocks": {"name": "KESTREL Stocks", "comment": "Stock and options research hub (PAPER)",
+               "service": "desk-stocks-dashboard.service", "icon": "kestrel-stocks",
+               "dashboard": ["stocks", "dashboard", "--port"]},
 }
 ICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="9" fill="{bg}"/>'
         '<path d="m5 10 15 6L35 5 25 24l-5 11-5-12Z" fill="{fg}"/></svg>\n')

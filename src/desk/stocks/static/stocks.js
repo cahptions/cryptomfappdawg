@@ -32,6 +32,17 @@ function panel(title, text) {
 function link(label, href) {
   const n = el("a", label);
   n.href = href;
+  if (label.includes("↗")) {
+    n.textContent = label.replaceAll("↗", "").trim();
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("class", "ui-arrow");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("d", "M4 12 12 4M4 4h8v8");
+    svg.append(path);
+    n.append(svg);
+  }
   return n;
 }
 function details(title, value) {
@@ -83,35 +94,7 @@ function heading(title, subtitle) {
   app.append(el("h1", title));
   if (subtitle) app.append(el("p", subtitle, "muted"));
 }
-function chart(bars) {
-  const values = bars.map((b) => b.close).filter(Number.isFinite);
-  if (values.length < 2)
-    return el("p", "Not enough stored price history yet.", "muted");
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"),
-    line = document.createElementNS(svg.namespaceURI, "polyline");
-  svg.setAttribute("viewBox", "0 0 1000 250");
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("class", "chart");
-  svg.setAttribute("role", "img");
-  svg.setAttribute(
-    "aria-label",
-    "Stored daily closing prices, observed bars only; not executable quotes",
-  );
-  const lo = Math.min(...values),
-    range = Math.max(...values) - lo || 1;
-  line.setAttribute(
-    "points",
-    values
-      .map(
-        (v, i) =>
-          `${(i / (values.length - 1)) * 1000},${240 - ((v - lo) / range) * 230}`,
-      )
-      .join(" "),
-  );
-  svg.append(line);
-  return svg;
-}
-function discover() {
+function discover(selected) {
   heading(
     "Find the evidence.",
     "Daily research lists from eleven deterministic desks. No data is invented to fill missing observations.",
@@ -135,6 +118,8 @@ function discover() {
     option.value = list.id;
     select.append(option);
   }
+  if (selected && snapshot.lists.some((l) => l.id === selected))
+    select.value = selected;
   const content = el("div");
   function draw() {
     const list = snapshot.lists.find((l) => l.id === select.value);
@@ -176,79 +161,7 @@ function discover() {
   draw();
 }
 async function stock(symbol, ticket) {
-  const data = await api(`stock/${encodeURIComponent(symbol)}`);
-  if (ticket !== generation) return;
-  app.replaceChildren();
-  const d = data.analysis;
-  heading(
-    d?.name || symbol,
-    `${symbol} · ${d?.sector || "Stored market history"}`,
-  );
-  app.append(
-    el("div", money(d?.price?.close ?? data.bars.at(-1)?.close), "big"),
-  );
-  app.append(chart(data.bars));
-  app.append(
-    el(
-      "p",
-      "Daily chart prices are reference observations, not broker entry or exit quotes.",
-      "muted",
-    ),
-  );
-  if (!d) {
-    app.append(
-      panel(
-        "Analysis not ready",
-        "A stock needs sufficient history, volume and source coverage before a research score is available.",
-      ),
-    );
-    return;
-  }
-  const council = panel(
-    "Committee",
-    `Closed session ${d.asof}. Coverage measures data completeness, not the chance of profit.`,
-  );
-  council.append(
-    el("div", number(d.committee?.score), "desk-score"),
-    details("Committee rationale and weights", {
-      committee: d.committee,
-      weights: d.weights,
-      bull: d.bull,
-      bear: d.bear,
-      change_view: d.change_view,
-    }),
-  );
-  app.append(council);
-  const grid = el("div", undefined, "grid");
-  for (const [id, label] of Object.entries(snapshot.desks)) {
-    const desk = d.desks[id],
-      card = panel(label);
-    card.append(
-      el("div", number(desk?.score), "desk-score"),
-      el("p", desk?.verdict || "Insufficient data", "muted"),
-    );
-    if (desk) {
-      const bar = el("progress");
-      bar.max = 1;
-      bar.value = desk.confidence || 0;
-      bar.setAttribute("aria-label", `${label} data coverage`);
-      card.append(
-        bar,
-        el("small", `${percent(desk.confidence)} data coverage`),
-      );
-      for (const reason of desk.reasons || []) card.append(el("p", reason));
-    }
-    grid.append(card);
-  }
-  app.append(
-    grid,
-    details("Underlying observations", {
-      fundamentals: d.fundamentals,
-      options: d.options,
-      events: d.events,
-      macro: d.macro,
-    }),
-  );
+  return KestrelResearch.stock(symbol, ticket);
 }
 async function paperPage(ticket) {
   heading(
@@ -284,7 +197,10 @@ async function paperPage(ticket) {
         percent(a.max_drawdown),
         a.sessions,
         typeof a.grade === "object"
-          ? a.grade.label || a.grade.title || JSON.stringify(a.grade)
+          ? a.grade.text ||
+            a.grade.label ||
+            a.grade.title ||
+            JSON.stringify(a.grade)
           : a.grade,
       ]),
     ),
@@ -555,10 +471,12 @@ async function settingsPage() {
 }
 async function render() {
   const ticket = ++generation,
-    route = location.hash.replace(/^#/, "") || "lists";
+    route = location.hash.replace(/^#/, "") || "dashboard";
   app.replaceChildren();
+  app.className = "";
   for (const a of document.querySelectorAll("nav a")) {
-    if (a.hash === "#" + route) a.setAttribute("aria-current", "page");
+    if (a.hash === "#" + route.split("/")[0])
+      a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
   if (!snapshot) {
@@ -573,7 +491,13 @@ async function render() {
     else if (route === "proof") await proofPage(ticket);
     else if (route === "settings") await settingsPage();
     else if (route === "system") systemPage();
-    else discover();
+    else if (route === "lists" || route.startsWith("lists/"))
+      discover(route.split("/")[1]);
+    else
+      await KestrelResearch.home(
+        ticket,
+        route === "options" ? "options" : "stocks",
+      );
   } catch (error) {
     if (ticket === generation) app.append(el("p", error.message, "error"));
   }
@@ -605,3 +529,11 @@ window.addEventListener("hashchange", render);
 setInterval(() => {
   if (document.visibilityState === "visible") refresh();
 }, 30000);
+
+document.getElementById("stock-search").onsubmit = (e) => {
+  e.preventDefault();
+  const input = document.getElementById("quick-symbol");
+  if (input.value.trim())
+    location.hash =
+      "stock/" + encodeURIComponent(input.value.trim().toUpperCase());
+};

@@ -827,8 +827,9 @@ def cmd_open(args: argparse.Namespace) -> int:
     from desk.ops.launcher import open_desk
 
     paths, _ = _bootstrap(args.verbose)
-    port = args.port or (load_config(paths.config_dir).settings.robinhood.dashboard_port if args.desk == "robinhood"
-                         else 8765)
+    settings = load_config(paths.config_dir).settings
+    ports = {"robinhood": settings.robinhood.dashboard_port, "stocks": settings.stocks.dashboard_port, "solana": 8765}
+    port = args.port or ports[args.desk]
     print(open_desk(args.desk, port, paths))
     return 0
 
@@ -1066,7 +1067,7 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_services, action="stop")
 
     p = sub.add_parser("open", help="open a dashboard in its own window, starting it if needed")
-    p.add_argument("--desk", choices=["solana", "robinhood"], default="solana")
+    p.add_argument("--desk", choices=["solana", "robinhood", "stocks"], default="solana")
     p.add_argument("--port", type=int, choices=range(1024, 65536), default=None, metavar="1024..65535")
     p.set_defaults(func=cmd_open)
 

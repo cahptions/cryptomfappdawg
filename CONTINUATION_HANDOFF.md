@@ -9,6 +9,12 @@
 > Next operator step: update this branch, `uv sync --frozen`, then `uv run desk stocks dashboard --open`.
 > Configure the approved app privately in Settings, verify with `uv run desk stocks doctor --online`, then
 > run the separate bounded Stocks PAPER worker. Broker approval and prospective evidence remain outstanding.
+>
+> **Home-page correction:** the operator wants a stock/options research hub, not an account-first landing page.
+> Home now presents market benchmarks, qualified top10 mover tabs, research collections, options intelligence,
+> breadth/sectors and a watchlist. Stock detail follows the screenshot's chart/metrics/chain/committee structure.
+> Views use stored observations only, with bounded payloads and split/gap handling. Restart an already running
+> Stocks dashboard after pulling the update. `desk open --desk stocks` is also supported.
 
 
 > **New continuation, 2026-10-20:** use [research/opportunities/HANDOFF.md](research/opportunities/HANDOFF.md).

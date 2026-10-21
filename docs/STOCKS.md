@@ -23,6 +23,19 @@ The dashboard is **http://127.0.0.1:8767**. Leave its terminal open. This is sep
 on8766 and the Solana desk on8765; the Stocks command neither stops nor starts those collectors.
 If the browser does not open automatically, enter the full dashboard address in its address bar.
 
+The default **Home** is a stock/options research hub: benchmark ETF prices, a top10 Trending/Rising trends/
+Gainers/Losers table, value/quality/squeeze/insider collections, options intelligence, breadth, sectors and a
+watchlist. **Options** has its own overview; **Stocks** opens the full saved lists. A stock page combines
+split-adjusted line/candlestick charts and volume, financial statistics, the committee and eleven desks,
+bull/bear evidence and a dated calls/puts table. Missing observations remain missing; a chart breaks at
+missing sessions rather than manufacturing candles. Top10 means up to ten qualifying names, never padding.
+These are daily-close research views, not a live intraday ranking service.
+
+You can also open the Stocks desk with `uv run desk open --desk stocks`; it starts only the dashboard if
+needed and opens its app window. It does not start the collector. The existing `desk up/down` services still
+manage the two older desks. After pulling code while a Stocks dashboard is already running, stop its old
+terminal process with Ctrl+C and restart it so the backend and page assets use the same version.
+
 Settings has the private Schwab credential form and a connection guide. HTTPS for its OAuth callback does
 **not** require buying a domain. Start with the local callback and use Tailscale only if needed:
 [complete connection guide](SCHWAB.md). Successful login alone does not verify data entitlements; run
@@ -153,6 +166,11 @@ so inspect its impact on other desks before deliberately resuming.
 - Broad analysis is postponed below1.5GB available RAM. This is a startup check, not a hard memory cap.
   Full-universe peak RAM, SSD growth, a full-duration laptop run and browser memory behavior still need actual
   measurement on the Ryzen7730U/16GiB Mint laptop. Do not run multiple broad research jobs at once.
+
+The home view fetches at most150 stock cards with24 observations each and shows at most10 rows per featured
+list. The options table reads one collected expiration and returns at most40 nearby contracts, with original
+provider/timestamps. Page reads never fetch broker quotes or alter strategy rules. Watchlist updates require the
+same local-origin and CSRF protection as Settings; saved watchlists retain the existing bounded collection behavior.
 
 ## Development checks
 

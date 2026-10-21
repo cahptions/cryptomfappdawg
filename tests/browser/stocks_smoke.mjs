@@ -14,16 +14,68 @@ try {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    await page.goto(`${base}/#lists`);
-    await page.getByRole("heading", { name: "Find the evidence." }).waitFor();
+    await page.goto(base);
+    await page.getByRole("heading", { name: "Market overview" }).waitFor();
+    await page.getByRole("heading", { name: "Trending top 10" }).waitFor();
+    await page.getByRole("heading", { name: "Options intelligence" }).waitFor();
+    await page.getByRole("tab", { name: "Rising trends" }).click();
+    await page
+      .getByRole("heading", { name: "Rising trends", exact: true })
+      .waitFor();
+    await page.getByRole("tab", { name: "Top gainers" }).click();
+    await page.getByRole("heading", { name: "Top 10 gainers" }).waitFor();
+    assert.equal(await page.locator(".benchmark-card").count(), 6);
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+      true,
+    );
+    await page.screenshot({
+      path: `/tmp/kestrel-hub-${scenario}-${width}.png`,
+      fullPage: true,
+    });
     if (scenario === "populated") {
       await page.goto(`${base}/#stock/CHEAP`);
       await page
         .getByRole("heading", { name: "CHEAP Corp Common Stock" })
         .waitFor();
-      await page.locator(".chart polyline").waitFor();
-      assert.equal(await page.locator(".grid .panel").count(), 11);
+      await page.locator(".price-path").waitFor();
+      assert.equal(await page.locator(".desk-card").count(), 11);
+      await page.getByRole("button", { name: "Candles", exact: true }).click();
+      assert.ok((await page.locator(".candle-body").count()) > 0);
+      await page.getByRole("tab", { name: "Puts", exact: true }).click();
+      await page
+        .getByRole("button", { name: "+ Add to watchlist", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "✓ In your watchlist", exact: true })
+        .waitFor();
+      await page.screenshot({
+        path: `/tmp/kestrel-stock-${scenario}-${width}.png`,
+        fullPage: true,
+      });
+      await page.goto(`${base}/#dashboard`);
+      await page
+        .locator(".watch-row")
+        .getByRole("link", { name: "CHEAP", exact: true })
+        .waitFor();
+      await page.goto(`${base}/#stock/CHEAP`);
+      await page
+        .getByRole("button", { name: "✓ In your watchlist", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "+ Add to watchlist", exact: true })
+        .waitFor();
     }
+    await page.goto(`${base}/#options`);
+    await page.getByRole("heading", { name: "Options overview" }).waitFor();
+    await page.goto(`${base}/#lists/gainers`);
+    await page.getByRole("heading", { name: "Find the evidence." }).waitFor();
+    assert.equal(
+      await page.getByRole("combobox", { name: "Research list" }).inputValue(),
+      "gainers",
+    );
     await page.goto(`${base}/#paper`);
     await page.getByRole("heading", { name: "Paper portfolios." }).waitFor();
     if (scenario === "populated")

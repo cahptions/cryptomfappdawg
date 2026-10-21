@@ -9,8 +9,9 @@ import sqlite3
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -24,10 +25,14 @@ from desk.core.worker_lock import WorkerLock
 from desk.stocks.cli import new_login
 from desk.stocks.connection import LoginAttempt, connection_status, save_connection
 from desk.stocks.desks import DESK_LABELS
+from desk.stocks.hub import adjusted_bars, option_table
+from desk.stocks.hub import home as hub_home
 from desk.stocks.lists import LISTS
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE, StocksDatabases, StocksMarket, StocksResearch
 from desk.stocks.runner import saved
+from desk.storage.db import DbKind
+from desk.storage.db import connect as open_database
 from desk.web.app import install_browser_boundary
 
 STATIC = Path(__file__).with_name("static")
@@ -70,10 +75,14 @@ def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
         raise HTTPException(400, "Invalid stock symbol")
     with reader(paths, RESEARCH_FILE) as conn:
         value = StocksResearch(conn).latest(symbol)
+        watched = symbol in StocksResearch(conn).watchlist()
     with reader(paths, MARKET_FILE) as conn:
         rows = conn.execute("SELECT day, open, high, low, close, volume FROM stk_bars WHERE symbol=? "
                             "ORDER BY day DESC LIMIT 400", (symbol,)).fetchall()
-    return {"symbol": symbol, "analysis": value, "bars": [dict(r) for r in reversed(rows)]}
+        bars = adjusted_bars(conn, symbol, [dict(r) for r in reversed(rows)])
+        listing = conn.execute("SELECT name, exchange, kind, etf FROM stk_listings WHERE symbol=?", (symbol,)).fetchone()
+    return {"symbol": symbol, "analysis": value, "bars": bars, "watchlisted": watched,
+            "listing": dict(listing) if listing else None, "chart_basis": "Split-adjusted daily OHLC; no dividends"}
 
 
 def paper(paths: DeskPaths) -> dict[str, Any]:
@@ -123,9 +132,36 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None) -> FastAPI:
     def overview() -> dict[str, Any]:
         return snapshot(paths, config)
 
+    @app.get("/api/stocks/home")
+    def research_home() -> dict[str, Any]:
+        with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
+            return hub_home(market, research)
+
     @app.get("/api/stocks/stock/{symbol}")
     def stock(symbol: str) -> dict[str, Any]:
         return detail(paths, symbol.upper())
+
+    @app.get("/api/stocks/stock/{symbol}/options")
+    def options(symbol: str, expiration: date | None = None) -> dict[str, Any]:
+        if not 1 <= len(symbol) <= 12:
+            raise HTTPException(400, "Invalid stock symbol")
+        with reader(paths, MARKET_FILE) as conn:
+            return option_table(conn, symbol.upper(), expiration=expiration)
+
+    @app.post("/api/stocks/watch/{symbol}")
+    def watch(symbol: str, action: Literal["add", "remove"] = "add") -> dict[str, Any]:
+        from desk.core.clock import utc_now
+
+        symbol = symbol.upper()
+        with reader(paths, MARKET_FILE) as conn:
+            if conn.execute("SELECT 1 FROM stk_listings WHERE symbol=?", (symbol,)).fetchone() is None:
+                raise HTTPException(404, "No stored listing for this symbol")
+        conn = open_database(paths.db_dir / RESEARCH_FILE, DbKind.STOCKS_RESEARCH)
+        try:
+            StocksResearch(conn).watch(symbol, utc_now(), add=action == "add")
+        finally:
+            conn.close()
+        return {"symbol": symbol, "watchlisted": action == "add"}
 
     @app.get("/api/stocks/paper")
     def paper_record() -> dict[str, Any]:
