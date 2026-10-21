@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 COMPANY_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A", "8-K", "8-K/A", "20-F", "6-K"})
 FRED_SERIES = ("BAMLH0A0HYM2", "VIXCLS")
 MENTION_SOURCES = ("wallstreetbets", "all-stocks", "options")
+FACT_YEARS = 8           # company facts kept: enough for five-year growth and two years of point-in-time history
 
 
 async def _job(market: StocksMarket, name: str, now: datetime, work: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
@@ -121,7 +122,9 @@ async def companies(suite: StocksSuite, market: StocksMarket, now: datetime, cik
                     if "not found" not in str(exc):
                         raise
                     raw = b'{"facts": {}}'                     # no XBRL (many foreign filers): an honest empty set
-                facts_changed += market.save_facts(cik, parse_companyfacts(raw, CONCEPTS), sha256_hex(raw), now)
+                horizon = now.date() - timedelta(days=FACT_YEARS * 366)
+                parsed = {k: [f for f in v if f.end >= horizon] for k, v in parse_companyfacts(raw, CONCEPTS).items()}
+                facts_changed += market.save_facts(cik, parsed, sha256_hex(raw), now)
             done += 1
         return {"companies": done, "new_filings": new_filings, "facts_changed": facts_changed, "missing": missing[:20]}
     return await _job(market, "companies", now, work)

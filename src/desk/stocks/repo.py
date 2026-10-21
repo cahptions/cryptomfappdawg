@@ -529,6 +529,21 @@ class StocksResearch:
         return {"id": row["id"], "created_at": row["created_at"], "asof": date_of(row["asof"]).isoformat(),
                 "method_sha256": row["method_sha256"], **json.loads(row["report_json"])}
 
+    def fund_cached(self, ciks: Sequence[int], asof: date) -> dict[int, dict[str, Any]]:
+        out: dict[int, dict[str, Any]] = {}
+        for chunk in range(0, len(ciks), 500):
+            part = list(ciks[chunk:chunk + 500])
+            marks = ",".join("?" * len(part))           # placeholders only; values are bound
+            for r in self.conn.execute(f"SELECT cik, base_json FROM stk_fund_cache WHERE asof = ? AND cik IN ({marks})",  # noqa: S608
+                                       (day_of(asof), *part)):
+                out[r["cik"]] = json.loads(r["base_json"])
+        return out
+
+    def cache_fund(self, rows: dict[int, dict[str, Any]], asof: date) -> None:
+        with transaction(self.conn):
+            self.conn.executemany("INSERT OR REPLACE INTO stk_fund_cache(cik, asof, base_json) VALUES (?, ?, ?)",
+                                  [(cik, day_of(asof), canonical_json(b)) for cik, b in rows.items()])
+
     def watchlist(self) -> list[str]:
         return [r["symbol"] for r in self.conn.execute("SELECT symbol FROM stk_watchlist ORDER BY added_at")]
 

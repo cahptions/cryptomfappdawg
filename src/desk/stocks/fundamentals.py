@@ -198,8 +198,8 @@ def _sum(*values: float | None) -> float | None:
     return sum(present) if present else None
 
 
-def metrics(f: Fundamentals, as_of: date, price: float | None, *, financial: str | None = None) -> dict[str, float | None]:
-    """Every fundamental number the desks use, as known on ``as_of`` at ``price``. None = not computable."""
+def base(f: Fundamentals, as_of: date, *, financial: str | None = None) -> dict[str, float | None]:
+    """Everything known on ``as_of`` that does not depend on the share price (cacheable per company and day)."""
     flows = {name: f.flow(name, as_of) for name in FLOWS}
     v = {name: f.value(name, as_of) for name in INSTANTS}
     m: dict[str, float | None] = {}
@@ -220,22 +220,16 @@ def metrics(f: Fundamentals, as_of: date, price: float | None, *, financial: str
     if shares is None:
         q = latest_quarter(f.series("diluted_shares", as_of), as_of)
         shares = q.value if q is not None and (as_of - q.end).days <= STALE_INSTANT_DAYS else None
-    mcap = None if price is None or shares is None else price * shares
     debt = _sum(v["lt_debt"], v["current_debt"], v["st_borrowings"])
     cash = _sum(v["cash"], v["st_investments"])
-    ev = None if mcap is None else mcap + (debt or 0.0) - (cash or 0.0)
     equity = v["equity"]
     m.update(revenue=revenue, net_income=ni, ebit=ebit, cfo=cfo, capex=capex, fcf=fcf, gross_profit=gross, dna=dna,
-             shares=shares, market_cap=mcap, debt=debt, cash=cash, ev=ev, equity=equity, assets=v["assets"],
+             shares=shares, debt=debt, cash=cash, equity=equity, assets=v["assets"],
              sbc=flows["sbc"].value if flows["sbc"] else None,
-             ttm_end=float(flows["revenue"].end.toordinal()) if flows["revenue"] else None)
-    m["pe"] = _pos_div(mcap, ni)
-    m["earnings_yield"] = _div(ni, mcap)
-    m["ev_ebit"] = None if financial else _pos_div(ev, ebit)
-    m["ev_sales"] = None if financial else _pos_div(ev, revenue)
-    m["p_fcf"] = None if financial else _pos_div(mcap, fcf)
-    m["fcf_yield"] = None if financial else _div(fcf, mcap)
-    m["pb"] = _pos_div(mcap, equity)
+             buybacks=flows["buybacks"].value if flows["buybacks"] else None,
+             dividends_paid=flows["dividends_paid"].value if flows["dividends_paid"] else None,
+             ttm_end=float(flows["revenue"].end.toordinal()) if flows["revenue"] else None,
+             financial={"bank": 1.0, "insurer": 2.0, "reit": 3.0}.get(financial or "", 0.0))
     m["gross_margin"] = _div(gross, revenue)
     m["operating_margin"] = _div(ebit, revenue)
     m["net_margin"] = _div(ni, revenue)
@@ -254,38 +248,30 @@ def metrics(f: Fundamentals, as_of: date, price: float | None, *, financial: str
     interest = flows["interest_expense"].value if flows["interest_expense"] else None
     m["interest_cover"] = None if financial else _pos_div(ebit, interest)
     m["current_ratio"] = _div(v["current_assets"], v["current_liabilities"])
-    m["buyback_yield"] = _div(flows["buybacks"].value if flows["buybacks"] else None, mcap)
-    m["dividend_yield"] = _div(flows["dividends_paid"].value if flows["dividends_paid"] else None, mcap)
     m["sbc_to_revenue"] = _div(m["sbc"], revenue)
+    m["liabilities"] = v["liabilities"]
     if financial == "reit" and ni is not None:
-        ffo = ni + (dna or 0.0) - (flows["re_gains"].value if flows["re_gains"] else 0.0)
-        m["ffo"] = ffo
-        m["p_ffo"] = _pos_div(mcap, ffo)
-    # growth and its trend
+        m["ffo"] = ni + (dna or 0.0) - (flows["re_gains"].value if flows["re_gains"] else 0.0)
     for name, key in (("revenue", "revenue_growth"), ("net_income", "earnings_growth"), ("cfo", "cfo_growth")):
         cur = flows[name]
         prior = None if cur is None else f.year_ago_flow(name, as_of, cur)
         m[key] = None if cur is None or prior is None or prior.value <= 0 else cur.value / prior.value - 1
     cur_rev = flows["revenue"]
+    m["revenue_acceleration"] = None
     if cur_rev is not None:
         half = f.flow("revenue", as_of, end_before=cur_rev.end - timedelta(days=150))
         half_prior = None if half is None else f.year_ago_flow("revenue", as_of, half)
         if half is not None and half_prior is not None and half_prior.value > 0 and m["revenue_growth"] is not None:
             m["revenue_acceleration"] = m["revenue_growth"] - (half.value / half_prior.value - 1)
-        else:
-            m["revenue_acceleration"] = None
-    else:
-        m["revenue_acceleration"] = None
     annual_rev = f.annual_values("revenue", as_of)
     m["revenue_cagr_5y"] = None
     m["history_years"] = float(len(annual_rev))
     if len(annual_rev) >= 2:
         last = annual_rev[-1]
-        base = min(annual_rev, key=lambda x: abs((x.end - (last.end - timedelta(days=365 * 5))).days))
-        years = (last.end - base.end).days / 365.25
-        if years >= 2.5 and base.value > 0 and last.value > 0:
-            m["revenue_cagr_5y"] = (last.value / base.value) ** (1 / years) - 1
-    # dilution: diluted share count now vs a year earlier
+        first = min(annual_rev, key=lambda x: abs((x.end - (last.end - timedelta(days=365 * 5))).days))
+        years = (last.end - first.end).days / 365.25
+        if years >= 2.5 and first.value > 0 and last.value > 0:
+            m["revenue_cagr_5y"] = (last.value / first.value) ** (1 / years) - 1
     q = latest_quarter(f.series("diluted_shares", as_of), as_of)
     m["dilution"] = None
     if q is not None:
@@ -294,15 +280,47 @@ def metrics(f: Fundamentals, as_of: date, price: float | None, *, financial: str
         if prior_q and prior_q[0].value > 0:
             m["dilution"] = q.value / prior_q[0].value - 1
     if financial in ("bank", "insurer"):
-        m.update({"piotroski": None, "altman_z": None, "beneish_m": None})   # built for industrial companies
+        m.update({"piotroski": None, "altman_base": None, "beneish_m": None})   # built for industrial companies
     else:
-        m.update(scores(f, as_of, mcap, financial=financial))
+        m.update(scores(f, as_of, financial=financial))
     return m
 
 
-def scores(f: Fundamentals, as_of: date, mcap: float | None, *, financial: str | None = None) -> dict[str, float | None]:
-    """Piotroski F-score (0-9), Altman Z and Beneish M on the two latest fiscal years known by ``as_of``."""
-    out: dict[str, float | None] = {"piotroski": None, "altman_z": None, "beneish_m": None}
+FINANCIAL_TYPES = {1.0: "bank", 2.0: "insurer", 3.0: "reit"}
+
+
+def with_price(b: dict[str, float | None], price: float | None) -> dict[str, float | None]:
+    """The price-dependent multiples on top of a cached base."""
+    m = dict(b)
+    financial = FINANCIAL_TYPES.get(b.get("financial") or 0.0)
+    shares, ni, ebit, fcf, revenue = b.get("shares"), b.get("net_income"), b.get("ebit"), b.get("fcf"), b.get("revenue")
+    mcap = None if price is None or not shares else price * shares
+    ev = None if mcap is None else mcap + (b.get("debt") or 0.0) - (b.get("cash") or 0.0)
+    m.update(price=price, market_cap=mcap, ev=ev)
+    m["pe"] = _pos_div(mcap, ni)
+    m["earnings_yield"] = _div(ni, mcap)
+    m["ev_ebit"] = None if financial else _pos_div(ev, ebit)
+    m["ev_sales"] = None if financial else _pos_div(ev, revenue)
+    m["p_fcf"] = None if financial else _pos_div(mcap, fcf)
+    m["fcf_yield"] = None if financial else _div(fcf, mcap)
+    m["pb"] = _pos_div(mcap, b.get("equity"))
+    m["buyback_yield"] = _div(b.get("buybacks"), mcap)
+    m["dividend_yield"] = _div(b.get("dividends_paid"), mcap)
+    m["p_ffo"] = _pos_div(mcap, b.get("ffo")) if financial == "reit" else None
+    alt, tl = b.get("altman_base"), b.get("liabilities")
+    m["altman_z"] = None if alt is None or mcap is None or not tl else alt + 0.6 * mcap / tl
+    return m
+
+
+def metrics(f: Fundamentals, as_of: date, price: float | None, *, financial: str | None = None) -> dict[str, float | None]:
+    """Every fundamental number the desks use, as known on ``as_of`` at ``price``. None = not computable."""
+    return with_price(base(f, as_of, financial=financial), price)
+
+
+def scores(f: Fundamentals, as_of: date, *, financial: str | None = None) -> dict[str, float | None]:
+    """Piotroski F-score (0-9), Altman Z without its market-value term (added with the price) and Beneish M, on the
+    two latest fiscal years known by ``as_of``."""
+    out: dict[str, float | None] = {"piotroski": None, "altman_base": None, "beneish_m": None}
 
     def annual(name: str) -> tuple[Fact, Fact] | None:
         rows = f.annual_values(name, as_of)
@@ -344,9 +362,8 @@ def scores(f: Fundamentals, as_of: date, mcap: float | None, *, financial: str |
         tl = bs("liabilities", end)
         re_ = bs("retained_earnings", end)
         ebit = annual("operating_income")
-        if ca is not None and cl is not None and tl and re_ is not None and ebit is not None and mcap:
-            out["altman_z"] = (1.2 * (ca - cl) / ta + 1.4 * re_ / ta + 3.3 * ebit[1].value / ta + 0.6 * mcap / tl
-                               + 1.0 * rev[1].value / ta)
+        if ca is not None and cl is not None and tl and re_ is not None and ebit is not None:
+            out["altman_base"] = 1.2 * (ca - cl) / ta + 1.4 * re_ / ta + 3.3 * ebit[1].value / ta + 1.0 * rev[1].value / ta
         recv, recv0 = bs("receivables", end), bs("receivables", prev_end)
         ppe, ppe0 = bs("ppe", end), bs("ppe", prev_end)
         dep, sga = annual("dna"), annual("sga")
@@ -402,5 +419,5 @@ def dcf_value(fcf: float, growth: float, discount: float, terminal: float = 0.02
     return total + cash * (1 + terminal) / (discount - terminal) / (1 + discount) ** years
 
 
-__all__ = ["CONCEPTS", "FLOWS", "INSTANTS", "Flow", "Fundamentals", "dcf_value", "implied_growth", "instant", "latest_quarter",
-           "metrics", "scores", "ttm"]
+__all__ = ["CONCEPTS", "FLOWS", "INSTANTS", "Flow", "Fundamentals", "base", "dcf_value", "implied_growth", "instant",
+           "latest_quarter", "metrics", "scores", "ttm", "with_price"]
