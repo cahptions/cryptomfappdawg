@@ -5,6 +5,12 @@
 
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
+**Stocks menu application:** added the missing Stocks desktop entry/icon to launcher installation. A selected-only
+`desk open --desk stocks --install` creates its menu shortcut and opens the research dashboard without installing
+services or launching collectors/engines. It preserves other desks' launchers; configured/custom ports persist in
+the shortcut. Stocks gets a separate lime icon/profile/class and initially uses the full screen work area.
+Validation:53 relevant launcher/CLI/service tests, Ruff/mypy, and all three generated desktop entries validated.
+
 **Collector crash identified and corrected:** the operator's research log reported `ZeroDivisionError` in
 `fundamentals.scores`, cost-of-revenue / prior annual revenue. The old code was reproduced failing with synthetic
 zero-revenue statements in both cost and reported-gross-profit paths. Both years now use guarded margin ratios;

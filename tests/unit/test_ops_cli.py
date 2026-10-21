@@ -47,7 +47,34 @@ def test_up_installs_and_starts_only_the_requested_services(
     args = arguments(*command.split())
     assert args.func(args) == 0
     assert calls == [((paths, sys.executable), {"port": args.port, "start": True, "paper": paper})]
-    assert icons == [{"port": args.port, "rh_port": 8766}]
+    assert icons == [{"port": args.port, "rh_port": 8766, "stocks_port": 8767}]
+
+
+@pytest.mark.parametrize("install,port", [(False, None), (True, None), (True, 9876)])
+def test_stocks_open_option_installs_only_its_icon_without_starting_engines(
+    paths: DeskPaths, monkeypatch: pytest.MonkeyPatch, install: bool, port: int | None,
+) -> None:
+    from desk.ops import launcher
+
+    share = paths.home / "test-apps"
+    monkeypatch.setenv("XDG_DATA_HOME", str(share))
+    opened = []
+    monkeypatch.setattr(launcher, "open_desk", lambda *args: opened.append(args) or "http://127.0.0.1/")
+    monkeypatch.setattr(services, "install_services", lambda *_, **__: pytest.fail("no service installation requested"))
+    monkeypatch.setattr(services, "control_services", lambda *_, **__: pytest.fail("no engine action requested"))
+    words = ["open", "--desk", "stocks"]
+    if install:
+        words.append("--install")
+    if port is not None:
+        words += ["--port", str(port)]
+    args = arguments(*words)
+    assert args.func(args) == 0
+    assert opened == [("stocks", port or 8767, paths)]
+    entry = share / "applications" / "kestrel-stocks.desktop"
+    assert entry.exists() == install
+    if install:
+        assert f"--port {port or 8767}" in entry.read_text()
+        assert not (entry.parent / "kestrel.desktop").exists()
 
 
 @pytest.mark.parametrize("command,action", [("down", "stop"), ("services status", "status")])

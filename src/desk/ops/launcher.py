@@ -1,4 +1,4 @@
-"""App icons for the two dashboards, and ``desk open``: start what is needed and open an app-style window.
+"""App icons for the dashboards, and ``desk open``: start what is needed and open an app-style window.
 
 The launchers are ordinary desktop entries in ``~/.local/share/applications`` (the Mint menu and panel pick them
 up). Clicking one runs ``desk open``: if the dashboard is not answering it starts its user service (or, without
@@ -74,21 +74,30 @@ def desktop_entry(paths: DeskPaths, python_executable: str, desk: str, port: int
 
 
 def install_launchers(paths: DeskPaths, python_executable: str, *, port: int = 8765, rh_port: int = 8766,
+                      stocks_port: int = 8767, desks: Sequence[str] | None = None,
                       data_home: Path | None = None) -> list[Path]:
-    """Write the two menu entries and their icons (user-only files); returns what was written."""
+    """Write selected menu entries and icons (all three by default); never install or start services."""
     if not Path(python_executable).is_absolute():
         raise ValueError("an absolute Python executable is required")
+    selected = tuple(DESKS) if desks is None else tuple(dict.fromkeys(desks))
+    if any(desk not in DESKS for desk in selected):
+        raise ValueError("unknown desk")
+    ports = {"solana": port, "robinhood": rh_port, "stocks": stocks_port}
+    colours = {"solana": ("#0c1016", "#3cd2ff"), "robinhood": ("#000000", "#00c805"),
+               "stocks": ("#080b06", "#c2f43a")}
+    if any(not 1024 <= ports[desk] <= 65535 for desk in selected):
+        raise ValueError("dashboard ports must be between 1024 and 65535")
     home = data_home or _data_home()
     apps, icons = home / "applications", home / "icons" / "hicolor" / "scalable" / "apps"
     apps.mkdir(parents=True, exist_ok=True)
     icons.mkdir(parents=True, exist_ok=True)
     written = []
-    for desk, desk_port, colours in (("solana", port, ("#0c1016", "#3cd2ff")), ("robinhood", rh_port, ("#000000", "#00c805"))):
+    for desk in selected:
         entry = apps / f"{DESKS[desk]['icon']}.desktop"
-        entry.write_text(desktop_entry(paths, python_executable, desk, desk_port), encoding="utf-8")
+        entry.write_text(desktop_entry(paths, python_executable, desk, ports[desk]), encoding="utf-8")
         os.chmod(entry, 0o700)
         icon = icons / f"{DESKS[desk]['icon']}.svg"
-        icon.write_text(ICON.format(bg=colours[0], fg=colours[1]), encoding="utf-8")
+        icon.write_text(ICON.format(bg=colours[desk][0], fg=colours[desk][1]), encoding="utf-8")
         written += [entry, icon]
     return written
 
@@ -153,7 +162,9 @@ def screen_area(xrandr: str, workarea: str) -> Area | None:
 
 
 def window_slot(desk: str, area: Area) -> Area:
-    """Solana on the left half, Robinhood on the right, so the two first open side by side."""
+    """Solana/Robinhood share halves; the Stocks research hub initially uses the full work area."""
+    if desk == "stocks":
+        return area
     x, y, w, h = area
     half = w // 2
     return (x if desk == "solana" else x + half), y, half, h

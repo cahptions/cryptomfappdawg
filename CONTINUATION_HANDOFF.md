@@ -1,5 +1,13 @@
 # Continuing Claude's work
 
+> **Stocks desktop launcher:** the common icon installer omitted Stocks even though `desk open --desk stocks`
+> already existed. Installer now includes all three by default, supports selected-only installation, and respects
+> the Stocks port. Operator command `uv run desk open --desk stocks --install` installs only its lime menu icon
+> and opens the existing/background dashboard. It does not start collection, engines or services. Stocks has its
+> own browser profile/class and full-workarea initial placement, with saved-placement behavior retained.
+> Validation:53 launcher/CLI/service tests, Ruff/mypy and desktop-file-validate for all three entries passed.
+> Actual Linux Mint menu installation/window behavior remains an operator check after pulling this update.
+
 > **Latest collector failure:** operator pasted a traceback showing `fundamentals.scores` divided cost of
 > revenue by zero prior-year revenue while building the research preview. Both gross-margin paths now guard
 > nonpositive revenue. Undefined Piotroski/Beneish components keep the composite unavailable, including zero

@@ -801,7 +801,8 @@ def cmd_services(args: argparse.Namespace) -> int:
 
     paths, _ = _bootstrap(args.verbose)
     action = getattr(args, "action", "start")
-    rh_port = load_config(paths.config_dir).settings.robinhood.dashboard_port
+    settings = load_config(paths.config_dir).settings
+    rh_port = settings.robinhood.dashboard_port
     if action == "install":
         for path in install_services(paths, sys.executable, port=args.port, start=False):
             print(path)
@@ -809,12 +810,14 @@ def cmd_services(args: argparse.Namespace) -> int:
     elif action == "start":
         paper = not getattr(args, "dashboard_only", False)
         install_services(paths, sys.executable, port=args.port, start=True, paper=paper)
-        install_launchers(paths, sys.executable, port=args.port, rh_port=rh_port)
+        install_launchers(paths, sys.executable, port=args.port, rh_port=rh_port,
+                          stocks_port=settings.stocks.dashboard_port)
         print("KESTREL is on, and starts again by itself whenever you log in:")
         print(f"  dashboards  http://127.0.0.1:{args.port} (Solana)   http://127.0.0.1:{rh_port} (Robinhood)")
         if paper:
             print("  PAPER       Solana desk in 4-hour pieces (they add up to the 24-hour test), Robinhood desk")
-        print("  app icons   'KESTREL' and 'KESTREL Crypto' in your menu (they open the dashboards)")
+        print("  app icons   'KESTREL', 'KESTREL Crypto' and 'KESTREL Stocks' in your menu")
+        print("  Stocks      its icon opens the research dashboard on demand; Start research controls collection")
         print("  turn off    desk down   (open paper positions stay supervised by the guardian)")
     else:
         control_services(action, paper=bool(getattr(args, "paper", False)))
@@ -824,12 +827,18 @@ def cmd_services(args: argparse.Namespace) -> int:
 
 
 def cmd_open(args: argparse.Namespace) -> int:
-    from desk.ops.launcher import open_desk
+    from desk.ops.launcher import install_launchers, open_desk
 
     paths, _ = _bootstrap(args.verbose)
     settings = load_config(paths.config_dir).settings
     ports = {"robinhood": settings.robinhood.dashboard_port, "stocks": settings.stocks.dashboard_port, "solana": 8765}
     port = args.port or ports[args.desk]
+    if getattr(args, "install", False):
+        ports[args.desk] = port
+        for path in install_launchers(paths, sys.executable, port=ports["solana"], rh_port=ports["robinhood"],
+                                      stocks_port=ports["stocks"], desks=(args.desk,)):
+            print(path)
+        print("App installed in your application menu.")
     print(open_desk(args.desk, port, paths))
     return 0
 
@@ -1068,6 +1077,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("open", help="open a dashboard in its own window, starting it if needed")
     p.add_argument("--desk", choices=["solana", "robinhood", "stocks"], default="solana")
+    p.add_argument("--install", action="store_true", help="also install this desk's application-menu icon")
     p.add_argument("--port", type=int, choices=range(1024, 65536), default=None, metavar="1024..65535")
     p.set_defaults(func=cmd_open)
 

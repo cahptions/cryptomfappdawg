@@ -31,6 +31,19 @@ bull/bear evidence and a dated calls/puts table. Missing observations remain mis
 missing sessions rather than manufacturing candles. Top10 means up to ten qualifying names, never padding.
 These are daily-close research views, not a live intraday ranking service.
 
+Install and open the Stocks application-menu shortcut, like Crypto and Solana:
+
+```bash
+uv run desk open --desk stocks --install
+```
+
+Then find **KESTREL Stocks** in the Linux Mint menu; right-click it to add it to your panel or favorites. It opens
+in its own Chrome/Chromium app window when available, otherwise a new browser window. Its lime icon and browser
+profile are separate from the other desks. The first window uses the screen's full work area; later opens restore
+its saved position. The command reuses an answering dashboard or starts it in the background, so a newly started
+dashboard needs no open terminal. **Start research** inside the app controls collection. Installing this shortcut
+preserves other launchers and does not start collectors, PAPER engines or login services.
+
 You can also open the Stocks desk with `uv run desk open --desk stocks`; it starts only the dashboard if
 needed and opens its app window. It does not start the collector. The existing `desk up/down` services still
 manage the two older desks. After pulling code while a Stocks dashboard is already running, stop its old

@@ -108,13 +108,33 @@ def test_launchers_open_the_dashboards_without_a_terminal(tmp_path: Path) -> Non
     paths = DeskPaths(tmp_path / "desk data", tmp_path / "config", tmp_path / "secrets.env")
     written = install_launchers(paths, "/home/neo/kestrel/.venv/bin/python", data_home=tmp_path / "share")
     names = sorted(p.name for p in written)
-    assert names == ["kestrel-crypto.desktop", "kestrel-crypto.svg", "kestrel.desktop", "kestrel.svg"]
+    assert names == ["kestrel-crypto.desktop", "kestrel-crypto.svg", "kestrel-stocks.desktop", "kestrel-stocks.svg",
+                     "kestrel.desktop", "kestrel.svg"]
     entry = (tmp_path / "share" / "applications" / "kestrel-crypto.desktop").read_text()
     assert "Terminal=false" in entry and "-m desk open --desk robinhood --port 8766" in entry
     assert "StartupWMClass=kestrel-crypto" in entry                  # its own panel entry, matching --class
     assert f'"DESK_HOME={tmp_path / "desk data"}"' in entry          # spaces quoted the Desktop Entry way
     with pytest.raises(ValueError, match="launcher"):
         desktop_entry(DeskPaths(Path("/x/$HOME"), tmp_path, tmp_path / "s.env"), "/usr/bin/python3", "solana", 8765)
+
+
+def test_stocks_icon_install_preserves_other_launchers_and_remembers_the_port(tmp_path: Path) -> None:
+    paths = DeskPaths(tmp_path / "desk data", tmp_path / "config", tmp_path / "secrets.env")
+    share = tmp_path / "share"
+    apps = share / "applications"
+    apps.mkdir(parents=True)
+    existing = apps / "kestrel-crypto.desktop"
+    existing.write_text("existing crypto launcher")
+    for _ in range(2):
+        written = install_launchers(paths, "/usr/bin/python3", stocks_port=9876, desks=("stocks",), data_home=share)
+        assert len(written) == 2
+    assert existing.read_text() == "existing crypto launcher"
+    entry = apps / "kestrel-stocks.desktop"
+    text = entry.read_text()
+    assert "Name=KESTREL Stocks" in text and "Terminal=false" in text
+    assert "-m desk open --desk stocks --port 9876" in text and "StartupWMClass=kestrel-stocks" in text
+    assert entry.stat().st_mode & 0o777 == 0o700
+    assert not (apps / "kestrel.desktop").exists()
 
 
 XRANDR = """Screen 0: minimum 320 x 200, current 3840 x 1080, maximum 16384 x 16384
@@ -148,6 +168,9 @@ def test_each_desk_gets_its_own_window_that_keeps_where_it_was_moved(tmp_path: P
                                       screens)
     crypto = launcher.browser_command("chromium", "http://127.0.0.1:8766/", "robinhood", tmp_path / "robinhood",
                                       area, screens)
+    stocks = launcher.browser_command("chromium", "http://127.0.0.1:8767/", "stocks", tmp_path / "stocks", area, screens)
+    assert f"--user-data-dir={tmp_path / 'stocks'}" in stocks and "--class=kestrel-stocks" in stocks
+    assert stocks[-2:] == ["--window-position=0,0", "--window-size=1920,1040"]
     assert f"--user-data-dir={tmp_path / 'solana'}" in solana and f"--user-data-dir={tmp_path / 'robinhood'}" in crypto
     assert "--class=kestrel" in solana and "--class=kestrel-crypto" in crypto
     assert solana[-2:] == ["--window-position=0,0", "--window-size=960,1040"]        # side by side the first time
