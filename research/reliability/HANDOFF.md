@@ -9,13 +9,14 @@ This is a software verification result. Timed forward evidence and profitability
 | Check | Actual result |
 | --- | --- |
 | Baseline full offline pytest | 1,061 passed, 1 failed, 5 deselected, 152.46 s |
-| Final full offline pytest | **1,121 passed, 5 deselected**, 106.23 s |
+| Final full offline pytest | **1,123 passed, 5 deselected**, 108.92 s |
 | Ruff | All checks passed |
 | Strict mypy | No issues in 208 source files |
 | Production UI | `npm run build` in `webui`: TypeScript and Vite passed |
 | Stocks populated browser | 1366×900 and 375×900: navigation, candles, watchlist, PAPER, private Settings, stale-session renewal, OAuth cancellation, unrelated 403 handling and CSP passed |
 | Stocks empty browser | Same widths/workflows passed; no invented market prices |
 | Readiness browser matrix | Five states at both widths: unconfigured, partial history running/stopped, first lists pending, genuinely recorded empty; no horizontal overflow |
+| Published-history browser state | Both widths: explicit older research date and missing-newer-close explanation; pending cards do not falsely claim zero qualifiers |
 | Synthetic resources | 500 companies, 503 sessions, 252,003 bars; research preview 11.56 s wall / 11.54 s CPU; whole-process peak RSS 217.7 MiB; DB/report/WAL files 97.2 MiB |
 
 One dependency deprecation warning remains: Starlette's test client warns about its `httpx` integration. It is
@@ -52,6 +53,10 @@ Resource measurement is reproducible with `uv run python -m research.reliability
 - Fundamentals cache revision includes source facts and calculation/classification inputs. Research method v2
   separates changed calculations from old method hashes. Stricter missing/unit/period semantics can reduce coverage.
 - New receipts use response-completion time. A partial price pass retains completed days and retries the rest.
+- Screenshot follow-up reproduced two additional blockers: research waited for an unpublished latest close and
+  only ran after optional network work. Research now appears from latest published history at cycle start and
+  after each price batch, clearly dated. A synthetic exactly100-session case populates previews/home without
+  stepping PAPER. No claim is made that this identifies every blocker on the actual laptop.
 - SQLite COMMIT failures and automatic rollback are handled; partial initialization closes opened connections.
 - Option data arriving after a decision is unavailable to it. Invalid markets/timestamps are filtered, usable IV
   is required before expiry, and simulated modeled exits are labeled. Executability remains unproven.

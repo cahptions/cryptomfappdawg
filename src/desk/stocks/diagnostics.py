@@ -120,7 +120,7 @@ def diagnose(paths: DeskPaths) -> dict[str, Any]:
             result[f'{name}_record'] = {key: value[key] for key in ('asof', 'started_at', 'finished_at', 'updated_at')
                                         if isinstance(value.get(key), str) and re.fullmatch(r'[0-9T:+.Z-]+', value[key])}
             phases = {'starting', 'listings', 'prices', 'corporate_actions', 'companies', 'filings', 'mentions',
-                      'rates', 'short_interest', 'fails', 'short_volume', 'options', 'analysis', 'idle'}
+                      'rates', 'short_interest', 'fails', 'short_volume', 'options', 'analysis', 'research_preview', 'idle'}
             if name == 'progress' and isinstance(value.get('phase'), str) and value['phase'] in phases:
                 result['progress_record']['phase'] = value['phase']
     for filename in (MARKET_FILE, RESEARCH_FILE, LEDGER_FILE):

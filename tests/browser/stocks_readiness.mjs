@@ -113,6 +113,19 @@ try {
             .count(),
           0,
         );
+      else {
+        assert.equal(
+          await page
+            .getByText("No qualifying names recorded", { exact: true })
+            .count(),
+          0,
+        );
+        assert.ok(
+          (await page
+            .getByText("Research not computed yet", { exact: true })
+            .count()) > 0,
+        );
+      }
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -121,6 +134,24 @@ try {
       );
       await page.unroute("**/api/stocks/snapshot");
     }
+    await page.route("**/api/stocks/snapshot", (route) =>
+      route.fulfill({
+        json: {
+          ...original,
+          asof: "2026-10-20",
+          research_preview: {
+            asof: "2026-10-20",
+            expected_asof: "2026-10-21",
+            awaiting_newer_close: true,
+          },
+        },
+      }),
+    );
+    await page.goto(`${base}/?published-history#dashboard`);
+    await page
+      .getByText(/Showing published research through 2026-10-20/)
+      .waitFor();
+    await page.unroute("**/api/stocks/snapshot");
     assert.deepEqual(errors, []);
     await page.close();
     console.log(`Stocks readiness states passed at ${width}px`);

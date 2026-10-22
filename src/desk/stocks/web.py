@@ -56,9 +56,10 @@ def reader(paths: DeskPaths, name: str) -> Iterator[sqlite3.Connection]:
 
 
 def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
+    preview = saved_view(paths, 'research')
     with reader(paths, RESEARCH_FILE) as conn:
         research = StocksResearch(conn)
-        lists = research_lists(research, saved_view(paths, "research"))
+        lists = research_lists(research, preview)
         latest = research.latest_asof()
         computed = conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0]
     with reader(paths, MARKET_FILE) as conn:
@@ -82,6 +83,8 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
                             ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")},
             "price_progress": price_progress,
             "progress": current_progress,
+            "research_preview": {key: (preview or {}).get(key)
+                                 for key in ('asof', 'expected_asof', 'awaiting_newer_close')},
             "revision": [count, progress["sessions"], progress["received"], computed,
                          (current_progress or {}).get("updated_at"),
                          [(k, v.get("last_run_at")) for k, v in sorted(jobs.items())]]}

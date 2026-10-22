@@ -298,6 +298,10 @@ try {
         .count(),
       0,
     );
+    // The cancellation message precedes the final status refresh; await actual control readiness.
+    await page
+      .getByRole("button", { name: "Start browser authorization", exact: true })
+      .click({ trial: true });
     assert.equal(
       await page
         .getByRole("button", {

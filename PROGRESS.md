@@ -6,7 +6,7 @@
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
 **2026-10-22 UTC reliability campaign:** see `research/reliability/HANDOFF.md` and its fault registry/results.
-Final full offline suite: **1,121 passed, 5 deselected**; Ruff, strict mypy208files and UI build passed.
+Final full offline suite: **1,123 passed, 5 deselected**; Ruff, strict mypy208files and UI build passed.
 Empty/populated Stocks browser workflows and five readiness states passed at1366px/375px. New protections cover
 input/resource limits, cache revisions, point-in-time corporate actions/options, partial receipts, transaction
 failures, managed-worker restart/Pause and sanitized bounded diagnostics (`desk stocks diagnose`). No operator
@@ -15,6 +15,11 @@ data/processes/providers were used. User-requested **Stocks-only PAPER** event s
 effectively10%because of its20%stop. Crypto and options limits/capital remain separate. Old-spec cumulative results
 cannot grade the revised strategy. Intraday cadence, current fee schedules, laptop power recovery and real forward
 performance remain unverified. Automatic Stocks PAPER stays authorized; one-time update/backend restart required.
+Screenshot follow-up reproduced two more barriers: latest unpublished close blocked existing research, and
+previews waited behind optional feeds. Previews now use honestly dated latest published prices before network
+work and after price batches. Exactly100-session integration coverage populates home/lists without PAPER writes;
+pending collection cards no longer claim zero qualifying stocks. See fault R15. Arbitrage was requested as a
+separate future desk: the copy-ready research/build prompt is saved in `research/arbitrage/BUILD_PROMPT.md`.
 
 **Automatic PAPER requested and implemented:** opening the Stocks dashboard now starts its combined PAPER and
 collection worker automatically unless the user has explicitly paused it. It runs continuously, refreshes mutable

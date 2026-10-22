@@ -136,6 +136,31 @@ async def test_paper_uses_ready_data_despite_unavailable_optional_sources(tmp_pa
         world.close()
 
 
+async def test_preview_is_published_before_any_slow_optional_feed(tmp_path: Path, monkeypatch: Any) -> None:
+    from desk.stocks import runner
+    from tests.stocks_world import make_world
+
+    world = make_world(tmp_path, n=12)
+    monkeypatch.setattr(runner, 'utc_now', lambda: NOW)
+    ledger = list(world.dbs.ledger.iterdump())
+
+    async def observe(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        preview = runner.saved(world.paths, 'research')
+        assert preview is not None, 'optional sources must not hold the first research preview hostage'
+        assert any(v['rows'] for v in preview['lists'])
+        assert list(world.dbs.ledger.iterdump()) == ledger
+        return {'ok': False, 'error': 'synthetic optional outage'}
+
+    for name in ('listings', 'mentions', 'rates', 'short_interest', 'short_volume'):
+        monkeypatch.setattr(collect, name, observe)
+    try:
+        result = await runner.cycle(world.paths, load_config(REPO / 'config'), research_only=True)
+        assert result['research_only']
+        assert list(world.dbs.ledger.iterdump()) == ledger
+    finally:
+        world.close()
+
+
 @respx.mock
 async def test_prices_backfill_newest_first_and_reject_mislabelled_days(world: World) -> None:
     world.market.save_listings([Listing("AAA", "A Common Stock", "NYSE", False, False, "common")], {}, NOW)

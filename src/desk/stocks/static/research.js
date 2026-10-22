@@ -172,15 +172,17 @@ const KestrelResearch = (() => {
       box.append(
         el(
           "p",
-          option
-            ? "Waiting for qualifying chain snapshots"
-            : "No qualifying names recorded",
+          !list?.asof
+            ? "Research not computed yet"
+            : option
+              ? "Waiting for qualifying chain snapshots"
+              : "No qualifying names recorded",
           "collection-wait",
         ),
       );
     const foot = el("div", undefined, "collection-footer");
     foot.append(
-      el("span", `${list?.rows.length || 0} names`),
+      el("span", list?.asof ? `${list.rows.length} names` : "Not computed"),
       link("Explore ↗", `#lists/${id}`),
     );
     box.append(foot);
@@ -245,6 +247,17 @@ const KestrelResearch = (() => {
     );
     top.append(title, day);
     app.append(top);
+    if (snapshot.research_preview?.awaiting_newer_close) {
+      app.append(
+        el(
+          "p",
+          `Showing published research through ${snapshot.research_preview.asof}. ` +
+            `Closing prices for ${snapshot.research_preview.expected_asof} are not stored yet. ` +
+            "PAPER still waits for its required session.",
+          "muted caption",
+        ),
+      );
+    }
     const benchmark = el("section", undefined, "benchmark-strip");
     benchmark.setAttribute("aria-label", "Market benchmarks");
     for (const item of hub.benchmarks) {

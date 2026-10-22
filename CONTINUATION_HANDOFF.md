@@ -1,7 +1,7 @@
 # Continuing Claude's work
 
 > **Latest — reliability audit and Stocks sizing:** read `research/reliability/HANDOFF.md` before older notes.
-> It contains the actual fault matrix,1121passing offline tests, browser/resource results, update commands and
+> It contains the actual fault matrix,1123passing offline tests, browser/resource results, update commands and
 > external limits. Stocks event PAPER sizing now has versioned larger desired tickets with account/stop-risk/
 > liquidity caps; crypto/options fees and capital are separate. This does not create intraday signals or validate
 > profitability. New `desk stocks diagnose` is bounded/read-only and redacts values. No production data or worker

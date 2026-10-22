@@ -149,6 +149,35 @@ def test_missing_latest_session_waits_and_does_not_fabricate_forward_trades(tmp_
         world.close()
 
 
+def test_hundred_sessions_populate_preview_without_unpublished_latest_close(tmp_path: Path) -> None:
+    world = make_world(tmp_path, n=12)
+    try:
+        # Exactly the screenshot's progress count, but the newest closed session is not published yet.
+        keep = world.days[-101:-1]
+        world.dbs.market.execute('DELETE FROM stk_bars WHERE day<? OR day>?',
+                                 (keep[0].toordinal(), keep[-1].toordinal()))
+        world.dbs.market.execute('DELETE FROM stk_bar_days WHERE day<? OR day>?',
+                                 (keep[0].toordinal(), keep[-1].toordinal()))
+        ledger = list(world.dbs.ledger.iterdump())
+        loaded = load_config(REPO / 'config')
+        result = process(world.paths, loaded, world.dbs, NOW, research_only=True)
+        assert result['asof'] == keep[-1].isoformat()
+        assert result['universe'] > 0
+        preview = saved(world.paths, 'research')
+        assert preview['awaiting_newer_close'] and preview['expected_asof'] == NOW.date().isoformat()
+        assert next(v for v in preview['lists'] if v['id'] == 'gainers')['rows']
+        with TestClient(create_app(world.paths, auto_start=False), base_url='http://127.0.0.1:8767') as client:
+            state = client.get('/api/stocks/snapshot').json()
+            assert state['asof'] == keep[-1].isoformat()
+            assert state['research_preview']['awaiting_newer_close']
+            home = client.get('/api/stocks/home').json()
+            assert home['stocks'] and home['breadth']['researched'] > 0
+        assert 'Waiting for published' in process(world.paths, loaded, world.dbs, NOW)['waiting']
+        assert list(world.dbs.ledger.iterdump()) == ledger
+    finally:
+        world.close()
+
+
 def test_research_backfill_refreshes_same_session_without_paper_or_frozen_history_writes(tmp_path: Path) -> None:
     world = make_world(tmp_path, n=12)
     loaded = load_config(REPO / "config")

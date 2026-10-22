@@ -77,10 +77,12 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     """Refresh a mutable research view during backfill; never step PAPER or rewrite frozen evidence."""
     settings = loaded.settings.stocks
     market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
-    target = cal.last_closed_session(now, timedelta(minutes=settings.refresh_after_close_minutes))
-    days = [d for d in market.bar_days() if target - timedelta(days=settings.history_days) <= d <= target]
-    if not days or days[-1] != target:
-        return {"waiting": f"Waiting for published {target.isoformat()} closing prices", "paper": None}
+    expected = cal.last_closed_session(now, timedelta(minutes=settings.refresh_after_close_minutes))
+    days = [d for d in market.bar_days() if expected - timedelta(days=settings.history_days) <= d <= expected]
+    if not days:
+        return {"waiting": f"Waiting for published prices through {expected.isoformat()}", "paper": None}
+    # Research can describe the latest published history, dated honestly. PAPER below still requires today's target.
+    target = days[-1]
     if len(days) < MIN_BARS:
         return {"waiting": f"Collecting history: {len(days)}/{MIN_BARS} sessions minimum for research eligibility. "
                            "Charts update as prices arrive; longer-lookback measures need more history.", "paper": None}
@@ -88,8 +90,9 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     receipts = [tuple(r) for r in market.conn.execute(
         "SELECT day, rows, received_at FROM stk_bar_days WHERE day<=? ORDER BY day", (target.toordinal(),))]
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k != "prices"}
-    signature = sha256_hex(canonical_json({"target": target.isoformat(), "receipts": receipts, "jobs": jobs,
-                                         "config": loaded.snapshot_hash, "preview_version": 1}))
+    signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
+                                         "receipts": receipts, "jobs": jobs,
+                                         "config": loaded.snapshot_hash, "preview_version": 2}))
     try:
         previous = saved(paths, "research")
     except DeskError:
@@ -103,7 +106,8 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     research.save_scores(target, {s: stock_detail(day, s) for s in day.ctx.symbols}, {}, now, record_history=False)
     selected = build_lists(day)
     value = {"asof": target.isoformat(), "computed_at": now.isoformat(), "input_hash": signature,
-             "universe": day.universe_size, "basis": "Current research preview, not a frozen forward record",
+             "universe": day.universe_size, "basis": "Latest published research preview, not a frozen forward record",
+             "expected_asof": expected.isoformat(), "awaiting_newer_close": target < expected,
              "lists": [{"id": spec.id, "title": spec.title, "blurb": spec.blurb, "asof": target.isoformat(),
                         "rows": [{**row, "rank": rank} for rank, row in enumerate(selected[spec.id][:25], 1)],
                         "preview": True} for spec in LISTS]}
@@ -189,8 +193,18 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             raise
         return await work
 
+    def preview_now() -> dict[str, Any]:
+        progress('research_preview')
+        try:
+            return process(paths, loaded, dbs, utc_now(), research_only=True)
+        except MemoryPressure as exc:
+            return {'waiting': str(exc), 'paper': None}
+
     try:
         progress("starting")
+        # Publish usable stored research before lengthy network work, then again after a price batch.
+        # The input signature skips unchanged analysis. Neither preview may step the PAPER book.
+        preview_now()
         directory = market.jobs().get("listings", {}).get("detail", {})
         needs_mapping = suite.sec.contact_configured and (not directory.get("with_cik") or directory.get("warning"))
         if _due(market, "listings", now, 24) or needs_mapping:
@@ -199,6 +213,7 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["prices"] = await run_job("prices", collect.prices(suite, market, now, history_days=settings.history_days,
                                                   after_close=timedelta(minutes=settings.refresh_after_close_minutes),
                                                   max_days=price_days))
+            preview_now()
             if _due(market, "corporate_actions", now, 24):
                 jobs["corporate_actions"] = await run_job("corporate_actions", collect.corporate_actions(suite, market, now,
                                                                             history_days=settings.history_days))
@@ -233,8 +248,12 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                 market.job("options", now, detail=detail)
         progress("analysis")
         try:
-            preview = process(paths, loaded, dbs, utc_now(), research_only=True)
-            analysis = preview if research_only else process(paths, loaded, dbs, utc_now())
+            preview = preview_now()
+            if research_only:
+                analysis = preview
+            else:
+                progress('analysis')
+                analysis = process(paths, loaded, dbs, utc_now())
         except MemoryPressure as exc:
             analysis = {"waiting": str(exc), "paper": None}
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",
