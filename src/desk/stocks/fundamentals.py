@@ -12,6 +12,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from itertools import pairwise
 
 from desk.stocks.contracts import Fact
 
@@ -104,7 +105,9 @@ def ttm(facts: Sequence[Fact], as_of: date, *, end_before: date | None = None) -
     quarters = sorted((f for f, d in durations if 80 <= d <= 100), key=lambda f: f.end)
     if len(quarters) >= 4:
         last4 = quarters[-4:]
-        if (last4[-1].end - last4[0].end).days <= 290:
+        contiguous = all(q.start is not None and 1 <= (q.start - previous.end).days <= 14
+                         for previous, q in pairwise(last4))
+        if contiguous and (last4[-1].end - last4[0].end).days <= 290:
             return Flow(sum(q.value for q in last4), last4[-1].end, "quarters")
     return None
 
@@ -148,7 +151,8 @@ class Fundamentals:
         best: list[Fact] = []
         best_end: date | None = None
         for concept in aliases:
-            known = _known(self.facts.get(concept, []), as_of)
+            unit = "shares" if name in {"shares_out", "diluted_shares"} else "USD/shares" if name == "eps" else "USD"
+            known = [f for f in _known(self.facts.get(concept, []), as_of) if f.unit == unit and math.isfinite(f.value)]
             if not known:
                 continue
             end = max(f.end for f in known)
@@ -284,7 +288,7 @@ def base(f: Fundamentals, as_of: date, *, financial: str | None = None) -> dict[
         m.update({"piotroski": None, "altman_base": None, "beneish_m": None})   # built for industrial companies
     else:
         m.update(scores(f, as_of, financial=financial))
-    return m
+    return {k: value if value is None or math.isfinite(value) else None for k, value in m.items()}
 
 
 FINANCIAL_TYPES = {1.0: "bank", 2.0: "insurer", 3.0: "reit"}
@@ -310,7 +314,7 @@ def with_price(b: dict[str, float | None], price: float | None) -> dict[str, flo
     m["p_ffo"] = _pos_div(mcap, b.get("ffo")) if financial == "reit" else None
     alt, tl = b.get("altman_base"), b.get("liabilities")
     m["altman_z"] = None if alt is None or mcap is None or not tl else alt + 0.6 * mcap / tl
-    return m
+    return {k: value if value is None or math.isfinite(value) else None for k, value in m.items()}
 
 
 def metrics(f: Fundamentals, as_of: date, price: float | None, *, financial: str | None = None) -> dict[str, float | None]:
@@ -322,10 +326,13 @@ def scores(f: Fundamentals, as_of: date, *, financial: str | None = None) -> dic
     """Piotroski F-score (0-9), Altman Z without its market-value term (added with the price) and Beneish M, on the
     two latest fiscal years known by ``as_of``."""
     out: dict[str, float | None] = {"piotroski": None, "altman_base": None, "beneish_m": None}
+    period_ends: tuple[date, date] | None = None
 
     def annual(name: str) -> tuple[Fact, Fact] | None:
         rows = f.annual_values(name, as_of)
         if len(rows) < 2 or (rows[-1].end - rows[-2].end).days > 400:
+            return None
+        if period_ends is not None and (rows[-2].end, rows[-1].end) != period_ends:
             return None
         return rows[-2], rows[-1]
 
@@ -333,8 +340,12 @@ def scores(f: Fundamentals, as_of: date, *, financial: str | None = None) -> dic
         fact = instant(f.series(name, as_of), as_of, near=end, tolerance=20)
         return None if fact is None else fact.value
 
-    ni, cfo, rev = annual("net_income"), annual("cfo"), annual("revenue")
-    if ni is None or rev is None:
+    rev = annual("revenue")
+    if rev is None:
+        return out
+    period_ends = rev[0].end, rev[1].end
+    ni, cfo = annual("net_income"), annual("cfo")
+    if ni is None:
         return out
     prev_end, end = rev[0].end, rev[1].end
     ta, ta0 = bs("assets", end), bs("assets", prev_end)

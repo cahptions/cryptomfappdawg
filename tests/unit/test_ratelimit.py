@@ -7,11 +7,33 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 from pathlib import Path
 
 import pytest
 
 from desk.providers.ratelimit import RateLimiter
+
+
+def test_close_waits_for_inflight_sqlite_critical_section(tmp_path: Path) -> None:
+    limiter = RateLimiter(tmp_path / 'runtime.db')
+    started, closed = threading.Event(), threading.Event()
+
+    def closing() -> None:
+        started.set()
+        limiter.close()
+        closed.set()
+
+    limiter._lock.acquire()
+    thread = threading.Thread(target=closing)
+    thread.start()
+    try:
+        assert started.wait(2)
+        assert not closed.wait(0.05), 'connection closed while a request owned its SQLite critical section'
+    finally:
+        limiter._lock.release()
+        thread.join(timeout=2)
+    assert closed.is_set()
 
 
 class FakeTime:

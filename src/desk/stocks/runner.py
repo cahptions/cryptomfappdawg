@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Awaitable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -33,7 +35,7 @@ class MemoryPressure(DeskError):
 
 
 def saved_path(paths: DeskPaths, name: str) -> Path:
-    if name not in {"worker", "paper", "research"}:
+    if name not in {"worker", "paper", "research", "progress"}:
         raise ValueError("unknown Stocks record")
     return paths.home / f"stocks-{name}.json"
 
@@ -47,6 +49,10 @@ def saved(paths: DeskPaths, name: str) -> dict[str, Any] | None:
             raise ValueError
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):
+            raise ValueError
+        if name == "research" and (not isinstance(value.get("lists"), list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or not isinstance(item.get("rows"), list) for item in value["lists"])):
             raise ValueError
         return dict(value)
     except (ValueError, OSError) as exc:
@@ -84,7 +90,10 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k != "prices"}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "receipts": receipts, "jobs": jobs,
                                          "config": loaded.snapshot_hash, "preview_version": 1}))
-    previous = saved(paths, "research")
+    try:
+        previous = saved(paths, "research")
+    except DeskError:
+        previous = None  # derived preview can be rebuilt from authoritative observations
     if previous and previous.get("input_hash") == signature:
         return {"asof": target.isoformat(), "waiting": "Research is current; watching for new data", "paper": None}
     _memory_guard()
@@ -152,39 +161,61 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
 
 
 async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, company_limit: int = 20,
-                option_limit: int = 5, research_only: bool = False) -> dict[str, Any]:
+                option_limit: int = 5, research_only: bool = False, managed: bool = False) -> dict[str, Any]:
     now = utc_now()
     dbs = StocksDatabases.open(paths)
-    suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), dbs.runtime)
+    try:
+        suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), dbs.runtime)
+    except BaseException:
+        dbs.close()
+        raise
     market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
     settings = loaded.settings.stocks
     jobs: dict[str, Any] = {}
+
+    def progress(phase: str) -> None:
+        value = {"phase": phase, "pid": os.getpid(), "started_at": now.isoformat(),
+                 "updated_at": utc_now().isoformat(), "mode": "PAPER", "research_only": research_only, "managed": managed}
+        _atomic_private(saved_path(paths, "progress"), json.dumps(value))
+
+    async def run_job(name: str, work: Awaitable[dict[str, Any]]) -> dict[str, Any]:
+        try:
+            progress(name)
+        except BaseException:
+            import inspect
+
+            if inspect.iscoroutine(work):
+                work.close()
+            raise
+        return await work
+
     try:
+        progress("starting")
         directory = market.jobs().get("listings", {}).get("detail", {})
         needs_mapping = suite.sec.contact_configured and (not directory.get("with_cik") or directory.get("warning"))
         if _due(market, "listings", now, 24) or needs_mapping:
-            jobs["listings"] = await collect.listings(suite, market, now)
+            jobs["listings"] = await run_job("listings", collect.listings(suite, market, now))
         if suite.massive.configured:
-            jobs["prices"] = await collect.prices(suite, market, now, history_days=settings.history_days,
+            jobs["prices"] = await run_job("prices", collect.prices(suite, market, now, history_days=settings.history_days,
                                                   after_close=timedelta(minutes=settings.refresh_after_close_minutes),
-                                                  max_days=price_days)
+                                                  max_days=price_days))
             if _due(market, "corporate_actions", now, 24):
-                jobs["corporate_actions"] = await collect.corporate_actions(suite, market, now,
-                                                                            history_days=settings.history_days)
+                jobs["corporate_actions"] = await run_job("corporate_actions", collect.corporate_actions(suite, market, now,
+                                                                            history_days=settings.history_days))
         if suite.sec.contact_configured:
-            jobs["companies"] = await collect.companies(suite, market, now,
-                                                        collect.stale_companies(market, now, limit=company_limit))
+            jobs["companies"] = await run_job("companies", collect.companies(suite, market, now,
+                                                        collect.stale_companies(market, now, limit=company_limit)))
             if _due(market, "filings_feed", now, 4):
-                jobs["filings"] = await collect.filings_feed(suite, market, now,
-                                                            start=now.date() - timedelta(days=7), max_days=1)
+                jobs["filings"] = await run_job("filings", collect.filings_feed(suite, market, now,
+                                                            start=now.date() - timedelta(days=7), max_days=1))
         for name, work, hours in (("mentions", collect.mentions, 1), ("rates", collect.rates, 24),
                                    ("short_interest", collect.short_interest, 24)):
             if _due(market, name, now, hours):
-                jobs[name] = await work(suite, market, now)
+                jobs[name] = await run_job(name, work(suite, market, now))
         if suite.sec.contact_configured and _due(market, "fails", now, 24):
-            jobs["fails"] = await collect.fails(suite, market, now)
+            jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
         if _due(market, "short_volume", now, 24):
-            jobs["short_volume"] = await collect.short_volume(suite, market, now, days=5)
+            jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now, days=5))
         if suite.options.configured and cal.is_trading_day(cal.new_york(now).date()) and _due(market, "options", now, 4):
             held = PaperBook(dbs.ledger).held_expirations()
             # Rotate bounded batches, with held contracts always included. Never fetch the whole universe on a tick.
@@ -195,11 +226,12 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             job = market.jobs().get("options", {}).get("detail", {})
             offset = int(job.get("next_offset", 0)) % len(candidates)
             wanted = (candidates + candidates)[offset:offset + option_limit]
-            jobs["options"] = await collect.option_chains(suite, market, now, wanted, rate=0.04,
-                                                         last_prices={}, held=held)
+            jobs["options"] = await run_job("options", collect.option_chains(suite, market, now, wanted, rate=0.04,
+                                                         last_prices={}, held=held))
             if jobs["options"].get("ok"):
                 detail = {**jobs["options"], "next_offset": (offset + option_limit) % len(candidates)}
                 market.job("options", now, detail=detail)
+        progress("analysis")
         try:
             preview = process(paths, loaded, dbs, utc_now(), research_only=True)
             analysis = preview if research_only else process(paths, loaded, dbs, utc_now())
@@ -210,6 +242,7 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                   "problems": suite.problems, "jobs": jobs,
                   "analysis": analysis}
         _atomic_private(saved_path(paths, "worker"), json.dumps(result, allow_nan=False))
+        progress("idle")
         return result
     finally:
         await suite.aclose()

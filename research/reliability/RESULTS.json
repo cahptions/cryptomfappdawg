@@ -1,0 +1,15 @@
+{
+  "date_utc": "2026-10-22",
+  "branch": "codex/finish-schwab-stocks",
+  "starting_commit": "78cd156",
+  "scope": "offline Stocks/options reliability plus shared regressions; Stocks-only PAPER sizing experiment",
+  "baseline": {"pytest_passed": 1061, "pytest_failed": 1, "deselected": 5, "seconds": 152.46},
+  "final": {"pytest_passed": 1121, "pytest_failed": 0, "deselected": 5, "seconds": 106.23,
+    "ruff": "passed", "strict_mypy_source_files": 208, "ui_build": "passed",
+    "browser": {"widths": [1366, 375], "height": 900, "populated": "passed", "empty": "passed",
+      "readiness_states_per_width": 5}},
+  "operator_databases_accessed": false,
+  "real_provider_calls": 0,
+  "real_orders_enabled": false,
+  "limitations": "See FAULT_REGISTRY.md and HANDOFF.md; synthetic behavior is not forward performance"
+}

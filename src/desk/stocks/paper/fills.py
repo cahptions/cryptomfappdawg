@@ -99,6 +99,7 @@ class OptionFill:
     debit: float                         # paid (+) or received (-), before fees
     fees: float
     problem: str | None = None
+    modeled: bool = False
 
 
 def limit(seen: float) -> float:
@@ -132,14 +133,17 @@ def close_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote], s
                r: float) -> OptionFill:
     """Sell long legs at the bid and buy back short legs at the ask (model prices when a leg has no quote)."""
     credit = 0.0
+    modeled = False
     contracts = 0
     out: list[dict[str, Any]] = []
     for leg in legs:
         q = quotes.get(leg["occ"])
         long = leg["quantity"] > 0
-        if q is not None and q.bid is not None and q.ask is not None and q.ask > 0:
+        if q is not None and q.mid is not None:
+            assert q.bid is not None and q.ask is not None
             price = float(q.bid if long else q.ask)
         else:
+            modeled = True
             model = model_price(leg, s, today, r)
             if model is None:
                 return OptionFill([], 0.0, 0.0, f"no price for {leg['occ']}")
@@ -147,7 +151,7 @@ def close_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote], s
         out.append({**leg, "exit_price": price})
         credit += leg["quantity"] * price * CONTRACT
         contracts += abs(leg["quantity"])
-    return OptionFill(out, -credit, round(contracts * OPTION_FEE_PER_CONTRACT, 2))
+    return OptionFill(out, -credit, round(contracts * OPTION_FEE_PER_CONTRACT, 2), modeled=modeled)
 
 
 def model_price(leg: dict[str, Any], s: float | None, today: date, r: float) -> float | None:
@@ -155,8 +159,10 @@ def model_price(leg: dict[str, Any], s: float | None, today: date, r: float) -> 
         return None
     expiration = date.fromisoformat(leg["expiration"])
     vol = leg.get("last_iv") or leg.get("entry_iv")
-    if expiration <= today or not vol:
+    if expiration <= today:
         return intrinsic(leg, s)
+    if not vol or not math.isfinite(float(vol)) or float(vol) <= 0:
+        return None
     return opt.bs_price(leg["kind"], s, leg["strike"], opt.year_fraction(today, expiration), float(vol), r)
 
 

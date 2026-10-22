@@ -1,0 +1,16 @@
+{
+  "kind": "synthetic_cloud_resource_check",
+  "companies": 500,
+  "sessions": 503,
+  "bar_rows": 252003,
+  "provider_requests": 0,
+  "paper_positions": 0,
+  "peak_rss_mib": 217.6640625,
+  "database_and_report_mib_including_wal": 97.1631498336792,
+  "stages": {
+    "synthetic_setup": {"wall_seconds": 3.232732428004965, "cpu_seconds": 3.231850109},
+    "research_preview": {"wall_seconds": 11.559319141990272, "cpu_seconds": 11.541229915999999, "eligible": 500}
+  },
+  "limitations": "Cloud CPU/filesystem, not a laptop benchmark; no live source or option-chain load",
+  "reproduce": "uv run python -m research.reliability.benchmark"
+}

@@ -34,6 +34,8 @@ def _bounded(text: str) -> int:
 def add_parser(sub: Any) -> None:
     p = sub.add_parser("stocks", help="Stocks/options research, local dashboard and PAPER only")
     commands = p.add_subparsers(dest="stocks_command", required=True)
+    commands.add_parser("diagnose", help="bounded read-only local report; no provider calls or credential values").set_defaults(
+        func=run)
     doctor = commands.add_parser("doctor", help="local health; --online makes one market quote request")
     doctor.add_argument("--online", action="store_true")
     doctor.set_defaults(func=run)
@@ -54,6 +56,7 @@ def add_parser(sub: Any) -> None:
             cmd.add_argument("--interval", type=float, default=300)
         if name == "paper":
             cmd.add_argument("--continuous", action="store_true", help="keep PAPER and collection running until paused")
+            cmd.add_argument("--managed", action="store_true", help=argparse.SUPPRESS)
         cmd.set_defaults(func=run)
     for name in ("report", "validate", "learn"):
         commands.add_parser(name, help="stored PAPER report" if name == "report" else
@@ -80,6 +83,11 @@ def new_login(paths: DeskPaths, callback: str, *, port: int | None = None) -> Lo
 
 def run(args: argparse.Namespace) -> int:
     paths = DeskPaths.from_env()
+    if args.stocks_command == "diagnose":
+        from desk.stocks.diagnostics import diagnose
+
+        print(json.dumps(diagnose(paths), indent=2))
+        return 0
     paths.ensure()
     loaded = load_config(paths.config_dir)
     settings = loaded.settings.stocks
@@ -182,32 +190,54 @@ def run(args: argparse.Namespace) -> int:
                     loop.add_signal_handler(sig, stop.set)
             repeating = action in {"paper", "collect"}
             end = math.inf if getattr(args, "continuous", False) else time.monotonic() + (args.minutes * 60 if repeating else 0)
-            while True:
-                if stop.is_set():
-                    return 0
-                work = runner.cycle(paths, loaded, price_days=args.price_days, company_limit=args.companies,
-                                    option_limit=args.options, research_only=action == "collect")
-                if action in {"collect", "paper"}:
-                    # Cancel network/rate-limit waits; synchronous PAPER transactions finish atomically before
-                    # the event loop can deliver cancellation. Cleanup finishes before releasing the worker lock.
-                    task, stopping = asyncio.create_task(work), asyncio.create_task(stop.wait())
+            async def watch_pause() -> None:
+                from desk.stocks.research_worker import ResearchWorker
+
+                control = ResearchWorker(paths)
+                while not stop.is_set():
                     try:
-                        done, _ = await asyncio.wait((task, stopping), return_when=asyncio.FIRST_COMPLETED)
-                        if stopping in done and not task.done():
-                            print("Research collection paused; completed imports remain saved.", flush=True)
-                            return 0
-                        result = await task
-                    finally:
-                        for pending in (task, stopping):
-                            if not pending.done():
-                                pending.cancel()
-                        await asyncio.gather(task, stopping, return_exceptions=True)
-                else:
-                    result = await work
-                print(json.dumps(result, indent=2), flush=True)
-                if not repeating or stop.is_set() or time.monotonic() >= end:
-                    return 0
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(stop.wait(), min(args.interval, max(0, end - time.monotonic())))
+                        if not control._enabled():
+                            stop.set()
+                            return
+                    except DeskError:
+                        print("PAPER paused: automation preference is unreadable. Save Start PAPER again.", flush=True)
+                        stop.set()
+                        return
+                    await asyncio.sleep(1)
+
+            watcher = asyncio.create_task(watch_pause()) if getattr(args, "managed", False) else None
+            try:
+                while True:
+                    if stop.is_set():
+                        return 0
+                    work = runner.cycle(paths, loaded, price_days=args.price_days, company_limit=args.companies,
+                                        option_limit=args.options, research_only=action == "collect",
+                                        managed=getattr(args, "managed", False))
+                    if action in {"collect", "paper"}:
+                        # Cancel network/rate-limit waits; synchronous PAPER transactions finish atomically before
+                        # the event loop can deliver cancellation. Cleanup finishes before releasing the worker lock.
+                        task, stopping = asyncio.create_task(work), asyncio.create_task(stop.wait())
+                        try:
+                            done, _ = await asyncio.wait((task, stopping), return_when=asyncio.FIRST_COMPLETED)
+                            if stopping in done and not task.done():
+                                print("Research collection paused; completed imports remain saved.", flush=True)
+                                return 0
+                            result = await task
+                        finally:
+                            for pending in (task, stopping):
+                                if not pending.done():
+                                    pending.cancel()
+                            await asyncio.gather(task, stopping, return_exceptions=True)
+                    else:
+                        result = await work
+                    print(json.dumps(result, indent=2), flush=True)
+                    if not repeating or stop.is_set() or time.monotonic() >= end:
+                        return 0
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(stop.wait(), min(args.interval, max(0, end - time.monotonic())))
+            finally:
+                if watcher is not None:
+                    watcher.cancel()
+                    await asyncio.gather(watcher, return_exceptions=True)
 
         return asyncio.run(collect())

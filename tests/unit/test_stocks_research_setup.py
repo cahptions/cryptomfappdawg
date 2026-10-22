@@ -88,7 +88,7 @@ def test_research_process_is_fixed_private_and_only_its_owner_can_pause(tmp_path
         spawn.assert_not_called()
     assert worker.start()["owned"]
     args, kwargs = spawn.call_args
-    assert args[0][1:] == ["-m", "desk", "stocks", "paper", "--continuous", "--price-days", "20"]
+    assert args[0][1:] == ["-m", "desk", "stocks", "paper", "--continuous", "--price-days", "20", "--managed"]
     assert kwargs["env"]["DESK_HOME"] == str(paths.home)
     assert kwargs["env"]["DESK_SECRETS_FILE"] == str(paths.secrets_file)
     assert (paths.logs_dir / "stocks-research.log").stat().st_mode & 0o777 == 0o600
@@ -247,3 +247,39 @@ def test_continuous_paper_outlives_minutes_limit_and_stops_on_signal(tmp_path: P
     assert cli.run(Namespace(stocks_command="paper", price_days=20, companies=20, options=5,
                              minutes=0.0000001, interval=300, continuous=True)) == 0
     assert len(calls) == 2 and not WorkerLock(paths, "stocks-worker").held()
+
+
+def test_surviving_managed_worker_honors_pause_file_and_releases_lock(tmp_path: Path, monkeypatch: Any) -> None:
+    from desk.stocks import cli
+
+    paths = DeskPaths(tmp_path / 'home', REPO / 'config', tmp_path / 'secrets.env')
+    paths.ensure()
+    preference = paths.home / 'stocks-automation.json'
+    preference.write_text('{"enabled":true}')
+    monkeypatch.setattr(cli.DeskPaths, 'from_env', lambda: paths)
+    cleaned = []
+
+    async def cycle(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        assert kwargs['managed'] and not kwargs['research_only']
+        asyncio.get_running_loop().call_later(0.02, lambda: preference.write_text('{"enabled":false}'))
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned.append(True)
+
+    monkeypatch.setattr('desk.stocks.runner.cycle', cycle)
+    assert cli.run(Namespace(stocks_command='paper', price_days=20, companies=20, options=5,
+                             minutes=1440, interval=300, continuous=True, managed=True)) == 0
+    assert cleaned == [True] and not WorkerLock(paths, 'stocks-worker').held()
+
+
+def test_new_dashboard_can_pause_managed_orphan_without_signaling_foreign_pid(tmp_path: Path, monkeypatch: Any) -> None:
+    paths = DeskPaths(tmp_path / 'home', REPO / 'config', tmp_path / 'secrets.env')
+    worker = ResearchWorker(paths)
+    monkeypatch.setattr(worker, '_managed_pid', lambda: True)
+    with WorkerLock(paths, 'stocks-worker'):
+        status = worker.status()
+        assert status['managed'] and status['running'] and not status['owned']
+        worker.stop()
+        assert not worker.status()['enabled']
+        assert worker.status()['running']  # read-only observation until the managed child exits itself

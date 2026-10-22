@@ -20,7 +20,7 @@ from desk.stocks.fundamentals import dcf_value, implied_growth
 from desk.stocks.options import iv_rank
 from desk.stocks.sectors import LABELS
 
-METHOD_VERSION = 1
+METHOD_VERSION = 2
 DESKS = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "crowd", "risk", "macro", "options")
 DESK_LABELS = {"valuation": "Valuation", "quality": "Quality", "growth": "Growth", "momentum": "Momentum",
                "earnings": "Earnings and events", "insiders": "Insiders", "shorts": "Short interest", "crowd": "The crowd",
@@ -809,7 +809,8 @@ def change_view(ctx: Context, s: str, desk_results: dict[str, DeskResult | None]
 
 def method_content() -> dict[str, Any]:
     """The frozen methodology (versioned by its hash)."""
-    return {"version": METHOD_VERSION, "desks": list(DESKS), "default_weights": DEFAULT_WEIGHTS,
+    return {"version": METHOD_VERSION, "data_contract": "stocks-reliability-v2",
+            "desks": list(DESKS), "default_weights": DEFAULT_WEIGHTS,
             "equity_risk_premium": EQUITY_RISK_PREMIUM, "terminal_growth": TERMINAL_GROWTH,
             "verdict_bands": [75, 60, 40, 25], "valuation_in_sector": True, "min_sector_group": 10,
             "insider_window_days": 90, "short_publication_lag_days": 12, "earnings_recent_days": 75}

@@ -30,6 +30,31 @@ async def _no_sleep(_: float) -> None:
     return None
 
 
+@respx.mock
+async def test_oversized_response_is_bounded_closed_and_not_retried(suite: ProviderSuite) -> None:
+    http = suite.geckoterminal.http
+    http.settings = http.settings.model_copy(update={"max_response_bytes": 1024})
+    response = httpx.Response(200, content=b'x' * 2048)
+    route = respx.get(f"{GT}/networks/solana/new_pools").mock(return_value=response)
+    with pytest.raises(ProviderError) as error:
+        await http.request('new_pools')
+    assert error.value.kind == ProviderErrorKind.SCHEMA
+    assert route.call_count == 1 and response.is_closed
+
+
+def test_retry_after_rejects_nonfinite_and_understands_http_dates() -> None:
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+
+    from desk.providers.http import _parse_retry_after
+
+    for invalid in ('NaN', 'Infinity', '-3', '0', 'not a delay'):
+        assert _parse_retry_after(invalid) is None
+    assert _parse_retry_after('2.5') == 2.5
+    future = format_datetime(datetime.now(UTC) + timedelta(seconds=30), usegmt=True)
+    assert 28 < _parse_retry_after(future) <= 30
+
+
 @pytest.fixture
 async def suite(tmp_path: Path) -> ProviderSuite:
     paths = DeskPaths(home=tmp_path / "home", config_dir=REPO / "config", secrets_file=tmp_path / "s.env")

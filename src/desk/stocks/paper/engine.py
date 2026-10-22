@@ -69,6 +69,7 @@ class PaperEngine:
         self._chains: dict[str, tuple[date | None, dict[date, list[OptionQuote]]]] = {}
         self._splits: dict[str, list[tuple[date, float]]] = {}
         self.rate = DEFAULT_RATE
+        self._observed_by: datetime | None = None
 
     # ── data ───────────────────────────────────────────────────────────────────────────────────────
     def _bars(self, asof: date) -> dict[str, Bar]:
@@ -80,7 +81,12 @@ class PaperEngine:
 
     def _chain_today(self, symbol: str, asof: date) -> dict[str, OptionQuote] | None:
         if symbol not in self._chains:
-            self._chains[symbol] = self.market.option_chain(symbol, asof)
+            day, chains = self.market.option_chain(symbol, asof, observed_by=self._observed_by)
+            chains = {expiry: [q for q in quotes if q.quoted_at is not None
+                              and cal.new_york(q.quoted_at).date() == asof
+                              and (self._observed_by is None or q.quoted_at <= self._observed_by)]
+                      for expiry, quotes in chains.items()}
+            self._chains[symbol] = day, chains
         day, chains = self._chains[symbol]
         return fills.index_chain(chains) if day == asof else None
 
@@ -120,6 +126,7 @@ class PaperEngine:
             rep.skipped = f"no prices stored for {asof.isoformat()}"
             return rep
         self.rate = self._rate(asof)
+        self._observed_by = now
         self._chains = {}
         self._splits = defaultdict(list)
         for sp in self.market.splits():
@@ -202,6 +209,16 @@ class PaperEngine:
             return True
         cash = self.book.cash(o.account)
         notional = min(float(spec["notional"]), cash * CASH_BUFFER)
+        if self.strategies[o.account].style != "hold":
+            equity = cash + sum(p.last_value if p.last_value is not None else p.entry_cost
+                                for p in self.book.positions(o.account))
+            notional = min(notional, max(0, equity) * float(self.settings.paper_max_position_fraction))
+            distance = spec["plan"].get("stop") or spec["plan"].get("trail")
+            if distance:
+                notional = min(notional, max(0, equity) * float(self.settings.paper_stock_risk_fraction) / distance)
+            if dv is None or not math.isfinite(dv) or dv <= 0:
+                raise _Cancel("stock liquidity is unavailable")
+            notional = min(notional, dv * float(self.settings.paper_stock_participation_fraction))
         if notional < float(spec["notional"]) * 0.25:
             raise _Cancel(f"not enough cash (${cash:,.2f})")
         bought = fills.buy_at_open(bar, notional, dv)
@@ -239,7 +256,8 @@ class PaperEngine:
                     return False
                 raise _Cancel(f.problem)
             self.book.close_position(p, at=now, day=asof, credit=-f.debit, fees=f.fees, reason=spec["reason"],
-                                     evidence={"legs": f.legs, "order": o.id, "quoted": quotes is not None})
+                                     evidence={"legs": f.legs, "order": o.id, "quoted": not f.modeled,
+                                               "modeled_exit": f.modeled})
             rep.closed += 1
             return True
         if quotes is None or bar is None:
@@ -440,13 +458,21 @@ class PaperEngine:
             return
         room = min(p["max_open"], int(self.settings.paper_max_open_positions)) - len(held) - len(entering)
         if st.asset == "stock":
-            size = equity * min(p["size"], cap)
             plan: dict[str, Any] = {k: p[k] for k in ("stop", "trail", "hold") if k in p}
+            fraction = min(p["size"], cap)
+            distance = plan.get("stop") or plan.get("trail")
+            if distance:
+                fraction = min(fraction, float(self.settings.paper_stock_risk_fraction) / distance)
             for c in picks:
-                if room <= 0 or available < size * 0.5:
+                if room <= 0 or available < 1:
                     break
                 if c.symbol in held or c.symbol in entering or c.symbol not in bars:
                     continue
+                dv = self._dv(c.symbol, day, bars)
+                if dv is None or not math.isfinite(dv) or dv <= 0:
+                    continue
+                size = min(equity * fraction, available * CASH_BUFFER,
+                           dv * float(self.settings.paper_stock_participation_fraction))
                 self._enter_stock(st, c, asof, now, size, plan, rep)
                 available -= size
                 room -= 1
@@ -501,7 +527,11 @@ class PaperEngine:
         if notional < 1:
             return
         did = self.book.decide(now, asof, st.id, st.spec_sha256, c.symbol, "ENTER", c.reasons,
-                               {**c.evidence, "notional": round(notional, 2)})
+                               {**c.evidence, "notional": round(notional, 2),
+                                "risk_profile": {"position_fraction_cap": str(self.settings.paper_max_position_fraction),
+                                                 "planned_stop_risk_fraction": str(self.settings.paper_stock_risk_fraction),
+                                                 "liquidity_fraction_cap": str(self.settings.paper_stock_participation_fraction)},
+                                "execution_revision": "stocks-reliability-v2"})
         self.book.place(did, st.id, now, asof, {"asset": "stock", "action": "ENTER", "symbol": c.symbol,
                                                 "notional": round(notional, 2), "plan": plan})
         rep.orders += 1

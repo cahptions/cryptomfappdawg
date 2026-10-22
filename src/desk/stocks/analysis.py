@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, time
 from typing import Any
 
 from desk.core.config import StocksSection
+from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks import calendar as cal
 from desk.stocks import desks as dk
 from desk.stocks import features as feat
@@ -52,20 +53,26 @@ class Analyzer:
         self.research = research
         self.settings = settings
         self._facts: dict[int, Fundamentals] = {}
+        self._revisions: dict[int, str | None] = {}
 
     # ── fundamentals ───────────────────────────────────────────────────────────────────────────────
     def facts(self, cik: int) -> Fundamentals:
-        if cik not in self._facts:
+        row = self.market.conn.execute("SELECT facts_sha256 FROM stk_companies WHERE cik=?", (cik,)).fetchone()
+        revision = row[0] if row else None
+        if cik not in self._facts or self._revisions.get(cik) != revision:
             self._facts[cik] = Fundamentals(self.market.facts(cik))
+            self._revisions[cik] = revision
         return self._facts[cik]
 
     def bases(self, ciks: dict[int, str | None], asof: date, *, cache: bool) -> dict[int, dict[str, Any]]:
         """Price-independent fundamentals per company on ``asof``; past days come from (and go to) the cache."""
-        found = self.research.fund_cached(list(ciks), asof) if cache else {}
+        revisions = {r["cik"]: r["facts_sha256"] for r in self.market.conn.execute("SELECT cik, facts_sha256 FROM stk_companies")}
+        hashes = {c: sha256_hex(canonical_json(["fundamentals-v2", revisions.get(c), fin])) for c, fin in ciks.items()}
+        found = self.research.fund_cached(list(ciks), asof, hashes) if cache else {}
         missing = {c: fin for c, fin in ciks.items() if c not in found}
         computed = {c: base(self.facts(c), asof, financial=fin) for c, fin in missing.items()}
         if cache and computed:
-            self.research.cache_fund(computed, asof)
+            self.research.cache_fund(computed, asof, hashes)
         return {**found, **computed}
 
     # ── the day ────────────────────────────────────────────────────────────────────────────────────
@@ -159,7 +166,8 @@ def stock_detail(day: Day, s: str) -> dict[str, Any]:
     bull, bear = dk.bull_bear(results)
     fund = {k: v for k, v in ctx.fund.get(s, {}).items() if isinstance(v, (int, float)) or v is None}
     return {
-        "symbol": s, "name": ctx.names.get(s), "asof": day.asof.isoformat(), "sector": LABELS.get(ctx.sectors.get(s, "Other")),
+        "symbol": s, "method_version": dk.METHOD_VERSION, "name": ctx.names.get(s), "asof": day.asof.isoformat(),
+        "sector": LABELS.get(ctx.sectors.get(s, "Other")),
         "financial_type": ctx.financial.get(s), "price": ctx.price.get(s, {}), "fundamentals": fund,
         "desks": {d: (r.as_json() if r else None) for d, r in results.items()},
         "committee": day.committee.get(s), "weights": day.weights, "bull": bull, "bear": bear,

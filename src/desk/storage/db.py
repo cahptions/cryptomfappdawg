@@ -46,12 +46,16 @@ _SYNCHRONOUS = {DbKind.MARKET: "NORMAL", DbKind.LEDGER: "FULL", DbKind.RESEARCH:
 def connect(path: Path, kind: DbKind, *, check_same_thread: bool = True) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=10.0, isolation_level=None, check_same_thread=check_same_thread)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute(f"PRAGMA synchronous={_SYNCHRONOUS[kind]}")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=10000")
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(f"PRAGMA synchronous={_SYNCHRONOUS[kind]}")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=10000")
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 @dataclass(frozen=True)
@@ -132,10 +136,11 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn
+        conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
-    conn.execute("COMMIT")
 
 
 def integrity_check(conn: sqlite3.Connection) -> str:

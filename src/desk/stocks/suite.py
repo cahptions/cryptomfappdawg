@@ -10,6 +10,7 @@ from typing import Protocol
 import httpx
 
 from desk.core.config import LoadedConfig
+from desk.core.errors import DeskError
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import Secrets
 from desk.providers.cache import SingleFlightCache
@@ -19,7 +20,7 @@ from desk.providers.ratelimit import RateLimiter
 from desk.providers.registry import load_registry
 from desk.stocks.connection import preferences
 from desk.stocks.contracts import OptionQuote, StockQuote
-from desk.stocks.schwab_auth import SchwabTokens, token_path
+from desk.stocks.schwab_auth import SchwabAuthError, SchwabTokens, token_path
 from desk.stocks.sources.feeds import FeedsClient
 from desk.stocks.sources.massive import MassiveClient
 from desk.stocks.sources.schwab import SchwabClient
@@ -33,6 +34,19 @@ class OptionData(Protocol):
     async def expirations(self, symbol: str) -> list[date]: ...
     async def chain(self, symbol: str, expiration: date) -> list[OptionQuote]: ...
     async def quotes(self, symbols: list[str]) -> list[StockQuote]: ...
+
+
+class UnavailableOptions:
+    configured = False
+
+    async def expirations(self, symbol: str) -> list[date]:
+        raise DeskError("Options connection settings need repair in Settings")
+
+    async def chain(self, symbol: str, expiration: date) -> list[OptionQuote]:
+        raise DeskError("Options connection settings need repair in Settings")
+
+    async def quotes(self, symbols: list[str]) -> list[StockQuote]:
+        raise DeskError("Options connection settings need repair in Settings")
 
 
 @dataclass
@@ -80,7 +94,14 @@ def build_stocks_suite(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets,
                                     http("apewisdom"), http("openfigi")),
                         MassiveClient(http("massive")), TradierClient(tradier), limiter, health, http_client)
     suite.option_source = tradier.name
-    if preferences(paths, settings.stocks)["options_provider"] == "schwab":
+    try:
+        provider = preferences(paths, settings.stocks)["options_provider"]
+    except SchwabAuthError:
+        provider = "unavailable"
+        suite.tradier = UnavailableOptions()
+        suite.option_source = "unavailable"
+        suite.problems["options"] = "Saved options connection settings are invalid; save the connection again"
+    if provider == "schwab":
         suite.tradier = SchwabClient(http("schwab"), SchwabTokens(token_path(paths), secrets))
         suite.option_source = "schwab"
     if sec_www.user_agent is None:
@@ -88,7 +109,7 @@ def build_stocks_suite(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets,
                                  "and www.sec.gov refuses requests without one")
     if not suite.massive.configured:
         suite.problems["prices"] = "MASSIVE_API_KEY is not in secrets.env (free key: massive.com, Stocks Basic)"
-    if not suite.tradier.configured:
+    if not suite.tradier.configured and "options" not in suite.problems:
         suite.problems["options"] = ("Schwab is not connected; run desk stocks connect" if suite.option_source == "schwab"
                                      else "TRADIER_TOKEN is not in secrets.env (free developer sandbox token: tradier.com)")
     return suite

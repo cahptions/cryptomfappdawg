@@ -91,6 +91,7 @@ class LimitsSection(_Section):
 
 
 class HttpSection(_Section):
+    max_response_bytes: int = Field(default=64 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
     timeout_seconds: float = Field(gt=0, le=120)
     max_retries: int = Field(ge=0, le=10)
     backoff_base_seconds: float = Field(gt=0)
@@ -222,7 +223,9 @@ class StocksSection(_Section):
     # options accounts get more paper capital so 2% of it buys one contract of most liquid names (results are compared
     # in percentages, so the size doesn't flatter anyone)
     paper_option_capital_usd: Decimal = Decimal("50000")
-    paper_max_position_fraction: Fraction = Decimal("0.10")     # one stock position at most 10% of equity
+    paper_max_position_fraction: Fraction = Decimal("0.20")     # stock PAPER hard cap; baselines remain fully invested
+    paper_stock_risk_fraction: Fraction = Decimal("0.02")       # planned stop risk per stock ticket; gaps can exceed it
+    paper_stock_participation_fraction: Fraction = Decimal("0.005")  # ticket at most 0.5% of observed daily dollar volume
     paper_max_option_premium_fraction: Fraction = Decimal("0.02")   # one option trade risks at most 2% of equity
     paper_max_options_at_risk_fraction: Fraction = Decimal("0.10")  # all open option premium at most 10%
     paper_max_open_positions: int = Field(default=30, ge=1)

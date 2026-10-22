@@ -40,7 +40,8 @@ def databases(home: str) -> Databases:
 def fast_config() -> LoadedConfig:
     loaded = load_config(REPO_ROOT / "config")
     paper = loaded.settings.paper.model_copy(update={"mark_interval_seconds": 10, "guardian_loop_seconds": 1,
-                                                     "conservative_wait_seconds": 0.0})
+                                                     "conservative_wait_seconds": 0.0,
+                                                     "simulated_failure_rate": Decimal(0)})
     return dataclasses.replace(loaded, settings=loaded.settings.model_copy(update={"paper": paper}))
 
 

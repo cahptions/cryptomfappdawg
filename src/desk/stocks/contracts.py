@@ -6,6 +6,7 @@ Dates are exchange dates (America/New_York trading days); timestamps are UTC.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -203,7 +204,8 @@ class OptionQuote:
 
     @property
     def mid(self) -> float | None:
-        if self.bid is None or self.ask is None or self.ask <= 0 or self.bid > self.ask:
+        if (self.bid is None or self.ask is None or not math.isfinite(self.bid) or not math.isfinite(self.ask)
+                or self.bid < 0 or self.ask <= 0 or self.bid > self.ask):
             return None
         return (self.bid + self.ask) / 2
 

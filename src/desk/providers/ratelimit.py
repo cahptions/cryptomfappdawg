@@ -42,7 +42,8 @@ class RateLimiter:
         self._offload = offload  # run SQLite work in a thread so a busy lock never blocks the event loop
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     # ── synchronous core (one transaction per decision) ───────────────────────────────────────────
     def try_acquire(self, bucket: str, windows: Sequence[Window]) -> float:

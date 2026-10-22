@@ -14,7 +14,9 @@ these experiments do not establish feasibility for the $500 crypto reference acc
 
 | Limit | Default |
 |---|---|
-| One stock position | at most 10% of the account |
+| One stock position | at most 20% of account equity; each strategy may use less |
+| Planned stock stop risk per ticket | at most 2% of account equity; gaps can lose more |
+| Stock ticket capacity | at most 0.5% of observed daily dollar volume |
 | One options trade | risks at most 2% of the account (the debit plus fees) |
 | All open option premium | at most 10% of the account |
 | Open positions | at most 30 per account |
@@ -47,9 +49,11 @@ the engine steps every account through that session (`desk.stocks.paper.engine`)
    today's analysis become orders for the **next** session. Nothing decided on a close fills at that close.
 7. **Equity.** Each account's cash + positions is recorded for the day. A day is stepped once and never backwards.
 
-Costs: stock commissions are $0 (Robinhood, Schwab); sales pay the SEC Section 31 fee and FINRA TAF (2025 rates).
-Options pay $0.65 per contract per leg each way (Schwab's commission; Robinhood's per-contract fees are lower, so this
-is conservative).
+Costs: stock commissions are modeled as $0, separately from crypto fees. Stock sales retain approximate SEC Section 31
+and FINRA TAF costs using the existing **2025** constants. These are not a verified current fee schedule. Options retain
+$0.65 per contract per leg each way. Bid/ask execution and slippage remain costs even when commissions are zero.
+Before expiry, absent quotes and absent usable implied volatility produce an unavailable value, not an invented
+intrinsic-value fill. Model-based option exits are explicitly labeled; they are not evidence of executable exits.
 
 Every decision (ENTER, EXIT, and SKIP with its reason), order, fill, cash movement and daily equity is append-only.
 A position's entry never changes and a closed position never changes (SQLite triggers refuse it).
@@ -57,7 +61,7 @@ The whole ledger session commits in one transaction. STOP cancels pending entrie
 existing positions remain managed. Recovery through missed sessions is simulation and must be identified in the
 evaluation; it is not evidence of fills while a laptop was asleep.
 
-## The strategies (v1)
+## The strategies
 
 Each is preregistered: hypothesis, rule and exits are frozen by version in `stk_specs` before it trades.
 
@@ -74,14 +78,25 @@ the committee's top 10; the Undervalued, Quality at a fair price and Momentum li
 **value + momentum** (valuation ≥ 60 and momentum ≥ 60), **quality + momentum** (quality ≥ 60 and momentum ≥ 60),
 **cheap with a catalyst** (valuation ≥ 65, earnings ≥ 60, quality ≥ 40).
 
-**Stocks, on events** (10% each, up to 10 open):
+**Stocks, on events (v2)**: up to 10 open, except squeeze runners (5). Desired tickets are 15% of equity for earnings,
+insiders and breakouts, and 7.5% for squeezes. Each ticket is reduced by cash, the account-relative position cap,
+planned stop risk and liquidity capacity. At the defaults, insider tickets are effectively capped at 10% because
+their 20% stop distance consumes the 2% planned risk budget. Stops do not guarantee a maximum loss.
+The same limits are checked again when a pending order fills; there is no leverage.
 
 | Strategy | Enters | Exits |
 |---|---|---|
 | Post-earnings drift | results within 5 days, +3% vs the market on results day, earnings desk ≥ 60 | 60 sessions, 12% stop |
 | Insider clusters | 3+ insiders buying, or buys ≥ 5 bp of market value | 126 sessions, 20% stop |
 | 52-week-high breakouts | new high on ≥ 1.5× volume, momentum ≥ 70 | 42 sessions, 10% trailing stop |
-| Squeeze runners | squeeze score ≥ 60 and up on the week (5% each, up to 5) | 10 sessions, 10% stop |
+| Squeeze runners | squeeze score ≥ 60 and up on the week | 10 sessions, 10% stop |
+
+The other stock portfolios retain their own allocation rules; a fully invested hold baseline remains fully invested.
+These larger event tickets are an unvalidated PAPER experiment requested by the operator, not a response to proven
+profitability or calibrated confidence. They increase concentration. They do not make the daily engine intraday:
+new close-based signals still wait for a later session's opening, and the existing signal requirements remain.
+Old positions and cash history are preserved. Accounts containing earlier specification decisions display a mixed-version
+warning and cannot earn a current-version grade from those combined results. Version-specific evaluation remains required.
 
 **Options** (2% each unless noted):
 

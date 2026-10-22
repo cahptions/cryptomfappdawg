@@ -67,7 +67,7 @@ def split_factors(splits: Sequence[Split], symbols: Sequence[str], days: Sequenc
     ords = np.array([d.toordinal() for d in days])
     for s in splits:
         i = index.get(s.symbol)
-        if i is None or s.ratio <= 0:
+        if i is None or not days or s.execution_date > days[-1] or s.ratio <= 0:
             continue
         factors[i, ords < s.execution_date.toordinal()] *= s.ratio
     return factors

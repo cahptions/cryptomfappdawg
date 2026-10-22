@@ -95,7 +95,14 @@ async function api(path, body, renewSession = true) {
         : "Cannot reach the dashboard. Keep the terminal running desk stocks dashboard open; restart it if it was stopped.",
     );
   }
-  const value = await response.json();
+  let value;
+  try {
+    value = await response.json();
+  } catch {
+    throw Error(
+      `Dashboard returned an unreadable response (HTTP ${response.status}). Check System or run desk stocks diagnose.`,
+    );
+  }
   if (
     body !== undefined &&
     renewSession &&
@@ -129,11 +136,13 @@ function collectionControls() {
       "primary",
     );
   button.type = "button";
-  button.disabled = Boolean(state.stopping || (running && !state.owned));
+  button.disabled = Boolean(
+    state.stopping || (running && !state.owned && !state.managed),
+  );
   status.textContent = state.stopping
     ? "Pausing PAPER and collection safely. Completed imports and simulated trades stay saved."
     : running
-      ? state.owned
+      ? state.owned || state.managed
         ? "PAPER and collection are running. Eligible strategies simulate trades as their required data becomes available."
         : "An existing Stocks worker is collecting. Control it from its terminal."
       : state.error
@@ -164,13 +173,13 @@ function connectionWorkerControls() {
     running = state.running || snapshot.worker_running;
   const text = state.stopping
     ? "PAPER is pausing. Leave this dashboard running; your typed settings stay here. Save becomes available when the collector stops."
-    : running && state.owned
+    : running && (state.owned || state.managed)
       ? "PAPER and collection are running. Pause them here before saving this connection. Leave the dashboard running."
       : running
         ? "A Stocks collector is running in another terminal. Stop only the terminal running desk stocks collect, desk stocks paper, or desk stocks refresh. Keep the terminal running desk stocks dashboard open. Ctrl+C inside the browser does not pause collection."
         : "Collection is paused. You can save this connection now. Leave the dashboard running.";
   box.append(el("p", text, "muted"));
-  if (running && state.owned) {
+  if (running && (state.owned || state.managed)) {
     const pause = el(
       "button",
       state.stopping
@@ -503,6 +512,27 @@ function systemPage() {
     ),
   );
   app.append(collectionControls());
+  if (snapshot.progress)
+    app.append(
+      panel(
+        "Current work",
+        `${snapshot.progress.phase} · updated ${snapshot.progress.updated_at}`,
+      ),
+    );
+  if (snapshot.report_errors?.length)
+    app.append(
+      panel(
+        "Stored report needs rebuilding",
+        `${snapshot.report_errors.join(", ")} report unavailable. Collected observations remain saved; run desk stocks diagnose.`,
+      ),
+    );
+  if (snapshot.connection.configuration_error)
+    app.append(
+      panel(
+        "Options connection needs repair",
+        snapshot.connection.configuration_error,
+      ),
+    );
   app.append(
     table(
       ["Source job", "Last success", "Last error"],

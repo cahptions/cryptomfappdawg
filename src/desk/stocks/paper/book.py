@@ -17,7 +17,7 @@ from desk.core.clock import to_iso
 from desk.core.hashing import canonical_json
 from desk.core.ids import new_id
 from desk.stocks.repo import date_of, day_of
-from desk.storage.db import transaction
+from desk.storage.db import StorageError, transaction
 
 MICRO = 1_000_000
 
@@ -25,6 +25,8 @@ MICRO = 1_000_000
 def to_micros(usd: float, *, cost: bool) -> int:
     """Costs round up and credits round down, so rounding never flatters an account."""
     x = usd * MICRO
+    if not math.isfinite(x) or abs(x) > 2**63 - 1:
+        raise StorageError("PAPER money is non-finite or exceeds the ledger's integer range")
     return math.ceil(x - 1e-6) if cost else math.floor(x + 1e-6)
 
 

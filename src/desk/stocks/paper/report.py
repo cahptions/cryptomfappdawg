@@ -69,9 +69,13 @@ def account_report(book: PaperBook, market: StocksMarket, st: Strategy, baseline
     last = rows[-1] if rows else None
     rets = daily_returns([e for _, _, _, e in rows])
     mine, spy_r = _aligned(equity, spy)
+    recorded_specs = {r[0] for r in book.conn.execute(
+        'SELECT DISTINCT spec_sha256 FROM stk_decisions WHERE account=?', (st.id,))}
     out: dict[str, Any] = {
         "id": st.id, "title": st.title, "asset": st.asset, "style": st.style, "hypothesis": st.hypothesis,
         "baseline": st.baseline, "learned": st.learned, "params": st.p, "spec_sha256": st.spec_sha256,
+        "recorded_specifications": sorted(recorded_specs),
+        "mixed_specifications": bool(recorded_specs - {st.spec_sha256}),
         "start": rows[0][0].isoformat() if rows else None, "sessions": len(rows), "deposits": start,
         "equity": None if last is None else last[3], "cash": None if last is None else last[1],
         "invested": None if last is None or not last[3] else last[2] / last[3],
@@ -97,6 +101,9 @@ def account_report(book: PaperBook, market: StocksMarket, st: Strategy, baseline
 def grade(acct: dict[str, Any]) -> dict[str, Any]:
     if acct["baseline"]:
         return {"grade": "info", "text": "A baseline: the bar the others must clear"}
+    if acct.get('mixed_specifications'):
+        return {'grade': 'early',
+                'text': 'Rules changed: cumulative results mix specification versions; evaluate versions separately'}
     need = MIN_SESSIONS_PORTFOLIO if acct["style"] in ("rebalance", "hold") else MIN_SESSIONS
     if acct["sessions"] < need:
         return {"grade": "early", "text": f"Too early: {acct['sessions']} of {need} sessions"}

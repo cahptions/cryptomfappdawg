@@ -19,6 +19,7 @@ from xml.etree import ElementTree
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
 from desk.stocks.contracts import Company, Fact, Fail, Filing, IndexEntry, InsiderTrade
+from desk.stocks.sources.validation import json_object, number, schema_boundary
 
 FACT_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A", "10-KT", "20-F", "40-F"})
 
@@ -33,10 +34,11 @@ def _day(text: str | None) -> date | None:
 
 
 # ── parsers (pure) ───────────────────────────────────────────────────────────────────────────────
+@schema_boundary("sec tickers_exchange")
 def parse_tickers_exchange(body: bytes) -> list[tuple[int, str, str, str]]:
     """``company_tickers_exchange.json`` → (cik, name, symbol, exchange)."""
     try:
-        data = json.loads(body)
+        data = json_object(body)
         fields = data["fields"]
         idx = {name: fields.index(name) for name in ("cik", "name", "ticker", "exchange")}
         return [(int(r[idx["cik"]]), str(r[idx["name"]]), canonical_symbol(str(r[idx["ticker"]])),
@@ -45,9 +47,10 @@ def parse_tickers_exchange(body: bytes) -> list[tuple[int, str, str, str]]:
         raise SchemaError(f"sec company tickers: {exc}") from exc
 
 
+@schema_boundary("sec submissions")
 def parse_submissions(body: bytes) -> Company:
     try:
-        d = json.loads(body)
+        d = json_object(body)
         recent = d["filings"]["recent"]
         n = len(recent["accessionNumber"])
         filings = []
@@ -67,14 +70,15 @@ def parse_submissions(body: bytes) -> Company:
                        fiscal_year_end=d.get("fiscalYearEnd") or None, category=d.get("category") or None,
                        filings=tuple(filings))
     except (ValueError, KeyError, TypeError, IndexError) as exc:
-        raise SchemaError(f"sec submissions: {exc}") from exc
+        raise SchemaError("sec submissions: invalid filing response") from exc
 
 
+@schema_boundary("sec companyfacts")
 def parse_companyfacts(body: bytes, wanted: Iterable[str]) -> dict[str, list[Fact]]:
     """Keep the wanted ``taxonomy:Concept`` values from 10-K/10-Q-type filings, oldest filing first."""
     keep = set(wanted)
     try:
-        d = json.loads(body)
+        d = json_object(body)
         out: dict[str, list[Fact]] = {}
         for taxonomy, concepts in d.get("facts", {}).items():
             for concept, content in concepts.items():
@@ -86,18 +90,19 @@ def parse_companyfacts(body: bytes, wanted: Iterable[str]) -> dict[str, list[Fac
                     for v in values:
                         if v.get("form") not in FACT_FORMS or v.get("val") is None:
                             continue
-                        rows.append(Fact(key, unit, _day(v.get("start")), date.fromisoformat(v["end"]), float(v["val"]),
+                        rows.append(Fact(key, unit, _day(v.get("start")), date.fromisoformat(v["end"]), number(v["val"]),
                                          v["form"], date.fromisoformat(v["filed"]), v.get("fy"), v.get("fp"), v["accn"]))
                 rows.sort(key=lambda f: (f.filed, f.end, f.accn))
         return out
     except (ValueError, KeyError, TypeError) as exc:
-        raise SchemaError(f"sec company facts: {exc}") from exc
+        raise SchemaError("sec company facts: invalid fact response") from exc
 
 
 _INDEX_ROW = re.compile(r"^(?P<form>\S(?:.*?\S)?)\s{2,}(?P<company>\S.*?)\s{2,}(?P<cik>\d+)\s+(?P<filed>\d{8})\s+"
                         r"(?P<path>edgar/data/\S+)\s*$")
 
 
+@schema_boundary("sec daily_index")
 def parse_daily_index(body: bytes) -> list[IndexEntry]:
     """``daily-index/YYYY/QTRn/form.YYYYMMDD.idx`` (fixed-width) → entries."""
     text = body.decode("latin-1")
@@ -135,11 +140,12 @@ def _num(text: str | None) -> float | None:
     if text is None:
         return None
     try:
-        return float(text.replace(",", ""))
+        return number(text.replace(",", ""), nonnegative=True)
     except ValueError:
         return None
 
 
+@schema_boundary("sec form4")
 def parse_form4(xml: bytes | str, accession: str) -> list[InsiderTrade]:
     """Non-derivative transactions of a Form 4 (one row per transaction per reporting owner)."""
     try:
@@ -190,6 +196,7 @@ def _sec_day(text: str) -> date | None:
         return None
 
 
+@schema_boundary("sec insider_dataset")
 def parse_insider_dataset(body: bytes) -> list[tuple[InsiderTrade, date]]:
     """A quarterly Insider Transactions Data Set (Forms 3, 4, 5): Form 4 non-derivative transactions with the date
     each was filed, one row per transaction per reporting owner (as ``parse_form4``)."""
@@ -200,6 +207,8 @@ def parse_insider_dataset(body: bytes) -> list[tuple[InsiderTrade, date]]:
 
     try:
         with zipfile.ZipFile(io.BytesIO(body)) as zf:
+            if sum(info.file_size for info in zf.infolist()) > 128 * 1024 * 1024:
+                raise SchemaError('insider data set: uncompressed archive exceeds 128 MiB')
             subs = {r["ACCESSION_NUMBER"]: r for r in table(zf, "SUBMISSION.tsv") if r.get("DOCUMENT_TYPE") in ("4", "4/A")}
             owners: dict[str, list[dict[str, str]]] = {}
             for r in table(zf, "REPORTINGOWNER.tsv"):
@@ -231,6 +240,7 @@ _ACCEPTED = re.compile(r"<ACCEPTANCE-DATETIME>(\d{14})")
 _XML = re.compile(r"<XML>\s*(.*?)\s*</XML>", re.S)
 
 
+@schema_boundary("sec submission_text")
 def parse_submission_text(text: str) -> tuple[datetime | None, str | None]:
     """A full submission (``edgar/data/<cik>/<accession>.txt``): its acceptance time (New York time, naive) and its
     first XML document."""
@@ -240,6 +250,7 @@ def parse_submission_text(text: str) -> tuple[datetime | None, str | None]:
     return accepted, (x.group(1) if x else None)
 
 
+@schema_boundary("sec fails")
 def parse_fails(text: str) -> list[Fail]:
     """SEC fails-to-deliver text (pipe-separated, one settlement date per row)."""
     out = []
@@ -256,8 +267,11 @@ def parse_fails(text: str) -> list[Fail]:
     return out
 
 
+@schema_boundary("sec fails_zip")
 def parse_fails_zip(body: bytes) -> list[Fail]:
     with zipfile.ZipFile(io.BytesIO(body)) as zf:
+        if not zf.infolist() or sum(info.file_size for info in zf.infolist()) > 128 * 1024 * 1024:
+            raise SchemaError("sec fails archive: empty or exceeds unpacked size limit")
         return parse_fails(zf.read(zf.namelist()[0]).decode("latin-1"))
 
 

@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from desk.core.clock import utc_now
 from desk.core.errors import DeskError
 from desk.core.hashing import sha256_hex
 from desk.stocks import calendar as cal
@@ -70,22 +71,23 @@ def missing_price_days(market: StocksMarket, now: datetime, history_days: int, a
 
 
 async def prices(suite: StocksSuite, market: StocksMarket, now: datetime, *, history_days: int, after_close: timedelta,
-                 max_days: int | None = None) -> dict[str, Any]:
+                 max_days: int | None = None, clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
     async def work() -> dict[str, Any]:
         keep = stored_symbols(market)
         days = missing_price_days(market, now, history_days, after_close)
         fetched, stored, empty = [], 0, []
         for d in days[:max_days] if max_days else days:
             bars = await suite.massive.grouped_daily(d)
+            received_at = clock()
             if not bars:
                 empty.append(d.isoformat())        # not published yet, or a closure the calendar does not know
                 if (now.date() - d).days >= 4:
-                    market.save_bars(d, [], "massive", now)
+                    market.save_bars(d, [], "massive", received_at)
                 continue
             wrong_day = sum(1 for b in bars if b.day != d)
             if wrong_day:
                 raise DeskError(f"massive grouped daily for {d}: {wrong_day} bars stamped another day")
-            stored += market.save_bars(d, [b for b in bars if b.symbol in keep], "massive", now)
+            stored += market.save_bars(d, [b for b in bars if b.symbol in keep], "massive", received_at)
             fetched.append(d.isoformat())
         return {"days": len(fetched), "rows": stored, "empty": empty, "remaining": max(0, len(days) - len(fetched) - len(empty)),
                 "newest": fetched[0] if fetched else None}
@@ -324,7 +326,8 @@ def pick_expirations(expirations: Sequence[date], today: date, earnings: date | 
 
 async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime, symbols: Sequence[str], *, rate: float,
                         last_prices: dict[str, float], earnings: dict[str, date] | None = None,
-                        held: dict[str, set[date]] | None = None) -> dict[str, Any]:
+                        held: dict[str, set[date]] | None = None,
+                        clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
     """Chains for ``symbols`` (and every underlying in ``held``): the picked expirations plus any expiration a PAPER
     position holds, so a held contract is quoted every day until it closes."""
     async def work() -> dict[str, Any]:
@@ -348,10 +351,11 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
             if price is None:
                 skipped.append(symbol)
                 continue
+            received_at = clock()
             for e, quotes in chains.items():
-                market.save_option_chain(symbol, today, e, now, price, quotes, source=suite.option_source)
+                market.save_option_chain(symbol, today, e, received_at, price, quotes, source=suite.option_source)
                 contracts += len(quotes)
-            market.save_option_daily(symbol, today, now, opt.daily_summary(chains, price, today, rate))
+            market.save_option_daily(symbol, today, received_at, opt.daily_summary(chains, price, today, rate))
             done += 1
         pruned = market.prune_option_chains(today - timedelta(days=45))
         return {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned,

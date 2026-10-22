@@ -11,7 +11,6 @@ never silently rewrites history already used for a decision.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -19,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
 from desk.stocks.contracts import Bar, Dividend, Split
+from desk.stocks.sources.validation import json_object, number, schema_boundary
 
 
 def _market_day(epoch_ms: int) -> date:
@@ -27,47 +27,58 @@ def _market_day(epoch_ms: int) -> date:
     return datetime.fromtimestamp(epoch_ms / 1000, UTC).date()
 
 
+@schema_boundary("massive grouped daily")
 def parse_grouped(body: bytes) -> list[Bar]:
     try:
-        d = json.loads(body)
+        d = json_object(body)
         if d.get("status") not in ("OK", "DELAYED"):
-            raise SchemaError(f"massive grouped daily: status {d.get('status')}")
+            raise SchemaError("massive grouped daily: unavailable response status")
         out = []
         for r in d.get("results") or []:
             if not all(k in r for k in ("T", "o", "h", "l", "c", "v", "t")):
-                continue
-            out.append(Bar(str(r["T"]), _market_day(int(r["t"])), float(r["o"]), float(r["h"]), float(r["l"]), float(r["c"]),
-                           float(r["v"]), None if r.get("vw") is None else float(r["vw"]),
+                raise ValueError("incomplete bar")
+            op, hi, lo, cl = (number(r[k], positive=True) for k in ("o", "h", "l", "c"))
+            if hi < max(op, lo, cl) or lo > min(op, hi, cl):
+                raise ValueError("invalid OHLC range")
+            out.append(Bar(str(r["T"]), _market_day(int(r["t"])), op, hi, lo, cl,
+                           number(r["v"], nonnegative=True), None if r.get("vw") is None else number(r["vw"], positive=True),
                            None if r.get("n") is None else int(r["n"])))
         return out
     except (ValueError, KeyError, TypeError) as exc:
-        raise SchemaError(f"massive grouped daily: {exc}") from exc
+        raise SchemaError("massive grouped daily: invalid bar response") from exc
 
 
+@schema_boundary("massive splits")
 def parse_splits(body: bytes) -> tuple[list[Split], str | None]:
     try:
-        d = json.loads(body)
-        out = [Split(str(r["ticker"]), date.fromisoformat(r["execution_date"]), float(r["split_from"]), float(r["split_to"]))
-               for r in d.get("results") or [] if r.get("split_from") and r.get("split_to")]
+        d = json_object(body)
+        if d.get("status", "OK") != "OK":
+            raise ValueError("unsuccessful response")
+        out = [Split(str(r["ticker"]), date.fromisoformat(r["execution_date"]),
+                     number(r["split_from"], positive=True), number(r["split_to"], positive=True))
+               for r in d.get("results") or []]
         return out, _cursor(d.get("next_url"))
     except (ValueError, KeyError, TypeError) as exc:
-        raise SchemaError(f"massive splits: {exc}") from exc
+        raise SchemaError("massive splits: invalid action response") from exc
 
 
+@schema_boundary("massive dividends")
 def parse_dividends(body: bytes) -> tuple[list[Dividend], str | None]:
     try:
-        d = json.loads(body)
+        d = json_object(body)
+        if d.get("status", "OK") != "OK":
+            raise ValueError("unsuccessful response")
         out = []
         for r in d.get("results") or []:
             if r.get("ex_dividend_date") is None or r.get("cash_amount") is None:
                 continue
             out.append(Dividend(str(r["ticker"]), date.fromisoformat(r["ex_dividend_date"]),
-                                float(r.get("split_adjusted_cash_amount") or r["cash_amount"]),
+                                number(r["cash_amount"], nonnegative=True),
                                 date.fromisoformat(r["pay_date"]) if r.get("pay_date") else None,
                                 r.get("frequency"), r.get("distribution_type")))
         return out, _cursor(d.get("next_url"))
     except (ValueError, KeyError, TypeError) as exc:
-        raise SchemaError(f"massive dividends: {exc}") from exc
+        raise SchemaError("massive dividends: invalid action response") from exc
 
 
 def _cursor(next_url: str | None) -> str | None:
@@ -109,12 +120,16 @@ class MassiveClient:
     async def _paged(self, endpoint: str, parse: Any, params: dict[str, Any]) -> list[Any]:
         out: list[Any] = []
         cursor: str | None = None
+        seen: set[str] = set()
         for _ in range(200):
             rows, cursor = parse(await self._get(endpoint, params={**params, **({"cursor": cursor} if cursor else {})}))
             out += rows
             if not cursor:
                 return out
-        return out
+            if cursor in seen:
+                raise SchemaError(f"massive {endpoint}: pagination repeated; history remains incomplete")
+            seen.add(cursor)
+        raise SchemaError(f"massive {endpoint}: page limit reached; history remains incomplete")
 
 
 __all__ = ["MassiveClient", "parse_dividends", "parse_grouped", "parse_splits"]

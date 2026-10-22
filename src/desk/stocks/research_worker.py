@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 from desk.core.errors import DeskError
@@ -48,9 +49,26 @@ class ResearchWorker:
         with self.lock:
             code = self.process.poll() if self.process is not None else None
             owned = self.process is not None and code is None
-            return {"owned": owned, "running": owned or WorkerLock(self.paths, "stocks-worker").held(),
+            external = not owned and WorkerLock(self.paths, "stocks-worker").held()
+            managed = owned or (external and self._managed_pid())
+            return {"owned": owned, "running": owned or external, "managed": managed,
                     "stopping": owned and self.stopping, "exit_code": code, "enabled": self.enabled,
-                    "mode": "PAPER" if owned else None, "error": self.error}
+                    "mode": "PAPER" if managed else None, "error": self.error}
+
+    def _managed_pid(self) -> bool:
+        """Observe a surviving app worker; never signal a PID obtained from this metadata."""
+        try:
+            path = self.paths.home / "stocks-progress.json"
+            if path.stat().st_size > 4096:
+                return False
+            value = json.loads(path.read_text())
+            pid = value.get("pid")
+            if not value.get("managed") or not isinstance(pid, int) or pid <= 0:
+                return False
+            words = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+            return all(word in words for word in (b"-m", b"desk", b"stocks", b"paper", b"--managed"))
+        except (OSError, ValueError, AttributeError):
+            return False
 
     def maintain(self) -> dict[str, Any]:
         """Called by dashboard lifespan, not by requests. Wait for external workers; surface crashes without loops."""
@@ -90,7 +108,7 @@ class ResearchWorker:
                 os.fchmod(descriptor, 0o600)
                 with os.fdopen(descriptor, "ab") as log:
                     self.process = subprocess.Popen(  # fixed argv; credentials never enter the command
-                        [sys.executable, "-m", "desk", "stocks", "paper", "--continuous", "--price-days", "20"],
+                        [sys.executable, "-m", "desk", "stocks", "paper", "--continuous", "--price-days", "20", "--managed"],
                         cwd=REPO_ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
             except OSError as exc:
                 raise DeskError("Could not start PAPER. Check the laptop's available disk space.") from exc

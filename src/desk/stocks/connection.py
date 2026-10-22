@@ -244,7 +244,12 @@ class LoginAttempt:
 
 
 def connection_status(paths: DeskPaths, settings: StocksSection, credentials: Secrets) -> dict[str, Any]:
-    return {**preferences(paths, settings), "schwab": {**SchwabTokens(token_path(paths), credentials).status(),
+    try:
+        selected = preferences(paths, settings)
+    except SchwabAuthError:
+        selected = {"options_provider": settings.options_provider, "callback_url": settings.schwab_callback_url,
+                    "configuration_error": "Saved connection settings are invalid; save the connection again"}
+    return {**selected, "schwab": {**SchwabTokens(token_path(paths), credentials).status(),
             "app_key_set": credentials.configured("SCHWAB_APP_KEY"),
             "app_secret_set": credentials.configured("SCHWAB_APP_SECRET")},
             "orders_enabled": False, "mode": "PAPER"}

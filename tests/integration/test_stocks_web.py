@@ -42,6 +42,21 @@ def test_zero_revenue_company_does_not_abort_research_or_write_paper(tmp_path: P
         world.close()
 
 
+def test_corrupt_optional_settings_and_reports_keep_dashboard_repairable(tmp_path: Path) -> None:
+    paths = DeskPaths(tmp_path / 'home', REPO / 'config', tmp_path / 'private.env')
+    paths.ensure()
+    (paths.home / 'stocks-connection.json').write_text('invalid json')
+    (paths.home / 'stocks-research.json').write_text('{"lists":"wrong shape"}')
+    (paths.home / 'stocks-paper.json').write_text('broken')
+    with TestClient(create_app(paths, auto_start=False), base_url='http://127.0.0.1:8767') as client:
+        value = client.get('/api/stocks/snapshot')
+        assert value.status_code == 200
+        assert value.json()['connection']['configuration_error']
+        assert set(value.json()['report_errors']) == {'paper', 'research'}
+        assert client.get('/api/stocks/home').status_code == 200
+        assert client.get('/api/stocks/paper').status_code == 200
+
+
 def test_empty_dashboard_and_secret_form_boundary(tmp_path: Path) -> None:
     paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "private" / "secrets.env")
     with TestClient(create_app(paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:

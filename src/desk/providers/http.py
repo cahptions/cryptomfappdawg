@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -171,8 +173,17 @@ class ProviderHttp:
                 target = httpx.URL(url)
                 headers.update(self.signer(method, target.raw_path.decode("ascii"), content or b""))
             try:
-                response = await self.client.request(method, url, params=params, json=json_body, content=content,
-                                                     headers=headers, timeout=self.settings.timeout_seconds)
+                async with self.client.stream(method, url, params=params, json=json_body, content=content,
+                                              headers=headers, timeout=self.settings.timeout_seconds) as response:
+                    chunks, size = [], 0
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        size += len(chunk)
+                        if size > self.settings.max_response_bytes:
+                            message = f"{endpoint}: response exceeds configured byte limit"
+                            self.health.record_failure(self.name, ProviderErrorKind.SCHEMA.value, message)
+                            raise ProviderError(self.name, ProviderErrorKind.SCHEMA, message)
+                        chunks.append(chunk)
+                    body = b"".join(chunks)
             except httpx.TimeoutException:
                 last_kind, last_message, last_status = ProviderErrorKind.TIMEOUT, f"{endpoint} timed out", None
             except httpx.TransportError as exc:
@@ -180,7 +191,6 @@ class ProviderHttp:
             else:
                 received_at = utc_now()
                 latency = Decimal(str(round((time.monotonic() - started) * 1000, 1)))
-                body = response.content
                 status = response.status_code
                 digest = (self.raw_store.put(self.name, endpoint, status, body, received_at)
                           if self.raw_store else sha256_hex(body))
@@ -217,6 +227,10 @@ def _parse_retry_after(value: str | None) -> float | None:
     if value is None:
         return None
     try:
-        return float(value)
+        seconds = float(value)
     except ValueError:
-        return None
+        try:
+            seconds = (parsedate_to_datetime(value) - utc_now()).total_seconds()
+        except (ValueError, TypeError, OverflowError):
+            return None
+    return seconds if math.isfinite(seconds) and seconds > 0 else None

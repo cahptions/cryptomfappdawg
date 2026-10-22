@@ -9,6 +9,7 @@ import zlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from desk.core.clock import to_iso
@@ -58,19 +59,31 @@ class StocksDatabases:
     @classmethod
     def open(cls, paths: DeskPaths, *, check_same_thread: bool = True) -> StocksDatabases:
         paths.ensure()
-        market = connect(paths.db_dir / MARKET_FILE, DbKind.STOCKS_MARKET, check_same_thread=check_same_thread)
-        research = connect(paths.db_dir / RESEARCH_FILE, DbKind.STOCKS_RESEARCH, check_same_thread=check_same_thread)
-        ledger = connect(paths.db_dir / LEDGER_FILE, DbKind.STOCKS_LEDGER, check_same_thread=check_same_thread)
-        runtime = connect(paths.db_dir / "runtime.db", DbKind.RUNTIME, check_same_thread=check_same_thread)
-        for conn, kind in ((market, DbKind.STOCKS_MARKET), (research, DbKind.STOCKS_RESEARCH),
-                           (ledger, DbKind.STOCKS_LEDGER), (runtime, DbKind.RUNTIME)):
-            migrate(conn, kind)
-        row = ledger.execute("SELECT value FROM ledger_meta WHERE key = 'mode'").fetchone()
-        if row is None:
-            ledger.execute("INSERT INTO ledger_meta(key, value) VALUES ('mode', 'PAPER')")
-        elif row["value"] != "PAPER":
-            raise StorageError("the stocks ledger is PAPER only")
-        return cls(market, research, ledger, runtime)
+        connections: list[sqlite3.Connection] = []
+
+        def opened(path: Path, kind: DbKind, **kwargs: Any) -> sqlite3.Connection:
+            connection = connect(path, kind, **kwargs)
+            connections.append(connection)
+            return connection
+
+        try:
+            market = opened(paths.db_dir / MARKET_FILE, DbKind.STOCKS_MARKET, check_same_thread=check_same_thread)
+            research = opened(paths.db_dir / RESEARCH_FILE, DbKind.STOCKS_RESEARCH, check_same_thread=check_same_thread)
+            ledger = opened(paths.db_dir / LEDGER_FILE, DbKind.STOCKS_LEDGER, check_same_thread=check_same_thread)
+            runtime = opened(paths.db_dir / "runtime.db", DbKind.RUNTIME, check_same_thread=check_same_thread)
+            for conn, kind in ((market, DbKind.STOCKS_MARKET), (research, DbKind.STOCKS_RESEARCH),
+                               (ledger, DbKind.STOCKS_LEDGER), (runtime, DbKind.RUNTIME)):
+                migrate(conn, kind)
+            row = ledger.execute("SELECT value FROM ledger_meta WHERE key = 'mode'").fetchone()
+            if row is None:
+                ledger.execute("INSERT INTO ledger_meta(key, value) VALUES ('mode', 'PAPER')")
+            elif row["value"] != "PAPER":
+                raise StorageError("the stocks ledger is PAPER only")
+            return cls(market, research, ledger, runtime)
+        except BaseException:
+            for connection in connections:
+                connection.close()
+            raise
 
     def health(self) -> dict[str, dict[str, str]]:
         return {name: {"integrity": integrity_check(conn), "journal_mode": journal_mode(conn)}
@@ -379,15 +392,17 @@ class StocksMarket:
             " chain_zlib, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (underlying, day_of(day), day_of(expiration), to_iso(observed_at), underlying_price, len(rows), _pack(rows), source))
 
-    def option_chain(self, underlying: str, day: date | None = None) -> tuple[date | None, dict[date, list[OptionQuote]]]:
+    def option_chain(self, underlying: str, day: date | None = None, *, observed_by: datetime | None = None
+                     ) -> tuple[date | None, dict[date, list[OptionQuote]]]:
         """The newest stored chain for ``underlying`` (on or before ``day``), every expiration."""
-        row = self.conn.execute("SELECT MAX(day) AS d FROM stk_option_chains WHERE underlying = ? AND day <= ?",
-                                (underlying, day_of(day) if day else 2**31)).fetchone()
+        cutoff = to_iso(observed_by) if observed_by else "9999"
+        row = self.conn.execute("SELECT MAX(day) AS d FROM stk_option_chains WHERE underlying = ? AND day <= ? "
+                                "AND observed_at<=?", (underlying, day_of(day) if day else 2**31, cutoff)).fetchone()
         if row is None or row["d"] is None:
             return None, {}
         out: dict[date, list[OptionQuote]] = {}
-        for r in self.conn.execute("SELECT * FROM stk_option_chains WHERE underlying = ? AND day = ? ORDER BY expiration",
-                                   (underlying, row["d"])):
+        for r in self.conn.execute("SELECT * FROM stk_option_chains WHERE underlying = ? AND day = ? "
+                                   "AND observed_at<=? ORDER BY expiration", (underlying, row["d"], cutoff)):
             expiration = date_of(r["expiration"])
             out[expiration] = [OptionQuote(q[0], underlying, q[1], q[2], expiration, q[3], q[4], q[5], q[6], q[7], q[8],
                                            datetime.fromisoformat(q[9]) if q[9] else None)
@@ -573,20 +588,22 @@ class StocksResearch:
                 for r in self.conn.execute("SELECT * FROM stk_rebuild_months WHERE method_sha256 = ? ORDER BY asof",
                                            (method_sha256,))]
 
-    def fund_cached(self, ciks: Sequence[int], asof: date) -> dict[int, dict[str, Any]]:
+    def fund_cached(self, ciks: Sequence[int], asof: date, input_hashes: dict[int, str]) -> dict[int, dict[str, Any]]:
         out: dict[int, dict[str, Any]] = {}
         for chunk in range(0, len(ciks), 500):
             part = list(ciks[chunk:chunk + 500])
             marks = ",".join("?" * len(part))           # placeholders only; values are bound
-            for r in self.conn.execute(f"SELECT cik, base_json FROM stk_fund_cache WHERE asof = ? AND cik IN ({marks})",  # noqa: S608
+            for r in self.conn.execute(f"SELECT cik, base_json, input_hash FROM stk_fund_cache "  # noqa: S608
+                                       f"WHERE asof = ? AND cik IN ({marks})",
                                        (day_of(asof), *part)):
-                out[r["cik"]] = json.loads(r["base_json"])
+                if r["input_hash"] == input_hashes.get(r["cik"]):
+                    out[r["cik"]] = json.loads(r["base_json"])
         return out
 
-    def cache_fund(self, rows: dict[int, dict[str, Any]], asof: date) -> None:
+    def cache_fund(self, rows: dict[int, dict[str, Any]], asof: date, input_hashes: dict[int, str]) -> None:
         with transaction(self.conn):
-            self.conn.executemany("INSERT OR REPLACE INTO stk_fund_cache(cik, asof, base_json) VALUES (?, ?, ?)",
-                                  [(cik, day_of(asof), canonical_json(b)) for cik, b in rows.items()])
+            self.conn.executemany("INSERT OR REPLACE INTO stk_fund_cache(cik, asof, base_json, input_hash) VALUES (?, ?, ?, ?)",
+                                  [(cik, day_of(asof), canonical_json(b), input_hashes[cik]) for cik, b in rows.items()])
 
     def watchlist(self) -> list[str]:
         return [r["symbol"] for r in self.conn.execute("SELECT symbol FROM stk_watchlist ORDER BY added_at")]

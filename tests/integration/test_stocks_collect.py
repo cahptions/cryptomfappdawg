@@ -6,6 +6,7 @@ import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -160,6 +161,31 @@ async def test_prices_backfill_newest_first_and_reject_mislabelled_days(world: W
     bad = await collect.prices(world.suite, world.market, NOW, history_days=8, after_close=timedelta(minutes=75))
     assert not bad["ok"] and "another day" in bad["error"]
     assert world.market.jobs()["prices"]["last_error"]
+
+
+async def test_partial_price_download_resumes_completed_days_and_records_receipt_time(world: World) -> None:
+    from desk.core.errors import DeskError
+    from desk.stocks.contracts import Bar
+
+    world.market.save_listings([Listing('AAA', 'A Common Stock', 'NYSE', False, False, 'common')], {}, NOW)
+    after_close = timedelta(minutes=75)
+    days = collect.missing_price_days(world.market, NOW, 8, after_close)
+    first = Bar('AAA', days[0], 10, 10, 10, 10, 1000)
+    world.suite.massive.grouped_daily = AsyncMock(side_effect=[ [first], DeskError('synthetic outage') ])
+    receipt = NOW + timedelta(minutes=2)
+    bad = await collect.prices(world.suite, world.market, NOW, history_days=8, after_close=after_close,
+                               max_days=2, clock=lambda: receipt)
+    assert not bad['ok']
+    assert world.market.bar_days() == [days[0]]
+    assert days[0] not in collect.missing_price_days(world.market, NOW, 8, after_close)
+    recorded = world.dbs.market.execute('SELECT received_at FROM stk_bar_days').fetchone()[0]
+    assert datetime.fromisoformat(recorded) == receipt
+    second = Bar('AAA', days[1], 11, 11, 11, 11, 1000)
+    world.suite.massive.grouped_daily = AsyncMock(return_value=[second])
+    good = await collect.prices(world.suite, world.market, NOW, history_days=8, after_close=after_close,
+                                max_days=1, clock=lambda: receipt + timedelta(seconds=1))
+    assert good['ok'] and world.market.bar_days() == sorted(days[:2])
+    assert len(world.market.bars('AAA')) == 2
 
 
 @respx.mock

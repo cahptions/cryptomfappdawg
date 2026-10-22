@@ -1,5 +1,12 @@
 # Continuing Claude's work
 
+> **Latest — reliability audit and Stocks sizing:** read `research/reliability/HANDOFF.md` before older notes.
+> It contains the actual fault matrix,1121passing offline tests, browser/resource results, update commands and
+> external limits. Stocks event PAPER sizing now has versioned larger desired tickets with account/stop-risk/
+> liquidity caps; crypto/options fees and capital are separate. This does not create intraday signals or validate
+> profitability. New `desk stocks diagnose` is bounded/read-only and redacts values. No production data or worker
+> was accessed. Preserve automatic Stocks PAPER and disabled real orders; see current update/restart instructions.
+
 > **Current automation policy — supersedes earlier manual research/PAPER instructions:** operator explicitly
 > requested automatic PAPER operation. Stocks dashboard lifespan now starts one combined collection/PAPER worker
 > (`stocks paper --continuous --price-days20`). It runs while the dashboard server runs, without a24-hour cutoff.

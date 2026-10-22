@@ -13,6 +13,7 @@ from typing import Any
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
 from desk.stocks.contracts import Listing, Mention, RatePoint, ShortInterest, ShortVolume
+from desk.stocks.sources.validation import number, schema_boundary
 
 OTHER_EXCHANGES = {"A": "NYSE American", "N": "NYSE", "P": "NYSE Arca", "Z": "Cboe BZX", "V": "IEX"}
 
@@ -44,6 +45,7 @@ def _rows(text: str) -> list[list[str]]:
     return [line.split("|") for line in lines]
 
 
+@schema_boundary("feeds nasdaq_listed")
 def parse_nasdaq_listed(text: str) -> list[Listing]:
     rows = _rows(text)
     if not rows or rows[0][:2] != ["Symbol", "Security Name"]:
@@ -57,6 +59,7 @@ def parse_nasdaq_listed(text: str) -> list[Listing]:
     return out
 
 
+@schema_boundary("feeds other_listed")
 def parse_other_listed(text: str) -> list[Listing]:
     rows = _rows(text)
     if not rows or rows[0][:3] != ["ACT Symbol", "Security Name", "Exchange"]:
@@ -103,13 +106,14 @@ def _short_interest_page(body: bytes) -> tuple[list[ShortInterest], int]:
                                      opt(row, "averageDailyVolumeQuantity"), opt(row, "daysToCoverQuantity")))
         return out, len(rows)
     except (ValueError, KeyError, TypeError, UnicodeError, csv.Error) as exc:
-        raise SchemaError(f"finra short interest: {exc}") from exc
+        raise SchemaError("finra short interest: invalid JSON/CSV records; response values suppressed") from exc
 
 
 def parse_short_interest(body: bytes) -> list[ShortInterest]:
     return _short_interest_page(body)[0]
 
 
+@schema_boundary("feeds reg_sho")
 def parse_reg_sho(text: str) -> list[ShortVolume]:
     """FINRA consolidated daily short sale volume (``CNMSshvolYYYYMMDD.txt``)."""
     out = []
@@ -121,16 +125,20 @@ def parse_reg_sho(text: str) -> list[ShortVolume]:
         if len(p) < 5 or not p[0].isdigit():
             continue
         d = p[0]
-        out.append(ShortVolume(p[1].replace("/", "."), date(int(d[:4]), int(d[4:6]), int(d[6:])), float(p[2]), float(p[3]),
-                               float(p[4])))
+        out.append(ShortVolume(p[1].replace("/", "."), date(int(d[:4]), int(d[4:6]), int(d[6:])),
+                               number(p[2], nonnegative=True), number(p[3], nonnegative=True),
+                               number(p[4], nonnegative=True)))
     return out
 
 
 TREASURY_COLUMNS = {"3 Mo": "UST3M", "2 Yr": "UST2Y", "10 Yr": "UST10Y", "30 Yr": "UST30Y"}
 
 
+@schema_boundary("feeds treasury_curve")
 def parse_treasury_curve(text: str) -> list[RatePoint]:
-    reader = csv.DictReader(io.StringIO(text))
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
+    if "Date" not in (reader.fieldnames or []) or not set(TREASURY_COLUMNS).intersection(reader.fieldnames or []):
+        raise SchemaError("treasury: expected yield-curve CSV, received non-data response")
     out = []
     for row in reader:
         try:
@@ -140,7 +148,7 @@ def parse_treasury_curve(text: str) -> list[RatePoint]:
         for column, series in TREASURY_COLUMNS.items():
             value = (row.get(column) or "").strip()
             if value:
-                out.append(RatePoint(series, date(year, month, day), float(value)))
+                out.append(RatePoint(series, date(year, month, day), number(value)))
     return out
 
 
@@ -165,9 +173,10 @@ def parse_fred_csv(text: str, series: str) -> list[RatePoint]:
             out.append(RatePoint(series, date.fromisoformat(row[dated]), number))
         return out
     except (ValueError, TypeError, csv.Error) as exc:
-        raise SchemaError(f"fred {series}: {exc}") from exc
+        raise SchemaError(f"fred {series}: invalid CSV header or observation; response values suppressed") from exc
 
 
+@schema_boundary("feeds apewisdom")
 def parse_apewisdom(body: bytes, source: str) -> tuple[list[Mention], int]:
     """One page of mentions and the number of pages."""
     try:
@@ -180,15 +189,16 @@ def parse_apewisdom(body: bytes, source: str) -> tuple[list[Mention], int]:
                          int(r["mentions"]), int(r.get("upvotes") or 0), num(r.get("rank_24h_ago")),
                          num(r.get("mentions_24h_ago"))) for r in d["results"]], int(d.get("pages") or 1))
     except (ValueError, KeyError, TypeError) as exc:
-        raise SchemaError(f"apewisdom {source}: {exc}") from exc
+        raise SchemaError(f"apewisdom {source}: invalid records; response values suppressed") from exc
 
 
+@schema_boundary("feeds openfigi")
 def parse_openfigi(body: bytes, cusips: list[str]) -> dict[str, str | None]:
     """CUSIP → US common-stock ticker (None when OpenFIGI has no equity match)."""
     try:
         results = json.loads(body)
     except ValueError as exc:
-        raise SchemaError(f"openfigi: {exc}") from exc
+        raise SchemaError("openfigi: invalid JSON; response values suppressed") from exc
     out: dict[str, str | None] = {}
     for cusip, result in zip(cusips, results, strict=True):
         ticker = None

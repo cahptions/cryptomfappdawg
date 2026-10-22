@@ -38,6 +38,13 @@ from desk.web.app import install_browser_boundary
 STATIC = Path(__file__).with_name("static")
 
 
+def saved_view(paths: DeskPaths, name: str) -> dict[str, Any] | None:
+    try:
+        return saved(paths, name)
+    except DeskError:
+        return None  # derived report is unavailable; System reports it, authoritative DBs are kept
+
+
 @contextmanager
 def reader(paths: DeskPaths, name: str) -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect((paths.db_dir / name).as_uri() + "?mode=ro", uri=True, timeout=2)
@@ -51,7 +58,7 @@ def reader(paths: DeskPaths, name: str) -> Iterator[sqlite3.Connection]:
 def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
     with reader(paths, RESEARCH_FILE) as conn:
         research = StocksResearch(conn)
-        lists = research_lists(research, saved(paths, "research"))
+        lists = research_lists(research, saved_view(paths, "research"))
         latest = research.latest_asof()
         computed = conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0]
     with reader(paths, MARKET_FILE) as conn:
@@ -64,14 +71,19 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
                           "latest": date.fromordinal(progress["latest"]).isoformat() if progress["latest"] else None,
                           "received_at": progress["received"], "minimum_sessions": 60}
     credentials = load_secrets(paths.secrets_file)
+    current_progress = saved_view(paths, "progress")
     return {"mode": "PAPER", "orders_enabled": False, "asof": str(latest) if latest else None, "lists": lists,
-            "desks": DESK_LABELS, "listings": count, "jobs": jobs, "worker": saved(paths, "worker"),
+            "desks": DESK_LABELS, "listings": count, "jobs": jobs, "worker": saved_view(paths, "worker"),
+            "report_errors": [name for name in ("worker", "research", "paper")
+                              if (paths.home / f"stocks-{name}.json").exists() and saved_view(paths, name) is None],
             "worker_running": WorkerLock(paths, "stocks-worker").held(), "stop": paths.stop_file.exists(),
             "connection": connection_status(paths, loaded.settings.stocks, credentials),
             "source_keys": {name: credentials.configured(name) for name in
                             ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")},
             "price_progress": price_progress,
+            "progress": current_progress,
             "revision": [count, progress["sessions"], progress["received"], computed,
+                         (current_progress or {}).get("updated_at"),
                          [(k, v.get("last_run_at")) for k, v in sorted(jobs.items())]]}
 
 
@@ -94,7 +106,7 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
     with reader(paths, LEDGER_FILE) as conn:
         book = PaperBook(conn)
         positions = [asdict(p) for p in book.positions()][:500]
-        return {"report": saved(paths, "paper"), "positions": positions, "decisions": book.decisions(limit=100),
+        return {"report": saved_view(paths, "paper"), "positions": positions, "decisions": book.decisions(limit=100),
                 "events": book.events(limit=100)}
 
 
@@ -141,6 +153,11 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     async def desk_error(_: Request, exc: DeskError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=400)
 
+    @app.exception_handler(sqlite3.Error)
+    async def storage_error(_: Request, exc: sqlite3.Error) -> JSONResponse:
+        return JSONResponse({"detail": "Stocks database is busy or unavailable. Run desk stocks diagnose; "
+                                       "existing data was preserved."}, status_code=503)
+
     @app.get("/")
     def home() -> FileResponse:
         return FileResponse(STATIC / "index.html")
@@ -160,7 +177,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.get("/api/stocks/home")
     def research_home() -> dict[str, Any]:
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
-            return hub_home(market, research, preview=saved(paths, "research"))
+            return hub_home(market, research, preview=saved_view(paths, "research"))
 
     @app.post("/api/stocks/research/start")
     async def start_research() -> dict[str, Any]:
