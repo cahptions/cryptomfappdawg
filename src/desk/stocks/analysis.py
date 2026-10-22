@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from typing import Any
 
@@ -36,6 +36,7 @@ class Day:
     committee: dict[str, dict[str, Any]]
     weights: dict[str, float]
     universe_size: int
+    market_price: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def month_ends(days: Sequence[date], before: date, months: int) -> list[date]:
@@ -123,7 +124,18 @@ class Analyzer:
         results = dk.run_desks(ctx, symbols)
         w = weights or self.weights()
         committee = {s: dk.committee({d: results[d].get(s) for d in dk.DESKS}, w) for s in symbols}
-        return Day(asof, ctx, results, committee, w, len(symbols))
+        # ETFs have useful market data but do not belong in the company-fundamental/PAPER universe.
+        etfs = {r[0] for r in self.market.conn.execute("SELECT symbol FROM stk_listings WHERE etf=1 AND active=1 AND test=0")}
+        market_price = dict(price)
+        for s in ([] if stale else panel.symbols):
+            if s not in etfs:
+                continue
+            values = {k: _num(pf.values[k][idx[s]]) for k in PRICE_FEATURES}
+            if ((values["close"] or 0) >= float(self.settings.min_price_usd)
+                    and (values["dollar_volume_20d"] or 0) >= float(self.settings.min_median_dollar_volume_usd)
+                    and (values["bars_year"] or 0) >= MIN_BARS):
+                market_price[s] = values
+        return Day(asof, ctx, results, committee, w, len(symbols), market_price)
 
     def weights(self) -> dict[str, float]:
         """Learned weights from the newest validation when it produced them, else the documented defaults."""

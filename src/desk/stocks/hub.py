@@ -78,7 +78,8 @@ def research_lists(research: StocksResearch, preview: dict[str, Any] | None = No
 def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
          preview: dict[str, Any] | None = None) -> dict[str, Any]:
     research = StocksResearch(research_conn)
-    priority = ["trending", "gainers", "losers", "momentum", "committee", "undervalued", "squeeze", "unusual_options",
+    priority = ["market_activity", "options_activity", "trending", "gainers", "losers", "momentum", "committee",
+                "undervalued", "squeeze", "unusual_options",
                 "cheap_iv", "big_moves", "earnings_week", "insider_buying", "quality_fair", "new_highs"]
     wanted = research.watchlist()[:25]
     lists = {value["id"]: value for value in research_lists(research, preview)}
@@ -92,7 +93,8 @@ def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
             "json_extract(detail_json, '$.committee.score') score, json_extract(detail_json, '$.committee.label') verdict, "
             "json_extract(detail_json, '$.price.rel_volume') relative_volume FROM stk_scores_latest WHERE symbol=?",
             (symbol,)).fetchone()
-        stocks[symbol] = {**price_card(market_conn, symbol), **(dict(row) if row else {})}
+        listing = market_conn.execute("SELECT name FROM stk_listings WHERE symbol=?", (symbol,)).fetchone()
+        stocks[symbol] = {**price_card(market_conn, symbol, listing[0] if listing else symbol), **(dict(row) if row else {})}
     breadth = research_conn.execute(
         "SELECT COUNT(*) researched, COUNT(json_extract(detail_json, '$.price.ret_1d')) observed, "
         "SUM(json_extract(detail_json, '$.price.ret_1d') > 0) advancing, "
@@ -129,3 +131,57 @@ def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | No
     return {"asof": date_of(newest).isoformat(), "observed_at": row["observed_at"], "source": row["source"],
             "expirations": [e.isoformat() for e in expirations], "expiration": selected.isoformat(),
             "underlying_price": price, "contracts": sorted(contracts, key=lambda q: (q["strike"], q["kind"]))}
+
+
+def etf_profile(conn: sqlite3.Connection, symbol: str, bars: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    """Read-only fund context from a bounded, gap-preserving panel. No company scores or singleton percentiles."""
+    if not bars:
+        return None
+    import math
+
+    import numpy as np
+
+    from desk.stocks.analysis import PRICE_FEATURES
+    from desk.stocks.features import compute
+    from desk.stocks.prices import Panel
+    from desk.stocks.signals import options
+
+    days = cal.trading_days(date_of(bars[0]["day"]), date_of(bars[-1]["day"]))
+    names = list(dict.fromkeys([symbol, "SPY"]))
+    arrays = [np.full((len(names), len(days)), np.nan) for _ in range(5)]
+    columns = {d.toordinal(): i for i, d in enumerate(days)}
+    for index, ticker in enumerate(names):
+        rows = bars if ticker == symbol else adjusted_bars(conn, ticker, [dict(r) for r in conn.execute(
+            "SELECT day, open, high, low, close, volume FROM stk_bars WHERE symbol=? AND day>=? AND day<=? ORDER BY day",
+            (ticker, bars[0]["day"], bars[-1]["day"]))])
+        for row in rows:
+            if row["day"] in columns:
+                for a, key in zip(arrays, ("open", "high", "low", "close", "volume"), strict=True):
+                    a[index, columns[row["day"]]] = row[key]
+    if not days:
+        return None
+    pf = compute(Panel(names, days, arrays[0], arrays[1], arrays[2], arrays[3], arrays[4]), len(days) - 1)
+    px = {key: pf.get(key, symbol) for key in PRICE_FEATURES}
+    px = {key: value if value is not None and math.isfinite(value) else None for key, value in px.items()}
+    closes = arrays[3][0]
+    for lookback, keys in {21: ("vol_20d",), 50: ("sma50", "above_sma50"),
+                           200: ("sma200", "above_sma200"),
+                           252: ("high_52w", "low_52w", "max_drawdown_1y", "beta_1y")}.items():
+        if len(closes) < lookback or not np.isfinite(closes[-lookback:]).all():
+            for key in keys:
+                px[key] = None
+    opt = options(StocksMarket(conn), days[-1], symbol=symbol).get(symbol, {})
+    desks = {}
+    for key, measures in {"momentum": ("ret_21d", "ret_63d", "above_sma200"),
+                          "risk": ("vol_20d", "max_drawdown_1y", "beta_1y")}.items():
+        known = {k: px[k] for k in measures if px[k] is not None}
+        desks[key] = {"score": None, "confidence": len(known) / len(measures), "verdict": "Observed fund metrics",
+                      "reasons": [f"{k}: {v:.4g}" for k, v in known.items()] or ["Insufficient stored sessions"]}
+    desks["options"] = {"score": None, "confidence": 1.0 if opt else 0.0,
+                        "verdict": "Stored options sample" if opt else "No options sample",
+                        "reasons": [f"Option session: {opt.get('day', 'missing')}; observed: {opt.get('observed_at', 'missing')}",
+                                    "Volume and open interest do not identify trade direction."]}
+    return {"symbol": symbol, "name": name, "asof": days[-1].isoformat(), "security_type": "ETF",
+            "price": px, "fundamentals": {}, "options": opt, "desks": desks, "bull": [], "bear": [],
+            "change_view": ["Compare trend, volatility and executable option spreads with your intended horizon."],
+            "committee": None, "weights": {}, "scope": "Fund market profile; no company-fundamental committee"}

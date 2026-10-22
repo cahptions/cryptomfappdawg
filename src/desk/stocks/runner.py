@@ -92,7 +92,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k != "prices"}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
-                                         "config": loaded.snapshot_hash, "preview_version": 2}))
+                                         "config": loaded.snapshot_hash, "preview_version": 3}))
     try:
         previous = saved(paths, "research")
     except DeskError:
@@ -105,12 +105,16 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     day = analyzer.build(panel, target, now=now)  # no persistent fundamentals cache during an incomplete backfill
     research.save_scores(target, {s: stock_detail(day, s) for s in day.ctx.symbols}, {}, now, record_history=False)
     selected = build_lists(day)
+    from desk.stocks.activity import candidates
+
+    _, option_coverage = candidates(day)
     value = {"asof": target.isoformat(), "computed_at": now.isoformat(), "input_hash": signature,
              "universe": day.universe_size, "basis": "Latest published research preview, not a frozen forward record",
              "expected_asof": expected.isoformat(), "awaiting_newer_close": target < expected,
              "lists": [{"id": spec.id, "title": spec.title, "blurb": spec.blurb, "asof": target.isoformat(),
                         "rows": [{**row, "rank": rank} for rank, row in enumerate(selected[spec.id][:25], 1)],
-                        "preview": True} for spec in LISTS]}
+                        "preview": True, "coverage": option_coverage if spec.id in
+                        ("market_activity", "options_activity", "unusual_options") else None} for spec in LISTS]}
     _atomic_private(saved_path(paths, "research"), json.dumps(value, allow_nan=False))
     return {"asof": target.isoformat(), "universe": day.universe_size, "research_only": True, "paper": None}
 
@@ -235,7 +239,7 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             held = PaperBook(dbs.ledger).held_expirations()
             # Rotate bounded batches, with held contracts always included. Never fetch the whole universe on a tick.
             ranked = [r[0] for r in research.conn.execute(
-                "SELECT symbol FROM stk_scores_latest ORDER BY json_extract(detail_json, '$.committee.score') DESC "
+                "SELECT symbol FROM stk_scores_latest ORDER BY json_extract(detail_json, '$.price.dollar_volume_20d') DESC "
                 "LIMIT ?", (settings.options_focus_symbols,))]
             candidates = list(dict.fromkeys([*research.watchlist(), "SPY", "QQQ", *ranked]))
             job = market.jobs().get("options", {}).get("detail", {})

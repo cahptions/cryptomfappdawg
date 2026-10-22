@@ -1380,3 +1380,4 @@ footer {
     margin-top: 5px;
   }
 }
+.price-chart { touch-action: pan-y; }

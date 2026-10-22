@@ -101,6 +101,10 @@ def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
                             "ORDER BY day DESC LIMIT 400", (symbol,)).fetchall()
         bars = adjusted_bars(conn, symbol, [dict(r) for r in reversed(rows)])
         listing = conn.execute("SELECT name, exchange, kind, etf FROM stk_listings WHERE symbol=?", (symbol,)).fetchone()
+        if listing and listing["etf"]:
+            from desk.stocks.hub import etf_profile
+
+            value = etf_profile(conn, symbol, bars, listing["name"])
     return {"symbol": symbol, "analysis": value, "bars": bars, "watchlisted": watched,
             "listing": dict(listing) if listing else None, "chart_basis": "Split-adjusted daily OHLC; no dividends"}
 

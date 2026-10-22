@@ -7,7 +7,7 @@ import math
 import statistics
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 from typing import Any
 
@@ -216,20 +216,35 @@ def crowd(market: StocksMarket, asof_end: datetime) -> dict[str, dict[str, Any]]
 
 
 # ── options ──────────────────────────────────────────────────────────────────────────────────────
-def options(market: StocksMarket, asof: date) -> dict[str, dict[str, Any]]:
+def options(market: StocksMarket, asof: date, *, observed_by: datetime | None = None,
+            symbol: str | None = None) -> dict[str, dict[str, Any]]:
     """Each optioned stock's newest summary at or before ``asof`` with its IV30 history for rank and percentile."""
     out: dict[str, dict[str, Any]] = {}
     rows = market.conn.execute(
-        "SELECT underlying, day, summary_json FROM stk_option_daily WHERE day <= ? AND day >= ? ORDER BY day",
-        (day_of(asof), day_of(asof - timedelta(days=400))))
+        "SELECT underlying, day, summary_json, observed_at FROM stk_option_daily WHERE day <= ? AND day >= ? "
+        "AND observed_at<=? ORDER BY day",
+        (day_of(asof), day_of(asof - timedelta(days=400)),
+         observed_by.astimezone(UTC).isoformat().replace("+00:00", "Z") if observed_by else "9999"))
+    if symbol is not None:
+        rows = market.conn.execute(
+            "SELECT underlying,day,summary_json,observed_at FROM stk_option_daily WHERE underlying=? "
+            "AND day<=? AND day>=? AND observed_at<=? ORDER BY day", (symbol, day_of(asof),
+             day_of(asof-timedelta(days=400)),
+             observed_by.astimezone(UTC).isoformat().replace("+00:00", "Z") if observed_by else "9999"))
     history: dict[str, list[float]] = defaultdict(list)
     for r in rows:
         summary = json.loads(r["summary_json"])
         if summary.get("iv30"):
             history[r["underlying"]].append(summary["iv30"])
-        out[r["underlying"]] = {**summary, "day": date_of(r["day"]).isoformat()}
+        out[r["underlying"]] = {**summary, "day": date_of(r["day"]).isoformat(), "observed_at": r["observed_at"]}
     for symbol, summary in out.items():
         summary["iv_history"] = history.get(symbol, [])
+        if not summary.get("activity") and summary["day"] == asof.isoformat():
+            from desk.stocks.activity import chain_activity
+
+            _, chains = market.option_chain(symbol, asof, observed_by=observed_by)
+            summary["activity"] = chain_activity([q for qs in chains.values() for q in qs],
+                                                  datetime.fromisoformat(summary["observed_at"]))
     return out
 
 

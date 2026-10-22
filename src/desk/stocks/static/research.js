@@ -111,7 +111,7 @@ const KestrelResearch = (() => {
     cell.append(monogram, name);
     return cell;
   }
-  function stocksTable(rows, cards, limit = 10) {
+  function stocksTable(rows, cards, limit = 10, activityRank = false) {
     const entries = rows.slice(0, limit).map((r, i) => {
       const card = cards[r.symbol] || {},
         ch = el("div", change(card.change), tone(card.change));
@@ -120,9 +120,9 @@ const KestrelResearch = (() => {
           el("small", `since ${shortDate(card.previous_day)}`, "muted"),
         );
       const signal = el("div", undefined, "row-signal");
-      if (card.score != null)
-        signal.append(badge(number(card.score), "score-badge"));
-      signal.append(el("small", card.verdict || "Research list"));
+      const displayedScore = activityRank ? r.value : card.score;
+      if (displayedScore != null) signal.append(badge(number(displayedScore), "score-badge"));
+      signal.append(el("small", activityRank ? "Activity, not direction" : card.verdict || "Research list"));
       return [
         el("span", String(i + 1).padStart(2, "0"), "rank"),
         symbolCell(r, card),
@@ -133,7 +133,7 @@ const KestrelResearch = (() => {
       ];
     });
     const result = table(
-      ["#", "Company", "Stored close", "Change", "Price history", "Committee"],
+      ["#", "Company", "Stored close", "Change", "Price history", activityRank ? "Activity / 100" : "Committee"],
       entries,
     );
     result.classList.add("market-table");
@@ -310,12 +310,14 @@ const KestrelResearch = (() => {
     const choices =
       focus === "options"
         ? [
-            ["unusual_options", "Unusual activity"],
+            ["options_activity", "Options activity"],
+            ["unusual_options", "Volume ratios"],
             ["cheap_iv", "Relative IV"],
             ["big_moves", "Expected moves"],
           ]
         : [
-            ["trending", "Trending"],
+            ["market_activity", "Market & options"],
+            ["trending", "Social attention"],
             ["momentum", "Rising trends"],
             ["gainers", "Top gainers"],
             ["losers", "Top losers"],
@@ -325,11 +327,13 @@ const KestrelResearch = (() => {
       content.replaceChildren();
       const list = snapshot.lists.find((l) => l.id === selected);
       const names = {
-        trending: "Trending top 10",
+        market_activity: "Market & options top 10",
+        options_activity: "Options activity",
+        trending: "Social attention top 10",
         momentum: "Rising trends",
         gainers: "Top 10 gainers",
         losers: "Top 10 losers",
-        unusual_options: "Unusual options activity",
+        unusual_options: "High option volume ratios",
         cheap_iv: "Relative IV value",
         big_moves: "Expected moves",
       };
@@ -352,7 +356,13 @@ const KestrelResearch = (() => {
           content.append(
             table(["#", "Underlying", "Research signal"], researchRows),
           );
-        } else content.append(stocksTable(list.rows, hub.stocks));
+        } else {
+          content.append(stocksTable(list.rows, hub.stocks, 10, selected === "market_activity"));
+          if (selected === "market_activity") {
+            for (const row of list.rows.slice(0, 10))
+              content.append(el("p", `${row.symbol}: ${row.reason}`, "muted caption"));
+          }
+        }
       } else if (!list?.asof) {
         const readiness = researchReadiness();
         content.append(
@@ -369,7 +379,9 @@ const KestrelResearch = (() => {
             "No qualifying names yet",
             selected === "trending"
               ? "Trending combines observed attention and trading activity. Missing coverage stays missing."
-              : "The saved research list has no qualifying stocks for this session.",
+              : ["market_activity", "options_activity", "unusual_options"].includes(selected)
+                ? `Options coverage: ${list.coverage?.same_session_options ?? "unknown"} same-session summaries; ${list.coverage?.quality_pass ?? "unknown"} pass quote/liquidity gates. The collector rotates a bounded sample. Missing, stale or wide quotes do not qualify. Check System for the options job result.`
+                : "The saved research list has no qualifying stocks for this session.",
             "#lists",
             "Explore other lists",
           ),
@@ -554,7 +566,7 @@ const KestrelResearch = (() => {
     app.append(layout);
   }
 
-  function chartWidget(bars) {
+  function chartWidget(bars, onInspect = () => {}) {
     const wrapper = el("section", undefined, "chart-widget"),
       tools = el("div", undefined, "chart-tools"),
       ranges = el("div", undefined, "range-buttons"),
@@ -567,6 +579,7 @@ const KestrelResearch = (() => {
     const periods = { "1M": 30, "3M": 90, "6M": 180, "1Y": 365, ALL: Infinity };
     function draw() {
       plot.replaceChildren();
+      onInspect(null);
       if (bars.length < 2) {
         plot.append(
           empty(
@@ -603,7 +616,8 @@ const KestrelResearch = (() => {
         preserveAspectRatio: "none",
         class: "price-chart",
         role: "img",
-        "aria-label": `${kind} chart of observed daily stock prices`,
+        "aria-label": `${kind} chart of observed daily stock prices. Use left and right arrows to inspect closes; Escape returns to latest.`,
+        tabindex: "0",
       });
       for (let i = 0; i < 4; i++) {
         const at = 10 + i * 78;
@@ -670,20 +684,46 @@ const KestrelResearch = (() => {
         visibility: "hidden",
       });
       svg.append(cursor);
-      svg.onpointermove = (event) => {
-        const bounds = svg.getBoundingClientRect(),
-          target = from + ((event.clientX - bounds.left) / bounds.width) * span;
-        const nearest = rows.reduce((a, b) =>
-          Math.abs(a.day - target) < Math.abs(b.day - target) ? a : b,
-        );
+      let selectedIndex = rows.length - 1;
+      const inspect = (index) => {
+        selectedIndex = Math.max(0, Math.min(rows.length - 1, index));
+        const nearest = rows[selectedIndex];
         cursor.setAttribute("x1", x(nearest));
         cursor.setAttribute("x2", x(nearest));
         cursor.setAttribute("visibility", "visible");
         readout.textContent = `${shortDate(dateOf(nearest.day))} · ${money(nearest.close)} · Volume ${compact(nearest.volume)}`;
+        onInspect(nearest, rows[0]);
       };
-      svg.onpointerleave = () => {
+      const reset = () => {
+        selectedIndex = rows.length - 1;
         cursor.setAttribute("visibility", "hidden");
         readout.textContent = "Daily prices · split-adjusted · volume below";
+        onInspect(null);
+      };
+      svg.onpointermove = (event) => {
+        const bounds = svg.getBoundingClientRect(),
+          target = from + ((event.clientX - bounds.left) / bounds.width) * span;
+        let index = 0;
+        rows.forEach((r, i) => { if (Math.abs(r.day - target) < Math.abs(rows[index].day - target)) index = i; });
+        inspect(index);
+      };
+      svg.onpointerdown = (event) => {
+        svg.setPointerCapture(event.pointerId);
+        svg.onpointermove(event);
+      };
+      svg.onpointerup = (event) => {
+        if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+        if (event.pointerType === "touch") reset();
+      };
+      svg.onpointercancel = reset;
+      svg.onpointerleave = reset;
+      svg.onblur = reset;
+      svg.onkeydown = (event) => {
+        if (event.key === "Escape") reset();
+        else if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          inspect(event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : selectedIndex + (event.key === "ArrowLeft" ? -1 : 1));
+        }
       };
       plot.append(svg);
       readout.textContent = "Daily prices · split-adjusted · volume below";
@@ -858,25 +898,29 @@ const KestrelResearch = (() => {
     const chips = el("div", undefined, "stock-chips");
     chips.append(
       badge(data.listing?.etf ? "ETF" : "US EQUITY"),
-      badge(d?.sector || "Research coverage pending", "quiet"),
+      badge(data.listing?.etf ? "ETF market/options profile" : d?.sector || "Research coverage pending", "quiet"),
     );
     top.append(chips);
-    const pricing = el("div", undefined, "stock-pricing");
-    pricing.append(
-      el("div", money(latest?.close ?? p.close), "big"),
-      el("span", change(daily), tone(daily)),
-    );
-    top.append(
-      pricing,
-      el(
-        "p",
-        latest
-          ? `Stored close · ${shortDate(dateOf(latest.day))} · USD`
-          : "No stored price history",
-        "muted caption",
-      ),
-    );
-    main.append(top, chartWidget(data.bars));
+    const pricing = el("div", undefined, "stock-pricing"),
+      headlinePrice = el("div", money(latest?.close ?? p.close), "big"),
+      headlineChange = el("span", change(daily), tone(daily)),
+      priceCaption = el("p", "", "muted caption");
+    headlinePrice.dataset.testid = "headline-price";
+    priceCaption.dataset.testid = "price-caption";
+    pricing.append(headlinePrice, headlineChange);
+    const inspectPrice = (row, baseline) => {
+      const delta = row && baseline?.close ? row.close / baseline.close - 1 : daily;
+      headlinePrice.textContent = money(row?.close ?? latest?.close ?? p.close);
+      headlineChange.textContent = change(delta);
+      headlineChange.className = tone(delta);
+      priceCaption.textContent = row
+        ? `${shortDate(dateOf(row.day))} · Stored close · USD · Change since ${shortDate(dateOf(baseline.day))}`
+        : latest ? `Stored close · ${shortDate(dateOf(latest.day))} · USD · Change vs previous observed close`
+        : "No stored price history";
+    };
+    inspectPrice(null);
+    top.append(pricing, priceCaption);
+    main.append(top, chartWidget(data.bars, inspectPrice));
     main.append(
       metrics("Key statistics", [
         [
@@ -934,12 +978,13 @@ const KestrelResearch = (() => {
     desks.id = "desks";
     desks.append(
       sectionTitle(
-        "Eleven perspectives. One research record.",
+        data.listing?.etf ? "ETF market evidence" : "Eleven perspectives. One research record.",
         "Scores reflect the stored evidence. Coverage is not a probability of profit.",
       ),
     );
     const grid = el("div", undefined, "grid desk-grid");
     for (const [id, label] of Object.entries(snapshot.desks)) {
+      if (data.listing?.etf && !d?.desks?.[id]) continue;
       const desk = d?.desks?.[id],
         card = el("article", undefined, "desk-card");
       card.id = `desk-${id}`;
@@ -975,25 +1020,26 @@ const KestrelResearch = (() => {
         }),
       );
     const committee = el("section", undefined, "committee-card");
-    committee.append(el("div", "COMMITTEE VIEW", "eyebrow"));
+    committee.append(el("div", data.listing?.etf ? "ETF PROFILE" : "COMMITTEE VIEW", "eyebrow"));
     const score = el("div", undefined, "committee-number");
     score.append(
-      el("strong", number(d?.committee?.score)),
-      el("span", "/ 100", "muted"),
+      el("strong", data.listing?.etf ? "ETF" : number(d?.committee?.score)),
+      el("span", data.listing?.etf ? "" : "/ 100", "muted"),
     );
     committee.append(
       score,
-      el("h2", d?.committee?.label || "Awaiting evidence"),
+      el("h2", data.listing?.etf ? "Market & options evidence" : d?.committee?.label || "Awaiting evidence"),
     );
     committee.append(
       el(
         "p",
-        "A synthesis of the desks below, weighted by the recorded methodology.",
+        data.listing?.etf ? "Company valuation, earnings and insider models do not apply to funds. This profile shows observed price, risk and options data without a company committee score." : "A synthesis of the desks below, weighted by the recorded methodology.",
         "muted caption",
       ),
     );
     const strip = el("div", undefined, "desk-strip");
     for (const [id, label] of Object.entries(snapshot.desks)) {
+      if (data.listing?.etf && !d?.desks?.[id]) continue;
       const score = d?.desks?.[id]?.score,
         a = link("", `#desk-${id}`);
       a.className =
@@ -1019,7 +1065,7 @@ const KestrelResearch = (() => {
       el(
         "p",
         d
-          ? `${d.committee?.desks_counted || 0} scored desks · ${d.asof}`
+          ? data.listing?.etf ? `ETF profile · ${d.asof}` : `${d.committee?.desks_counted || 0} scored desks · ${d.asof}`
           : "No eligible analysis stored",
         "muted caption",
       ),
@@ -1051,6 +1097,7 @@ const KestrelResearch = (() => {
     const overview = el("section", undefined, "sidebar-section");
     overview.append(sectionTitle("Desk breakdown"));
     for (const [id, label] of Object.entries(snapshot.desks)) {
+      if (data.listing?.etf && !d?.desks?.[id]) continue;
       const row = el("div", undefined, "sector-row");
       row.append(
         el("span", label),

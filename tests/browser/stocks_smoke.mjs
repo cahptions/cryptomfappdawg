@@ -28,7 +28,7 @@ try {
     });
     await page.goto(base);
     await page.getByRole("heading", { name: "Market overview" }).waitFor();
-    await page.getByRole("heading", { name: "Trending top 10" }).waitFor();
+    await page.getByRole("heading", { name: "Market & options top 10" }).waitFor();
     await page.getByRole("heading", { name: "Options intelligence" }).waitFor();
     await page.getByRole("tab", { name: "Rising trends" }).click();
     await page
@@ -54,6 +54,21 @@ try {
         .waitFor();
       await page.locator(".price-path").waitFor();
       assert.equal(await page.locator(".desk-card").count(), 11);
+      const price = page.getByTestId("headline-price"), caption = page.getByTestId("price-caption");
+      const latestPrice = await price.innerText();
+      const chart = page.locator("svg.price-chart");
+      await chart.focus();
+      await chart.press("Home");
+      assert.notEqual(await price.innerText(), latestPrice);
+      assert.match(await caption.innerText(), /Change since/);
+      await chart.press("Escape");
+      assert.equal(await price.innerText(), latestPrice);
+      const box = await chart.boundingBox();
+      await page.mouse.move(box.x + 3, box.y + 100);
+      assert.notEqual(await price.innerText(), latestPrice);
+      await page.mouse.move(box.x, box.y - 10);
+      assert.equal(await price.innerText(), latestPrice);
+
       await page.getByRole("button", { name: "Candles", exact: true }).click();
       assert.ok((await page.locator(".candle-body").count()) > 0);
       await page.getByRole("tab", { name: "Puts", exact: true }).click();

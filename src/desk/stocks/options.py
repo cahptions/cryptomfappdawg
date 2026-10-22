@@ -212,6 +212,7 @@ def daily_summary(chains: dict[date, list[OptionQuote]], s: float, today: date, 
             if ratio is not None and ratio >= 3 and c.quote.volume >= 500:
                 unusual.append({"occ": c.quote.occ, "kind": c.quote.kind, "strike": c.quote.strike, "expiration": exp.isoformat(),
                                 "volume": c.quote.volume, "open_interest": c.quote.open_interest, "ratio": round(ratio, 2),
+                                "ratio_basis": "average volume" if c.quote.average_volume else "open interest",
                                 "mid": c.mid, "iv": c.iv})
     near = [e for e in expiries if e["atm_iv"] is not None]
     iv30 = interpolate_iv(near, 30)

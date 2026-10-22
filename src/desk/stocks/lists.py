@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from desk.core.hashing import canonical_json, sha256_hex
+from desk.stocks.activity import market_activity, options_activity
 from desk.stocks.analysis import Day
 from desk.stocks.desks import DeskResult, pct, usd
 
@@ -216,7 +217,8 @@ def unusual_options(day: Day) -> list[dict[str, Any]]:
         u = unusual[0]
         premium = u["volume"] * (u.get("mid") or 0) * 100
         out.append((premium, s, f"{u['volume']:,} {u['expiration'][5:]} ${u['strike']:g} {u['kind']}s "
-                                f"({u['ratio']:.1f}× normal, {usd(premium)} premium)"))
+                                f"(volume / {u.get('ratio_basis', 'reference unavailable')} {u['ratio']:.1f}×; "
+                                f"{usd(premium)} midpoint premium proxy; not trade direction)"))
     return _top(day, out)
 
 
@@ -317,6 +319,17 @@ def committee_top(day: Day) -> list[dict[str, Any]]:
 
 
 LISTS: tuple[ListSpec, ...] = (
+    ListSpec("market_activity", "Market & options activity", "Measured options and price activity; no social input",
+             "v1: same-session observed standard options, DTE 2..90, bid>0, spread/mid<=25%, >=4 contracts, "
+             "aggregate volume>=100, OI>=100, volume*mid*100>=10000; percentile weights premium proxy .25, "
+             "volume .20, capped volume/OI .10, quote quality .10, relative stock volume .15, "
+             "absolute volatility-scaled daily move .10, absolute SPY-relative 63d strength .10; "
+             "rank among covered names only; descriptive, no social or committee inputs", 1, "wave", False,
+             market_activity, history=False),
+    ListSpec("options_activity", "Options activity", "Liquid sampled contracts, ranked by midpoint premium proxy",
+             "market_activity v1 quality gates; rank all qualified covered names by sum(volume*mid*100), descending; "
+             "sampled expiries only, no directional or opening-trade inference", 1, "zap", False,
+             options_activity, history=False),
     ListSpec("trending", "Trending today", "What retail is talking about and trading", "crowd attention 50%, volume vs normal "
              "30%, size of today's move 20%; crowd score >= 30 or volume >= 2.5x normal", 1, "rocket", True, trending,
              history=False),
@@ -340,8 +353,10 @@ LISTS: tuple[ListSpec, ...] = (
              insider_buying, claim="outperform"),
     ListSpec("squeeze", "Squeeze watch", "Heavily shorted and moving against the shorts", "squeeze score >= 50 (short % of "
              "shares, days to cover, 21-day return, relative volume)", 1, "flame", True, squeeze_watch),
-    ListSpec("unusual_options", "Unusual options activity", "Contracts trading far above normal", "largest premium among "
-             "contracts with volume >= 500 and >= 3x their usual volume", 1, "zap", True, unusual_options, history=False),
+    ListSpec("unusual_options", "High option volume ratios", "Volume against average volume, or open interest when unavailable",
+             "largest midpoint premium proxy among contracts with volume>=500 and volume/reference>=3; reference is "
+             "provider average volume when supplied, otherwise open interest; these are different denominators", 2,
+             "zap", True, unusual_options, history=False),
     ListSpec("cheap_iv", "Cheapest IV", "Options priced below what the stock actually moves", "lowest 30-day implied volatility "
              "/ 20-day realized volatility", 1, "tag", True, cheapest_iv, history=False),
     ListSpec("big_moves", "Biggest expected moves this week", "Where options price the biggest swings", "expected move "

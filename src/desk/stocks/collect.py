@@ -14,6 +14,7 @@ from desk.core.errors import DeskError
 from desk.core.hashing import sha256_hex
 from desk.stocks import calendar as cal
 from desk.stocks import options as opt
+from desk.stocks.activity import chain_activity, quote_session
 from desk.stocks.contracts import InsiderTrade
 from desk.stocks.fundamentals import CONCEPTS
 from desk.stocks.repo import FILING_FORMS, StocksMarket
@@ -331,35 +332,45 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
     """Chains for ``symbols`` (and every underlying in ``held``): the picked expirations plus any expiration a PAPER
     position holds, so a held contract is quoted every day until it closes."""
     async def work() -> dict[str, Any]:
-        today = cal.new_york(now).date()
+        today = quote_session(now)
         done, contracts, skipped = 0, 0, []
+        errors = {}
         wanted = list(dict.fromkeys([*symbols, *(held or {})]))
         for symbol in wanted:
-            expirations = await suite.tradier.expirations(symbol)
-            chosen = sorted(set(pick_expirations(expirations, today, (earnings or {}).get(symbol)))
-                            | {e for e in (held or {}).get(symbol, set()) if e in expirations and e >= today})
-            if not chosen:
-                skipped.append(symbol)
+            try:
+                expirations = await suite.tradier.expirations(symbol)
+                chosen = sorted(set(pick_expirations(expirations, today, (earnings or {}).get(symbol)))
+                                | {e for e in (held or {}).get(symbol, set()) if e in expirations and e >= today})
+                if not chosen:
+                    skipped.append(symbol)
+                    continue
+                chains = {}
+                for e in chosen:
+                    chains[e] = await suite.tradier.chain(symbol, e)
+                price = last_prices.get(symbol)
+                if price is None:
+                    stock = await suite.tradier.quotes([symbol])
+                    price = stock[0].last if stock else None
+                if price is None:
+                    skipped.append(symbol)
+                    continue
+                received_at = clock()
+                for e, quotes in chains.items():
+                    market.save_option_chain(symbol, today, e, received_at, price, quotes, source=suite.option_source)
+                    contracts += len(quotes)
+                summary = opt.daily_summary(chains, price, today, rate)
+                summary["activity"] = chain_activity([q for qs in chains.values() for q in qs], received_at)
+                market.save_option_daily(symbol, today, received_at, summary)
+                done += 1
+            except DeskError as exc:
+                errors[symbol] = str(exc)[:200]
                 continue
-            chains = {}
-            for e in chosen:
-                chains[e] = await suite.tradier.chain(symbol, e)
-            price = last_prices.get(symbol)
-            if price is None:
-                stock = await suite.tradier.quotes([symbol])
-                price = stock[0].last if stock else None
-            if price is None:
-                skipped.append(symbol)
-                continue
-            received_at = clock()
-            for e, quotes in chains.items():
-                market.save_option_chain(symbol, today, e, received_at, price, quotes, source=suite.option_source)
-                contracts += len(quotes)
-            market.save_option_daily(symbol, today, received_at, opt.daily_summary(chains, price, today, rate))
-            done += 1
+        if errors and not done:
+            first_error = next(iter(errors.values()))
+            raise DeskError(f"All {len(errors)} option requests failed; {first_error}")
         pruned = market.prune_option_chains(today - timedelta(days=45))
         return {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned,
-                "source": suite.option_source}
+                "source": suite.option_source, "errors": errors, "partial": bool(errors), "session": today.isoformat()}
     return await _job(market, "options", now, work)
 
 
