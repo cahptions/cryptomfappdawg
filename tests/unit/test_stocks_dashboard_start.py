@@ -78,7 +78,7 @@ def test_restart_gracefully_stops_only_a_real_temporary_dashboard(tmp_path: Path
     env = {**os.environ, 'DESK_HOME': str(paths.home), 'DESK_CONFIG_DIR': str(paths.config_dir),
            'DESK_SECRETS_FILE': str(paths.secrets_file)}
     child = subprocess.Popen([sys.executable, '-m', 'desk', 'stocks', 'dashboard', '--port', str(port)],
-                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         until = time.monotonic() + 10
         while not responding(f'http://127.0.0.1:{port}', timeout=0.2):
@@ -86,7 +86,12 @@ def test_restart_gracefully_stops_only_a_real_temporary_dashboard(tmp_path: Path
             time.sleep(0.05)
         assert lock_owner(paths.home / 'run' / 'stocks-dashboard.lock') == child.pid
         restart_dashboard(paths, timeout=5)
-        assert child.wait(timeout=5) == 0
+        _, stderr = child.communicate(timeout=5)
+        import signal
+
+        # Uvicorn re-raises a captured signal after its graceful lifespan cleanup.
+        assert child.returncode in (0, -signal.SIGTERM)
+        assert b'Application shutdown complete' in stderr
         assert json.loads(preference.read_text()) == {'enabled': False}
         assert not WorkerLock(paths, 'stocks-worker').held()
     finally:
