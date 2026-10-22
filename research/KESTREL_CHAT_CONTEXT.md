@@ -158,7 +158,7 @@ The baseline inspected at the start of this pass was commit `3b9e305` on `codex/
 
 That baseline's earlier full offline test report was 1210 passed / five live tests excluded. **Do not apply that old result to the new working-tree changes.**
 
-### New Stocks changes in the working tree
+### Current Stocks build changes
 
 - Added descriptive market/options activity rankings with no social or committee input; the default home list uses market/options activity and keeps social attention separate.
 - Options/market weights are heuristic activity priorities, not an independently validated predictive model or probability. Correlated metrics remain a limitation.
@@ -167,10 +167,10 @@ That baseline's earlier full offline test report was 1210 passed / five live tes
 - Rotates sampled options by underlying dollar liquidity, not committee/social rank.
 - A symbol failure no longer discards unaffected symbol requests; total provider failure is no longer a successful options job.
 - ETF pages receive a read-only market/risk/options profile without company valuation or an invented company committee score. ETF lookback warm-up is explicit.
-- Chart pointer/touch/keyboard inspection updates headline price/date/change and resets appropriately. Browser regression code was extended, but browser execution remains blocked.
+- Chart pointer/touch/keyboard inspection updates headline price/date/change and resets appropriately. Current desktop/mobile Chromium checks pass for pointer, keyboard and native touch input/reset.
 - Existing primary PAPER selection behavior and LIVE/order authorization boundaries are preserved.
 
-### New Arbitrage changes in the working tree
+### Current Arbitrage build changes
 
 - Added public merchant catalog candidates: Adafruit sitemap traversal and an Arduino public Shopify-style catalog parser. Robots/access failures stay failures; currency must be explicitly published, not guessed. Actual endpoint compatibility is not verified here.
 - Persistent merchant URL queue, bounded enrichment, fair new/refresh batches, source-pause checks and request reservations.
@@ -197,21 +197,34 @@ That baseline's earlier full offline test report was 1210 passed / five live tes
 
 ## Validation and environment blockers
 
-The final targeted modified-module regression run passed **104 tests**, with five threaded/full-HTTP tests deselected (19.35 seconds). This is not a complete repository or browser test pass. Ruff and strict Mypy passed across 231 source files. JavaScript syntax checks passed.
+The latest complete offline regression passed **1,229 tests**, with five opt-in live-provider tests excluded by
+the repository default marker (110.18 seconds). HTTP middleware, session/CSRF, pagination and atomic comparable
+CSV imports are included. Ruff and strict Mypy passed across 231 source files. JavaScript syntax checks passed.
 
-A 10,000-product synthetic capacity experiment verified distinct products, persistent queues, first/middle/last 50-product pages, full-catalog search and bounded response size. The final recorded capacity check took approximately 0.02–0.025 seconds/page, returned 86,640 bytes for its last page, and peaked at 37.52 MiB process RSS. Database files totaled 17,162,240 bytes for that fixture. These are cloud synthetic measurements, not production or Dell measurements.
+Current Chromium acceptance passed Arbitrage at 1600/390px, nine routes, image decoding, price statistics,
+CSV upload/plot, inventory/refunds, private credential forms, source grouping, Settings setup, full-catalog brand/model
+search, ranking and research links. Stocks populated/empty at 1366/375px, readiness states, ETF profile, chart
+headline pointer/keyboard/native touch inspection and reset, PAPER, Settings and CSP passed. All fixtures are
+isolated synthetic records. Browser review found and fixed metadata search and a dropped research-link form.
 
-Browser/server verification is blocked in this environment. An escalated fixture-server command was rejected because **automatic approval review hit an account usage limit**, not because it determined the action was unsafe. A later non-escalated Chromium check failed with an OS `setsockopt: Operation not permitted` error. In-memory FastAPI/sync-worker tests also stalled under the restricted environment and were bounded with timeouts. A broad regression attempt did not finish before its timeout; it is not a passing full-suite result.
+A 10,000-product synthetic capacity experiment measured 0.0217–0.0256 seconds/page, 86,640 bytes on the last page,
+37.69 MiB peak RSS and 17,162,240 database bytes. These are cloud synthetic measurements, not production sourcing
+or Dell hardware measurements. Newly verified real source offers: zero.
 
-The active cloud network policy allows crypto hosts and package/GitHub presets, but not the retailer/eBay/competitor hosts needed for real-source acceptance. An earlier additive network draft exists but is not published. Saving a draft is not applying the network policy. Do not claim that opening an edit panel or 'allow all' automatically changed the active policy.
+Earlier approval-review usage/sandbox failures are resolved for elevated local tests, browser/server execution and
+GitHub access. The full suite and browser tests above actually executed. Public retailer/eBay-documentation/competitor
+requests still receive proxy tunnel HTTP 403. Runtime desired policy reports unrestricted with unknown enforcement;
+actual source access remains unsuccessful. Private laptop eBay credentials remain unavailable. An earlier saved
+configuration draft does not establish working retailer access. Do not bypass denials or invent competitor findings.
 
-A normal Git fetch failed in this session because of network access. Verify publication before telling the user to pull new changes. Do not issue a command that assumes these working-tree changes are on origin when they are not.
+GitHub fetch works and the remote branch was checked for divergence. Verify the final release commit/push in the
+repository before assuming that the user's laptop has updated. The laptop receives changes only after pulling them.
 
 ## Where the next AI should start
 
-1. Inspect actual repository, working tree, branch and applicable instructions. Do not reset or discard the uncommitted work described here.
+1. Inspect actual repository, working tree, branch and applicable instructions. Preserve local and remote work.
 2. Read the current durable research/handoff files and run appropriate checks that the environment actually permits.
-3. Finish the Stocks chart/ranking/profile verification and Arbitrage Sources/Settings/browser flows, clearly distinguishing pending tests from passed tests.
+3. Preserve the passing Stocks and Arbitrage browser/HTTP/offline regressions; rerun relevant checks after changes.
 4. Reconcile current catalog/ranking/price/availability inputs, exact matching, stale-data expiration and financial accounting before adding more indicators or arbitrary scores.
 5. Complete real-source acceptance using permitted domains and the user's locally configured connections. Do not ask for secrets in chat or bypass source restrictions.
 6. Research accessible official competitor documentation/demos and convert only feasible useful ideas into complete workflows. Clearly label unavailable capabilities/data.
@@ -621,7 +634,9 @@ The standard is an application that materially improves my ability to find, rese
 
 ## Export follow-up checkpoint
 
-After requesting this Markdown, the user explicitly asked to resume the ongoing build. Source/navigation work and
-review continued. A new runtime permission request returned `network:null` (no grant). An additive cloud-domain
-draft was confirmed saved with `requires_publish:true`; it has not changed the active policy. Browser/real-source
-acceptance and remote publishing remain blocked/unconfirmed. Do not claim the user's laptop has received this code.
+After requesting this Markdown, the user explicitly asked to resume the ongoing build, then said to retry after
+granting full access. Elevated local execution and GitHub access now work. Full offline and current browser checks
+passed; search and Settings research-link defects found during browser review were repaired. Durable validation
+records/screenshots were refreshed. Public source HTTP still receives proxy 403, and real business acceptance
+remains open. Preserve that distinction when continuing. See the repository/release record for final push status;
+no access to the operator's laptop or private credentials is claimed.

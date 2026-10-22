@@ -1,8 +1,8 @@
 # Operator rebuild checkpoint — 2026-10-22
 
 This is implemented development work, **not a completed live-business acceptance**. New real-source coverage in this
-cloud session is zero. Earlier product screenshots and browser reports describe the previous baseline. The current
-GUI has syntax/static checks and handler/projection tests; its actual browser acceptance remains blocked.
+cloud session is zero. Current desktop/mobile screenshots and browser reports were regenerated against isolated
+synthetic fixtures. Full offline and local-browser checks now pass; real-source/business acceptance remains open.
 
 ## Operator workflow delivered in this pass
 
@@ -67,15 +67,25 @@ numbers. It proves neither real market coverage nor Dell/browser/power-loss perf
 
 ## Validation and limits
 
-Read `validation/rebuild-checks.json`: 104 targeted tests passed, five threaded/full-HTTP tests deselected. Targeted tests cover primary Stocks analysis/PAPER regressions and Arbitrage
-pricing, accounting, queues, pagination, matching, expiry, source-failure veto, protected records and handler-level
-CSV/projection behavior. Strict Mypy and Ruff pass. Syntax checks cover changed JS and browser scripts.
+Read `validation/rebuild-checks.json`: the complete offline suite passed **1,229 tests**, with five opt-in live
+provider tests excluded by the default marker (110.18 seconds). This includes HTTP middleware, session/CSRF,
+pagination and atomic CSV import, primary Stocks analysis/PAPER, source failures, accounting, exact matching,
+expiry, cache invalidation and protected records. Ruff and strict Mypy pass across 231 source files.
 
-Browser/server commands requiring escalation could not execute because automatic approval review reported an
-account usage limit, not an unsafe-action finding. A normal Chromium launch also failed on restricted socket
-operations. Threaded/in-memory HTTP tests stalled and were bounded with timeouts; they are not passing HTTP tests.
-A broader regression run timed out; its prior baseline full-suite result must not be reused for this revision.
-No current desktop/mobile screenshots or decoded-image/browser-flow acceptance are claimed.
+Actual Chromium checks passed for Arbitrage desktop (1600px) and mobile (390px), nine routes, decoded fixture
+images, comparable low/average/high/median, CSV upload/price plot, identity/availability review, inventories and
+refunds, private credential forms, Settings-only configuration, Sources product grouping, global brand/model
+search, profit-vs-ROI ranking and external research links. No uncaught JS errors or horizontal overflow were found.
+Stocks populated/empty desktop (1366px) and phone (375px), readiness states, ETF profile, chart headline pointer,
+keyboard and native Chromium touch inspection passed. The servers used disposable data and no operator secrets.
+
+Browser review found and fixed metadata search (both backend and frontend), restored research links in Settings,
+and corrected test timing/selectors after server-side pagination and navigation changes. Current screenshots and
+JSON reports are software evidence, not live offers, demand, profitable strategies or completed sales.
+
+Earlier approval-review usage failures are resolved for local browser/test/server execution and GitHub fetch.
+Public source requests still receive tunnel HTTP 403 from the configured proxy; see `validation/source-access-checks.json`.
+Do not bypass that restriction or describe real retailer integration as accepted.
 
 ## Source and capability matrix
 
@@ -109,7 +119,7 @@ invented. Functional improvements above follow the operator requirements and rep
 falsely attributed to examined competitor software. Access-enabled research remains outstanding.
 
 Priority next work:
-1. Run current isolated browser/HTTP tests and fix actual desktop/mobile/source-image/form defects found there.
+1. Preserve the passing offline/browser checks; re-run relevant tests when implementation changes.
 2. Verify permitted real catalog -> exact product -> resale evidence -> realistic dated fees/eligibility slice.
    Check actual production eBay access locally without exposing credentials. Do not claim thousands of real offers.
 3. Complete competitor review from accessible official material and measure which workflows reduce operator work.
@@ -119,7 +129,7 @@ Priority next work:
    saved-alert/noise evaluation and richer stock/workload filters only against supported records.
 6. Measure actual Dell browser/backend resource use, network outages, sleep/resume and power-loss recovery.
 
-An additive cloud-domain draft has been saved with `requires_publish=true`. It preserves existing entries and adds
-catalog/feed/research hosts, but is inactive until reviewed/saved in environment settings and the environment
-published. Private laptop API credentials have not been accessed. Normal Git fetch also failed on network access;
-verify remote publication before giving the operator pull commands for these changes.
+An earlier additive cloud-domain draft was saved. Current runtime status reports unrestricted mode with unknown
+enforcement, while actual retailer/competitor HTTP requests receive tunnel 403. Local elevated browser/tests and
+GitHub fetch now work. Private laptop API credentials have not been accessed. Verify the branch push before telling
+the operator the update is available; a working GitHub connection is not working retailer access.

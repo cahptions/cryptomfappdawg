@@ -2,6 +2,8 @@
   "basis": "Synthetic isolated browser fixtures only; not live offers or forward business results",
   "pages": 9,
   "flows": [
+    "comparable low/average/high/median display",
+    "CSV comparable upload and reported-price plot",
     "identity review",
     "regional availability check",
     "capital basket",

@@ -140,6 +140,22 @@ def test_profit_index_is_global_and_invalidated_when_source_price_changes(tmp_pa
         assert repo.conn.execute("SELECT COUNT(*) FROM arb_opportunity_index").fetchone()[0] == 0
 
 
+def test_catalog_metadata_search_keeps_count_pagination_and_category_consistent(tmp_path: Path) -> None:
+    paths = DeskPaths(tmp_path / "data", tmp_path / "config", tmp_path / "private")
+    with Repo.open(paths) as repo:
+        for i in range(55):
+            repo.save_product(Product(id=f"p{i:02d}", title=f"Distinct item {i:02d}",
+                brand="OpticsTest", mpn="MODEL-needle", gtin=GTIN,
+                category="Tools" if i == 54 else "Electronics"))
+        repo.save_product(Product(id="other", title="Unrelated", category="Tools"))
+        for query in ["opticstest", "MODEL-needle", GTIN]:
+            ids, total = repo.catalog_ids(query=query, offset=50)
+            assert total == 55 and len(ids) == 5 and "other" not in ids
+            ids, total = repo.catalog_ids(query=query, category="Tools")
+            assert total == 1 and ids == ["p54"]
+        assert repo.catalog_ids(query="%'")[1] == 0  # Literal text, never a SQL pattern/expression.
+
+
 async def test_in_memory_api_pagination_csrf_and_atomic_comparable_import(tmp_path: Path) -> None:
     from desk.arbitrage.runner import initialize
     from desk.arbitrage.web import create_app

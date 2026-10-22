@@ -149,12 +149,18 @@ class Repo:
                     current_at: str = "") -> tuple[list[str], int]:
         args = (query[:200], query[:200], category[:80], category[:80], source_host, source_host)
         total = self.conn.execute("SELECT COUNT(*) FROM arb_products p WHERE "
-            "(?='' OR instr(lower(json_extract(p.body,'$.title')), lower(?))>0) "
+            "(?='' OR instr(lower(json_extract(p.body,'$.title') || ' ' || "
+                  "coalesce(json_extract(p.body,'$.brand'),'') || ' ' || "
+                  "coalesce(json_extract(p.body,'$.mpn'),'') || ' ' || "
+                  "coalesce(json_extract(p.body,'$.gtin'),'')), lower(?))>0) "
             "AND (?='' OR json_extract(p.body,'$.category')=?) "
             "AND (?='' OR EXISTS(SELECT 1 FROM arb_product_sources m WHERE m.product_id=p.id AND m.host=?))", args).fetchone()[0]
         rows = self.conn.execute("SELECT p.id FROM arb_products p LEFT JOIN arb_opportunity_index x "
             "ON x.product_id=p.id AND x.at>=? AND json_extract(x.body,'$.catalog_expires_at')>=? WHERE "
-            "(?='' OR instr(lower(json_extract(p.body,'$.title')), lower(?))>0) "
+            "(?='' OR instr(lower(json_extract(p.body,'$.title') || ' ' || "
+                  "coalesce(json_extract(p.body,'$.brand'),'') || ' ' || "
+                  "coalesce(json_extract(p.body,'$.mpn'),'') || ' ' || "
+                  "coalesce(json_extract(p.body,'$.gtin'),'')), lower(?))>0) "
             "AND (?='' OR json_extract(p.body,'$.category')=?) "
             "AND (?='' OR EXISTS(SELECT 1 FROM arb_product_sources m WHERE m.product_id=p.id AND m.host=?)) ORDER BY "
             "CASE WHEN ?='profit' AND x.profit>0 THEN x.profit END DESC, "

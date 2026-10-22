@@ -3,8 +3,10 @@
 Read `REBUILD_CHECKPOINT.md`, `validation/rebuild-checks.json`, `OPERATOR_REBUILD_REQUEST.md` and
 `../STOCKS_ACTIVITY_FIXES.md` first. The current working pass changes source pagination, merchant queues,
 exact comparable research, server catalog paging, price statistics, source navigation and cache invalidation.
-Source setup is in Settings; Sources is product browsing by actual merchant/marketplace. Real-source acceptance
-and current browser/HTTP verification remain open. No live trade, purchase or seller mutation was enabled.
+Source setup is in Settings; Sources groups actual merchant products. Current Chromium desktop/mobile tests,
+HTTP middleware/import tests and the full offline suite pass (1,229 passed; five live-provider tests excluded).
+Current screenshots are isolated synthetic fixtures. Real source requests still receive proxy tunnel 403.
+GitHub fetch and elevated local test execution now work; verify push status before issuing laptop update commands.
 
 The earlier handoff below is historical baseline context; its screenshots/test results do not certify the new work.
 

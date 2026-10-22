@@ -31,7 +31,7 @@ paused it. The new desk has independent data, credentials and locks. Its icon op
 2. Open **Settings** to see the actual state of each automatic feed/monitor. Public feed candidates need
    no API key; their real-network acceptance is pending. A blocked or broken source shows its error and retains
    already recorded work. No sample products are substituted for a failed source.
-3. **Business settings → Data connections & setup guides** explains each source, free-access conditions and limits.
+3. **Settings → Data connections & setup guides** explains each source, free-access conditions and limits.
    Optional eBay active-listing discovery requires your approved Production app credentials. Save them privately
    in the app; blank fields preserve saved credentials. Do not press Ctrl+C to save credentials.
 4. **Check this deal** opens the original published lead. Follow it to the merchant, then enter the actual product
@@ -49,7 +49,7 @@ paused it. The new desk has independent data, credentials and locks. Its icon op
 8. **Where to sell** compares your covered alternatives. A best checked destination appears only when required
    checks pass. Main-page numeric profit ranks require current source observations and positive downside economics;
    other products remain visible as research, without a numeric profit rank.
-9. Set your actual separate business capital/reserve in **Business settings** when you want a capital plan.
+9. Set your actual separate business capital/reserve in **Settings** when you want a capital plan.
    Capital includes inventory at cost; this is independent of all $500 trading reference accounts. **Capital planner**
    applies cash, quantity and concentration constraints. A high unit margin does not authorize exceeding them.
 10. Record owned stock and actual net sales/refunds in **Inventory**. Returned units stay quarantined until

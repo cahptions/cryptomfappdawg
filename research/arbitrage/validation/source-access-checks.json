@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-22",
+  "basis": "Actual read-only requests through the configured proxy, no bypass",
+  "verified_real_offers": 0,
+  "requests": [
+    {
+      "url": "https://www.adafruit.com/robots.txt",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://store.arduino.cc/robots.txt",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://www.selleramp.com/",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://www.tacticalarbitrage.com/",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://keepa.com/",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://www.inventorylab.com/",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://www.smartscout.com/",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search",
+      "result": "Tunnel connection failed: 403 Forbidden"
+    }
+  ]
+}

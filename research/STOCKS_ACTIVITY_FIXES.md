@@ -25,8 +25,8 @@ selected range. Leaving/canceling restores latest stored close and change versus
 left/right/Home/End inspect observations, Escape resets. Line/candles and range redraws reset correctly. No filled
 candles or invented intraday prices.
 
-Validation: new unit checks cover quote/session/dedup, social independence, premium ranking across >25 names, ETF
-read-only profile. Stocks analysis + PAPER regression pass (16 tests before the final ETF test addition). Browser
-regression was extended for headline scrubbing. Execution of its local fixture server was rejected because automatic
-approval review could not run due to an account usage limit; this is not a safety determination. Browser execution
-remains outstanding. Do not describe browser interaction as verified until that test runs.
+Validation: the full offline suite passed 1,229 tests (five opt-in live-provider tests excluded), with Ruff and
+strict Mypy passing. Actual Chromium checks passed populated and empty navigation at 1366/375px, readiness states,
+ETF profile, pointer and keyboard chart headline inspection/reset, and native Chromium touch input/reset. PAPER,
+private Settings forms and CSP checks passed. These disposable fixture checks do not establish genuine forward
+performance, provider access or physical Dell behavior. No LIVE boundary was changed.

@@ -1,14 +1,15 @@
 # Operator task queue — 2026-10-22
 
-Stocks ranking/ETF/chart changes are locally committed as `2a0dbbb`; primary PAPER analysis regressions pass.
-Browser headline-price/ETF/home-list checks remain blocked by runtime/approval limits. No LIVE boundary changed.
+Stocks activity/ETF/chart and Arbitrage sourcing/navigation/price-evidence changes are implemented. Full offline
+suite: 1,229 passed, five opt-in live-provider tests excluded. Current Chromium desktop/mobile flows pass, including
+chart pointer/keyboard/touch, ETF profiles, comparable CSV import/statistics, metadata search and Settings/Sources.
+No LIVE boundary changed. Read `arbitrage/REBUILD_CHECKPOINT.md`, its validation JSON and the full operator request.
 
-Arbitrage operator rebuild is implemented as a development checkpoint, not fully accepted. Read
-`arbitrage/REBUILD_CHECKPOINT.md`, `arbitrage/validation/rebuild-checks.json` and the full
-`arbitrage/OPERATOR_REBUILD_REQUEST.md`. Source configuration is in Settings; Sources groups actual priced offers
-by merchant/marketplace. Real source coverage remains unverified and current browser/HTTP tests have not completed.
+Real-source/business acceptance remains open: retailer and competitor requests still receive proxy tunnel 403;
+private eBay credentials are unavailable here. Do not claim thousands of real offers or independent historical sales.
+Source setup is in Settings; Sources browses products grouped by actual retailer/marketplace. Settlement/payout,
+actual demand, account-specific fee/eligibility integrations, richer sources and Dell physical recovery remain open.
 
-Keep private laptop credentials, existing data and separate business/trading capital intact. A saved additive
-network draft is inactive pending environment review/save/publish. Do not claim a remote update is available until
-push is verified. A normal fetch failed in this environment. The portable conversation export is
-`research/KESTREL_CHAT_CONTEXT.md` (also copied to `/workspace/KESTREL_CHAT_CONTEXT.md`).
+GitHub fetch now works. Verify the release commit on origin before giving update commands; preserve any remote
+work. Keep laptop credentials, running collectors and separate capital/data intact. The portable conversation
+handoff is `research/KESTREL_CHAT_CONTEXT.md`, also exported to `/workspace/KESTREL_CHAT_CONTEXT.md`.

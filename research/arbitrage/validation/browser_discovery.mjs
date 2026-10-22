@@ -32,8 +32,12 @@ try {
       "Dollar-profit ranking should put larger profitable item first",
     );
   await page.locator("#rank-order").selectOption("roi");
-  if ((await page.locator(".deal-card h3").first().innerText()) === first)
-    throw Error("ROI ranking should differ");
+  await page.waitForFunction(() => document.querySelector(".deal-card h3")?.textContent.includes("Wireless studio"));
+  // Server search covers brand/model even when the product title has neither.
+  await page.locator("#product-search").fill("SyntheticOptics");
+  await page.waitForFunction(() => document.querySelectorAll(".deal-card").length === 1 && document.querySelector(".deal-card h3")?.textContent.includes("Mirrorless"));
+  await page.locator("#product-search").fill("MODEL-headphones");
+  await page.waitForFunction(() => document.querySelectorAll(".deal-card").length === 1 && document.querySelector(".deal-card h3")?.textContent.includes("Wireless studio"));
   await page.locator("#product-search").fill("NO SUCH PRODUCT");
   // Search returns a useful empty state, rather than silently rebuilding the filters.
   await page
@@ -41,6 +45,7 @@ try {
     .waitFor();
   await page.locator("#product-search").fill("");
   await page.locator("#rank-order").selectOption("profit");
+  await page.waitForFunction(() => document.querySelectorAll(".deal-card").length === 3 && document.querySelector(".deal-card h3")?.textContent.includes("Mirrorless"));
   await page.locator("[data-action=lead-save]").first().click();
   await page
     .locator("[data-action=lead-save]")
@@ -135,6 +140,7 @@ try {
   await page
     .getByRole("link", { name: "Settings", exact: true })
     .click();
+  await page.getByText("External product research", {exact:true}).click();
   await page.locator("#discovery-query").fill("LEGO 75375");
   await page
     .getByRole("button", {
@@ -145,11 +151,11 @@ try {
   if ((await page.locator("#discovery-links article").count()) !== 6)
     throw Error("Missing external destinations");
   await page
-    .getByRole("link", { name: "Business settings", exact: true })
+    .getByRole("link", { name: "Settings", exact: true })
     .click();
   await page.getByText("Advanced limits · optional", { exact: true }).click();
   await page
-    .getByLabel("Maximum product share (0–1)", { exact: true })
+    .getByLabel("Maximum capital in one product (%)", { exact: true })
     .waitFor();
   const mobile = [];
   await page.setViewportSize({ width: 390, height: 844 });
@@ -180,6 +186,7 @@ try {
         flows: [
           "decoded allowed-host image",
           "dollar-profit vs ROI ranking",
+          "brand/model search across catalog",
           "search empty state",
           "save lead",
           "saved tab",

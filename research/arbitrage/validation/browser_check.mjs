@@ -14,10 +14,22 @@ if(!identity.ok() || (await identity.json()).fixture!=='kestrel-arbitrage-browse
 await page.goto('http://127.0.0.1:18868');
 await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).last().waitFor();
 await page.locator('.product-photo img').first().waitFor();
+const cameraStats=page.locator('.deal-card').filter({hasText:'Mirrorless camera kit'}).locator('.resale-values strong');
+if(JSON.stringify(await cameraStats.allTextContents())!==JSON.stringify(['$420.00','$480.00','$540.00','$480.00']))throw Error('Low/average/high/median display disagrees with comparable evidence');
 await page.waitForFunction(()=>[...document.querySelectorAll('.product-photo img')].some(i=>i.complete && i.naturalWidth>0));
 await page.screenshot({path:'research/arbitrage/validation/browser-desktop-synthetic.png',fullPage:true});
 await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).last().click();
 await page.locator('#history svg').waitFor();
+await page.getByRole('button',{name:'Import price comparables',exact:true}).click();
+const observed=new Date(Date.now()-60000).toISOString();
+const csv='title,channel,url,price,currency,region,condition,pack_count,gtin,evidence_type,at,evidence_note\n'+
+  `SYNTHETIC price sample,TEST imported channel,https://www.ebay.com/itm/fixture-import-1,70,USD,US,new,1,012345678905,REPORTED_SOLD,${observed},SYNTHETIC imported claim not a real sale\n`+
+  `SYNTHETIC price sample,TEST imported channel,https://www.ebay.com/itm/fixture-import-2,80,USD,US,new,1,012345678905,REPORTED_SOLD,${observed},SYNTHETIC imported claim not a real sale\n`;
+await page.locator('#comparable-file').setInputFiles({name:'synthetic-comparables.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
+await page.getByRole('button',{name:'Import file',exact:true}).click();
+await page.locator('#editor').waitFor({state:'hidden'});
+await page.getByRole('img',{name:'REPORTED_SOLD comparable price samples in USD',exact:true}).waitFor();
+if(JSON.stringify(await page.locator('.resale-values strong').first().locator('..').locator('..').locator('strong').allTextContents())!==JSON.stringify(['$70.00','$75.00','$80.00','$75.00']))throw Error('Imported comparable statistics incorrect');
 await page.getByRole('button',{name:'Review identity',exact:true}).click();
 await page.getByLabel('I checked brand, model, variant, pack and condition').check();
 await page.getByRole('button',{name:'Save local record',exact:true}).click();
@@ -83,5 +95,5 @@ const width=await page.evaluate(()=>({viewport:innerWidth,document:document.docu
 await page.screenshot({path:'research/arbitrage/validation/browser-mobile-synthetic.png',fullPage:true});
 if(width.document>width.viewport)throw Error('Mobile page overflows viewport '+JSON.stringify(width));
 if(errors.length)throw Error('Browser errors: '+errors.join('; '));
-await writeFile('research/arbitrage/validation/browser-results.json',JSON.stringify({basis:'Synthetic isolated browser fixtures only; not live offers or forward business results',pages:9,flows:['identity review','regional availability check','capital basket','inventory receive','net sale','refund quarantine','business capital save','API guide links','private eBay credential save with blank preserved fields','eBay starter searches','custom eBay search','pause/resume selling route'],mobile:width,uncaughtErrors:errors},null,2));
+await writeFile('research/arbitrage/validation/browser-results.json',JSON.stringify({basis:'Synthetic isolated browser fixtures only; not live offers or forward business results',pages:9,flows:['comparable low/average/high/median display','CSV comparable upload and reported-price plot','identity review','regional availability check','capital basket','inventory receive','net sale','refund quarantine','business capital save','API guide links','private eBay credential save with blank preserved fields','eBay starter searches','custom eBay search','pause/resume selling route'],mobile:width,uncaughtErrors:errors},null,2));
 console.log('Browser flows passed',width);await browser.close();

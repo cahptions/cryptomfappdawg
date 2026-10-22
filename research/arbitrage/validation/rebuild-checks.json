@@ -11,9 +11,9 @@
   },
   "handler_tests": {
     "status": "passed",
-    "new_catalog_module_tests": 13,
-    "deselected_http_test": 1,
-    "boundary": "Direct application handlers and pure projections; not browser or full HTTP middleware acceptance"
+    "new_catalog_module_tests": 15,
+    "deselected_http_test": 0,
+    "boundary": "HTTP middleware, CSRF/session, paging and atomic CSV import included in the full offline suite"
   },
   "ruff": "passed",
   "mypy": {
@@ -25,29 +25,45 @@
     "basis": "Synthetic cloud capacity experiment, not Dell measurement, source access or market evidence",
     "distinct_synthetic_priced_products": 10000,
     "persistent_queued_urls": 10000,
-    "ingest_seconds": 0.599,
+    "ingest_seconds": 0.609,
     "page_seconds": [
-      0.0244,
-      0.021,
-      0.0216
+      0.0256,
+      0.0217,
+      0.0228
     ],
     "last_page_bytes": 86640,
     "products_per_page": 50,
-    "process_peak_rss_mib": 37.52,
+    "process_peak_rss_mib": 37.69,
     "database_bytes": 17162240,
     "real_source_offers_verified": 0,
     "qualifying_opportunities": 0
   },
-  "browser": "not run: escalation rejected by approval-review usage limit; normal Chromium denied socket operation",
-  "threaded_http": "not completed: bounded timeout under restricted environment",
-  "broader_regression": "not completed: timed out; no full-suite pass claimed",
+  "browser": {
+    "status": "passed",
+    "basis": "Disposable synthetic offline servers; no operator credentials or provider calls",
+    "arbitrage": "Desktop 1600px and mobile 390px; nine routes; source product grouping, Settings-only setup, comparable statistics, CSV import/plot, inventory/refunds, private credential forms, brand/model search, ranking and research links",
+    "stocks": "Populated and empty at 1366/375px; readiness states; pointer, keyboard and native Chromium touch chart inspection; ETF profile; navigation, PAPER controls, Settings and CSP",
+    "uncaught_errors": 0
+  },
+  "threaded_http": "passed in full offline suite with elevated local execution",
+  "broader_regression": "passed: see full_regression",
   "real_source_acceptance": {
     "verified_new_real_offers": 0,
-    "status": "blocked by active cloud domain policy and absent private eBay credentials"
+    "status": "Blocked: configured proxy returns tunnel HTTP 403 for retailer, eBay documentation and competitor hosts; private production eBay credentials unavailable"
   },
   "production_live_orders": false,
   "marketplace_mutations": false,
-  "legacy_browser_artifacts": "Earlier baseline only; not verification of this rebuild",
-  "network_permission_request": "Returned no network grant (network:null); no additional permission assumed.",
-  "cloud_domain_draft": "Saved successfully, requires_publish=true; active policy remains unchanged."
+  "legacy_browser_artifacts": "The three browser-*-synthetic.png images and both Arbitrage browser JSON reports were regenerated on this revision; synthetic test data only.",
+  "network_permission_request": "User-enabled full access now permits elevated local browser/server/test execution and GitHub fetch. Public source HTTP still fails at proxy.",
+  "cloud_domain_draft": "Earlier additive draft saved; current runtime reports unrestricted/unknown while actual HTTP requests receive proxy 403. No claim that saving applied a working policy.",
+  "full_regression": {
+    "status": "passed",
+    "tests": 1229,
+    "deselected": 5,
+    "deselected_scope": "Opt-in live-provider tests excluded by the repository default marker",
+    "seconds": 110.18,
+    "warnings": [
+      "Starlette TestClient httpx deprecation; no test failures"
+    ]
+  }
 }

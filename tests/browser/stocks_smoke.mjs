@@ -12,7 +12,7 @@ const expectForbidden = (url) =>
   expectedForbidden.set(url, (expectedForbidden.get(url) || 0) + 1);
 try {
   for (const width of [1366, 375]) {
-    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 375 });
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => {
       if (m.type() !== "error") return;
@@ -68,6 +68,14 @@ try {
       assert.notEqual(await price.innerText(), latestPrice);
       await page.mouse.move(box.x, box.y - 10);
       assert.equal(await price.innerText(), latestPrice);
+      if (width === 375) {
+        const touch = await page.context().newCDPSession(page);
+        await touch.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [{x: box.x + 3, y: box.y + 100}]});
+        assert.notEqual(await price.innerText(), latestPrice);
+        await touch.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
+        assert.equal(await price.innerText(), latestPrice);
+        await touch.detach();
+      }
 
       await page.getByRole("button", { name: "Candles", exact: true }).click();
       assert.ok((await page.locator(".candle-body").count()) > 0);
@@ -94,6 +102,10 @@ try {
       await page
         .getByRole("button", { name: "+ Add to watchlist", exact: true })
         .waitFor();
+      await page.goto(`${base}/#stock/SPY`);
+      await page.getByText("ETF market/options profile", {exact: true}).waitFor();
+      await page.getByText("ETF PROFILE", {exact: true}).waitFor();
+      await page.locator("svg.price-chart").waitFor();
     }
     await page.goto(`${base}/#options`);
     await page.getByRole("heading", { name: "Options overview" }).waitFor();
