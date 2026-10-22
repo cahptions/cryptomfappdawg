@@ -922,7 +922,20 @@ const KestrelResearch = (() => {
     top.append(pricing, priceCaption);
     main.append(top, chartWidget(data.bars, inspectPrice));
     main.append(
-      metrics("Key statistics", [
+      metrics(data.listing?.etf ? "ETF price & risk statistics" : "Key statistics", data.listing?.etf ? [
+        ["1-session return", percent(p.ret_1d)],
+        ["5-session return", percent(p.ret_5d)],
+        ["21-session return", percent(p.ret_21d)],
+        ["63-session return", percent(p.ret_63d)],
+        ["20-session annualized volatility", percent(p.vol_20d)],
+        ["Median 20-session dollar volume", p.dollar_volume_20d == null ? "—" : "$" + compact(p.dollar_volume_20d)],
+        ["50-session average", money(p.sma50)],
+        ["200-session average", money(p.sma200)],
+        ["52-week high", money(p.high_52w)],
+        ["52-week low", money(p.low_52w)],
+        ["Relative volume", p.rel_volume == null ? "—" : number(p.rel_volume) + "×"],
+        ["Stored sessions", compact(d?.coverage?.stored_sessions)],
+      ] : [
         [
           "Market cap",
           f.market_cap == null ? "—" : "$" + compact(f.market_cap),
@@ -948,21 +961,21 @@ const KestrelResearch = (() => {
       const rationale = el("section", undefined, "detail-section");
       rationale.append(
         sectionTitle(
-          "The investment case",
-          "What supports the view—and what challenges it",
+          data.listing?.etf ? "Trend and risk observations" : "The investment case",
+          data.listing?.etf ? "Calculated from stored prices; these are observations, not a forecast." : "What supports the view—and what challenges it",
         ),
       );
       const cases = el("div", undefined, "case-grid");
       for (const [title, items, color] of [
-        ["Bull case", d.bull, "positive"],
-        ["Bear case", d.bear, "negative"],
+        [data.listing?.etf ? "Positive trend observations" : "Bull case", d.bull, "positive"],
+        [data.listing?.etf ? "Risk and limitations" : "Bear case", d.bear, "negative"],
       ]) {
         const card = el("div", undefined, "case-card");
         card.append(el("h3", title, color));
         const list = el("ul");
         for (const text of items || []) list.append(el("li", text));
         if (!items?.length)
-          list.append(el("li", "Insufficient evidence for a case."));
+          list.append(el("li", data.listing?.etf ? "No positive trend observations in the measured windows." : "Insufficient evidence for a case."));
         card.append(list);
         cases.append(card);
       }
@@ -982,6 +995,8 @@ const KestrelResearch = (() => {
         "Scores reflect the stored evidence. Coverage is not a probability of profit.",
       ),
     );
+    const etfValue = (id) => id === "momentum" ? percent(p.ret_21d)
+      : id === "risk" ? percent(p.vol_20d) : d?.options && Object.keys(d.options).length ? "Stored sample" : "No sample";
     const grid = el("div", undefined, "grid desk-grid");
     for (const [id, label] of Object.entries(snapshot.desks)) {
       if (data.listing?.etf && !d?.desks?.[id]) continue;
@@ -990,7 +1005,7 @@ const KestrelResearch = (() => {
       card.id = `desk-${id}`;
       card.append(
         el("div", label, "desk-label"),
-        el("strong", number(desk?.score), "desk-score"),
+        el("strong", data.listing?.etf ? etfValue(id) : number(desk?.score), "desk-score"),
         el("p", desk?.verdict || "Awaiting data", "muted caption"),
       );
       const bar = el("progress");
@@ -1043,14 +1058,14 @@ const KestrelResearch = (() => {
       const score = d?.desks?.[id]?.score,
         a = link("", `#desk-${id}`);
       a.className =
-        score == null
+        data.listing?.etf ? d?.desks?.[id]?.confidence ? "mixed" : "unavailable" : score == null
           ? "unavailable"
           : score >= 60
             ? "favorable"
             : score <= 40
               ? "unfavorable"
               : "mixed";
-      a.title = `${label}: ${number(score)}`;
+      a.title = `${label}: ${data.listing?.etf ? etfValue(id) : number(score)}`;
       a.setAttribute("aria-label", a.title);
       a.onclick = (e) => {
         e.preventDefault();
@@ -1101,7 +1116,7 @@ const KestrelResearch = (() => {
       const row = el("div", undefined, "sector-row");
       row.append(
         el("span", label),
-        el("strong", number(d?.desks?.[id]?.score)),
+        el("strong", data.listing?.etf ? etfValue(id) : number(d?.desks?.[id]?.score)),
       );
       overview.append(row);
     }

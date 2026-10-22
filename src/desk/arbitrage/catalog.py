@@ -1,13 +1,14 @@
 """Bounded public merchant catalog discovery. Access/robots failures remain failures, never empty inventory."""
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from contextlib import suppress
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.robotparser import RobotFileParser
 from xml.etree import ElementTree as ET
 
@@ -20,6 +21,9 @@ from desk.core.hashing import sha256_hex
 
 CATALOGS = {
     "adafruit-catalog": ("adafruit_sitemap", "https://www.adafruit.com/sitemap.xml"),
+    "arduino-us-catalog": ("shopify_catalog", "https://store-usa.arduino.cc/products.json"),
+    **{f"adafruit-category-{key}": ("adafruit_category", f"https://www.adafruit.com/category/{key}")
+       for key in (1025, 35, 105, 851, 63, 8, 33, 42)},
     "arduino-catalog": ("shopify_catalog", "https://store.arduino.cc/products.json"),
 }
 
@@ -52,7 +56,7 @@ def sitemap(raw: str) -> tuple[list[str], list[str]]:
               and not p.username and not p.password and p.port in (None, 443)
               and re.fullmatch(r"/sitemap[A-Za-z0-9_./-]*\.xml", p.path) and ".." not in p.path):
             children.append(url)
-    return list(dict.fromkeys(offers))[:5000], list(dict.fromkeys(children))[:100]
+    return list(dict.fromkeys(offers))[:50000], list(dict.fromkeys(children))[:100]
 
 
 async def permitted(client: httpx.AsyncClient, url: str, *, robots: str | None = None) -> str:
@@ -62,6 +66,10 @@ async def permitted(client: httpx.AsyncClient, url: str, *, robots: str | None =
     robot.parse(policy.splitlines())
     if not robot.can_fetch(AGENT, url):
         raise DeskError("Merchant robots policy disallows this catalog URL; no bypass attempted")
+    delay = int(robot.crawl_delay(AGENT) or 0)
+    if delay > 300:
+        raise DeskError("Merchant crawl delay exceeds this adapter schedule")
+    await asyncio.sleep(max(2, delay))
     return await read(client, url)
 
 
@@ -71,7 +79,7 @@ def shopify_page(raw: str, source: Source, now: datetime, *, currency: str) -> l
             raise ValueError("Published currency missing")
         data = json.loads(raw)
         products = data["products"]
-        if not isinstance(products, list) or len(products) > 50:
+        if not isinstance(products, list) or len(products) > 100:
             raise ValueError("Unexpected page size")
         result: list[Observation] = []
         for item in products:
@@ -79,10 +87,11 @@ def shopify_page(raw: str, source: Source, now: datetime, *, currency: str) -> l
             if len(variants) > 100:
                 raise ValueError("Too many variants")
             for v in variants:
-                if len(result) >= 500:
-                    raise ValueError("Catalog page exceeds 500 offers")
+                if len(result) >= 1000:
+                    raise ValueError("Catalog page exceeds 1000 offers")
                 handle = str(item["handle"])
-                if not re.fullmatch(r"[A-Za-z0-9_-]+", handle) or not str(v["id"]).isdigit():
+                if (not handle or len(handle) > 240 or not all(c.isalnum() or c in "_-" for c in handle)
+                        or not str(v["id"]).isdigit()):
                     raise ValueError("Invalid canonical product path")
                 barcode = str(v.get("barcode") or "").strip()
                 # Invalid published barcodes do not discard an otherwise useful priced offer.
@@ -100,14 +109,16 @@ def shopify_page(raw: str, source: Source, now: datetime, *, currency: str) -> l
                     image = "https:" + image
                 if not isinstance(image, str) or urlsplit(image).hostname != "cdn.shopify.com":
                     image = None
-                product = Product(id="arduino-" + str(item["id"]) + "-" + str(v["id"]), title=title,
+                prefix = "arduino-us-" if urlsplit(source.url).hostname == "store-usa.arduino.cc" else "arduino-"
+                product = Product(id=prefix + str(item["id"]) + "-" + str(v["id"]), title=title,
                                   category=str(item.get("product_type") or "Uncategorized")[:80],
                                   brand=str(item.get("vendor") or "")[:100] or None,
                                   mpn=str(v.get("sku") or "")[:100] or None, gtin=gtin,
                                   variant=variant, condition="Unknown", image_url=image)
                 available = v.get("available")
                 result.append(Observation(product=product, source_id=source.id,
-                    url="https://store.arduino.cc/products/" + handle + "?variant=" + str(v["id"]),
+                    url="https://" + str(urlsplit(source.url).hostname) + "/products/" + quote(handle, safe="-_")
+                        + "?variant=" + str(v["id"]),
                     price=Decimal(str(v["price"])), currency=currency, at=now,
                     availability="DECLARED_AVAILABLE" if available is True else
                     "UNAVAILABLE" if available is False else "UNKNOWN", method="public-shopify-catalog-v1",
@@ -123,6 +134,11 @@ async def fetch_catalog(source: Source, now: datetime, client: httpx.AsyncClient
     from desk.arbitrage.sources import validate_source
 
     validate_source(source)
+    if source.adapter == "adafruit_category":
+        from desk.arbitrage.bulk import category_page
+
+        rows = category_page(await permitted(client, source.url), source, now)
+        return rows, [], {"complete": True, "items": len(rows)}
     if source.adapter == "adafruit_sitemap":
         pending = previous.get("pending_sitemaps") or [source.url]
         visited = [] if previous.get("complete") else previous.get("visited_sitemaps", [])
@@ -135,11 +151,15 @@ async def fetch_catalog(source: Source, now: datetime, client: httpx.AsyncClient
     page = int(previous.get("next_page", 1))
     if not 1 <= page <= 1000:
         raise DeskError("Catalog checkpoint outside supported page range")
-    raw = await permitted(client, source.url + f"?limit=50&page={page}")
+    # Keep an old 50-row checkpoint aligned; new catalogs start with bounded 100-product pages.
+    size = int(previous.get("page_size", 50 if page > 1 else 100))
+    if size not in (50, 100):
+        raise DeskError("Unsupported saved catalog page size")
+    raw = await permitted(client, source.url + f"?limit={size}&page={page}")
     digest = sha256_hex(raw)
     if page > 1 and digest == previous.get("page_digest"):
         raise DeskError("Merchant repeated a page; pagination stopped instead of counting duplicates")
-    home = await permitted(client, "https://store.arduino.cc/")
+    home = await permitted(client, "https://" + str(urlsplit(source.url).hostname) + "/")
     match = re.search(r"Shopify\.currency\s*=\s*(\{[^{}]{1,500}\})", home)
     try:
         currency = json.loads(match.group(1))["active"] if match else None
@@ -149,4 +169,4 @@ async def fetch_catalog(source: Source, now: datetime, client: httpx.AsyncClient
         raise DeskError("Merchant currency unavailable; numeric catalog prices cannot be assigned a guessed currency")
     rows = shopify_page(raw, source, now, currency=currency)
     return rows, [], {"next_page": page + 1 if rows and page < 1000 else 1,
-                       "complete": not rows or page == 1000, "page_digest": digest, "page": page}
+                       "complete": not rows or page == 1000, "page_digest": digest, "page": page, "page_size": size}

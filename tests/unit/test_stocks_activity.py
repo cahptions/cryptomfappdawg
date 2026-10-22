@@ -56,7 +56,25 @@ def test_etf_profile_uses_prices_without_company_committee(tmp_path) -> None:
         assert profile["price"]["close"] > 0
         assert profile["committee"] is None and profile["fundamentals"] == {}
         assert set(profile["desks"]) == {"momentum", "risk", "options"}
+        assert profile["price"]["ret_21d"] is not None
+        assert profile["price"]["vol_20d"] is not None
+        assert profile["coverage"]["stored_sessions"] == len(rows)
+        assert profile["bull"] or profile["bear"]
         assert w.research.latest("SPY") is None  # On-demand view never writes scoring records.
+    finally:
+        w.close()
+
+
+def test_known_etf_profile_survives_missing_listing_classification(tmp_path) -> None:
+    from desk.stocks.web import detail
+    w = make_world(tmp_path, n=10)
+    try:
+        w.dbs.market.execute("DELETE FROM stk_listings WHERE symbol='SPY'")
+        value = detail(w.paths, "SPY")
+        assert value["listing"]["etf"]
+        assert value["analysis"]["price"]["close"] > 0
+        assert value["analysis"]["profile_version"] == "etf-market-v2"
+        assert value["analysis"]["committee"] is None
     finally:
         w.close()
 

@@ -209,6 +209,26 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
         # Publish usable stored research before lengthy network work, then again after a price batch.
         # The input signature skips unchanged analysis. Neither preview may step the PAPER book.
         preview_now()
+        if suite.options.configured and cal.is_trading_day(cal.new_york(now).date()) and _due(market, "options", now, 4):
+            held = PaperBook(dbs.ledger).held_expirations()
+            # Rotate bounded batches, with held contracts always included. Never fetch the whole universe on a tick.
+            ranked = [r[0] for r in research.conn.execute(
+                "SELECT symbol FROM stk_scores_latest ORDER BY json_extract(detail_json, '$.price.dollar_volume_20d') DESC "
+                "LIMIT ?", (settings.options_focus_symbols,))]
+            candidates = list(dict.fromkeys([*research.watchlist(), *ranked])) or ["SPY", "QQQ"]
+            job = market.jobs().get("options", {}).get("detail", {})
+            offset = int(job.get("next_offset", 0)) % len(candidates)
+            # Core ETF chains are refreshed every options pass; broad rotation cannot starve SPY.
+            core = ["SPY", "QQQ"][:option_limit]
+            rotating = [s for s in candidates if s not in core]
+            offset = offset % max(1, len(rotating))
+            remainder = max(0, option_limit - len(core))
+            wanted = [*core, *(rotating + rotating)[offset:offset + remainder]]
+            jobs["options"] = await run_job("options", collect.option_chains(suite, market, now, wanted, rate=0.04,
+                                                         last_prices={}, held=held))
+            if jobs["options"].get("ok"):
+                detail = {**jobs["options"], "next_offset": (offset + remainder) % max(1, len(rotating))}
+                market.job("options", now, detail=detail)
         directory = market.jobs().get("listings", {}).get("detail", {})
         needs_mapping = suite.sec.contact_configured and (not directory.get("with_cik") or directory.get("warning"))
         if _due(market, "listings", now, 24) or needs_mapping:
@@ -235,21 +255,6 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
         if _due(market, "short_volume", now, 24):
             jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now, days=5))
-        if suite.options.configured and cal.is_trading_day(cal.new_york(now).date()) and _due(market, "options", now, 4):
-            held = PaperBook(dbs.ledger).held_expirations()
-            # Rotate bounded batches, with held contracts always included. Never fetch the whole universe on a tick.
-            ranked = [r[0] for r in research.conn.execute(
-                "SELECT symbol FROM stk_scores_latest ORDER BY json_extract(detail_json, '$.price.dollar_volume_20d') DESC "
-                "LIMIT ?", (settings.options_focus_symbols,))]
-            candidates = list(dict.fromkeys([*research.watchlist(), "SPY", "QQQ", *ranked]))
-            job = market.jobs().get("options", {}).get("detail", {})
-            offset = int(job.get("next_offset", 0)) % len(candidates)
-            wanted = (candidates + candidates)[offset:offset + option_limit]
-            jobs["options"] = await run_job("options", collect.option_chains(suite, market, now, wanted, rate=0.04,
-                                                         last_prices={}, held=held))
-            if jobs["options"].get("ok"):
-                detail = {**jobs["options"], "next_offset": (offset + option_limit) % len(candidates)}
-                market.job("options", now, detail=detail)
         progress("analysis")
         try:
             preview = preview_now()

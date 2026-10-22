@@ -1,3 +1,13 @@
+# Latest missing-data repair
+
+Read [the current repair and update commands](../MISSING_DATA_FIXES.md) before the earlier checkpoint below.
+The normal collector now has real-source acceptance: 1,328 USD-priced products in its first pass and 2,526 after
+three passes. Real product photos and global counts were checked in Chromium. One oversized source is explicitly
+unavailable; a Unicode page-2 bug found during the live run was fixed and reverified against the actual endpoint.
+Profitability, completed-sale history and full business acceptance remain open. Source setup stays in Settings.
+
+---
+
 # Operator rebuild checkpoint — 2026-10-22
 
 This is implemented development work, **not a completed live-business acceptance**. New real-source coverage in this

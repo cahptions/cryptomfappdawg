@@ -165,8 +165,12 @@ class Repo:
             "AND (?='' OR EXISTS(SELECT 1 FROM arb_product_sources m WHERE m.product_id=p.id AND m.host=?)) ORDER BY "
             "CASE WHEN ?='profit' AND x.profit>0 THEN x.profit END DESC, "
             "CASE WHEN ?='roi' AND x.roi>0 THEN x.roi END DESC, "
+            "CASE WHEN (SELECT json_extract(o.body,'$.availability') FROM arb_observations o "
+            "WHERE o.product_id=p.id AND o.at<=? ORDER BY o.at DESC,o.id DESC LIMIT 1) "
+            "IN ('DECLARED_AVAILABLE','VERIFIED_AVAILABLE') THEN 0 ELSE 1 END, "
             "json_extract(p.body,'$.title'),p.id LIMIT ? OFFSET ?",
-            (current_after, current_at, *args, order, order, min(100, max(1, limit)), max(0, offset)))
+            (current_after, current_at, *args, order, order, current_at or "9999",
+             min(100, max(1, limit)), max(0, offset)))
         return [r[0] for r in rows], total
 
     def queue_offers(self, urls: list[str], source_id: str, at: str) -> int:

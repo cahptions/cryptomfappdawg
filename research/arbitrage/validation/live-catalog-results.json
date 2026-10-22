@@ -1,0 +1,258 @@
+{
+  "basis": "Actual public source requests through normal cycle into isolated cloud data; no operator data or credentials. Prices/stock are retailer declarations, not completed sales or proven profitable opportunities.",
+  "started_at": "2026-10-22T23:36:06.249870+00:00",
+  "finished_at": "2026-10-22T23:40:03.363976+00:00",
+  "seconds": 237.11,
+  "passes": [
+    {
+      "pass": 1,
+      "products": 1328,
+      "priced_products": 1328,
+      "queued_urls": 0,
+      "currencies": {
+        "USD": 1328
+      },
+      "outcome": {
+        "attempted": 5,
+        "backfill_pending": 10
+      },
+      "sources": {
+        "arduino-us-catalog": {
+          "status": "ok",
+          "items": 102,
+          "error": null,
+          "page": 1,
+          "complete": false
+        },
+        "adafruit-category-1025": {
+          "status": "ok",
+          "items": 201,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-35": {
+          "status": "ok",
+          "items": 458,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-105": {
+          "status": "unavailable",
+          "items": null,
+          "error": "Source response exceeds the 2 MB safety limit",
+          "page": null,
+          "complete": null
+        },
+        "adafruit-category-851": {
+          "status": "ok",
+          "items": 599,
+          "error": null,
+          "page": null,
+          "complete": true
+        }
+      }
+    },
+    {
+      "pass": 2,
+      "products": 2401,
+      "priced_products": 2401,
+      "queued_urls": 0,
+      "currencies": {
+        "USD": 2401
+      },
+      "outcome": {
+        "attempted": 5,
+        "backfill_pending": 5
+      },
+      "sources": {
+        "arduino-us-catalog": {
+          "status": "ok",
+          "items": 102,
+          "error": null,
+          "page": 1,
+          "complete": false
+        },
+        "adafruit-category-1025": {
+          "status": "ok",
+          "items": 201,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-35": {
+          "status": "ok",
+          "items": 458,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-105": {
+          "status": "unavailable",
+          "items": null,
+          "error": "Source response exceeds the 2 MB safety limit",
+          "page": null,
+          "complete": null
+        },
+        "adafruit-category-851": {
+          "status": "ok",
+          "items": 599,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-63": {
+          "status": "ok",
+          "items": 238,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-8": {
+          "status": "ok",
+          "items": 239,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-33": {
+          "status": "ok",
+          "items": 435,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-42": {
+          "status": "ok",
+          "items": 338,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-4300": {
+          "status": "ok",
+          "items": 1,
+          "error": null,
+          "page": null,
+          "complete": null
+        }
+      }
+    },
+    {
+      "pass": 3,
+      "products": 2526,
+      "priced_products": 2526,
+      "queued_urls": 5655,
+      "currencies": {
+        "EUR": 117,
+        "USD": 2409
+      },
+      "outcome": {
+        "attempted": 5,
+        "backfill_pending": 1
+      },
+      "sources": {
+        "adafruit-category-1025": {
+          "status": "ok",
+          "items": 201,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-35": {
+          "status": "ok",
+          "items": 458,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-105": {
+          "status": "unavailable",
+          "items": null,
+          "error": "Source response exceeds the 2 MB safety limit",
+          "page": null,
+          "complete": null
+        },
+        "adafruit-category-851": {
+          "status": "ok",
+          "items": 599,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-63": {
+          "status": "ok",
+          "items": 238,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-8": {
+          "status": "ok",
+          "items": 239,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-33": {
+          "status": "ok",
+          "items": 435,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-category-42": {
+          "status": "ok",
+          "items": 338,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "adafruit-4300": {
+          "status": "ok",
+          "items": 1,
+          "error": null,
+          "page": null,
+          "complete": null
+        },
+        "deals-slickdeals": {
+          "status": "ok",
+          "items": 11,
+          "error": null,
+          "page": null,
+          "complete": null
+        },
+        "deals-dealnews": {
+          "status": "ok",
+          "items": 50,
+          "error": null,
+          "page": null,
+          "complete": null
+        },
+        "adafruit-catalog": {
+          "status": "ok",
+          "items": 0,
+          "error": null,
+          "page": null,
+          "complete": true
+        },
+        "arduino-catalog": {
+          "status": "ok",
+          "items": 117,
+          "error": null,
+          "page": 1,
+          "complete": false
+        },
+        "arduino-us-catalog": {
+          "status": "unavailable",
+          "items": 102,
+          "error": "Merchant catalog page is malformed; no partial page was saved",
+          "page": 1,
+          "complete": false
+        }
+      }
+    }
+  ],
+  "marketplace_writes": false
+}

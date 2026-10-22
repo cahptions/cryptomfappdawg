@@ -84,7 +84,7 @@ class Source(Record):
     id: Identifier
     product_id: Identifier | None = None
     url: str
-    adapter: Literal["jsonld", "ebay_browse", "deal_feed", "adafruit_sitemap", "shopify_catalog"] = "jsonld"
+    adapter: Literal["jsonld", "ebay_browse", "deal_feed", "adafruit_sitemap", "adafruit_category", "shopify_catalog"] = "jsonld"
     query: str | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool = True
 

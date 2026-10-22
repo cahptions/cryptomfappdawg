@@ -233,8 +233,13 @@ def open_window(url: str, desk: str, profiles: Path) -> list[str]:
     return command
 
 
-def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30) -> str:
+def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30, restart: bool = False) -> str:
     """Make sure the dashboard answers, then open it in its own window; returns the URL."""
+    if restart:
+        from desk.arbitrage.repo import isolated_paths
+        from desk.ops.dashboard_restart import restart_dashboard
+
+        restart_dashboard(isolated_paths(paths) if desk == "arbitrage" else paths, desk=desk)
     url = f"http://127.0.0.1:{port}/"
     if not responding(url):
         _start_dashboard(desk, port)

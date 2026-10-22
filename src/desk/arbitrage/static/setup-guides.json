@@ -17,18 +17,18 @@
     "steps": [
       "Open Discover. Recent mentions appear in the discovery inbox after a permitted feed request succeeds. No API key is needed.",
       "Open Settings to see each feed\u2019s last success or access error. Each feed runs at most once per 15 minutes and respects robots policy, server rate limits and Pause.",
-      "Use Save to keep a lead. Check this deal opens a short review: follow the original deal to the merchant and record the actual product URL and price.",
+      "Supported canonical merchant links are queued automatically for product enrichment. Other published mentions stay in the discovery inbox; they are not priced products.",
       "The item then opens in Product research. Compare exact identity, resale evidence, destination costs and regional availability before considering a purchase.",
       "A community post may be old, unavailable, region-specific, conditional or mistaken. Re-fetching the feed does not reset its published or first-seen age."
     ],
     "cost": "No paid feed API, subscription or proxy is configured. Public source access and permitted use must hold.",
-    "limitation": "These two feed endpoint candidates could not be verified under this cloud network policy. A redirect, access denial, robots denial or malformed document is reported explicitly. No feed failure is replaced with sample deals."
+    "limitation": "Actual access is reported per source in Settings. A feed mention is not product inventory. A redirect, robots denial or malformed document is reported without sample replacements."
   },
   {
     "id": "included",
     "title": "Included retailer observations",
-    "status": "Implemented \u00b7 no API key",
-    "purpose": "Automatic public catalog discovery and product-page enrichment where the merchant publishes usable data and permits access.",
+    "status": "Implemented \u00b7 public bulk imports verified",
+    "purpose": "Automatically import published product prices, photos and stock declarations from supported US retailer catalogs.",
     "links": [
       {
         "label": "Adafruit products",
@@ -37,16 +37,21 @@
       {
         "label": "Retailer robots policy",
         "url": "https://www.adafruit.com/robots.txt"
+      },
+      {
+        "label": "Arduino US store",
+        "url": "https://store-usa.arduino.cc/"
       }
     ],
     "steps": [
-      "Open Settings to see the included Adafruit sitemap and Arduino public-catalog monitors. Both run automatically while collection is enabled; each reports its actual result.",
-      "Catalog pages/checkpoints and merchant product URLs persist across restarts. Unsupported markup, missing published currency, robots denial and blocked network access are explicit errors.",
-      "Browse Sources for collected products grouped by retailer, or use the paginated sourcing shortlist. Source URL/search entry and API credentials stay in Settings.",
-      "Retailer-declared stock is not a confirmed regional delivery check. Exact pack, condition, all costs and seller eligibility still need support before any recommendation."
+      "Opening the app automatically starts collection unless you paused it. No product URL or price entry is required for the included catalogs.",
+      "The startup queue prioritizes the US Arduino catalog and eight Adafruit category catalogs, including clearance, tools and sensors. Prices, photos and stock declarations appear after each source finishes.",
+      "Incomplete catalog backfills continue on a shorter bounded schedule. Completed category catalogs refresh every 15 minutes; access and response-size failures stay visible in Settings.",
+      "Sources browses collected products grouped by retailer. Configure optional production eBay access here for supported active-listing and exact-identity resale research.",
+      "Retailer stock is a published declaration, not a delivery reservation. Actual completed-sale history, seller eligibility, shipping/tax and all-in costs must be supported before a purchase recommendation."
     ],
     "cost": "No added API subscription. Your network and retailer access must work.",
-    "limitation": "Catalog adapters have synthetic payload coverage; real current endpoint compatibility/access has not been verified in this cloud. No store/API success or thousands of real offers are claimed."
+    "limitation": "The read-only cloud collector imported 1,328 distinct USD-priced products in its first verified pass. Actual counts and availability change. Some pages exceed the bounded response limit and are skipped visibly. This does not establish profitable opportunities or historical sales."
   },
   {
     "id": "ebay",

@@ -829,13 +829,14 @@ def cmd_services(args: argparse.Namespace) -> int:
 def cmd_open(args: argparse.Namespace) -> int:
     from desk.ops.launcher import install_launchers, open_desk
 
+    restart = {"restart": True} if getattr(args, "restart", False) else {}
     if args.desk == 'arbitrage':
         paths = DeskPaths.from_env()
         port = args.port or 8768
         if getattr(args, 'install', False):
             for path in install_launchers(paths, sys.executable, arbitrage_port=port, desks=('arbitrage',)):
                 print(path)
-        print(open_desk(args.desk, port, paths))
+        print(open_desk(args.desk, port, paths, **restart))
         return 0
     paths, _ = _bootstrap(args.verbose)
     settings = load_config(paths.config_dir).settings
@@ -847,7 +848,7 @@ def cmd_open(args: argparse.Namespace) -> int:
                                       stocks_port=ports["stocks"], desks=(args.desk,)):
             print(path)
         print("App installed in your application menu.")
-    print(open_desk(args.desk, port, paths))
+    print(open_desk(args.desk, port, paths, **restart))
     return 0
 
 
@@ -1088,6 +1089,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("open", help="open a dashboard in its own window, starting it if needed")
     p.add_argument("--desk", choices=["solana", "robinhood", "stocks", "arbitrage"], default="solana")
     p.add_argument("--install", action="store_true", help="also install this desk's application-menu icon")
+    p.add_argument("--restart", action="store_true", help="load updated code by safely restarting Stocks or Arbitrage")
     p.add_argument("--port", type=int, choices=range(1024, 65536), default=None, metavar="1024..65535")
     p.set_defaults(func=cmd_open)
 

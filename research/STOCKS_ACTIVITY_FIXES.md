@@ -1,3 +1,7 @@
+Latest ETF/data follow-up: see `MISSING_DATA_FIXES.md`. Known ETF profiles survive missing listing metadata;
+ETF-specific price/risk metrics replace company fields. Core SPY/QQQ options are prioritized before optional
+network backfills on each scheduled configured pass. Company scoring/PAPER/LIVE boundaries remain unchanged.
+
 # Stocks activity and chart correction — 2026-10-22
 
 New descriptive market/options lists use 65% options / 35% equity activity percentile weights, zero social/committee

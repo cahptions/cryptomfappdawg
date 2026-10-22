@@ -101,7 +101,10 @@ def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
                             "ORDER BY day DESC LIMIT 400", (symbol,)).fetchall()
         bars = adjusted_bars(conn, symbol, [dict(r) for r in reversed(rows)])
         listing = conn.execute("SELECT name, exchange, kind, etf FROM stk_listings WHERE symbol=?", (symbol,)).fetchone()
-        if listing and listing["etf"]:
+        from desk.stocks.hub import INDEX_NAMES, SECTOR_NAMES
+
+        if (listing and listing["etf"]) or symbol in INDEX_NAMES or symbol in SECTOR_NAMES:
+            listing = {**(dict(listing) if listing else {"name": symbol, "exchange": "US ETF", "kind": "ETF"}), "etf": True}
             from desk.stocks.hub import etf_profile
 
             value = etf_profile(conn, symbol, bars, listing["name"])

@@ -24,7 +24,7 @@ MAX_BYTES = 2_000_000
 
 def validate_source(source: Source) -> None:
     url = urlsplit(source.url)
-    if source.adapter in {"adafruit_sitemap", "shopify_catalog"}:
+    if source.adapter in {"adafruit_sitemap", "adafruit_category", "shopify_catalog"}:
         from desk.arbitrage.catalog import CATALOGS
 
         if (source.adapter, source.url) not in CATALOGS.values() or source.product_id or source.query:
@@ -143,6 +143,9 @@ def retailer_image(value: Any) -> str | None:
         value = value[0] if value else None
     if isinstance(value, dict):
         value = value.get("url")
+    if isinstance(value, str) and urlsplit(value).hostname == "cdn-shop.adafruit.com":
+        parts = urlsplit(value)
+        value = parts._replace(path="/" + parts.path.lstrip("/")).geturl()
     return thumbnail(value)
 
 

@@ -247,3 +247,19 @@ def test_telegram_poll_refuses_malformed_credentials_as_configuration_errors(
     monkeypatch.setattr(telegram, "poll_telegram", lambda *_: pytest.fail("invalid credentials must never start polling"))
     with pytest.raises(ConfigError, match="valid bot token"):
         cli.cmd_telegram(arguments("telegram", "poll"))
+
+
+@pytest.mark.parametrize('desk', ['stocks', 'arbitrage'])
+def test_open_restart_selects_the_exact_desk_lock_and_opens_in_background(paths, monkeypatch, desk) -> None:
+    from desk.arbitrage.repo import isolated_paths
+    from desk.ops import dashboard_restart, launcher
+    actions = []
+    monkeypatch.setattr(dashboard_restart,'restart_dashboard',lambda p,desk:actions.append(('restart',p,desk)))
+    checks=iter([False,True])
+    monkeypatch.setattr(launcher,'responding',lambda *_:next(checks))
+    monkeypatch.setattr(launcher,'_start_dashboard',lambda d,p:actions.append(('start',d,p)))
+    monkeypatch.setattr(launcher,'open_window',lambda *_:actions.append(('window',)))
+    port=8767 if desk=='stocks' else 8768
+    assert launcher.open_desk(desk,port,paths,restart=True)==f'http://127.0.0.1:{port}/'
+    assert actions==[('restart',isolated_paths(paths) if desk=='arbitrage' else paths,desk),
+                     ('start',desk,port),('window',)]

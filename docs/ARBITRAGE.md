@@ -9,7 +9,7 @@ git fetch origin
 git switch codex/arbitrage-v1
 git pull --ff-only origin codex/arbitrage-v1
 uv sync --frozen
-uv run desk arbitrage dashboard --restart --open
+uv run desk open --desk arbitrage --restart
 ```
 
 If Git reports local changes and refuses to switch, preserve them; do not reset or overwrite them. The application
@@ -28,8 +28,8 @@ paused it. The new desk has independent data, credentials and locks. Its icon op
 1. **Discover** opens first. Its ranked shortlist separates modeled dollar profit, ROI and observed source-price
    drops. Fresh community/editorial deal mentions appear in a separate discovery inbox after source access succeeds.
    You do not have to fill in every setting to browse or begin research.
-2. Open **Settings** to see the actual state of each automatic feed/monitor. Public feed candidates need
-   no API key; their real-network acceptance is pending. A blocked or broken source shows its error and retains
+2. Open **Settings** to see the actual state of each automatic feed/monitor. Included merchant catalogs need
+   no API key; the normal cloud collector has imported thousands of actual priced products. A blocked or broken source shows its error and retains
    already recorded work. No sample products are substituted for a failed source.
 3. **Settings → Data connections & setup guides** explains each source, free-access conditions and limits.
    Optional eBay active-listing discovery requires your approved Production app credentials. Save them privately
@@ -66,8 +66,8 @@ seller APIs and premium history are not yet connected; the app explains this rat
 
 ## What can be empty, and why
 
-The working build ships without sample business observations. Public feed endpoint candidates and automatic retailer access must
-succeed, and eBay needs approved production access. Confirmed market sales history is not included in Browse;
+The working build ships without sample business observations. Included catalogs import public prices/photos automatically where access succeeds. Optional eBay needs approved
+production access. Confirmed market sales history is not included in Browse;
 own dated records or a separately authorized licensed source are required. Heat can remain unknown when its
 cohort or history is insufficient. Momentum and sell-through are explicitly deferred pending adequate data.
 Collection, research and record entry remain usable while some inputs are missing. No 24-hour wait blocks the UI.

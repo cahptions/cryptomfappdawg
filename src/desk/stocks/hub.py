@@ -166,7 +166,9 @@ def etf_profile(conn: sqlite3.Connection, symbol: str, bars: list[dict[str, Any]
     closes = arrays[3][0]
     for lookback, keys in {21: ("vol_20d",), 50: ("sma50", "above_sma50"),
                            200: ("sma200", "above_sma200"),
-                           252: ("high_52w", "low_52w", "max_drawdown_1y", "beta_1y")}.items():
+                           20: ("dollar_volume_20d",),
+                           252: ("high_52w", "low_52w", "max_drawdown_1y"),
+                           253: ("beta_1y",)}.items():
         if len(closes) < lookback or not np.isfinite(closes[-lookback:]).all():
             for key in keys:
                 px[key] = None
@@ -175,13 +177,28 @@ def etf_profile(conn: sqlite3.Connection, symbol: str, bars: list[dict[str, Any]
     for key, measures in {"momentum": ("ret_21d", "ret_63d", "above_sma200"),
                           "risk": ("vol_20d", "max_drawdown_1y", "beta_1y")}.items():
         known = {k: px[k] for k in measures if px[k] is not None}
-        desks[key] = {"score": None, "confidence": len(known) / len(measures), "verdict": "Observed fund metrics",
+        desks[key] = {"score": None, "confidence": len(known) / len(measures),
+                      "verdict": "21-session price return" if key == "momentum" else "20-session annualized volatility",
                       "reasons": [f"{k}: {v:.4g}" for k, v in known.items()] or ["Insufficient stored sessions"]}
     desks["options"] = {"score": None, "confidence": 1.0 if opt else 0.0,
                         "verdict": "Stored options sample" if opt else "No options sample",
                         "reasons": [f"Option session: {opt.get('day', 'missing')}; observed: {opt.get('observed_at', 'missing')}",
                                     "Volume and open interest do not identify trade direction."]}
+    bull: list[str] = []
+    bear: list[str] = []
+    for key, label in (("ret_21d", "21-session price return"), ("ret_63d", "63-session price return"),
+                       ("above_sma50", "Distance from 50-session average"),
+                       ("above_sma200", "Distance from 200-session average")):
+        value = px[key]
+        if value is not None:
+            (bull if value >= 0 else bear).append(f"{label}: {value:+.2%}.")
+    if px["vol_20d"] is not None:
+        bear.append(f"20-session annualized price volatility: {px['vol_20d']:.2%}; future losses can exceed this measure.")
+    bear.append("Price returns exclude dividends. Fund holdings, expenses and holdings-based valuation are not connected.")
     return {"symbol": symbol, "name": name, "asof": days[-1].isoformat(), "security_type": "ETF",
-            "price": px, "fundamentals": {}, "options": opt, "desks": desks, "bull": [], "bear": [],
+            "profile_version": "etf-market-v2",
+            "coverage": {"stored_sessions": len(bars), "expected_sessions": len(days),
+                         "first_session": days[0].isoformat(), "last_session": days[-1].isoformat()},
+            "price": px, "fundamentals": {}, "options": opt, "desks": desks, "bull": bull, "bear": bear,
             "change_view": ["Compare trend, volatility and executable option spreads with your intended horizon."],
             "committee": None, "weights": {}, "scope": "Fund market profile; no company-fundamental committee"}

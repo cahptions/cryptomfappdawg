@@ -1,6 +1,6 @@
 {
   "date": "2026-10-22",
-  "basis": "Actual read-only requests through the configured proxy, no bypass",
+  "basis": "Historical pre-permission-change access failures. Superseded for retailer/feed access by live-catalog-results.json and live-page2-results.json.",
   "verified_real_offers": 0,
   "requests": [
     {
@@ -35,5 +35,10 @@
       "url": "https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search",
       "result": "Tunnel connection failed: 403 Forbidden"
     }
+  ],
+  "superseded_by": [
+    "live-catalog-results.json",
+    "live-page2-results.json",
+    "live-browser-results.json"
   ]
 }

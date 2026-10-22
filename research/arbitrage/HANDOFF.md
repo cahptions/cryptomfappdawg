@@ -1,3 +1,13 @@
+# Latest — actual product import acceptance
+
+Read `../MISSING_DATA_FIXES.md` and the `validation/live-*.json` records first. Public source access now works.
+The normal cloud collector imported 2,526 distinct actual priced products over three passes; a fresh fixed
+Unicode page-2 request imported 108 offers. Current real-product screenshots use actual CDN image bytes.
+The 2 MB category failure remains visible and isolated. The original run records the earlier page-2 failure;
+the subsequent page-2 report records the repair. No operator credentials, data or running collectors were used.
+
+---
+
 # Current rebuild handoff — 2026-10-22
 
 Read `REBUILD_CHECKPOINT.md`, `validation/rebuild-checks.json`, `OPERATOR_REBUILD_REQUEST.md` and

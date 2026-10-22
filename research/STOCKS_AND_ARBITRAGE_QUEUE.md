@@ -1,3 +1,14 @@
+# Latest missing-data follow-up
+
+Read `MISSING_DATA_FIXES.md` and `arbitrage/validation/live-*.json`. Real public imports now work: 1,328 USD-priced
+products in the first normal pass; 2,526 after three passes. A live Unicode page-2 issue was repaired and rechecked.
+SPY has an ETF-specific price/risk profile independent of company scoring, plus priority configured chain collection.
+`desk open --desk stocks --restart` and the Arbitrage equivalent safely restart into background app windows.
+Do not confuse these product observations with sales, delivered availability or profitable business acceptance.
+Preserve laptop secrets, data, Pause and disabled orders. The release still requires verified push before pull commands.
+
+---
+
 # Operator task queue — 2026-10-22
 
 Stocks activity/ETF/chart and Arbitrage sourcing/navigation/price-evidence changes are implemented. Full offline

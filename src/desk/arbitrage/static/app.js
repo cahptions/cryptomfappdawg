@@ -146,7 +146,7 @@ function status() {
           : state.collector.external
             ? "Another Arbitrage collector owns the lock; this dashboard reads its progress."
             : state.collector.active
-              ? "Discovery is running. New leads and source observations appear as requests finish."
+              ? `${state.automation?.phase || "Importing and refreshing products"} · ${state.pipeline?.priced_products || 0} products priced. Prices and photos appear as each source finishes.`
               : "Collector inactive; enable it in Settings."),
     Boolean(state.coverage.analysis_error || state.collector.error),
   );
@@ -158,9 +158,9 @@ function status() {
         : money(state.basket.cash_available),
       "Separate from trading accounts",
     ],
-    ["PRODUCTS IN RESEARCH", state.board.length, "From your connected sources"],
+    ["PRODUCTS IN RESEARCH", (state.pipeline?.products ?? state.board.length).toLocaleString(), "From your connected sources"],
     [
-      "CHECKED SELLING ROUTES",
+      "CHECKED ROUTES ON THIS PAGE",
       state.qualified_count,
       "Estimates after required checks",
     ],
@@ -313,6 +313,8 @@ function orderedRows(qualified) {
       bi = ids.indexOf(b.product.id);
     return (
       (ai < 0 ? 99999 : ai) - (bi < 0 ? 99999 : bi) ||
+      Number(!a.offers.some(o => ["DECLARED_AVAILABLE", "VERIFIED_AVAILABLE"].includes(o.availability))) -
+        Number(!b.offers.some(o => ["DECLARED_AVAILABLE", "VERIFIED_AVAILABLE"].includes(o.availability))) ||
       a.product.title.localeCompare(b.product.title)
     );
   });
@@ -345,14 +347,14 @@ function comparisons(b) {
   return `<section class="panel comparison-panel"><div class="section-heading"><div><p class="eyebrow">WHERE TO SELL</p><h2>${c?.recommended ? `Best checked destination: ${esc(c.recommended.channel)}` : "Compare the exit before buying."}</h2><p>${esc(c?.reason || "No destination comparisons yet.")}</p></div><button class="primary" data-action="route" data-id="${esc(b.product.id)}">+ Compare destination</button></div>${c?.alternatives.length ? `<div class="table-wrap"><table><thead><tr><th>Destination</th><th>Source → sell</th><th>Net / unit</th><th>Downside / break-even</th><th>Work / cash cycle</th><th>Remaining checks</th></tr></thead><tbody>${c.alternatives.map((r) => `<tr><td><strong>${esc(r.channel)}</strong><span class="meta">${esc(r.fulfillment)}</span></td><td>${esc(money(r.landed_cost, r.currency))} → ${esc(money(r.price, r.currency))}<br>${external(r.source_url, "Source offer")}</td><td class="${Number(r.net_profit) > 0 ? "good" : ""}"><strong>${esc(money(r.net_profit, r.currency))}</strong><span class="meta">${pct(r.roi)} ROI on landed cost</span></td><td>${esc(money(r.stress_profit, r.currency))}<br><span class="meta">Break-even ${esc(money(r.break_even, r.currency))}</span></td><td>${r.effort_minutes ? `${r.effort_minutes} min/unit` : "Work unknown"}<br>${r.days_to_cash ? `${r.days_to_cash} days` : "Timing unknown"}</td><td>${r.qualifies ? '<span class="good">Checks passed</span>' : r.blockers.map((x) => `<span class="blocker">${esc(x)}</span>`).join("")}<button class="text-button" data-action="route-edit" data-id="${esc(r.route_id)}">Edit assumptions</button></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty compact"><h3>No selling destinations compared.</h3><p>Add a realistic resale price and actual channel costs. Missing fields stay unknown, so you can begin research without claiming a profitable purchase.</p></div>'}</section>`;
 }
 function sourceSetupHtml() {
-  return `<section class="panel"><h2>Source connections & saved searches</h2><p>Configure collection here. Browse collected products on the Sources page.</p><details><summary>External product research</summary><p>Search external sites by exact model. These links do not import results or confirm stock.</p><form id="discovery-form"><label>What do you want to source?<input id="discovery-query" type="search" placeholder="e.g. LEGO 75375 or DeWalt DCD800" required maxlength="100"></label><button class="primary">Find sourcing and resale searches</button></form><div id="discovery-links"></div></details><h3>Your automatic monitors</h3><p>Public feed adapters discover deal mentions, eBay searches discover active listings, and the retailer adapter watches exact product pages. Each source reports its actual access result below. New feed endpoints still require real-network acceptance; they are not a confirmed sales feed.</p><div class="toolbar"><button id="toggle">${state.settings.enabled ? "Pause collection" : "Resume collection"}</button><button data-action="source">Add supported product URL</button><button data-action="ebay-source">Add eBay search</button><button data-action="observation">Record real observation</button><button data-action="signal">Import evidence</button></div>${state.sources
+  return `<section class="panel"><h2>Source connections & saved searches</h2><p class="caption">Data workflow: ${esc(state.automation?.version || "older server · restart after updating")}</p><p>Configure collection here. Browse collected products on the Sources page.</p><details><summary>External product research</summary><p>Search external sites by exact model. These links do not import results or confirm stock.</p><form id="discovery-form"><label>What do you want to source?<input id="discovery-query" type="search" placeholder="e.g. LEGO 75375 or DeWalt DCD800" required maxlength="100"></label><button class="primary">Find sourcing and resale searches</button></form><div id="discovery-links"></div></details><h3>Your automatic monitors</h3><p>Public feed adapters discover deal mentions, eBay searches discover active listings, and the retailer adapter watches exact product pages. Each source reports its actual access result below. Their actual access results appear below. Published mentions do not establish sales.</p><div class="toolbar"><button id="toggle">${state.settings.enabled ? "Pause collection" : "Resume collection"}</button><button data-action="source">Add supported product URL</button><button data-action="ebay-source">Add eBay search</button><button data-action="observation">Record real observation</button><button data-action="signal">Import evidence</button></div>${state.sources
       .map((s) => {
         const j = state.jobs[s.id] || {};
         return `<div class="line"><div>${external(s.url, s.id)} ${esc(s.query || "")}<br><span class="caption">${esc(j.status || "Waiting for first attempt")} · last success ${esc(j.last_ok_at || "None")}<br>${esc(j.error || "")}${j.retry_at ? "<br>Next retry after " + esc(j.retry_at) : ""}</span></div><span><span class="badge">${esc(s.adapter)}</span><button data-action="source-toggle" data-id="${esc(s.id)}">${s.enabled ? "Pause source" : "Resume source"}</button></span></div>`;
       })
       .join(
         "",
-      )}<h3>Coverage gaps</h3><p>Automatic completed-sales, broad retailer discovery, Amazon FBA/Walmart WFS fee estimates and marketplace eligibility checks are not connected. Enter reviewed scenarios and your own evidence locally; never paste private API credentials into chat.</p><p>FBA means Amazon stores, packs and ships your inventory for fees. WFS is Walmart’s fulfillment service. These services require separate seller eligibility and item-specific costs.</p><p class="caption">Asking-price retention: up to 90 days / 100,000 observations; eBay API listing cache is capped at 24 hours pending a fuller licensing review. Inventory events remain append-only. Ratings require a comparable channel/metric cohort and sufficient dated evidence.</p><a href="/api/capabilities" target="_blank" rel="noopener">Machine-readable capabilities & contracts ↗</a></section>`;
+      )}<h3>Coverage gaps</h3><p>Completed-sales feeds, Amazon FBA/Walmart WFS fee estimates and marketplace eligibility checks are not connected. Enter reviewed scenarios and your own evidence locally; never paste private API credentials into chat.</p><p>FBA means Amazon stores, packs and ships your inventory for fees. WFS is Walmart’s fulfillment service. These services require separate seller eligibility and item-specific costs.</p><p class="caption">Asking-price retention: up to 90 days / 100,000 observations; eBay API listing cache is capped at 24 hours pending a fuller licensing review. Inventory events remain append-only. Ratings require a comparable channel/metric cohort and sufficient dated evidence.</p><a href="/api/capabilities" target="_blank" rel="noopener">Machine-readable capabilities & contracts ↗</a></section>`;
 }
 function bindSourceSetup() {
     $("#discovery-form").onsubmit = (e) => {

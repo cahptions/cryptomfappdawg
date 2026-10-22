@@ -10,6 +10,18 @@ Private API credentials, OAuth codes, client secrets, account identifiers and un
 
 The user is building another app in a separate AI chat. Use this document to understand their expectations and learn from the workflow failures. Do not assume the other app has the same domain or copy KESTREL's architecture without inspecting that app.
 
+## Latest missing-data follow-up
+
+The user subsequently reported SPY still showing empty analysis and Arbitrage still showing only one product.
+Read `research/MISSING_DATA_FIXES.md` for the implementation, actual collection evidence and the one-time
+background restart commands. SPY now has ETF-specific metrics and a classification fallback; core SPY/QQQ option
+collection is prioritized. Eight bulk category monitors plus a US catalog automatically imported 1,328 distinct
+USD-priced products on the first normal pass, and 2,526 total over three passes. A Unicode page-2 failure was
+found, fixed and reverified live (108 offers, next checkpoint 3). Real-data browser checks decoded actual product
+photos. Header totals now cover the entire catalog, not only the 50-row page. This supersedes older statements
+that no real public source access had succeeded. Profitability, seller eligibility and completed-sale history
+remain unverified; private laptop credentials and processes were not accessed.
+
 ## The user's central expectations
 
 - Build an application that does useful work automatically after the necessary connections are configured. Do not leave default PAPER collection/trading or sourcing disabled without an actual reason.

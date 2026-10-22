@@ -105,6 +105,10 @@ try {
       await page.goto(`${base}/#stock/SPY`);
       await page.getByText("ETF market/options profile", {exact: true}).waitFor();
       await page.getByText("ETF PROFILE", {exact: true}).waitFor();
+      await page.getByRole("heading", {name: "ETF price & risk statistics", exact: true}).waitFor();
+      assert.equal(await page.locator(".desk-card").count(), 3);
+      assert.equal(await page.getByText("Market cap", {exact: true}).count(), 0);
+      await page.screenshot({path: `/tmp/kestrel-spy-${scenario}-${width}.png`, fullPage: true});
       await page.locator("svg.price-chart").waitFor();
     }
     await page.goto(`${base}/#options`);

@@ -60,6 +60,15 @@ def initialize(paths: DeskPaths) -> None:
                 repo.save_source(Source(id=key, url=url, adapter=adapter))
             repo.conn.execute("INSERT INTO arb_meta VALUES ('seed_catalog_v1','1')")
 
+        if not repo.conn.execute("SELECT 1 FROM arb_meta WHERE key='seed_bulk_catalog_v2'").fetchone():
+            from desk.arbitrage.catalog import CATALOGS
+
+            existing = {s.id for s in repo.sources()}
+            for key, (adapter, url) in CATALOGS.items():
+                if key not in existing:
+                    repo.save_source(Source(id=key, url=url, adapter=adapter))
+            repo.conn.execute("INSERT INTO arb_meta VALUES ('seed_bulk_catalog_v2','1')")
+
 
 async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any]:
     now = utc_now()
@@ -82,7 +91,8 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
                 or now - datetime.fromisoformat(jobs[s.id]["attempted_at"]) >= timedelta(minutes=15)
             )
         ),
-        key=lambda s: jobs.get(s.id, {}).get("attempted_at", ""),
+        key=lambda s: (jobs.get(s.id, {}).get("attempted_at", ""),
+                       0 if s.id == "arduino-us-catalog" else 1 if s.adapter == "adafruit_category" else 2),
     )[:5]
     attempted = 0
     from desk.arbitrage.discovery import FeedDelay
@@ -104,8 +114,11 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
                                  "last_ok_at": last.get("last_ok_at")}
         with Repo.open(paths) as repo:
             repo.job(source.id, state)
+            repo.job("collector", {"status": "collecting", "phase": "Importing products" if
+                source.adapter in {"adafruit_sitemap", "adafruit_category", "shopify_catalog"} else "Checking sources",
+                "source": source.id, "updated_at": utc_now().isoformat()})
         try:
-            if source.adapter in {"adafruit_sitemap", "shopify_catalog"}:
+            if source.adapter in {"adafruit_sitemap", "adafruit_category", "shopify_catalog"}:
                 from desk.arbitrage.catalog import fetch_catalog
 
                 observed_rows, urls, checkpoint = await fetch_catalog(source, utc_now(), client, last)
@@ -113,7 +126,8 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
                     repo.queue_offers(urls, source.id, now.isoformat())
                 state.update(checkpoint)
                 if checkpoint.get("complete"):
-                    state["retry_at"] = (now + timedelta(hours=6)).isoformat()
+                    state["retry_at"] = (now + (timedelta(minutes=15) if source.adapter == "adafruit_category"
+                                                       else timedelta(hours=6))).isoformat()
             elif source.adapter == "deal_feed":
                 from desk.arbitrage.discovery import fetch_feed
 
@@ -156,7 +170,8 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
         except DeskError as exc:
             state.update(status="unavailable", error=str(exc), retry_at=(now + timedelta(minutes=15)).isoformat())
         if state["status"] == "unavailable":
-            for key in ("next_offset", "next_page", "page_digest", "pending_sitemaps", "visited_sitemaps", "complete"):
+            for key in ("next_offset", "next_page", "page_digest", "pending_sitemaps", "visited_sitemaps",
+                        "complete", "page_size"):
                 if key in last:
                     state[key] = last[key]
                 else:
@@ -229,11 +244,16 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
         repo.conn.execute(
             "DELETE FROM arb_observations WHERE id NOT IN (SELECT id FROM arb_observations ORDER BY id DESC LIMIT 100000)"
         )
-        repo.job("collector", {"status": "idle", "last_cycle_at": utc_now().isoformat(), "attempted": attempted})
+        final_jobs = repo.jobs()
+        pending = sum(s.enabled and (not final_jobs.get(s.id, {}).get("attempted_at") or (
+            s.adapter in {"shopify_catalog", "adafruit_sitemap"} and final_jobs.get(s.id, {}).get("status") == "ok"
+            and not final_jobs[s.id].get("complete"))) for s in sources)
+        repo.job("collector", {"status": "idle", "backfill_pending": pending,
+                               "last_cycle_at": utc_now().isoformat(), "attempted": attempted})
         from desk.arbitrage.evidence import archive
 
         archive(repo, utc_now())
-    return {"attempted": attempted}
+    return {"attempted": attempted, "backfill_pending": pending}
 
 
 class Collector:
@@ -273,8 +293,9 @@ class Collector:
                         settings = repo.settings()
                     if not settings.enabled:
                         return
-                    await cycle(self.paths, client=client)
-                    await asyncio.sleep(settings.interval_seconds)
+                    result = await cycle(self.paths, client=client)
+                    await asyncio.sleep(min(60, settings.interval_seconds) if result["backfill_pending"]
+                                        else settings.interval_seconds)
         except (DeskError, OSError) as exc:
             # No restart loop: expose a bounded fault and let the operator retry after resolving it.
             self.error = type(exc).__name__ + ": collection stopped; inspect disk and source status"

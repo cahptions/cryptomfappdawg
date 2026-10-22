@@ -136,7 +136,8 @@ def test_profit_index_is_global_and_invalidated_when_source_price_changes(tmp_pa
         assert ids[0] == p.id and total == 101
         repo.observe(o.model_copy(update={"price": Decimal(200), "at": economics_now+timedelta(seconds=1)}))
         ids, _ = repo.catalog_ids(current_after=economics_now.isoformat())
-        assert ids[0] != p.id  # Previous positive profit cannot survive a changed source observation.
+        # An available product may still lead the unranked research list. Its obsolete profit index must be gone.
+        assert p.id in ids
         assert repo.conn.execute("SELECT COUNT(*) FROM arb_opportunity_index").fetchone()[0] == 0
 
 
@@ -213,7 +214,9 @@ def test_expired_profit_cache_and_unknown_quantity_never_qualify(tmp_path: Path)
         repo.save_settings(settings)
         repo.observe(o)
         repo.save_route(r.model_copy(update={"valid_until": economics_now+timedelta(seconds=30)}))
-        repo.save_product(Product(id="unknown", title="A unranked fixture"))
+        # Compare equally available records, so availability priority cannot mask an expired profit index.
+        unranked = Product(id="unknown", title="A unranked fixture")
+        repo.observe(o.model_copy(update={"product": unranked}))
         archive(repo, economics_now)
         after = economics_now+timedelta(minutes=1)
         ids, _ = repo.catalog_ids(current_after=economics_now.isoformat(), current_at=after.isoformat())

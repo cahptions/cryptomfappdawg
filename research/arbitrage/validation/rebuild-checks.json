@@ -1,6 +1,6 @@
 {
   "date": "2026-10-22",
-  "basis": "Current development checkpoint; synthetic/software evidence only",
+  "basis": "Current software checks, synthetic capacity, and separately identified real public-source acceptance. No profitable-business or forward-trading claim.",
   "targeted_regression": {
     "status": "passed",
     "tests": 104,
@@ -18,52 +18,62 @@
   "ruff": "passed",
   "mypy": {
     "status": "passed",
-    "source_files": 231
+    "source_files": 232
   },
   "javascript_syntax": "passed",
   "capacity": {
     "basis": "Synthetic cloud capacity experiment, not Dell measurement, source access or market evidence",
     "distinct_synthetic_priced_products": 10000,
     "persistent_queued_urls": 10000,
-    "ingest_seconds": 0.609,
+    "ingest_seconds": 1.318,
     "page_seconds": [
-      0.0256,
-      0.0217,
-      0.0228
+      0.0584,
+      0.0482,
+      0.0506
     ],
-    "last_page_bytes": 86640,
+    "last_page_bytes": 86774,
     "products_per_page": 50,
-    "process_peak_rss_mib": 37.69,
-    "database_bytes": 17162240,
+    "process_peak_rss_mib": 35.5,
+    "database_bytes": 17158144,
     "real_source_offers_verified": 0,
     "qualifying_opportunities": 0
   },
   "browser": {
     "status": "passed",
     "basis": "Disposable synthetic offline servers; no operator credentials or provider calls",
-    "arbitrage": "Desktop 1600px and mobile 390px; nine routes; source product grouping, Settings-only setup, comparable statistics, CSV import/plot, inventory/refunds, private credential forms, brand/model search, ranking and research links",
-    "stocks": "Populated and empty at 1366/375px; readiness states; pointer, keyboard and native Chromium touch chart inspection; ETF profile; navigation, PAPER controls, Settings and CSP",
+    "arbitrage": "Current isolated synthetic forms/accounting/discovery flows passed; real-data browser separately verified catalog totals, real CDN images and source grouping without intercepted images.",
+    "stocks": "Current populated 1366/375px ETF statistics/profile/empty-listing fallback presentation, pointer/keyboard/native-touch chart tests, navigation/PAPER/Settings/CSP passed. Earlier empty/readiness checks remain historical; not repeated in this pass.",
     "uncaught_errors": 0
   },
   "threaded_http": "passed in full offline suite with elevated local execution",
   "broader_regression": "passed: see full_regression",
   "real_source_acceptance": {
-    "verified_new_real_offers": 0,
-    "status": "Blocked: configured proxy returns tunnel HTTP 403 for retailer, eBay documentation and competitor hosts; private production eBay credentials unavailable"
+    "status": "passed for bounded public catalog/feed slice",
+    "real_distinct_priced_products_after_three_passes": 2526,
+    "usd_products": 2409,
+    "eur_products": 117,
+    "first_pass_usd_products": 1328,
+    "elapsed_seconds": 237.11,
+    "fixed_page2_offers_in_separate_followup": 108,
+    "boundary": "Published item prices/photos/stock declarations; not delivered availability, historical completed sales, complete economics or profit. Production eBay access unavailable here. One category exceeds the 2 MB response bound."
   },
   "production_live_orders": false,
   "marketplace_mutations": false,
   "legacy_browser_artifacts": "The three browser-*-synthetic.png images and both Arbitrage browser JSON reports were regenerated on this revision; synthetic test data only.",
-  "network_permission_request": "User-enabled full access now permits elevated local browser/server/test execution and GitHub fetch. Public source HTTP still fails at proxy.",
-  "cloud_domain_draft": "Earlier additive draft saved; current runtime reports unrestricted/unknown while actual HTTP requests receive proxy 403. No claim that saving applied a working policy.",
+  "network_permission_request": "Current runtime public-source access succeeded. Previous 403 reports are historical and superseded for the verified sources.",
+  "cloud_domain_draft": "Earlier saved draft is not evidence of applied permissions. Actual current public requests and catalog import are now recorded in live validation reports.",
   "full_regression": {
     "status": "passed",
-    "tests": 1229,
+    "tests": 1244,
     "deselected": 5,
-    "deselected_scope": "Opt-in live-provider tests excluded by the repository default marker",
-    "seconds": 110.18,
-    "warnings": [
-      "Starlette TestClient httpx deprecation; no test failures"
-    ]
+    "deselected_scope": "Opt-in live-provider tests excluded by repository default marker",
+    "seconds": 139.89
+  },
+  "live_browser": {
+    "basis": "Actual live-collected public product prices and real CDN image downloads; no intercepted or generated images. No completed-sales, delivery or profit claim.",
+    "products": 2526,
+    "priced": 2526,
+    "decoded_images_on_first_page": 3,
+    "uncaught_errors": []
   }
 }
