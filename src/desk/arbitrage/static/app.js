@@ -15,6 +15,14 @@ const money = (v, currency = state?.settings.currency || "USD") =>
         style: "currency",
         currency,
       }).format(Number(v));
+document.addEventListener("error", (event) => {
+  if (event.target instanceof HTMLImageElement && event.target.closest(".product-photo")) {
+    const fallback = document.createElement("span");
+    fallback.className = "no-photo";
+    fallback.textContent = "Source photo unavailable";
+    event.target.replaceWith(fallback);
+  }
+}, true);
 let state = null,
   csrf = "",
   editing = false,
@@ -128,14 +136,13 @@ function status() {
 function board(rows, qualified = false) {
   if (!rows.length)
     return `<div class="empty"><h3>${qualified ? "No qualified routes yet" : "Waiting for the first real observation"}</h3><p>${qualified ? "Product match, delivery availability, seller eligibility and complete costs must pass before an item enters this list." : "The read-only source adapter starts automatically. Network or retailer restrictions appear in Sources & system. You can also record a real observation there."}</p><a href="#sources">Inspect sources ↗</a></div>`;
-  return `<div class="table-wrap"><table><thead><tr><th>PRODUCT / SOURCE</th><th>HEAT PROFILE</th><th>SELLING ROUTE</th><th>NET / UNIT</th></tr></thead><tbody>${rows
-    .slice(0, 100)
-    .map((b) => {
-      const o = b.offers[0],
-        r = b.routes[0];
-      return `<tr><td><a href="#product/${esc(b.product.id)}"><strong>${esc(b.product.title)}</strong></a><span class="meta">${esc(b.product.category)} · ${b.product.identity_confirmed ? "Identity reviewed" : "Identity unconfirmed"}</span><br>${o ? external(o.url, "Source") + " · " + esc(money(o.price, o.currency)) + '<br><span class="meta">' + esc(availability(o)) + " · " + esc(o.at) + "</span>" : "No offer"}</td><td>${b.heat.length ? b.heat.map((m) => `<span class="badge">${esc(m.kind)} · ${esc(m.rating)}</span><br>`).join("") : '<span class="badge">VOLUME · UNKNOWN</span><br><span class="badge">POPULARITY · UNKNOWN</span>'}<span class="badge">SELL-THROUGH · UNKNOWN</span></td><td>${r ? esc(r.channel) + '<br><span class="meta">' + esc(r.fulfillment) + '</span><br><span class="' + (r.qualifies ? "good" : "warn") + '">' + (r.qualifies ? "Reviewed scenario" : esc(r.blockers[0])) + "</span>" : "No selling scenario recorded"}</td><td>${r ? esc(money(r.net_profit)) : "—"}<br><span class="meta">${r ? "Stress " + esc(money(r.stress_profit)) : "Costs and selling price needed"}</span></td></tr>`;
-    })
-    .join("")}</tbody></table></div>`;
+  return `<div class="deal-grid">${rows.slice(0, 100).map((b) => {
+    const o = b.offers[0], r = b.routes[0], p = b.product;
+    const image = p.image_url && /^https:\/\//.test(p.image_url)
+      ? `<img src="${esc(p.image_url)}" alt="${esc(p.title)}" loading="lazy" referrerpolicy="no-referrer">` : `<span class="no-photo">No source photo yet</span>`;
+    const fresh = o && !availability(o).startsWith("STALE") && o.availability !== "UNAVAILABLE";
+    return `<article class="deal-card"><a class="product-photo" href="#product/${esc(p.id)}">${image}</a><div class="deal-body"><span class="eyebrow">${esc(p.category)} · ${esc(p.condition)}</span><h3><a href="#product/${esc(p.id)}">${esc(p.title)}</a></h3><div class="deal-price">${o ? esc(money(o.price, o.currency)) : "Price unavailable"}<span>source asking price</span></div><span class="badge ${fresh ? "good" : "warn"}">${o ? esc(availability(o)) : "No offer"}</span><dl class="deal-metrics"><div><dt>Sell on</dt><dd>${r ? esc(r.channel) : "Compare destinations"}</dd></div><div><dt>Estimated net / unit</dt><dd>${r ? esc(money(r.net_profit)) : "Needs costs"}</dd></div><div><dt>Stress net / unit</dt><dd>${r ? esc(money(r.stress_profit)) : "Unknown"}</dd></div><div><dt>Demand evidence</dt><dd>${b.heat.length ? esc(b.heat[0].rating) : "Not connected"}</dd></div></dl><p class="next-step">${!p.identity_confirmed ? "Next: check exact model, pack and condition." : !r ? "Next: compare a selling destination and costs." : r.qualifies ? "Ready for a fresh delivery and price check." : esc(r.blockers[0] || "Review scenario")}</p><div class="toolbar"><a class="button" href="#product/${esc(p.id)}">Research item</a>${o ? external(o.url, "Check source") : ""}</div><span class="caption">${o ? "Observed " + esc(new Date(o.at).toLocaleString()) : "No dated observation"} · Not reserved</span></div></article>`;
+  }).join("")}</div>`;
 }
 function render() {
   status();
@@ -150,17 +157,15 @@ function render() {
     const rows = state.board.filter(
       (b) => !qualified || b.routes.some((r) => r.qualifies),
     );
-    el.innerHTML = `<div class="grid"><section class="panel"><h2>${qualified ? "Top opportunities · up to 100" : route === "research" ? "Product research" : "Opportunities with a destination"}</h2><p class="caption">${qualified ? "Qualified reviewed scenarios only. Empty positions are never padded." : "Retailer observations first. Unknown fields stay visible while research grows."}</p><div class="toolbar"><label>Category<select id="category"><option value="">All categories</option>${[...new Set(rows.map((b) => b.product.category))].map((c) => `<option>${esc(c)}</option>`).join("")}</select></label><button data-action="observation">Record real observation</button></div><div id="board">${board(rows, qualified)}</div></section><aside class="panel"><h2>Where to sell</h2><p>Compare any low-cost eligible destination using its own fees, fulfillment and payout timing.</p><a href="#profitability">Compare selling routes ↗</a><div class="line"><span>Estimated basket net</span><span class="good">${esc(money(state.basket.estimated_profit))}</span></div><div class="line"><span>Keep-cash alternative</span><span>${esc(money(state.basket.cash_available))}</span></div><p class="caption">${esc(state.coverage.scope)}</p><a href="#sources">Coverage & source health ↗</a></aside></div>`;
-    $("#category").onchange = (e) => {
-      $("#board").innerHTML = board(
-        rows
-          .filter(
-            (b) => !e.target.value || b.product.category === e.target.value,
-          )
-          .slice(0, e.target.value ? 10 : 100),
-        qualified,
-      );
+    el.innerHTML = `<div class="grid"><section class="panel"><h2>${qualified ? "Top opportunities · up to 100" : route === "research" ? "Product research" : "Your sourcing desk"}</h2><p class="caption">${qualified ? "Qualified reviewed scenarios only. Empty positions are never padded." : "Retailer observations first. Unknown fields stay visible while research grows."}</p><div class="toolbar"><label>Search products<input id="product-search" type="search" placeholder="Brand, model or product"></label><label>Show<select id="offer-filter"><option value="all">All research candidates</option><option value="fresh">Recent available listings</option><option value="qualified">Reviewed profitable scenarios</option></select></label><label>Category<select id="category"><option value="">All categories</option>${[...new Set(rows.map((b) => b.product.category))].map((c) => `<option>${esc(c)}</option>`).join("")}</select></label><button data-action="observation">Record real observation</button></div><div id="board">${board(rows, qualified)}</div></section><aside class="panel"><h2>Find → compare → sell</h2><ol class="checks"><li><a href="#sources">Choose your sourcing searches</a></li><li>Open an item and check its exact model.</li><li>Compare selling destinations after costs.</li><li>Recheck stock before committing cash.</li></ol><h3>Where to sell</h3><p>Compare any low-cost eligible destination using its own fees, fulfillment and payout timing.</p><a href="#profitability">Compare selling routes ↗</a><div class="line"><span>Estimated basket net</span><span class="good">${esc(money(state.basket.estimated_profit))}</span></div><div class="line"><span>Keep-cash alternative</span><span>${esc(money(state.basket.cash_available))}</span></div><p class="caption">${esc(state.coverage.scope)}</p><a href="#sources">Coverage & source health ↗</a></aside></div>`;
+    const filterBoard = () => {
+      const q = $("#product-search").value.toLowerCase().trim(), category = $("#category").value, mode = $("#offer-filter").value;
+      const filtered = rows.filter(b => (!category || b.product.category === category) && b.product.title.toLowerCase().includes(q) && (mode !== "qualified" || b.routes.some(r => r.qualifies)) && (mode !== "fresh" || b.offers.some(o => !availability(o).startsWith("STALE") && ["DECLARED_AVAILABLE", "VERIFIED_AVAILABLE"].includes(o.availability))));
+      $("#board").innerHTML = filtered.length ? board(filtered, qualified) : '<div class="empty">No items match these filters. Try another search or broaden your sources.</div>';
     };
+    $("#category").onchange = filterBoard;
+    $("#offer-filter").onchange = filterBoard;
+    $("#product-search").oninput = filterBoard;
   } else if (route === "product") {
     const b = state.board.find((x) => x.product.id === id);
     if (!b) {
@@ -188,7 +193,7 @@ function render() {
   } else if (route === "inventory" || route === "planning") {
     el.innerHTML = `<section class="panel"><h2>${route === "planning" ? "Planning & inventory aging" : "Inventory · append-only lots"}</h2><p>Receive stock with its total landed cost. Reserve units explicitly; release them before a sale. Returns stay quarantined until restocked. Sale amounts are net proceeds; return amounts are refunds.</p><button data-action="inventory">Record inventory event</button><div class="line"><span>Realized recorded profit</span><span>${esc(money(state.inventory.realized_profit))}</span></div><div class="table-wrap"><table><thead><tr><th>LOT / PRODUCT</th><th>AVAILABLE / RESERVED</th><th>QUARANTINED</th><th>COST / REALIZED</th><th>AGE</th></tr></thead><tbody>${state.inventory.lots.map((l) => `<tr><td>${esc(l.id)}<br>${esc(l.product_id)}</td><td>${l.available} / ${l.reserved}</td><td>${l.quarantined}</td><td>${esc(money(l.committed_cost))} / ${esc(money(l.realized_profit))}</td><td>${Math.max(0, Math.floor((Date.now() - Date.parse(l.received_at)) / 86400000))} days</td></tr>`).join("")}</tbody></table></div>${route === "planning" ? '<h3>Before committing capital</h3><ul class="checks"><li>Confirm exact variant, pack, condition, authenticity and acceptable supplier documents.</li><li>Check seller/category eligibility and shipping restrictions on the destination.</li><li>Recheck regional stock and delivered cost within five minutes of review.</li><li>Stress selling price, returns, holding time and all incremental fees.</li><li>Review aged and quarantined inventory before replenishment.</li></ul><p>No seasonality forecast is available without sufficient dated observations.</p>' : ""}</section>`;
   } else if (route === "sources") {
-    el.innerHTML = `<section class="panel"><h2>Sources & system</h2><p>V1 automatically watches a small reviewed source set. It does not scan every retailer or connect to marketplace seller accounts. No API subscription is needed for the included read-only adapter.</p><div class="toolbar"><button id="toggle">${state.settings.enabled ? "Pause collection" : "Resume collection"}</button><button data-action="source">Add supported product URL</button><button data-action="ebay-source">Add eBay search</button><button data-action="observation">Record real observation</button><button data-action="signal">Import evidence</button></div>${state.sources
+    el.innerHTML = `<section class="panel"><h2>Find your next product</h2><p>Start with a product or model. Connected searches collect automatically; the discovery links below open external sites and do not import their results.</p><form id="discovery-form"><label>What do you want to source?<input id="discovery-query" type="search" placeholder="e.g. LEGO 75375 or DeWalt DCD800" required maxlength="100"></label><button class="primary">Find sourcing and resale searches</button></form><div id="discovery-links"></div><h3>Your automatic monitors</h3><p>V1 automatically watches a small reviewed source set. It does not scan every retailer or connect to marketplace seller accounts. No API subscription is needed for the included read-only adapter.</p><div class="toolbar"><button id="toggle">${state.settings.enabled ? "Pause collection" : "Resume collection"}</button><button data-action="source">Add supported product URL</button><button data-action="ebay-source">Add eBay search</button><button data-action="observation">Record real observation</button><button data-action="signal">Import evidence</button></div>${state.sources
       .map((s) => {
         const j = state.jobs[s.id] || {};
         return `<div class="line"><div>${external(s.url, s.id)} ${esc(s.query || "")}<br><span class="caption">${esc(j.status || "Waiting for first attempt")} · last success ${esc(j.last_ok_at || "None")}<br>${esc(j.error || "")}${j.retry_at ? "<br>Next retry after " + esc(j.retry_at) : ""}</span></div><span><span class="badge">${esc(s.adapter)}</span><button data-action="source-toggle" data-id="${esc(s.id)}">${s.enabled ? "Pause source" : "Resume source"}</button></span></div>`;
@@ -196,6 +201,19 @@ function render() {
       .join(
         "",
       )}<h3>Coverage gaps</h3><p>Automatic completed-sales, broad retailer discovery, Amazon FBA/Walmart WFS fee estimates and marketplace eligibility checks are not connected. Enter reviewed scenarios and your own evidence locally; never paste private API credentials into chat.</p><p>FBA means Amazon stores, packs and ships your inventory for fees. WFS is Walmart’s fulfillment service. These services require separate seller eligibility and item-specific costs.</p><p class="caption">Asking-price retention: up to 90 days / 100,000 observations; eBay API listing cache is capped at 24 hours pending a fuller licensing review. Inventory events remain append-only. Ratings require a comparable channel/metric cohort and sufficient dated evidence.</p><a href="/api/capabilities" target="_blank" rel="noopener">Machine-readable capabilities & contracts ↗</a></section>`;
+    $("#discovery-form").onsubmit = e => {
+      e.preventDefault();
+      const q = encodeURIComponent($("#discovery-query").value.trim());
+      const links = [
+        ["Google Shopping", "https://www.google.com/search?tbm=shop&q=" + q, "Compare advertised offers; stock and shipping vary."],
+        ["Slickdeals", "https://slickdeals.net/newsearch.php?q=" + q, "Community deal leads; posts may be expired."],
+        ["Walmart", "https://www.walmart.com/search?q=" + q, "Retail and marketplace offers; check seller and exact pack."],
+        ["Target", "https://www.target.com/s?searchTerm=" + q, "Retail search; local availability varies."],
+        ["eBay sold listings", "https://www.ebay.com/sch/i.html?_nkw=" + q + "&LH_Sold=1&LH_Complete=1", "Manual comparable research; accepted-offer prices may be hidden."],
+        ["Amazon", "https://www.amazon.com/s?k=" + q, "Compare listing prices; these are not confirmed sales."],
+      ];
+      $("#discovery-links").innerHTML = '<div class="source-grid">' + links.map(([name, url, note]) => `<article class="panel"><h3>${external(url, name)}</h3><span class="badge">External research · not an automatic feed</span><p>${esc(note)}</p></article>`).join("") + '</div><p>Found a candidate? Use Record real observation below. Only eBay searches and supported retailer URLs are monitored automatically.</p>';
+    };
     $("#toggle").onclick = async () => {
       await save("/api/settings", {
         ...state.settings,
@@ -204,7 +222,7 @@ function render() {
     };
   } else if (route === "settings") {
     const s = state.settings;
-    el.innerHTML = `<section class="panel"><h2>Business settings</h2><p>Business capital includes inventory cost. It is independent of the $500 trading reference accounts. Unknown capital produces no purchase basket.</p><form id="settings-form"><div class="form-grid">${field("capital", "Business capital", "number", s.capital ?? "", false)}${field("reserve", "Cash reserve", "number", s.reserve)}${field("region", "Delivery region (use the same value in checks)", "text", s.region)}${field("currency", "Currency", "text", s.currency)}${field("max_product_fraction", "Maximum product share (0–1)", "number", s.max_product_fraction)}${field("max_channel_fraction", "Maximum channel share (0–1)", "number", s.max_channel_fraction)}${field("min_profit", "Minimum estimated profit per unit", "number", s.min_profit)}${field("max_units", "Maximum units per product", "number", s.max_units)}${field("max_days", "Maximum cash-cycle days", "number", s.max_days)}${field("max_monthly_cost", "Maximum monthly channel subscription", "number", s.max_monthly_cost)}</div><button class="primary">Save business profile</button></form></section>`;
+    el.innerHTML = `<section class="panel"><h2>Business settings</h2><p>Business capital includes inventory cost. It is independent of the $500 trading reference accounts. Unknown capital produces no purchase basket.</p><form id="settings-form"><div class="form-grid">${field("capital", "Business capital", "number", s.capital ?? "", false)}${field("reserve", "Cash reserve", "number", s.reserve)}${field("region", "Delivery region (use the same value in checks)", "text", s.region)}${field("currency", "Currency", "text", s.currency)}</div><details><summary>Advanced limits · optional</summary><p>Defaults limit any one product to 20% of capital, any one selling channel to 60%, and orders to five units per product. Change these only to fit your business.</p><div class="form-grid">${field("max_product_fraction", "Maximum product share (0–1)", "number", s.max_product_fraction)}${field("max_channel_fraction", "Maximum channel share (0–1)", "number", s.max_channel_fraction)}${field("min_profit", "Minimum estimated profit per unit", "number", s.min_profit)}${field("max_units", "Maximum units per product", "number", s.max_units)}${field("max_days", "Maximum cash-cycle days", "number", s.max_days)}${field("max_monthly_cost", "Maximum monthly channel subscription", "number", s.max_monthly_cost)}</div></details><button class="primary">Save business profile</button></form></section>`;
     el.insertAdjacentHTML(
       "beforeend",
       `<section class="panel"><h2>Data connections & setup guides</h2><p>No paid API is required for the included source adapter. Optional integrations show their actual implementation status.</p>${setupGuides.map((g) => `<details class="panel"><summary>${esc(g.title)} · ${esc(g.status)}</summary><p>${esc(g.purpose)}</p><div class="toolbar">${g.links.map((l) => external(l.url, l.label)).join(" · ")}</div><ol>${g.steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ol><p class="warn">${esc(g.cost)}</p><p class="caption">${esc(g.limitation)}</p></details>`).join("")}</section>`,
@@ -459,7 +477,7 @@ window.addEventListener("hashchange", () => {
   }
 })();
 setInterval(() => {
-  if (!editing && !$("#settings-form") && !document.hidden)
+  if (!editing && !$("#settings-form") && !$("#product-search")?.matches(":focus") && !document.hidden)
     reload().catch((e) => notice("Dashboard unavailable: " + e.message, true));
 }, 10000);
 

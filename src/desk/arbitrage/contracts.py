@@ -60,6 +60,12 @@ class Product(Record):
     pack_count: int | None = Field(default=None, ge=1, le=10000)
     condition: str = Field(default="new", max_length=50)
     identity_confirmed: bool = False
+    image_url: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("image_url")
+    @classmethod
+    def validate_image(cls, value: str | None) -> str | None:
+        return public_url(value) if value else None
 
     @field_validator("gtin")
     @classmethod

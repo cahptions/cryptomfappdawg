@@ -193,3 +193,22 @@ def test_private_settings_save_needs_no_terminal_stop_and_echoes_no_values(paths
         assert sum(s["adapter"] == "ebay_browse" for s in body["sources"]) == 3
         assert client.post("/api/integrations/ebay", json={"enabled": False}, headers=headers).status_code == 200
         assert load(paths).client_id == "SYNTHETIC_CLIENT_ID"
+
+
+def test_listing_photos_are_provider_owned_and_optional() -> None:
+    from desk.arbitrage.ebay import listing_image
+
+    assert listing_image({"image": {"imageUrl": "https://i.ebayimg.com/images/g/example/s-l225.jpg"}})
+    for value in ("https://evil.example/tracker", "javascript:alert(1)", "https://i.ebayimg.com@evil.example/x"):
+        assert listing_image({"image": {"imageUrl": value}}) is None
+    assert listing_image({"image": "malformed"}) is None
+    assert listing_image({}) is None
+
+
+def test_old_product_records_remain_readable_with_optional_photo() -> None:
+    from desk.arbitrage.contracts import Product
+
+    old = Product.model_validate({"id": "old", "title": "Existing product"})
+    assert old.image_url is None
+    with pytest.raises(ValueError):
+        Product(id="bad", title="Bad photo", image_url="javascript:alert(1)")

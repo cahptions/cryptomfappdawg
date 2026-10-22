@@ -55,6 +55,20 @@ async def response_json(response: httpx.Response) -> dict[str, Any]:
     return data
 
 
+def listing_image(row: dict[str, Any]) -> str | None:
+    """Only provider-owned HTTPS image hosts; a bad thumbnail must not discard an offer."""
+    image = row.get("image")
+    url = image.get("imageUrl") if isinstance(image, dict) else None
+    if not isinstance(url, str):
+        return None
+    parsed = urlsplit(url)
+    if (parsed.scheme == "https" and parsed.hostname in {"i.ebayimg.com", "i.ebaystatic.com"}
+            and not parsed.username and not parsed.password and parsed.port in (None, 443)
+            and not parsed.fragment and len(url) <= 1000):
+        return url
+    return None
+
+
 def parse(data: dict[str, Any], source: Source, now: datetime) -> list[Observation]:
     if data.get("errors") or ("itemSummaries" not in data and data.get("total") != 0):
         raise DeskError("eBay search returned errors or an incomplete result; no successful empty result assumed")
@@ -80,6 +94,7 @@ def parse(data: dict[str, Any], source: Source, now: datetime) -> list[Observati
                 title=str(row["title"]),
                 category="Uncategorized",
                 condition=str(row.get("condition") or "Unknown"),
+                image_url=listing_image(row),
             )
             output.append(
                 Observation(

@@ -380,3 +380,24 @@ summary {
     padding: 16px;
   }
 }
+/* Product-led sourcing workspace. */
+.deal-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:18px}
+.deal-card {border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#11180f;min-width:0;transition:border-color .2s,transform .2s}
+.deal-card:hover {border-color:#78904e;transform:translateY(-2px)}
+.product-photo {display:flex;align-items:center;justify-content:center;height:200px;background:#f4f5ef;color:#56634e;overflow:hidden}
+.product-photo img {height:100%;width:100%;object-fit:contain;padding:16px}
+.no-photo {font-size:12px}
+.deal-body {padding:18px}
+.deal-body h3 {min-height:48px;margin:10px 0;font-size:16px;line-height:1.5;overflow-wrap:anywhere}
+.deal-body h3 a {color:#edf0e8}
+.deal-price {font-size:27px;font-weight:650;letter-spacing:-.8px}
+.deal-price span {display:block;font-size:11px;font-weight:400;letter-spacing:0;color:var(--muted)}
+.deal-metrics {display:grid;grid-template-columns:1fr 1fr;gap:12px;border-top:1px solid var(--line);padding-top:14px}
+.deal-metrics dt {font-size:11px;color:var(--muted)}
+.deal-metrics dd {margin:4px 0;font-weight:550;overflow-wrap:anywhere}
+.next-step {font-size:12px;min-height:38px;color:var(--amber)}
+.deal-card .toolbar {gap:10px;font-size:12px}
+.source-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px;margin-top:20px}
+.source-grid .panel {margin:0}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible {outline:2px solid var(--green);outline-offset:4px}
+@media(prefers-reduced-motion:reduce){.deal-card{transition:none}.deal-card:hover{transform:none}}

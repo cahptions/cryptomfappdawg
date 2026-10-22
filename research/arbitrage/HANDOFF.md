@@ -64,3 +64,19 @@ or optimizer before forward evaluation. Do not promote a heat score to a probabi
 `docs/ARBITRAGE.md`, `FEASIBILITY.md`, `IMPLEMENTATION.md`, `FAULT_REGISTRY.md`, `BUILD_STATUS.md`,
 `validation/browser-results.json`, `validation/resources-synthetic.json`; then the corresponding `src/desk/arbitrage`
 modules and `tests/unit/test_arbitrage*.py`. The consolidated `MASTER_PROMPT.md` remains the full target specification.
+
+## Product-led usability correction — 2026-10-22
+
+Operator feedback: the first release was too much an accounting console and too little a sourcing tool.
+First correction adds image-led cards (optional eBay-owned thumbnails; older records remain compatible),
+local title/category/availability filters, next-step cues, a find→compare→sell checklist, explicit source-search
+links, and progressive disclosure for advanced capital limits. Source links are manual research, NOT integrations.
+Google Shopping, Slickdeals, Walmart, Target, Amazon and eBay sold-search links do not create price, stock,
+completed-sale or demand evidence in the app. No automatic sourcing breadth improvement is claimed.
+
+The substantive unfinished requirement is still broader automatic discovery and exact-product cross-source
+matching with dated costs, stock and resale evidence. Do not present this visual correction as completing it.
+Cloud policy currently excludes retailer/eBay API hosts, and no production eBay credentials are available here.
+Photo loading is browser-side HTTPS, no-referrer and lazy; no server image proxy or credentialed request.
+Next: build supported structured imports/feeds and buyer-oriented destination comparison with account-specific
+fees; verify genuine live vertical slices on permitted sources. Keep manual work visible and minimize it.
