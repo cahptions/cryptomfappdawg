@@ -10,13 +10,18 @@ on my actual laptop and budget. Evaluate your own proposals skeptically; complex
 ## 1. Mission and scope
 
 Build a separate KESTREL desk that discovers currently purchasable retail, online, wholesale and liquidation
-products with defensible resale potential. My primary destination marketplaces are **Amazon and Walmart**,
-including FBA, FBM, WFS and seller fulfillment where suitable. Explain those terms and operational requirements
-in beginner-friendly language inside the app.
+products with defensible resale potential. **Marketplace selection is open:** evaluate Amazon, Walmart, eBay,
+Mercari, Poshmark, StockX, GOAT, Whatnot, relevant specialist marketplaces, local selling channels, wholesale buyers
+and direct-to-consumer options when evidence supports them. The named platforms are examples, not a whitelist or
+a fixed priority order. Choose destinations by product fit, supported demand, seller eligibility, net economics,
+capital requirements and operating cost. Do not defer a useful inexpensive channel just because it is not Amazon
+or Walmart. Explain fulfillment models such as FBA, FBM and WFS in beginner-friendly language where relevant.
 
-Design channel adapters so eBay, Mercari, Poshmark, StockX, GOAT, Whatnot and direct-to-consumer channels can be
-evaluated later. Add a channel only when useful data, account eligibility and maintainable integration exist.
-Do not replace Amazon/Walmart with other marketplaces merely because their websites appear easier to inspect.
+Prefer channels with no or low upfront/listing costs and maintainable integrations. Compare full costs, including
+subscriptions, per-listing charges, commissions, payment fees, ads, shipping, fulfillment, authentication, returns
+and operational effort. A free listing is not automatically a cheap or profitable sale; a fee-charging channel can
+be preferable when supported net proceeds justify it. Expose configurable channel-cost limits. Initial new recurring
+service commitments remain $0 unless separately authorized; transaction/fulfillment fees enter unit economics.
 No platform should be assumed universally unrestricted, freely accessible or suitable for every product.
 
 The app should help identify products worth buying, determine where and how to sell them, allocate explicitly
@@ -44,13 +49,15 @@ provides connectivity, not always-on compute. Explain exactly what becomes stale
 
 ## 3. Data feasibility before architectural promises
 
-Research current primary documentation for Amazon, Walmart and a practical initial set of source retailers.
-Evaluate other channels/data vendors where they add useful evidence. Cite source titles, accessible links, access
+Research current primary documentation across candidate selling channels and a practical initial set of source
+retailers. Select an initial channel set from a documented capability/cost/demand comparison rather than brand
+preference. Evaluate data vendors where they add useful evidence. Cite source titles, accessible links, access
 dates, exact capabilities, costs, licensing and seller/account entitlements. If access or browsing is unavailable,
 state that limitation and mark the conclusion unverified. Do not present remembered fee examples as current facts.
 
 Produce a source-capability matrix for identifiers, current delivered price, availability/quantity, historical
-offers, actual completed sales, actual units sold, demand proxies, competition, fees, restrictions and payout timing.
+offers, actual completed sales, actual units sold, popularity/attention fields, demand proxies, comparison cohorts,
+competition, fees, restrictions and payout timing.
 For each field specify provenance, permissions, cost, geographic coverage, update delay, rate limits and fallback.
 Investigate Keepa and marketplace APIs without assuming they are free or provide confirmed transaction histories.
 Blocked sources must become explicit coverage limitations; do not design CAPTCHA, login or access-control evasion.
@@ -65,7 +72,8 @@ Preserve separate evidence classes:
 Never convert rank drops into confirmed sales or prices displayed on sold pages into confirmed accepted-offer
 prices. Hidden accepted offers, unknown quantities, canceled transactions and immature returns remain uncertain.
 Deduplicate repeated listings/transactions. Exclude incompatible variants, conditions, bundles and markets from
-comparable-sale statistics. Another channel's sales are separate evidence, not Amazon/Walmart demand by default.
+comparable-sale statistics. Another channel's sales are separate evidence, not demand on the selected destination
+by default. Cross-channel transfer needs an explicit, testable rationale.
 
 If complete historical prices or unit sales cannot be obtained at $0, identify precisely what is unavailable.
 Implement useful current observations, prospective price history and permitted own-sales imports without inventing
@@ -120,8 +128,8 @@ Estimate a plausible selling-price range for the time inventory will actually be
 comparables, condition, geography, shipping, recency, seasonality and promotion context. Show medians/quantiles and
 uncertainty where justified. Flag outliers and reference-price manipulation without erasing valid inconvenient sales.
 
-Track permitted competition evidence: seller/offer counts, price dispersion, Amazon/Walmart competing directly,
-Featured Offer eligibility and price compression after widespread clearance. Asking prices, bids and completed
+Track permitted competition evidence: seller/offer counts, price dispersion, the platform or major retailers
+competing directly, Featured Offer eligibility and price compression after widespread clearance. Asking prices, bids and completed
 transactions are different signals. Analyze arrival/inbound delays rather than assuming immediate resale today.
 
 Define every demand metric mathematically. Sold listings over a window divided by current active listings is a
@@ -158,8 +166,8 @@ authentication delays/rejection and returns. Never represent modeled profit as a
 
 ### Selling-destination engine — where to sell for maximum supported profitability
 
-For every matched item, evaluate all supported, eligible destination/fulfillment combinations: Amazon FBA/FBM,
-Walmart WFS/seller fulfillment, and approved optional channels when evidence exists. Include relevant local or
+For every matched item, evaluate all supported, eligible destination/fulfillment combinations across the open
+channel set, including Amazon FBA/FBM and Walmart WFS/seller fulfillment when appropriate. Include relevant local or
 direct-to-consumer alternatives only when buyer demand, delivery and customer-acquisition costs can be supported;
 an empty Shopify store is not automatically a zero-fee route to an existing buyer.
 
@@ -192,6 +200,46 @@ Use eligibility gates before ranking. Unknown factors must not be silently assig
 Do not multiply ROI × an ambiguous sell-through ratio × a stock score and call the result a probability. Explain
 units, scales, weights, sensitivity and shared dependencies. More complex models require prospective improvement
 over simple conservative-profit/turnover rules. No high-probability-profit label without independent calibration.
+
+### Product heat ratings — volume, popularity and related signals
+
+Give every product a visible multidimensional heat profile, with destination-specific ratings where evidence
+differs by channel. Required dimensions are:
+
+- **Sales-volume heat:** observed completed units per unit of time and their recent distribution. Confirmed unit
+  counts, sold-listing counts and estimated volume are different measures and must retain different labels.
+- **Popularity heat:** supported search interest, unique views/watchers/favorites, mentions or other permitted
+  attention measures. Attention is not proof of purchasing. Deduplicate and flag suspicious/inorganic activity.
+- **Momentum heat:** acceleration or deterioration in demand and attention over explicit short/long windows.
+  Separate sustained changes from a low-base spike, a promotion or seasonality. A zero baseline must not produce infinity.
+- **Sell-through heat:** supported inventory turnover/time-to-sale evidence, with cohort results distinguished
+  from marketplace supply-demand proxies and estimated selling speed.
+- **Competition pressure:** seller/offer growth, inventory crowding and price compression. A higher pressure
+  reading means more competition; it must not visually imply a more desirable purchase.
+- **Deal heat:** current delivered acquisition cost relative to relevant historical prices and conservative resale
+  economics. Keep this distinct from demand heat; popular products can still be overpriced or unprofitable.
+
+Show intuitive levels such as COOL, WARM, HOT and VERY HOT, an optional 0–100 score and a trend arrow, together with
+the raw metric, units, window, source, sample size, coverage, freshness and a separate evidence-quality badge.
+Use UNKNOWN/INSUFFICIENT DATA and a distinct neutral appearance for missing inputs, not a zero or COOL rating.
+A heat score is an index, not a sale probability or profit forecast.
+
+Specify reproducible formulas, default windows and thresholds before implementation. Use practical windows such
+as 24 hours, 7, 30 and 90 days only where source cadence and history support them. Normalize within appropriate
+channel/category/condition cohorts using prior-available observations and robust transformations where needed;
+record the comparison population and minimum support. Never imply a niche's 95th percentile represents high
+absolute volume: show actual observed units/time alongside relative standing. A partial sample is not the whole market.
+
+Maintain separate dimensions instead of averaging incompatible inputs. If an overall demand-heat index is useful,
+justify its weights, missing-input rules and shared dependencies, version it, and retain the underlying breakdown.
+Do not include competition pressure as a positive input by accident. Do not count the scanner's own requests as
+popularity. Ratings must decay/become stale as evidence ages and must not transfer automatically across variants
+or marketplaces. Display timestamped rating history so increases and reversals can be inspected.
+
+Use heat badges on home cards, research dossiers, the Top 100, niche boards and capital suggestions, with legends,
+tooltips, filters and sorting. Offer separate hot-by-volume, popular, surging and fast-turnover views. Heat cannot
+bypass product matching, stock verification, sellability, net-profit checks or capital limits. Validate whether each
+dimension improves decisions after costs rather than assuming a hot item is a good purchase.
 
 ## 9. Capital deployment and cash-cycle planning
 
@@ -232,9 +280,10 @@ instant delisting or zero overselling. Measure latency and use conservative per-
 ## 11. Required pages and interaction quality
 
 - **Home:** current observations, verified opportunities, source coverage, changes since review, category activity,
-  capital/inventory snapshot and a feasible basket's estimated outcomes without duplicate counting.
+  capital/inventory snapshot, product heat badges, volume/popularity/momentum boards and a feasible basket's
+  estimated outcomes without duplicate counting.
 - **Research:** exact-product dossiers, identity evidence, source offers, availability, comparable sales, separate
-  chart series, demand/proxies, competition, sellability, seasonality and provenance.
+  chart series, heat profiles/history, demand/proxies, competition, sellability, seasonality and provenance.
 - **Profitability:** editable channel/fulfillment comparison matrix, itemized costs, break-even, profit hurdle,
   cost waterfalls, missing inputs and downside scenarios; a prominent **Where to sell** recommendation with the
   best supported net-profit route, runner-up and explanations.
@@ -247,7 +296,8 @@ instant delisting or zero overselling. Measure latency and use conservative per-
 - **Planning:** evidence-based seasonality/watch calendars, sourcing/fulfillment checklist, replenishment watch,
   cash-cycle scenarios and an optional channel-expansion roadmap. No invented events or predictive accuracy.
 - **Sources/Settings/System:** beginner setup, local private credentials, geography, business capital, fee versions,
-  adapter capabilities, worker phase, last progress, failures, persistent Pause and actionable recovery.
+  channel-cost preferences, heat definitions, adapter capabilities, worker phase, last progress, failures,
+  persistent Pause and actionable recovery.
 
 Use KESTREL's strong dark visual identity and lime accents with dense, polished, responsive layouts. Show a
 labeled mockup before extensive UI construction; sample content cannot become production evidence. Preserve privacy.
@@ -264,8 +314,9 @@ supports them. Do not introduce Next.js, PostgreSQL/Timescale, Redis, Celery, di
 proxy networks merely to appear institutional. Add dependencies only for a demonstrated requirement.
 
 Define versioned contracts and an ER model for source capabilities, exact products, offers, availability evidence,
-sale observations, demand estimates, fee rules, economics scenarios, opportunities, capital plans, inventory lots,
-inventory events, channel listings, synchronization events and job checkpoints. Specify endpoints and interfaces.
+sale observations, demand estimates, heat ratings/history, fee rules, economics scenarios, opportunities, capital
+plans, inventory lots, inventory events, channel listings, synchronization events and job checkpoints. Specify
+endpoints and interfaces.
 
 Every recommendation must trace to observation IDs, observation/decision times, target channel, fulfillment method,
 source coverage, fee/parameter/specification versions and a reproducible input hash. Retain permitted evidence with
@@ -292,6 +343,9 @@ Distinguish historical backtests, paper baskets and my own completed business ou
 Use information available at each decision, account for execution/arrival delays, and never tune on future sale prices.
 Evaluate ranking and capital allocation separately against simple baselines at matched cash/risk constraints.
 Use dependence-aware uncertainty when justified; sparse data must not yield confident success claims.
+Compare rankings and baskets with and without heat dimensions at matched capital and channel coverage. Test false
+popularity spikes, sparse cohorts, seasonality, channel differences and competition floods; attention alone must
+not masquerade as actual sales. Measure whether adding a channel improves outcomes after its full incremental costs.
 
 Measure identity precision, verification coverage, false availability, delivered-price errors, fee-estimate errors,
 realized versus forecast net profit, sell-through/time to sale, payout delay, inventory age, capital turnover,
