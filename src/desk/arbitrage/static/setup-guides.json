@@ -1,0 +1,160 @@
+[
+  {
+    "id": "included",
+    "title": "Included retailer observations",
+    "status": "Implemented · no API key",
+    "purpose": "Current asking price and retailer-declared availability from supported public product pages.",
+    "links": [
+      {
+        "label": "Adafruit products",
+        "url": "https://www.adafruit.com/"
+      },
+      {
+        "label": "Retailer robots policy",
+        "url": "https://www.adafruit.com/robots.txt"
+      }
+    ],
+    "steps": [
+      "Open Sources & system. The included product URL is observed automatically while collection is enabled.",
+      "Add a supported Adafruit /product/ URL to watch another exact item.",
+      "Open its dossier, review identity and record your regional delivery check. Retailer markup alone is not verified stock.",
+      "A network or robots restriction remains visible; the app does not bypass it."
+    ],
+    "cost": "No added API subscription. Your network and retailer access must work.",
+    "limitation": "A narrow observation adapter, not a whole-market arbitrage scanner or completed-sales feed."
+  },
+  {
+    "id": "ebay",
+    "title": "eBay Browse API",
+    "status": "Implemented · production access required; live connection unverified",
+    "purpose": "Potential current listing discovery. Active listings and asking prices do not prove completed sales.",
+    "links": [
+      {
+        "label": "Create a developer account",
+        "url": "https://developer.ebay.com/api-docs/static/creating-edp-account.html"
+      },
+      {
+        "label": "Browse API overview",
+        "url": "https://developer.ebay.com/api-docs/buy/browse/overview.html"
+      },
+      {
+        "label": "Application access tokens",
+        "url": "https://developer.ebay.com/api-docs/static/oauth-client-credentials-grant.html"
+      },
+      {
+        "label": "Current API limits",
+        "url": "https://developer.ebay.com/develop/get-started/api-call-limits"
+      }
+    ],
+    "steps": [
+      "Create/sign in to your eBay developer account and obtain an approved Production keyset. Sandbox keys do not supply live listings.",
+      "Open Application Keys. App ID / Client ID goes in the app-key field; Cert ID / Client Secret goes in the app-secret field. Your Dev ID is not the client secret.",
+      "Check current Browse production access, API terms, personal research use, retention rights and quota. Confirm this use has no additional API charge before enabling it.",
+      "Enter credentials privately below, confirm permitted free access, enable live listings and save. No terminal restart or Ctrl+C is required. Blank fields preserve saved credentials.",
+      "Enabling adds three starter searches for tools, label printers and single-board computers. Add or pause your own searches in Sources & system.",
+      "Open Sources & system to see the first successful request or a specific access/network error. Credential presence alone does not mean connected."
+    ],
+    "cost": "Only enable after confirming permitted access with no additional API charge. Current program conditions and quotas must be checked in your account.",
+    "limitation": "Active fixed-price asking-price listings only. No completed-sales or automatic resale eligibility. OAuth documentation was read; the Browse adapter is tested with synthetic HTTP responses and still requires actual production validation."
+  },
+  {
+    "id": "amazon",
+    "title": "Amazon seller data and FBA",
+    "status": "Optional seller integration · not connected",
+    "purpose": "Seller-authorized fees, catalog/eligibility evidence and your own transaction history where entitled.",
+    "links": [
+      {
+        "label": "Selling Partner API documentation",
+        "url": "https://developer-docs.amazon.com/sp-api"
+      },
+      {
+        "label": "Product Fees API",
+        "url": "https://developer-docs.amazon.com/sp-api/docs/product-fees-api-v0-reference"
+      },
+      {
+        "label": "Official fee-estimate model",
+        "url": "https://github.com/amzn/selling-partner-api-models/blob/main/models/product-fees-api-model/productFeesV0.json"
+      },
+      {
+        "label": "Selling plans and costs",
+        "url": "https://sell.amazon.com/pricing"
+      }
+    ],
+    "steps": [
+      "FBA means Fulfillment by Amazon: you send inventory to Amazon, which stores and ships it for fees.",
+      "Check seller-account approval, category/brand restrictions and acceptable purchase documentation first.",
+      "Use your current fee schedule or Seller Central estimate to create a dated channel scenario.",
+      "Include inbound/prep, storage, returns, removal and any incremental subscription cost. An API estimate is not a guaranteed fee.",
+      "A future API connection would require seller authorization. This version accepts no Amazon tokens and submits no listings."
+    ],
+    "cost": "Seller plan and fulfillment costs are separate from the $0 data budget. Verify the current country-specific schedule.",
+    "limitation": "No Amazon public-sale history or unrestricted access is assumed. The official Product Fees model was read; seller entitlements and current account-specific fees remain unknown."
+  },
+  {
+    "id": "walmart",
+    "title": "Walmart Marketplace and WFS",
+    "status": "Optional seller integration · not connected",
+    "purpose": "Potential seller-authorized catalog, inventory and fee evidence.",
+    "links": [
+      {
+        "label": "Marketplace developer portal",
+        "url": "https://developer.walmart.com/"
+      },
+      {
+        "label": "Seller onboarding",
+        "url": "https://marketplace.walmart.com/"
+      },
+      {
+        "label": "Walmart Fulfillment Services",
+        "url": "https://marketplace.walmart.com/walmart-fulfillment-services/"
+      }
+    ],
+    "steps": [
+      "WFS means Walmart Fulfillment Services: Walmart stores and fulfills approved inventory for fees.",
+      "Check seller approval, product restrictions and sourcing-document requirements.",
+      "Enter reviewed item-specific fees, delivery, returns and payout timing in a separate Walmart selling scenario.",
+      "Do not buy an API plan or provide a seller secret here; an authorized connector has not been implemented."
+    ],
+    "cost": "Verify current seller and item-specific fulfillment costs on the official portal.",
+    "limitation": "Current documentation was not accessible in this session; endpoints, quotas and eligibility are unverified."
+  },
+  {
+    "id": "other",
+    "title": "Other selling channels and your own data",
+    "status": "Implemented · local scenarios and records",
+    "purpose": "Compare inexpensive marketplaces, local sales, specialist venues and direct buyers without assuming one marketplace wins.",
+    "links": [
+      {
+        "label": "eBay official selling fees",
+        "url": "https://www.ebay.com/help/selling/fees-credits-invoices/selling-fees?id=4822"
+      }
+    ],
+    "steps": [
+      "Add a channel scenario using its actual fee schedule, conservative selling price and fulfillment method.",
+      "Record identity and seller eligibility evidence, supported demand quantity and conservative cash-recovery days.",
+      "Import your own dated completed sales separately from views, mentions and asking prices.",
+      "Use Inventory for lot costs, sales, refunds and returns. Review the capital planner before committing money."
+    ],
+    "cost": "A free listing can still have selling, payment, shipping or operational costs. Enter them explicitly.",
+    "limitation": "Entered evidence is an operator claim, not independently verified by the application. No seller-account mutation exists."
+  },
+  {
+    "id": "keepa",
+    "title": "Keepa and premium market history",
+    "status": "Deferred · outside the current $0 budget",
+    "purpose": "Potential licensed historical pricing or demand proxies, if access and later budget justify it.",
+    "links": [
+      {
+        "label": "Keepa API information",
+        "url": "https://keepa.com/#!api"
+      }
+    ],
+    "steps": [
+      "No Keepa key is required for this version.",
+      "Do not subscribe to fill an empty dashboard.",
+      "Reassess pricing, licensing, retention and whether its metrics actually improve decisions only when a later budget exists."
+    ],
+    "cost": "No free API or confirmed transaction history is assumed.",
+    "limitation": "Not integrated and not necessary for local research; a price/rank proxy must not become a claimed sale."
+  }
+]

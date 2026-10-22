@@ -1,0 +1,26 @@
+[
+  {
+    "name": "amazon_product_fees_model",
+    "url": "https://raw.githubusercontent.com/amzn/selling-partner-api-models/main/models/product-fees-api-model/productFeesV0.json",
+    "status": 200,
+    "bytes": 49426,
+    "blocked_by_proxy": false
+  },
+  {
+    "name": "ebay_oauth_readme",
+    "url": "https://raw.githubusercontent.com/eBay/ebay-oauth-python-client/master/README.md",
+    "status": 404,
+    "bytes": 14,
+    "blocked_by_proxy": false
+  },
+  {
+    "name": "shopify_product_docs",
+    "url": "https://shopify.dev/docs/api/ajax/reference/product",
+    "error": "ProxyError"
+  },
+  {
+    "name": "adafruit_product",
+    "url": "https://www.adafruit.com/product/4300",
+    "error": "ProxyError"
+  }
+]

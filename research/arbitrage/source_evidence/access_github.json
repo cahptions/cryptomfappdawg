@@ -1,0 +1,14 @@
+[
+  {
+    "name": "ebay_oauth_readme",
+    "url": "https://raw.githubusercontent.com/eBay/ebay-oauth-python-client/master/README.adoc",
+    "status": 200,
+    "bytes": 5521
+  },
+  {
+    "name": "ebay_browse_openapi",
+    "url": "https://raw.githubusercontent.com/eBay/buy-browse-python-client/main/buy_browse_v1_beta_oas3.json",
+    "status": 404,
+    "bytes": 14
+  }
+]

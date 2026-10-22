@@ -41,6 +41,9 @@ DESKS = {
     "stocks": {"name": "KESTREL Stocks", "comment": "Stock and options research hub (PAPER)",
                "service": "desk-stocks-dashboard.service", "icon": "kestrel-stocks",
                "dashboard": ["stocks", "dashboard", "--port"]},
+    "arbitrage": {"name": "KESTREL Arbitrage", "comment": "Product sourcing and selling-route research (read only)",
+                  "service": "desk-arbitrage-dashboard.service", "icon": "kestrel-arbitrage",
+                  "dashboard": ["arbitrage", "dashboard", "--port"]},
 }
 ICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="9" fill="{bg}"/>'
         '<path d="m5 10 15 6L35 5 25 24l-5 11-5-12Z" fill="{fg}"/></svg>\n')
@@ -74,17 +77,17 @@ def desktop_entry(paths: DeskPaths, python_executable: str, desk: str, port: int
 
 
 def install_launchers(paths: DeskPaths, python_executable: str, *, port: int = 8765, rh_port: int = 8766,
-                      stocks_port: int = 8767, desks: Sequence[str] | None = None,
+                      stocks_port: int = 8767, arbitrage_port: int = 8768, desks: Sequence[str] | None = None,
                       data_home: Path | None = None) -> list[Path]:
     """Write selected menu entries and icons (all three by default); never install or start services."""
     if not Path(python_executable).is_absolute():
         raise ValueError("an absolute Python executable is required")
-    selected = tuple(DESKS) if desks is None else tuple(dict.fromkeys(desks))
+    selected = ('solana', 'robinhood', 'stocks') if desks is None else tuple(dict.fromkeys(desks))
     if any(desk not in DESKS for desk in selected):
         raise ValueError("unknown desk")
-    ports = {"solana": port, "robinhood": rh_port, "stocks": stocks_port}
+    ports = {"solana": port, "robinhood": rh_port, "stocks": stocks_port, "arbitrage": arbitrage_port}
     colours = {"solana": ("#0c1016", "#3cd2ff"), "robinhood": ("#000000", "#00c805"),
-               "stocks": ("#080b06", "#c2f43a")}
+               "stocks": ("#080b06", "#c2f43a"), "arbitrage": ('#080b08', '#c2f43a')}
     if any(not 1024 <= ports[desk] <= 65535 for desk in selected):
         raise ValueError("dashboard ports must be between 1024 and 65535")
     home = data_home or _data_home()
@@ -163,7 +166,7 @@ def screen_area(xrandr: str, workarea: str) -> Area | None:
 
 def window_slot(desk: str, area: Area) -> Area:
     """Solana/Robinhood share halves; the Stocks research hub initially uses the full work area."""
-    if desk == "stocks":
+    if desk in {"stocks", "arbitrage"}:
         return area
     x, y, w, h = area
     half = w // 2
@@ -238,6 +241,9 @@ def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 3
         deadline = time.monotonic() + wait_seconds
         while not responding(url):
             if time.monotonic() > deadline:
+                if desk == 'arbitrage':
+                    raise DeskError(f'Arbitrage dashboard did not start on {url}; run '
+                                    '`uv run desk arbitrage dashboard --open` to see its local error')
                 raise DeskError(f"the dashboard did not start on {url}; run `desk up` or check `desk services status`")
             time.sleep(0.5)
     open_window(url, desk, paths.home / "windows")

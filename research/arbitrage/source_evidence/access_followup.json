@@ -1,0 +1,22 @@
+[
+  {
+    "source": "ebay_oauth_readme",
+    "url": "https://raw.githubusercontent.com/eBay/ebay-oauth-python-client/master/README.adoc",
+    "failure_type": "URLError"
+  },
+  {
+    "source": "ebay_browse_openapi",
+    "url": "https://raw.githubusercontent.com/eBay/buy-browse-python-client/main/buy_browse_v1_beta_oas3.json",
+    "failure_type": "URLError"
+  },
+  {
+    "source": "shopify_product_docs",
+    "url": "https://shopify.dev/docs/api/ajax/reference/product",
+    "failure_type": "URLError"
+  },
+  {
+    "source": "adafruit_robots",
+    "url": "https://www.adafruit.com/robots.txt",
+    "failure_type": "URLError"
+  }
+]

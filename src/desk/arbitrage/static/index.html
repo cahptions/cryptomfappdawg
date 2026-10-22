@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KESTREL Arbitrage</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#home">◢ KESTREL</a>
+      <p class="eyebrow">ARBITRAGE</p>
+      <nav>
+        <a href="#home">Overview</a><a href="#research">Product research</a
+        ><a href="#profitability">Where to sell</a>
+        <a href="#suggestions">Capital planner</a
+        ><a href="#inventory">Inventory</a><a href="#top">Top opportunities</a>
+        <a href="#planning">Planning</a><a href="#sources">Sources & system</a
+        ><a href="#settings">Business settings</a>
+      </nav>
+      <p class="footnote">
+        LOCAL · RESEARCH ONLY<br />No marketplace purchases or listing changes
+      </p>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">THE OPPORTUNITY DESK</p>
+          <h1>Find the margin. Know the exit.</h1>
+          <p>What to source, where to sell, and what the evidence supports.</p>
+        </div>
+        <a class="button" href="#suggestions">Review capital plan ↗</a>
+      </header>
+      <div id="notice" role="status" aria-live="polite">
+        Loading local observations…
+      </div>
+      <div id="stats" class="stats"></div>
+      <section id="content" aria-live="polite"></section>
+      <footer>
+        Retailer markup is asking-price evidence. Reviewed scenarios are
+        estimates. Heat is a descriptive rating, never a profit probability.
+      </footer>
+    </main>
+    <dialog id="editor">
+      <form method="dialog">
+        <button class="close" aria-label="Close">×</button>
+      </form>
+      <div id="edit-content"></div>
+    </dialog>
+  </body>
+</html>

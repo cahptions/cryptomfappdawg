@@ -1,0 +1,1069 @@
+{
+  "specification": "kestrel-arbitrage-v1",
+  "records": {
+    "Settings": {
+      "additionalProperties": false,
+      "properties": {
+        "capital": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capital"
+        },
+        "reserve": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Reserve"
+        },
+        "currency": {
+          "default": "USD",
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "region": {
+          "default": "US",
+          "maxLength": 80,
+          "minLength": 2,
+          "title": "Region",
+          "type": "string"
+        },
+        "max_product_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0.20",
+          "title": "Max Product Fraction"
+        },
+        "max_channel_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0.60",
+          "title": "Max Channel Fraction"
+        },
+        "max_units": {
+          "default": 5,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Units",
+          "type": "integer"
+        },
+        "min_profit": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "3",
+          "title": "Min Profit"
+        },
+        "max_days": {
+          "default": 60,
+          "maximum": 365,
+          "minimum": 1,
+          "title": "Max Days",
+          "type": "integer"
+        },
+        "max_monthly_cost": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Max Monthly Cost"
+        },
+        "interval_seconds": {
+          "default": 300,
+          "maximum": 86400,
+          "minimum": 60,
+          "title": "Interval Seconds",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "dashboard_port": {
+          "default": 8768,
+          "maximum": 65535,
+          "minimum": 1024,
+          "title": "Dashboard Port",
+          "type": "integer"
+        }
+      },
+      "title": "Settings",
+      "type": "object"
+    },
+    "Product": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "category": {
+          "default": "Uncategorized",
+          "maxLength": 80,
+          "title": "Category",
+          "type": "string"
+        },
+        "brand": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Brand"
+        },
+        "mpn": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mpn"
+        },
+        "gtin": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{8,14}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gtin"
+        },
+        "variant": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Variant",
+          "type": "string"
+        },
+        "pack_count": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pack Count"
+        },
+        "condition": {
+          "default": "new",
+          "maxLength": 50,
+          "title": "Condition",
+          "type": "string"
+        },
+        "identity_confirmed": {
+          "default": false,
+          "title": "Identity Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "Product",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_.:-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Id"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "adapter": {
+          "default": "jsonld",
+          "enum": [
+            "jsonld",
+            "ebay_browse"
+          ],
+          "title": "Adapter",
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "url"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "Observation": {
+      "$defs": {
+        "Product": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_.:-]+$",
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 240,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "category": {
+              "default": "Uncategorized",
+              "maxLength": 80,
+              "title": "Category",
+              "type": "string"
+            },
+            "brand": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Brand"
+            },
+            "mpn": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mpn"
+            },
+            "gtin": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d{8,14}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Gtin"
+            },
+            "variant": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Variant",
+              "type": "string"
+            },
+            "pack_count": {
+              "anyOf": [
+                {
+                  "maximum": 10000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Pack Count"
+            },
+            "condition": {
+              "default": "new",
+              "maxLength": 50,
+              "title": "Condition",
+              "type": "string"
+            },
+            "identity_confirmed": {
+              "default": false,
+              "title": "Identity Confirmed",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "title": "Product",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "product": {
+          "$ref": "#/$defs/Product"
+        },
+        "source_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Price"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "availability": {
+          "enum": [
+            "DECLARED_AVAILABLE",
+            "UNAVAILABLE",
+            "UNKNOWN",
+            "VERIFIED_AVAILABLE"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "method": {
+          "maxLength": 100,
+          "title": "Method",
+          "type": "string"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantity"
+        },
+        "shipping": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shipping"
+        },
+        "tax": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tax"
+        },
+        "verified_until": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified Until"
+        },
+        "evidence": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product",
+        "source_id",
+        "url",
+        "price",
+        "currency",
+        "at",
+        "availability",
+        "method"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "Route": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "product_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "channel": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Channel",
+          "type": "string"
+        },
+        "fulfillment": {
+          "default": "Seller fulfilled",
+          "maxLength": 80,
+          "title": "Fulfillment",
+          "type": "string"
+        },
+        "destination_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Destination Url"
+        },
+        "currency": {
+          "default": "USD",
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "sale_price": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Sale Price"
+        },
+        "stress_price": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Stress Price"
+        },
+        "fee_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fee Fraction"
+        },
+        "fixed_fee": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fixed Fee"
+        },
+        "fulfillment_cost": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fulfillment Cost"
+        },
+        "return_allowance": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Return Allowance"
+        },
+        "overhead": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overhead"
+        },
+        "monthly_cost": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Monthly Cost"
+        },
+        "days_to_cash": {
+          "anyOf": [
+            {
+              "maximum": 3650,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Days To Cash"
+        },
+        "demand_limit": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Demand Limit"
+        },
+        "eligible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eligible"
+        },
+        "identity_confirmed": {
+          "default": false,
+          "title": "Identity Confirmed",
+          "type": "boolean"
+        },
+        "reviewed": {
+          "default": false,
+          "title": "Reviewed",
+          "type": "boolean"
+        },
+        "fee_version": {
+          "default": "",
+          "maxLength": 100,
+          "title": "Fee Version",
+          "type": "string"
+        },
+        "evidence_note": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Evidence Note",
+          "type": "string"
+        },
+        "evidence_kind": {
+          "default": "OPERATOR_SCENARIO",
+          "enum": [
+            "OPERATOR_SCENARIO",
+            "OWN_SALES",
+            "CONFIRMED_TRANSACTION",
+            "EXECUTABLE_BID"
+          ],
+          "title": "Evidence Kind",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "product_id",
+        "channel",
+        "sale_price",
+        "stress_price",
+        "valid_until"
+      ],
+      "title": "Route",
+      "type": "object"
+    },
+    "SignalObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "product_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "channel": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Channel",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "OWN_SALE",
+            "CONFIRMED_UNITS",
+            "SOLD_LISTINGS",
+            "VIEWS",
+            "WATCHERS",
+            "MENTIONS",
+            "OFFERS"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000000000.0,
+          "minimum": 0,
+          "title": "Value",
+          "type": "number"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price"
+        },
+        "currency": {
+          "default": "USD",
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "available_at": {
+          "format": "date-time",
+          "title": "Available At",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "product_id",
+        "channel",
+        "kind",
+        "value",
+        "at",
+        "available_at",
+        "source"
+      ],
+      "title": "SignalObservation",
+      "type": "object"
+    },
+    "InventoryEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "lot_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Lot Id",
+          "type": "string"
+        },
+        "product_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "RECEIVE",
+            "RESERVE",
+            "RELEASE",
+            "SELL",
+            "RETURN",
+            "RESTOCK",
+            "DAMAGE",
+            "DISCARD_RETURN",
+            "ADJUST_COST"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "units": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Units",
+          "type": "integer"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Amount"
+        },
+        "currency": {
+          "default": "USD",
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "channel": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Channel",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "lot_id",
+        "product_id",
+        "kind",
+        "units",
+        "at"
+      ],
+      "title": "InventoryEvent",
+      "type": "object"
+    }
+  },
+  "economics": "arb-economics-v1",
+  "capital_method": "bounded-greedy-v1",
+  "heat": {
+    "influence_on_qualification": 0,
+    "probability": false,
+    "window_days": 7,
+    "minimum_observations": 3,
+    "minimum_distinct_days": 2,
+    "minimum_comparable_products": 5,
+    "max_stale_days": 2,
+    "cohort": [
+      "channel",
+      "kind",
+      "category",
+      "condition",
+      "pack_count"
+    ]
+  },
+  "limits": {
+    "sources": 100,
+    "products": 2000,
+    "routes": 2000,
+    "ui_observations": 5000,
+    "retained_observations": 100000,
+    "inventory_events": 20000,
+    "signals": 20000,
+    "response_bytes": 2000000,
+    "request_bytes": 500000,
+    "ebay_http_attempts_per_utc_day": 2000,
+    "comparison_pairs": 5000
+  },
+  "marketplace_writes": false,
+  "production_feeds_verified": false
+}

@@ -829,6 +829,14 @@ def cmd_services(args: argparse.Namespace) -> int:
 def cmd_open(args: argparse.Namespace) -> int:
     from desk.ops.launcher import install_launchers, open_desk
 
+    if args.desk == 'arbitrage':
+        paths = DeskPaths.from_env()
+        port = args.port or 8768
+        if getattr(args, 'install', False):
+            for path in install_launchers(paths, sys.executable, arbitrage_port=port, desks=('arbitrage',)):
+                print(path)
+        print(open_desk(args.desk, port, paths))
+        return 0
     paths, _ = _bootstrap(args.verbose)
     settings = load_config(paths.config_dir).settings
     ports = {"robinhood": settings.robinhood.dashboard_port, "stocks": settings.stocks.dashboard_port, "solana": 8765}
@@ -948,9 +956,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"desk {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
+    from desk.arbitrage.cli import add_parser as add_arbitrage_parser
     from desk.stocks.cli import add_parser as add_stocks_parser
 
     add_stocks_parser(sub)
+    add_arbitrage_parser(sub)
 
     p = sub.add_parser("doctor", help="check this machine and every data provider")
     p.add_argument("--offline", action="store_true", help="skip network checks")
@@ -1076,7 +1086,7 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_services, action="stop")
 
     p = sub.add_parser("open", help="open a dashboard in its own window, starting it if needed")
-    p.add_argument("--desk", choices=["solana", "robinhood", "stocks"], default="solana")
+    p.add_argument("--desk", choices=["solana", "robinhood", "stocks", "arbitrage"], default="solana")
     p.add_argument("--install", action="store_true", help="also install this desk's application-menu icon")
     p.add_argument("--port", type=int, choices=range(1024, 65536), default=None, metavar="1024..65535")
     p.set_defaults(func=cmd_open)

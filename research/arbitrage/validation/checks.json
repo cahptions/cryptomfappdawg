@@ -1,0 +1,32 @@
+{
+  "basis": "Offline and synthetic only; no operator data, real credentials, production provider success or business profit established",
+  "date_utc": "2026-10-22",
+  "source_base_commit": "e9dcc5a",
+  "tested_code_sha256": "41d79b2ad03dd0a34c9094ecf8a7acab958020522caf978f0ac3c0f18966cfed",
+  "pytest": {
+    "passed": 1192,
+    "deselected_live_tests": 5,
+    "exit_code": 0,
+    "seconds": 108.38,
+    "warning": "Existing FastAPI/Starlette TestClient HTTPX deprecation"
+  },
+  "ruff": "src tests clean",
+  "mypy": {
+    "strict": true,
+    "source_files": 225,
+    "errors": 0
+  },
+  "node_syntax": "clean",
+  "browser": {
+    "playwright": "1.56.1",
+    "chromium": "154.0.8037.57",
+    "result_file": "browser-results.json"
+  },
+  "real_source_vertical_slice_accepted": false,
+  "live_evidence_needed": [
+    "permitted retailer page/robots observation",
+    "authorized eBay production response",
+    "actual delivered costs and seller eligibility",
+    "own sale/refund/payout reconciliation"
+  ]
+}

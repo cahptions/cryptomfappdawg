@@ -1,0 +1,12 @@
+{
+  "basis": "Synthetic benchmark on cloud executor; not a measurement of the operator Dell laptop",
+  "products": 500,
+  "observations": 5000,
+  "routes": 500,
+  "snapshot_wall_seconds": 0.0796,
+  "snapshot_cpu_seconds": 0.0796,
+  "peak_process_rss_mib": 46.2,
+  "serialized_snapshot_bytes": 2009343,
+  "database_bytes_including_wal": 9419712,
+  "network_calls": 0
+}

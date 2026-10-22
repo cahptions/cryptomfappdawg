@@ -1,0 +1,23 @@
+{
+  "basis": "Synthetic isolated browser fixtures only; not live offers or forward business results",
+  "pages": 9,
+  "flows": [
+    "identity review",
+    "regional availability check",
+    "capital basket",
+    "inventory receive",
+    "net sale",
+    "refund quarantine",
+    "business capital save",
+    "API guide links",
+    "private eBay credential save with blank preserved fields",
+    "eBay starter searches",
+    "custom eBay search",
+    "pause/resume selling route"
+  ],
+  "mobile": {
+    "viewport": 390,
+    "document": 390
+  },
+  "uncaughtErrors": []
+}
