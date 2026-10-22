@@ -1,5 +1,8 @@
 # KESTREL Arbitrage — research and implementation prompt
 
+The consolidated version, including selling-destination optimization, is [MASTER_PROMPT.md](MASTER_PROMPT.md).
+The text below is retained as the earlier draft.
+
 Act as the principal investigator and lead engineer for KESTREL Arbitrage. Apply the breadth and skepticism of
 an institutional team spanning quantitative finance, statistics, retail operations, supply chains, marketplace
 selling and full-stack engineering. The ambition is the quality of 300 Harvard finance researchers and 50 MIT
