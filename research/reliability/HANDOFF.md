@@ -108,6 +108,11 @@ uv sync --frozen
 uv run desk stocks dashboard --open
 ```
 
+The newer startup recovery also supports `uv run desk stocks dashboard --restart --open`, which safely identifies
+and gracefully stops this data directory's current-user Stocks dashboard before reopening it. Ordinary repeated
+`--open` reuses a responding server. This avoids the generic worker-busy error when a desktop background server
+is still alive. The restart command does not select arbitrary collectors or other desks, delete locks, or force kill.
+
 If using a background desktop launch, closing the browser window does **not** restart its backend. Stop just that
 Stocks backend with the following command, then use the dashboard command above after it exits:
 

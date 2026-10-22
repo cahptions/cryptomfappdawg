@@ -18,7 +18,7 @@ from desk.core.config import load_config
 from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
 from desk.core.secrets import load_secrets
-from desk.core.worker_lock import WorkerLock
+from desk.core.worker_lock import WorkerBusy, WorkerLock
 from desk.stocks.connection import LoginAttempt, connection_status, local_tls, preferences, save_connection
 from desk.stocks.repo import StocksDatabases, StocksMarket
 from desk.stocks.schwab_auth import SchwabAuthError, SchwabTokens, authorization_url, callback_code, token_path
@@ -64,6 +64,7 @@ def add_parser(sub: Any) -> None:
     dash = commands.add_parser("dashboard", help="local Stocks dashboard with private Settings")
     dash.add_argument("--port", type=int)
     dash.add_argument("--open", action="store_true")
+    dash.add_argument('--restart', action='store_true', help='gracefully restart this data directory\'s Stocks dashboard')
     dash.set_defaults(func=run)
 
 
@@ -128,7 +129,25 @@ def run(args: argparse.Namespace) -> int:
         port = args.port or settings.dashboard_port
         if not 1024 <= port <= 65535:
             raise DeskError("Dashboard port must be 1024..65535")
-        with WorkerLock(paths, "stocks-dashboard"):
+        if getattr(args, 'restart', False):
+            from desk.ops.dashboard_restart import restart_dashboard
+
+            restart_dashboard(paths)
+        lock = WorkerLock(paths, 'stocks-dashboard')
+        try:
+            lock.acquire()
+        except WorkerBusy:
+            from desk.ops.launcher import responding
+
+            url = f'http://127.0.0.1:{port}'
+            if not responding(url):
+                raise DeskError('A Stocks dashboard is already running or starting. To restart it safely, run: '
+                                'uv run desk stocks dashboard --restart --open') from None
+            print(f'Stocks dashboard is already running: {url}')
+            if args.open:
+                webbrowser.open(url)
+            return 0
+        try:
             print(f"Stocks PAPER dashboard: http://127.0.0.1:{port}")
             server = uvicorn.Server(uvicorn.Config(create_app(paths, loaded), host="127.0.0.1", port=port, access_log=False))
             if args.open:
@@ -144,6 +163,8 @@ def run(args: argparse.Namespace) -> int:
 
                 threading.Thread(target=open_when_ready, name="stocks-open-browser", daemon=True).start()
             server.run()
+        finally:
+            lock.release()
         return 0
     if action == "doctor":
         dbs = StocksDatabases.open(paths)

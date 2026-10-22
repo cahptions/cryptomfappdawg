@@ -1,5 +1,12 @@
 # Continuing Claude's work
 
+> **Dashboard restart follow-up:** an operator ran `stocks dashboard --open` while its background dashboard still
+> held `stocks-dashboard.lock`, receiving the generic worker-busy error. Repeated opens now reuse a responding
+> server. `uv run desk stocks dashboard --restart --open` gracefully restarts only the exact current-user Stocks
+> dashboard identified by its kernel flock and canonical argv, using a pidfd; no broad process-name kill, lock
+> deletion or forced stop. An isolated real-dashboard test verifies exit and preserved Pause. Collector/other-desk
+> processes are not selected. Use this one command after pulling updates instead of asking which terminal to stop.
+
 > **Latest — reliability audit and Stocks sizing:** read `research/reliability/HANDOFF.md` before older notes.
 > It contains the actual fault matrix,1123passing offline tests, browser/resource results, update commands and
 > external limits. Stocks event PAPER sizing now has versioned larger desired tickets with account/stop-risk/
