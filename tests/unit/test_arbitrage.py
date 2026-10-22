@@ -336,7 +336,7 @@ def test_comparison_fanout_is_bounded_and_can_recover_by_pausing_routes(
 
     def cheap_evaluate(*_: object) -> dict[str, object]:
         calls.append(1)
-        return {"qualifies": False, "stress_profit": None, "blockers": ["synthetic"]}
+        return {"qualifies": False, "stress_profit": None, "net_profit": None, "blockers": ["synthetic"]}
 
     monkeypatch.setattr(Repo, "observations", lambda *_, **__: observations)
     monkeypatch.setattr("desk.arbitrage.views.evaluate", cheap_evaluate)

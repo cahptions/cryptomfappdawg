@@ -1,0 +1,47 @@
+{
+  "basis": "Synthetic fixtures and intercepted image bytes, not real source access, actual stock or real profit",
+  "flows": [
+    "decoded allowed-host image",
+    "dollar-profit vs ROI ranking",
+    "search empty state",
+    "save lead",
+    "saved tab",
+    "lead to actual-offer review",
+    "product context preselected",
+    "partial comparison",
+    "percentage fee conversion",
+    "edit existing comparison",
+    "no purchase-check bypass",
+    "dismiss lead",
+    "external research links",
+    "advanced disclosure"
+  ],
+  "mobile": [
+    {
+      "route": "home",
+      "viewport": 390,
+      "document": 390
+    },
+    {
+      "route": "product/ui-deal",
+      "viewport": 390,
+      "document": 390
+    },
+    {
+      "route": "profitability",
+      "viewport": 390,
+      "document": 390
+    },
+    {
+      "route": "sources",
+      "viewport": 390,
+      "document": 390
+    },
+    {
+      "route": "settings",
+      "viewport": 390,
+      "document": 390
+    }
+  ],
+  "uncaughtErrors": []
+}

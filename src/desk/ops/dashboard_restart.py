@@ -40,9 +40,10 @@ def is_dashboard(words: list[bytes], desk: str) -> bool:
 
 
 def restart_dashboard(paths: DeskPaths, desk: str = 'stocks', *, timeout: float = 20) -> None:
-    if desk != 'stocks':
-        raise DeskError('Only the Stocks dashboard can be restarted by this command')
-    lock = WorkerLock(paths, 'stocks-dashboard')
+    if desk not in {'stocks', 'arbitrage'}:
+        raise DeskError('Only Stocks and Arbitrage dashboards support this restart command')
+    label = 'Stocks' if desk == 'stocks' else 'Arbitrage'
+    lock = WorkerLock(paths, 'stocks-dashboard' if desk == 'stocks' else 'dashboard')
     try:
         pid = lock_owner(lock.path)
         if pid is None:
@@ -51,7 +52,7 @@ def restart_dashboard(paths: DeskPaths, desk: str = 'stocks', *, timeout: float 
             return
         proc = Path(f'/proc/{pid}')
         if proc.stat().st_uid != os.getuid() or not is_dashboard(proc.joinpath('cmdline').read_bytes().split(b'\0'), desk):
-            raise DeskError('The lock owner is not this user\'s Stocks dashboard; no process was stopped')
+            raise DeskError(f'The lock owner is not this user\'s {label} dashboard; no process was stopped')
         descriptor = os.pidfd_open(pid)
         try:
             if lock_owner(lock.path) != pid:
@@ -62,9 +63,9 @@ def restart_dashboard(paths: DeskPaths, desk: str = 'stocks', *, timeout: float 
     except ProcessLookupError:
         pass  # The exact dashboard exited while its identity was being checked.
     except OSError as exc:
-        raise DeskError('Could not safely restart Stocks; its process and existing data were preserved') from exc
+        raise DeskError(f'Could not safely restart {label}; its process and existing data were preserved') from exc
     until = time.monotonic() + timeout
     while lock.held():
         if time.monotonic() >= until:
-            raise DeskError('Stocks is still shutting down. No forced stop was used; retry after it exits')
+            raise DeskError(f'{label} is still shutting down. No forced stop was used; retry after it exits')
         time.sleep(0.1)

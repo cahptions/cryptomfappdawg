@@ -3,14 +3,20 @@ const {chromium}=await import(process.env.KESTREL_PLAYWRIGHT_MODULE || '/tmp/kes
 import {mkdir,writeFile} from 'node:fs/promises';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium'});
 const page=await browser.newPage({viewport:{width:1600,height:1100}});
+await page.route('https://i.ebayimg.com/kestrel-test-*.svg', async route => {
+ const name=route.request().url().includes('camera')?'CAMERA':route.request().url().includes('headphones')?'AUDIO':'TOOLS';
+ await route.fulfill({contentType:'image/svg+xml',body:`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280"><rect width="400" height="280" rx="16" fill="#eef0f5"/><rect x="80" y="70" width="240" height="130" rx="18" fill="#273347"/><circle cx="200" cy="135" r="48" fill="#a5b7e8"/><circle cx="200" cy="135" r="30" fill="#1b2537"/><text x="200" y="235" text-anchor="middle" font-size="15" fill="#556079">${name} — SYNTHETIC IMAGE</text></svg>`});
+});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await mkdir('research/arbitrage/validation',{recursive:true});
 const identity=await page.request.get('http://127.0.0.1:18868/test-fixture-identity');
 if(!identity.ok() || (await identity.json()).fixture!=='kestrel-arbitrage-browser-synthetic-only-v1')throw Error('Refusing writes: server is not the isolated test fixture');
 await page.goto('http://127.0.0.1:18868');
-await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).waitFor();
+await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).last().waitFor();
+await page.locator('.product-photo img').first().waitFor();
+await page.waitForFunction(()=>[...document.querySelectorAll('.product-photo img')].some(i=>i.complete && i.naturalWidth>0));
 await page.screenshot({path:'research/arbitrage/validation/browser-desktop-synthetic.png',fullPage:true});
-await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).click();
+await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).last().click();
 await page.locator('#history svg').waitFor();
 await page.getByRole('button',{name:'Review identity',exact:true}).click();
 await page.getByLabel('I checked brand, model, variant, pack and condition').check();
@@ -21,12 +27,13 @@ for(const [label,value] of [['Current product price','50'],['Confirmed available
 await page.getByRole('button',{name:'Save local record',exact:true}).click();
 await page.locator('#editor').waitFor({state:'hidden'});
 await page.getByRole('link',{name:'Where to sell',exact:true}).click();
-await page.getByRole('button',{name:'Pause route',exact:true}).click();
+await page.getByText('Manage stored comparisons',{exact:true}).click();
+await page.getByRole('button',{name:'Pause route',exact:true}).first().click();
 await page.getByRole('button',{name:'Resume route',exact:true}).waitFor();
 await page.getByRole('button',{name:'Resume route',exact:true}).click();
-await page.getByRole('button',{name:'Pause route',exact:true}).waitFor();
+await page.getByRole('button',{name:'Pause route',exact:true}).first().waitFor();
 await page.getByRole('link',{name:'Capital planner',exact:true}).click();
-await page.getByText('1 units',{exact:false}).waitFor();
+await page.getByText('1 units',{exact:false}).first().waitFor();
 await page.getByRole('link',{name:'Inventory',exact:true}).click();
 async function inventory(id,kind,units,amount){
  await page.getByRole('button',{name:'Record inventory event',exact:true}).click();
@@ -56,18 +63,17 @@ await page.screenshot({path:'research/arbitrage/validation/browser-settings-synt
 await page.getByRole('link',{name:'Sources & system',exact:true}).click();
 await page.getByText('ebay-starter-drivers',{exact:false}).waitFor();
 await page.getByRole('button',{name:'Add eBay search',exact:true}).click();
-await page.getByLabel('Local search ID',{exact:true}).fill('browser-search');
 await page.getByLabel('Specific product keyword or model',{exact:true}).fill('synthetic test query');
 await page.getByRole('button',{name:'Save local record',exact:true}).click();
 await page.locator('#editor').waitFor({state:'hidden'});
-await page.getByRole('link',{name:'browser-search',exact:false}).waitFor();
+await page.getByText('synthetic test query',{exact:false}).first().waitFor();
 
 for(const route of ['home','research','profitability','suggestions','inventory','top','planning','sources','settings']){
  await page.goto('http://127.0.0.1:18868/#'+route);await page.locator('#content h2').first().waitFor();
 }
 await page.setViewportSize({width:390,height:844});
 await page.goto('http://127.0.0.1:18868/#home');
-await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).waitFor();
+await page.getByRole('link',{name:'TEST FIXTURE — Precision driver kit (not live)',exact:true}).last().waitFor();
 const width=await page.evaluate(()=>({viewport:innerWidth,document:document.documentElement.scrollWidth}));
 await page.screenshot({path:'research/arbitrage/validation/browser-mobile-synthetic.png',fullPage:true});
 if(width.document>width.viewport)throw Error('Mobile page overflows viewport '+JSON.stringify(width));

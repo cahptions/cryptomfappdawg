@@ -29,3 +29,16 @@ These are not simulated into success or labeled as connected.
 
 Start with `docs/ARBITRAGE.md`. Detailed next steps and boundaries are in `HANDOFF.md`. Test evidence, scripts and
 synthetic screenshots live in `validation/`. Machine-readable contracts are in `CONTRACTS.json` and the app API.
+
+
+## Product correction v2
+
+The operator rejected V1's usability and discovery coverage. `PRODUCT_CORRECTION.md` records the diagnosis,
+mechanisms, UI changes and remaining source acceptance. A new discovery inbox, bounded public-feed candidate
+adapters, independent profit/ROI/price-drop rankings, corrected source images, destination comparison/editing,
+normal percentage inputs and safe Arbitrage-specific update restart are implemented. Neutral charcoal/white/blue
+replaces the former green surfaces. Required stock, identity, eligibility, cost and capital gates remain in place.
+
+Final checks are in `validation/checks.json`, with new flows in `browser-discovery-results.json`. Updated synthetic
+showroom screenshots are views of the real frontend with clearly labeled intercepted test images, not production
+market opportunities. Real source-to-resale acceptance remains OPEN; do not infer it from these checks.

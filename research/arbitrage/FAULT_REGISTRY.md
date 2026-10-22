@@ -28,3 +28,20 @@ provider entitlements, exact delivery stock, actual profit or the operator lapto
 Not yet physically tested: home-Wi-Fi reconnect, real provider quota/entitlements, actual webpage markup,
 full disk exhaustion, forced power failure, retailer race-to-sold-out, true seller payout/refund reconciliation,
 and prospective business performance. Synthetic tests do not substitute for these observations.
+
+
+## Product/discovery correction v2 acceptance
+
+- 1,210 offline tests pass; five live tests excluded. Strict Mypy (213 source files), Ruff and Node syntax pass.
+- RSS/Atom cases: malformed HTML/XML, entities, >2 MB body, unsupported/private URLs, future/old dates, robots denial,
+  304 validators, Retry-After, stable first-seen age, duplicate batches, save/dismiss persistence and local failure.
+- Ranking: absolute dollar contribution differs from ROI; unavailable/stale sources leave current rankings; asking
+  baselines require six prior days rather than including today to satisfy warm-up. Exact source selection retained.
+- Image acceptance: source-host image bytes actually decode under the real CSP (synthetic route interception).
+  Later thumbnails preserve reviewed identity. Existing desks keep their default image/network policy.
+- Original browser/accounting/setup flows plus `browser_discovery.mjs` pass. The latter covers inbox actions,
+  lead→offer review, correct product selection, partial economics, percent conversion, editing and mobile overflow.
+- Real temporary-process tests verify graceful Arbitrage restart with Pause preserved, and refusal to signal an
+  unrelated lock owner. No operator process is used.
+- Cloud synthetic 500-product snapshot: 0.104 s wall/CPU, 47.99 MiB peak backend process RSS; this is not a Dell
+  browser/power-loss measurement. No real-source vertical slice or commercial profitability acceptance is claimed.

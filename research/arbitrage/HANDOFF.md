@@ -80,3 +80,35 @@ Cloud policy currently excludes retailer/eBay API hosts, and no production eBay 
 Photo loading is browser-side HTTPS, no-referrer and lazy; no server image proxy or credentialed request.
 Next: build supported structured imports/feeds and buyer-oriented destination comparison with account-specific
 fees; verify genuine live vertical slices on permitted sources. Keep manual work visible and minimize it.
+
+
+## Product/workflow correction v2 — 2026-10-22
+
+The first card correction did not address discovery and decision workflow sufficiently. Read
+`PRODUCT_CORRECTION.md` before continuing. Neutral charcoal/white/blue UI now replaces green surfaces; home ranks
+by positive current stress-case dollars, independently by ROI, or by six-prior-day observed asking-price drops.
+Current ranking cases retain their selected source/observation/currency. Research-only items have no numeric
+profit rank. Product pages compare destination alternatives, show remaining checks, accept normal percentage
+fees and preserve the selected product. Missing costs can be saved for continued research. Technical IDs are
+generated for normal offer/search/comparison entry; per-form IDs remain stable on retries.
+
+Two fixed public RSS/Atom feed candidates (Slickdeals/DealNews) seed automatically. They are NOT accepted live feeds
+yet: current cloud policy excludes their hosts, provider documentation/terms/actual payloads have not been read.
+The parser/fetch/schedule are tested with synthetic HTTP only. Do not claim successful production data access.
+Feeds produce separate DealLead records, never price/stock/sales/qualified routes. Additive discovery schema
+preserves the released v1 checksum and all inventory. Cache, time/age, dedup/save/dismiss, robots/access/size errors,
+15-minute cadence, conditional GET and Retry-After are bounded. One feed failure does not block the other.
+A lead can become a locally reviewed source offer via a short form; its stock/identity stay unverified.
+
+Image CSP now permits only fixed approved source hosts for Arbitrage; existing desks retain their default policy.
+Later source thumbnails enrich product display without changing reviewed identity. Browser tests now require
+decoded images rather than only an img element. `browser_discovery.mjs` extends original workflow tests.
+All showroom content/images are explicitly SYNTHETIC, with intercepted provider-host image bytes.
+
+New update command `desk arbitrage dashboard --restart --open` uses the existing pidfd/kernel-lock identity checks
+for this desk only. Test coverage includes a real temporary server, preservation of Pause and refusal to signal
+an unrelated lock owner. No operator process was accessed or restarted.
+
+Highest remaining priority: verify a permitted real-source → exact product → independently supported destination
+sale/fee evidence slice. Broad automatic exact matching, confirmed-sales history and seller fee/eligibility APIs
+remain unfinished. Search links, public-feed mentions and synthetic browser success are not those capabilities.

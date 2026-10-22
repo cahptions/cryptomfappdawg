@@ -84,7 +84,7 @@ class Source(Record):
     id: Identifier
     product_id: Identifier | None = None
     url: str
-    adapter: Literal["jsonld", "ebay_browse"] = "jsonld"
+    adapter: Literal["jsonld", "ebay_browse", "deal_feed"] = "jsonld"
     query: str | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool = True
 
@@ -141,6 +141,7 @@ class Route(Record):
     monthly_cost: Money = Decimal("0")
     days_to_cash: int | None = Field(default=None, ge=1, le=3650)
     demand_limit: int | None = Field(default=None, ge=0, le=10000)
+    effort_minutes: int | None = Field(default=None, ge=1, le=10080)
     eligible: bool | None = None
     identity_confirmed: bool = False
     reviewed: bool = False
@@ -160,6 +161,45 @@ class Route(Record):
     @classmethod
     def check_url(cls, value: str | None) -> str | None:
         return public_url(value) if value else None
+
+
+class DealLead(Record):
+    """A published deal mention. It is not a stock check, sale or priced acquisition offer."""
+
+    id: Identifier
+    source_id: Identifier
+    title: str = Field(min_length=1, max_length=240)
+    url: str
+    summary: str = Field(default="", max_length=1000)
+    category: str = Field(default="Uncategorized", max_length=80)
+    published_at: datetime | None = None
+    first_seen_at: datetime
+    retrieved_at: datetime
+    image_url: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("url", "image_url")
+    @classmethod
+    def check_link(cls, value: str | None) -> str | None:
+        return public_url(value) if value else value
+
+    @field_validator("published_at", "first_seen_at", "retrieved_at")
+    @classmethod
+    def require_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("Timestamp must include its timezone")
+        return value.astimezone(UTC) if value else None
+
+
+class LeadOffer(Record):
+    url: str
+    price: Money
+    currency: str = Field(pattern="^[A-Z]{3}$")
+    evidence: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("url")
+    @classmethod
+    def check_link(cls, value: str) -> str:
+        return public_url(value)
 
 
 class InventoryEvent(Record):

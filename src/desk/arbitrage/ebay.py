@@ -61,10 +61,20 @@ def listing_image(row: dict[str, Any]) -> str | None:
     url = image.get("imageUrl") if isinstance(image, dict) else None
     if not isinstance(url, str):
         return None
-    parsed = urlsplit(url)
-    if (parsed.scheme == "https" and parsed.hostname in {"i.ebayimg.com", "i.ebaystatic.com"}
-            and not parsed.username and not parsed.password and parsed.port in (None, 443)
-            and not parsed.fragment and len(url) <= 1000):
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme == "https"
+        and parsed.hostname in {"i.ebayimg.com", "i.ebaystatic.com"}
+        and not parsed.username
+        and not parsed.password
+        and port in (None, 443)
+        and not parsed.fragment
+        and len(url) <= 1000
+    ):
         return url
     return None
 

@@ -1,8 +1,33 @@
 [
   {
+    "id": "deal-feeds",
+    "title": "Free deal discovery feeds",
+    "status": "Implemented \u00b7 real-network acceptance pending",
+    "purpose": "Automatically collect published deal mentions across retailers without requiring a developer key. Feed mentions are leads, not confirmed stock, completed sales or profitable purchases.",
+    "links": [
+      {
+        "label": "Slickdeals community",
+        "url": "https://slickdeals.net/"
+      },
+      {
+        "label": "DealNews",
+        "url": "https://www.dealnews.com/"
+      }
+    ],
+    "steps": [
+      "Open Discover. Recent mentions appear in the discovery inbox after a permitted feed request succeeds. No API key is needed.",
+      "Open Sources & system to see each feed\u2019s last success or access error. Each feed runs at most once per 15 minutes and respects robots policy, server rate limits and Pause.",
+      "Use Save to keep a lead. Check this deal opens a short review: follow the original deal to the merchant and record the actual product URL and price.",
+      "The item then opens in Product research. Compare exact identity, resale evidence, destination costs and regional availability before considering a purchase.",
+      "A community post may be old, unavailable, region-specific, conditional or mistaken. Re-fetching the feed does not reset its published or first-seen age."
+    ],
+    "cost": "No paid feed API, subscription or proxy is configured. Public source access and permitted use must hold.",
+    "limitation": "These two feed endpoint candidates could not be verified under this cloud network policy. A redirect, access denial, robots denial or malformed document is reported explicitly. No feed failure is replaced with sample deals."
+  },
+  {
     "id": "included",
     "title": "Included retailer observations",
-    "status": "Implemented · no API key",
+    "status": "Implemented \u00b7 no API key",
     "purpose": "Current asking price and retailer-declared availability from supported public product pages.",
     "links": [
       {
@@ -26,7 +51,7 @@
   {
     "id": "ebay",
     "title": "eBay Browse API",
-    "status": "Implemented · production access required; live connection unverified",
+    "status": "Implemented \u00b7 production access required; live connection unverified",
     "purpose": "Potential current listing discovery. Active listings and asking prices do not prove completed sales.",
     "links": [
       {
@@ -60,7 +85,7 @@
   {
     "id": "amazon",
     "title": "Amazon seller data and FBA",
-    "status": "Optional seller integration · not connected",
+    "status": "Optional seller integration \u00b7 not connected",
     "purpose": "Seller-authorized fees, catalog/eligibility evidence and your own transaction history where entitled.",
     "links": [
       {
@@ -93,7 +118,7 @@
   {
     "id": "walmart",
     "title": "Walmart Marketplace and WFS",
-    "status": "Optional seller integration · not connected",
+    "status": "Optional seller integration \u00b7 not connected",
     "purpose": "Potential seller-authorized catalog, inventory and fee evidence.",
     "links": [
       {
@@ -121,7 +146,7 @@
   {
     "id": "other",
     "title": "Other selling channels and your own data",
-    "status": "Implemented · local scenarios and records",
+    "status": "Implemented \u00b7 local scenarios and records",
     "purpose": "Compare inexpensive marketplaces, local sales, specialist venues and direct buyers without assuming one marketplace wins.",
     "links": [
       {
@@ -141,7 +166,7 @@
   {
     "id": "keepa",
     "title": "Keepa and premium market history",
-    "status": "Deferred · outside the current $0 budget",
+    "status": "Deferred \u00b7 outside the current $0 budget",
     "purpose": "Potential licensed historical pricing or demand proxies, if access and later budget justify it.",
     "links": [
       {

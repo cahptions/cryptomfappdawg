@@ -238,6 +238,19 @@
           "default": false,
           "title": "Identity Confirmed",
           "type": "boolean"
+        },
+        "image_url": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Url"
         }
       },
       "required": [
@@ -280,7 +293,8 @@
           "default": "jsonld",
           "enum": [
             "jsonld",
-            "ebay_browse"
+            "ebay_browse",
+            "deal_feed"
           ],
           "title": "Adapter",
           "type": "string"
@@ -405,6 +419,19 @@
               "default": false,
               "title": "Identity Confirmed",
               "type": "boolean"
+            },
+            "image_url": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Image Url"
             }
           },
           "required": [
@@ -779,6 +806,20 @@
           "default": null,
           "title": "Demand Limit"
         },
+        "effort_minutes": {
+          "anyOf": [
+            {
+              "maximum": 10080,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort Minutes"
+        },
         "eligible": {
           "anyOf": [
             {
@@ -1031,6 +1072,94 @@
       ],
       "title": "InventoryEvent",
       "type": "object"
+    },
+    "DealLead": {
+      "additionalProperties": false,
+      "description": "A published deal mention. It is not a stock check, sale or priced acquisition offer.",
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "category": {
+          "default": "Uncategorized",
+          "maxLength": 80,
+          "title": "Category",
+          "type": "string"
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published At"
+        },
+        "first_seen_at": {
+          "format": "date-time",
+          "title": "First Seen At",
+          "type": "string"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "image_url": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Url"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "title",
+        "url",
+        "first_seen_at",
+        "retrieved_at"
+      ],
+      "title": "DealLead",
+      "type": "object"
     }
   },
   "economics": "arb-economics-v1",
@@ -1065,5 +1194,18 @@
     "comparison_pairs": 5000
   },
   "marketplace_writes": false,
-  "production_feeds_verified": false
+  "production_feeds_verified": false,
+  "research_rankings": "arb-research-ranking-v2",
+  "discovery": {
+    "schema": "additive-discovery-1",
+    "source_type": "RSS/Atom published deal leads",
+    "feed_interval_seconds": 900,
+    "max_feed_entries": 100,
+    "fresh_age_hours": 24,
+    "recent_unprotected_cache": 1000,
+    "total_lead_cap": 2000,
+    "verified_stock": false,
+    "completed_sales": false,
+    "live_source_acceptance": false
+  }
 }

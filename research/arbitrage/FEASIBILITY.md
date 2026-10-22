@@ -36,3 +36,18 @@ eBay API cache and its corresponding scenario archive are conservatively capped 
 licensing review. This cap is an implementation limit, **not** a legal conclusion that 24 hours is always allowed.
 The explicit free-access confirmation includes checking permitted research use. Other retained price observations
 are capped at 90 days/100,000 rows. No bulk historical source or actual sell-through history is fabricated.
+
+
+## V2 correction: public discovery feeds and product workflow
+
+Two fixed public RSS/Atom endpoint candidates are now implemented: Slickdeals front-page RSS and DealNews RSS.
+Their homepages/feed URLs are exposed in the app, but **current publisher documentation, terms, robots responses
+and real payloads were not read in this correction**. The enforced cloud policy excludes both hosts; live requests
+were not attempted through an alternate path. Synthetic fetch/parser tests are not real access evidence.
+
+The adapter checks robots policy at runtime and fails visibly on denial, redirect, malformed XML/HTML, oversized
+responses or server errors. Public deal mentions populate a separate inbox; they do not provide executable price,
+stock, sold units or validated resale margins. No private Discord source is accessed. Search launchers remain manual.
+Additional retailer APIs/feeds and authorized completed-sale/fee/eligibility data are still required for the full
+automatic source-to-destination decision capability. See `PRODUCT_CORRECTION.md` for the acquisition-layer matrix
+and exact ranking/workflow changes.

@@ -1,32 +1,60 @@
 {
   "basis": "Offline and synthetic only; no operator data, real credentials, production provider success or business profit established",
   "date_utc": "2026-10-22",
-  "source_base_commit": "e9dcc5a",
-  "tested_code_sha256": "41d79b2ad03dd0a34c9094ecf8a7acab958020522caf978f0ac3c0f18966cfed",
+  "source_base_commit": "1f78d0f",
+  "tested_code_sha256": "fffe2c3b00230e9ddc6fa016254ef79c1a0642d503c1ffebe2442bf39186f311",
   "pytest": {
-    "passed": 1192,
+    "passed": 1210,
     "deselected_live_tests": 5,
     "exit_code": 0,
-    "seconds": 108.38,
+    "seconds": 107.89,
     "warning": "Existing FastAPI/Starlette TestClient HTTPX deprecation"
   },
   "ruff": "src tests clean",
   "mypy": {
     "strict": true,
-    "source_files": 225,
+    "source_files": 213,
     "errors": 0
   },
   "node_syntax": "clean",
   "browser": {
     "playwright": "1.56.1",
     "chromium": "154.0.8037.57",
-    "result_file": "browser-results.json"
+    "result_file": "browser-results.json",
+    "discovery_result_file": "browser-discovery-results.json"
   },
   "real_source_vertical_slice_accepted": false,
   "live_evidence_needed": [
-    "permitted retailer page/robots observation",
+    "permitted real retailer page/robots observation",
+    "permitted public RSS endpoint/robots/terms and payload verification",
     "authorized eBay production response",
-    "actual delivered costs and seller eligibility",
-    "own sale/refund/payout reconciliation"
+    "independently supported destination sale/fee/eligibility data",
+    "actual delivered costs and own sale/refund/payout reconciliation"
+  ],
+  "digest_method": "SHA256 of sorted relative path + NUL + bytes + NUL for digest_files",
+  "digest_files": [
+    "src/desk/arbitrage/__init__.py",
+    "src/desk/arbitrage/cli.py",
+    "src/desk/arbitrage/contracts.py",
+    "src/desk/arbitrage/discovery.py",
+    "src/desk/arbitrage/ebay.py",
+    "src/desk/arbitrage/economics.py",
+    "src/desk/arbitrage/evidence.py",
+    "src/desk/arbitrage/guides.py",
+    "src/desk/arbitrage/heat.py",
+    "src/desk/arbitrage/integrations.py",
+    "src/desk/arbitrage/inventory.py",
+    "src/desk/arbitrage/ranking.py",
+    "src/desk/arbitrage/repo.py",
+    "src/desk/arbitrage/runner.py",
+    "src/desk/arbitrage/sources.py",
+    "src/desk/arbitrage/static/app.js",
+    "src/desk/arbitrage/static/index.html",
+    "src/desk/arbitrage/static/setup-guides.json",
+    "src/desk/arbitrage/static/style.css",
+    "src/desk/arbitrage/views.py",
+    "src/desk/arbitrage/web.py",
+    "src/desk/ops/dashboard_restart.py",
+    "src/desk/web/app.py"
   ]
 }

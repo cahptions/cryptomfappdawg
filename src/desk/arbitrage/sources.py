@@ -24,6 +24,11 @@ MAX_BYTES = 2_000_000
 
 def validate_source(source: Source) -> None:
     url = urlsplit(source.url)
+    if source.adapter == "deal_feed":
+        from desk.arbitrage.discovery import descriptor
+
+        descriptor(source)
+        return
     if source.adapter == "ebay_browse":
         if source.url != "https://www.ebay.com/" or not source.query or source.product_id:
             raise DeskError("An eBay source needs its fixed public homepage, a search query and no forced product match")
@@ -97,6 +102,7 @@ def parse_page(raw: str, source: Source, now: datetime) -> Observation:
     product = Product(
         id=source.product_id or "p-" + sha256_hex(source.url)[:20],
         title=str(row.get("name") or "Untitled product"),
+        image_url=retailer_image(row.get("image")),
         mpn=str(row["mpn"]) if row.get("mpn") else None,
         gtin=str(row.get("gtin13") or row.get("gtin12") or row.get("gtin"))
         if row.get("gtin13") or row.get("gtin12") or row.get("gtin")
@@ -113,6 +119,16 @@ def parse_page(raw: str, source: Source, now: datetime) -> Observation:
         method="retailer-jsonld-v1",
         evidence="Retailer Product/Offer markup; delivery, quantity, pack and seller eligibility unverified",
     )
+
+
+def retailer_image(value: Any) -> str | None:
+    from desk.arbitrage.discovery import thumbnail
+
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if isinstance(value, dict):
+        value = value.get("url")
+    return thumbnail(value)
 
 
 async def read(client: httpx.AsyncClient, url: str) -> str:

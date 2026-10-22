@@ -84,6 +84,7 @@ def evaluate(product: Product, offer: Observation, route: Route, settings: Setti
         "break_even": None,
         "currency": offer.currency,
         "days_to_cash": route.days_to_cash,
+        "effort_minutes": route.effort_minutes,
         "max_units": min(settings.max_units, offer.quantity if offer.quantity is not None else 1, route.demand_limit or 1),
         "price": str(route.sale_price),
     }

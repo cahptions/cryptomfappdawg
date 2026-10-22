@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from typing import Any
 
-from desk.arbitrage.contracts import InventoryEvent, Observation, Product, Route, Settings, SignalObservation, Source
+from desk.arbitrage.contracts import DealLead, InventoryEvent, Observation, Product, Route, Settings, SignalObservation, Source
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
 from desk.storage.db import DbKind, StorageError, connect, transaction
@@ -47,6 +47,14 @@ CREATE TRIGGER IF NOT EXISTS arb_events_immutable_delete BEFORE DELETE ON arb_in
  BEGIN SELECT RAISE(ABORT,'inventory events are append-only'); END;
 """
 
+# Additive; the released v1 checksum and every financial/event table stay intact.
+DISCOVERY_DDL = """
+CREATE TABLE IF NOT EXISTS arb_leads(id TEXT PRIMARY KEY, source_id TEXT NOT NULL,
+ first_seen_at TEXT NOT NULL, body TEXT NOT NULL, saved INTEGER NOT NULL DEFAULT 0,
+ dismissed INTEGER NOT NULL DEFAULT 0, product_id TEXT);
+CREATE INDEX IF NOT EXISTS arb_leads_time ON arb_leads(first_seen_at);
+"""
+
 
 class Repo:
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -81,6 +89,9 @@ class Repo:
                 for statement in _split_sql(DDL):
                     conn.execute(statement)
                 conn.execute("INSERT OR IGNORE INTO arb_meta VALUES ('schema_v1',?)", (checksum,))
+                for statement in _split_sql(DISCOVERY_DDL):
+                    conn.execute(statement)
+                conn.execute("INSERT OR IGNORE INTO arb_meta VALUES ('discovery_schema','1')")
             yield cls(conn)
         finally:
             conn.close()
@@ -144,9 +155,15 @@ class Repo:
 
     def observe(self, value: Observation) -> None:
         body = value.model_dump_json()
-        with transaction(self.conn):
+        with nullcontext() if self.conn.in_transaction else transaction(self.conn):
             if not self.conn.execute("SELECT 1 FROM arb_products WHERE id=?", (value.product.id,)).fetchone():
                 self.save_product(value.product)
+            elif value.product.image_url:
+                # Enrich the display only; a new listing response must never replace reviewed product identity.
+                old = self.conn.execute("SELECT body FROM arb_products WHERE id=?", (value.product.id,)).fetchone()
+                product = Product.model_validate_json(old[0])
+                if product.image_url != value.product.image_url:
+                    self.save_product(product.model_copy(update={"image_url": value.product.image_url}))
             self.conn.execute(
                 "INSERT OR IGNORE INTO arb_observations(product_id,source_id,at,body,input_hash) VALUES (?,?,?,?,?)",
                 (
@@ -234,7 +251,52 @@ class Repo:
         self.conn.execute("INSERT OR REPLACE INTO arb_jobs VALUES (?,?)", (name, canonical_json(value)))
 
     def jobs(self) -> dict[str, Any]:
-        return {r[0]: json.loads(r[1]) for r in self.conn.execute("SELECT id,body FROM arb_jobs LIMIT 100")}
+        return {r[0]: json.loads(r[1]) for r in self.conn.execute("SELECT id,body FROM arb_jobs LIMIT 200")}
+
+    def save_leads(self, leads: list[DealLead]) -> None:
+        """Atomic feed batch. Re-fetches cannot refresh a deal's age or undo an operator decision."""
+        with transaction(self.conn):
+            for lead in leads:
+                old = self.conn.execute("SELECT body FROM arb_leads WHERE id=?", (lead.id,)).fetchone()
+                if old:
+                    previous = DealLead.model_validate_json(old[0])
+                    lead = lead.model_copy(
+                        update={
+                            "first_seen_at": previous.first_seen_at,
+                            "published_at": previous.published_at or lead.published_at,
+                        }
+                    )
+                self.conn.execute(
+                    "INSERT INTO arb_leads(id,source_id,first_seen_at,body) VALUES (?,?,?,?) "
+                    "ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+                    (lead.id, lead.source_id, lead.first_seen_at.isoformat(), lead.model_dump_json()),
+                )
+            # Saved/researched items retain their context; unreviewed lead cache has a finite size.
+            self.conn.execute(
+                "DELETE FROM arb_leads WHERE saved=0 AND product_id IS NULL AND id NOT IN "
+                "(SELECT id FROM arb_leads ORDER BY first_seen_at DESC,id LIMIT 1000)"
+            )
+            if self.conn.execute("SELECT COUNT(*) FROM arb_leads").fetchone()[0] > 2000:
+                raise StorageError("Saved/researched lead capacity reached; no reviewed context was deleted")
+
+    def leads(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT body,saved,dismissed,product_id FROM arb_leads ORDER BY first_seen_at DESC,id LIMIT 2000"
+        )
+        return [{**json.loads(r[0]), "saved": bool(r[1]), "dismissed": bool(r[2]), "product_id": r[3]} for r in rows]
+
+    def lead_action(self, lead_id: str, action: str) -> None:
+        row = self.conn.execute("SELECT id FROM arb_leads WHERE id=?", (lead_id,)).fetchone()
+        if row is None:
+            raise StorageError("Deal lead not found; refresh the inbox")
+        if action == "save":
+            self.conn.execute("UPDATE arb_leads SET saved=1,dismissed=0 WHERE id=?", (lead_id,))
+        elif action == "dismiss":
+            self.conn.execute("UPDATE arb_leads SET dismissed=1 WHERE id=?", (lead_id,))
+        elif action == "unsave":
+            self.conn.execute("UPDATE arb_leads SET saved=0 WHERE id=?", (lead_id,))
+        else:
+            raise StorageError("Unknown deal action")
 
     def archive_decisions(self, now: str, record: dict[str, Any]) -> None:
         digest = sha256_hex(canonical_json({k: v for k, v in record.items() if k != "decision_at"}))

@@ -15,7 +15,17 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from desk.arbitrage.contracts import InventoryEvent, Observation, Product, Route, Settings, SignalObservation, Source
+from desk.arbitrage.contracts import (
+    DealLead,
+    InventoryEvent,
+    LeadOffer,
+    Observation,
+    Product,
+    Route,
+    Settings,
+    SignalObservation,
+    Source,
+)
 from desk.arbitrage.repo import Repo
 from desk.arbitrage.runner import Collector, initialize
 from desk.arbitrage.sources import ALLOWED_HOSTS, validate_source
@@ -62,7 +72,9 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
             await collector.stop()
 
     app = FastAPI(title="KESTREL Arbitrage", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
-    install_browser_boundary(app, csrf)
+    from desk.arbitrage.discovery import IMAGE_HOSTS
+
+    install_browser_boundary(app, csrf, image_hosts=tuple(sorted(IMAGE_HOSTS)))
 
     @app.exception_handler(DeskError)
     async def desk_error(_: Request, exc: DeskError) -> JSONResponse:
@@ -135,6 +147,40 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
         await collector.stop()
         if enabled:
             collector.start()
+        return {"saved": True}
+
+    @app.post("/api/leads/{lead_id}/{action}")
+    async def lead_action(lead_id: str, action: str, request: Request) -> dict[str, bool]:
+        data = await document(request)
+        with Repo.open(paths) as repo:
+            if action == "offer":
+                from desk.storage.db import transaction
+
+                value = LeadOffer.model_validate(data)
+                row = repo.conn.execute("SELECT body FROM arb_leads WHERE id=?", (lead_id,)).fetchone()
+                if row is None:
+                    raise HTTPException(404, "Deal lead not found")
+                lead = DealLead.model_validate_json(row[0])
+                product_id = lead.id
+                existing = next((p for p in repo.products() if p.id == product_id), None)
+                product = existing or Product(id=product_id, title=lead.title, category=lead.category, image_url=lead.image_url)
+                with transaction(repo.conn):
+                    repo.observe(
+                        Observation(
+                            product=product,
+                            source_id="offer-" + lead.source_id,
+                            url=value.url,
+                            price=value.price,
+                            currency=value.currency,
+                            at=utc_now(),
+                            availability="UNKNOWN",
+                            method="operator-lead-review",
+                            evidence=value.evidence,
+                        )
+                    )
+                    repo.conn.execute("UPDATE arb_leads SET product_id=?,saved=1 WHERE id=?", (product_id, lead_id))
+            else:
+                repo.lead_action(lead_id, action)
         return {"saved": True}
 
     @app.get("/api/product/{product_id}")
@@ -250,6 +296,11 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
             "fee_estimate_integrations": [],
             "confirmed_sales_integrations": [],
             "contracts": {name: model.model_json_schema() for name, model in contracts},
+            "deal_discovery": {
+                "feeds": ["Slickdeals public feed candidate", "DealNews public feed candidate"],
+                "live_acceptance": "pending real-network verification",
+                "evidence": "Published leads only; never stock, completed sales or profit",
+            },
         }
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")

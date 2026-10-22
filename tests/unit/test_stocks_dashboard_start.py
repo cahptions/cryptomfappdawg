@@ -56,7 +56,8 @@ def test_kernel_lock_owner_tracks_real_flock(tmp_path: Path):
     assert lock_owner(lock.path) is None
 
 
-def test_restart_gracefully_stops_only_a_real_temporary_dashboard(tmp_path: Path):
+@pytest.mark.parametrize("desk", ["stocks", "arbitrage"])
+def test_restart_gracefully_stops_only_a_real_temporary_dashboard(tmp_path: Path, desk: str):
     import json
     import os
     import socket
@@ -67,33 +68,47 @@ def test_restart_gracefully_stops_only_a_real_temporary_dashboard(tmp_path: Path
     from desk.ops.dashboard_restart import restart_dashboard
     from desk.ops.launcher import responding
 
-    paths = DeskPaths(tmp_path / 'home', REPO / 'config', tmp_path / 'private.env')
+    base = DeskPaths(tmp_path / 'home', REPO / 'config', tmp_path / 'private.env')
+    paths = base
+    if desk == 'arbitrage':
+        from desk.arbitrage.repo import Repo, isolated_paths
+        from desk.arbitrage.runner import initialize
+
+        paths = isolated_paths(base)
+        initialize(paths)
+        with Repo.open(paths) as repo:
+            repo.save_settings(repo.settings().model_copy(update={"enabled": False}))
     paths.ensure()
     # No research worker or provider request is permitted in this subprocess test.
     preference = paths.home / 'stocks-automation.json'
-    preference.write_text(json.dumps({'enabled': False}))
+    if desk == 'stocks':
+        preference.write_text(json.dumps({'enabled': False}))
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
-    env = {**os.environ, 'DESK_HOME': str(paths.home), 'DESK_CONFIG_DIR': str(paths.config_dir),
+    env = {**os.environ, 'DESK_HOME': str(base.home), 'DESK_CONFIG_DIR': str(paths.config_dir),
            'DESK_SECRETS_FILE': str(paths.secrets_file)}
-    child = subprocess.Popen([sys.executable, '-m', 'desk', 'stocks', 'dashboard', '--port', str(port)],
+    child = subprocess.Popen([sys.executable, '-m', 'desk', desk, 'dashboard', '--port', str(port)],
                              env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         until = time.monotonic() + 10
         while not responding(f'http://127.0.0.1:{port}', timeout=0.2):
             assert child.poll() is None and time.monotonic() < until
             time.sleep(0.05)
-        assert lock_owner(paths.home / 'run' / 'stocks-dashboard.lock') == child.pid
-        restart_dashboard(paths, timeout=5)
+        assert lock_owner(paths.home / 'run' / ('stocks-dashboard.lock' if desk == 'stocks' else 'dashboard.lock')) == child.pid
+        restart_dashboard(paths, desk=desk, timeout=5)
         _, stderr = child.communicate(timeout=5)
         import signal
 
         # Uvicorn re-raises a captured signal after its graceful lifespan cleanup.
         assert child.returncode in (0, -signal.SIGTERM)
         assert b'Application shutdown complete' in stderr
-        assert json.loads(preference.read_text()) == {'enabled': False}
-        assert not WorkerLock(paths, 'stocks-worker').held()
+        if desk == 'stocks':
+            assert json.loads(preference.read_text()) == {'enabled': False}
+        else:
+            with Repo.reader(paths) as repo:
+                assert not repo.settings().enabled
+        assert not WorkerLock(paths, 'stocks-worker' if desk == 'stocks' else 'entry-worker').held()
     finally:
         if child.poll() is None:
             child.terminate()

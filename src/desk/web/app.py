@@ -60,9 +60,10 @@ def _csv_value(value: Any) -> str:
     return "'" + text if text.startswith(("=", "+", "-", "@", "\t", "\r", "\n")) else text
 
 
-def install_browser_boundary(app: FastAPI, csrf_token: str) -> None:
+def install_browser_boundary(app: FastAPI, csrf_token: str, *, image_hosts: tuple[str, ...] = ()) -> None:
     """Loopback host only, same-origin requests only (a top-level page load from a link excepted), CSRF on writes,
     strict response headers. Shared by the Solana and Robinhood dashboards."""
+    extra_images = "".join(" https://" + host for host in image_hosts)
 
     @app.middleware("http")
     async def browser_boundary(request: Request, call_next: Any) -> Response:
@@ -88,7 +89,8 @@ def install_browser_boundary(app: FastAPI, csrf_token: str) -> None:
         response: Response = await call_next(request)
         response.headers.update({
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-            "Content-Security-Policy": "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+            "Content-Security-Policy": "default-src 'self'; connect-src 'self'; img-src 'self' data:"
+                                       + extra_images + "; "
                                        "style-src 'self'; script-src 'self'; font-src 'self'; "
                                        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         })

@@ -1,7 +1,7 @@
 # KESTREL Arbitrage — starting the separate app
 
-Run these commands in your normal terminal. They switch to the new tested feature branch and install/open the
-Arbitrage application-menu icon. They do not replace your runtime data or require stopping Stocks.
+Run these commands in your normal terminal. They switch to the tested feature branch and gracefully restart
+Arbitrage to load the new code. They preserve your runtime data and do not stop Stocks.
 
 ```bash
 cd ~/kestrel
@@ -9,7 +9,7 @@ git fetch origin
 git switch codex/arbitrage-v1
 git pull --ff-only origin codex/arbitrage-v1
 uv sync --frozen
-uv run desk open --desk arbitrage --install
+uv run desk arbitrage dashboard --restart --open
 ```
 
 If Git reports local changes and refuses to switch, preserve them; do not reset or overwrite them. The application
@@ -25,30 +25,40 @@ paused it. The new desk has independent data, credentials and locks. Its icon op
 
 ## First use in the app
 
-1. Open **Business settings**. Enter your actual separate business capital, reserve, region and risk limits.
-   Capital includes inventory at cost. Inventory currency cannot be changed after its first event. This is not the Stocks/Crypto $500 reference account.
-2. Read **Data connections & setup guides** on that same page. Every provider has links, steps, costs/access
-   caveats and implementation status. No paid subscription is needed or authorized by the build.
-3. The included narrow retailer adapter needs no API key. Inspect **Sources & system** for its first request,
-   actual error or observation. Access denial does not mean stock is available or that the retailer is down.
-4. For broader active listings, follow the **eBay Browse API** guide. Use approved **Production** app credentials,
-   not your eBay login or Sandbox keys. Confirm permitted research/retention use and no added data charge before
-   enabling it. Save in the private connection form. You do not stop the terminal or press Ctrl+C to save.
-   Blank credential fields preserve saved values; presence is shown separately from a successful source request.
-5. Enabling eBay adds three starter searches. The collector uses them automatically when collection is enabled.
-   Add/pause individual keyword searches on **Sources & system**. Search results are active asking-price listings,
-   not proof of completed sales, exact SKU equivalence or deliverability.
-6. Open a product dossier. Review brand/model or valid GTIN, variant, pack count and condition. Record a real
-   regional delivery/price/quantity check. This attestation expires for qualification after five minutes.
-7. Add a selling-route scenario: destination, fulfillment, conservative prices, all fees/costs, evidence-supported
-   quantity and cash-recovery timing. Confirm seller/category approval and acceptable sourcing documents.
-8. **Where to sell** compares those scenarios. **Capital planner** chooses a bounded conservative basket only
-   when both evidence and capital constraints pass. **Top opportunities** contains up to 100 qualified products with reviewed routes;
-   category selections show up to ten. Neither view is filled with made-up rows.
-9. Pause unused selling routes on **Where to sell** if the comparison-limit message appears. This preserves
-   their inputs and lets the remaining bounded calculation resume.
-10. Record owned stock and actual net sale/refund outcomes in **Inventory**. Returns remain quarantined until
-   restocked. Add dated own-sales/attention evidence separately; price observations never become sales counts.
+1. **Discover** opens first. Its ranked shortlist separates modeled dollar profit, ROI and observed source-price
+   drops. Fresh community/editorial deal mentions appear in a separate discovery inbox after source access succeeds.
+   You do not have to fill in every setting to browse or begin research.
+2. Open **Sources & system** to see the actual state of each automatic feed/monitor. Public feed candidates need
+   no API key; their real-network acceptance is pending. A blocked or broken source shows its error and retains
+   already recorded work. No sample products are substituted for a failed source.
+3. **Business settings → Data connections & setup guides** explains each source, free-access conditions and limits.
+   Optional eBay active-listing discovery requires your approved Production app credentials. Save them privately
+   in the app; blank fields preserve saved credentials. Do not press Ctrl+C to save credentials.
+4. **Check this deal** opens the original published lead. Follow it to the merchant, then enter the actual product
+   URL and price you observe. This creates a research item with unknown stock; it does not auto-approve a purchase.
+   Save and dismiss keep the inbox manageable without deleting a researched item.
+5. The product research page carries that same item into **Compare destination**. Enter supported resale/base and
+   downside prices, fees as a percentage, fulfillment, return allowances, overhead/labor value, hands-on time and
+   cash-cycle estimates. Unknown costs may remain blank; they block calculated profit and purchasing readiness.
+   Use **Edit assumptions** to continue the same comparison rather than creating duplicates.
+6. Review exact model/GTIN, variant, pack and condition, seller eligibility and sourcing documents. The research
+   page shows specific remaining checks beside each destination. Research sold-listing links are external evidence
+   gathering, not an imported confirmed-sales feed.
+7. Record a fresh regional delivery/price/quantity check before relying on stock. It expires for qualification
+   after five minutes. Failed source access also invalidates an earlier stock check.
+8. **Where to sell** compares your covered alternatives. A best checked destination appears only when required
+   checks pass. Main-page numeric profit ranks require current source observations and positive downside economics;
+   other products remain visible as research, without a numeric profit rank.
+9. Set your actual separate business capital/reserve in **Business settings** when you want a capital plan.
+   Capital includes inventory at cost; this is independent of all $500 trading reference accounts. **Capital planner**
+   applies cash, quantity and concentration constraints. A high unit margin does not authorize exceeding them.
+10. Record owned stock and actual net sales/refunds in **Inventory**. Returned units stay quarantined until
+    restocked. Asking prices, attention and feed mentions never become completed-sales quantities.
+
+The separate application-menu icon remains available. Install it once with
+`uv run desk open --desk arbitrage --install`. The explicit `--restart` above gracefully replaces an older
+Arbitrage dashboard after an update, without stopping Stocks/Crypto or deleting a lock file. Ordinary opens reuse
+an existing dashboard and therefore cannot hot-load changed Python code.
 
 FBA means Amazon stores and fulfills approved inventory for fees. WFS is Walmart's corresponding fulfillment
 service. Seller approval, fees and source documentation are separate from developer API access. Amazon/Walmart
@@ -56,7 +66,7 @@ seller APIs and premium history are not yet connected; the app explains this rat
 
 ## What can be empty, and why
 
-The working build intentionally ships without sample business observations. Automatic retailer access must
+The working build ships without sample business observations. Public feed endpoint candidates and automatic retailer access must
 succeed, and eBay needs approved production access. Confirmed market sales history is not included in Browse;
 own dated records or a separately authorized licensed source are required. Heat can remain unknown when its
 cohort or history is insufficient. Momentum and sell-through are explicitly deferred pending adequate data.

@@ -23,6 +23,7 @@ def add_parser(sub: Any) -> None:
     dashboard = commands.add_parser("dashboard", help="Start local research and bounded observation collection")
     dashboard.add_argument("--port", type=int, choices=range(1024, 65536), default=None, metavar="1024..65535")
     dashboard.add_argument("--open", action="store_true")
+    dashboard.add_argument("--restart", action="store_true", help="Gracefully restart only this Arbitrage dashboard")
     dashboard.set_defaults(func=run)
     for action in ("collect", "diagnose"):
         commands.add_parser(
@@ -75,6 +76,10 @@ def run(args: argparse.Namespace) -> int:
     with Repo.reader(paths) as repo:
         port = args.port or repo.settings().dashboard_port
     url = f"http://127.0.0.1:{port}"
+    if getattr(args, "restart", False):
+        from desk.ops.dashboard_restart import restart_dashboard
+
+        restart_dashboard(paths, desk="arbitrage")
     try:
         lock.acquire()
     except WorkerBusy:

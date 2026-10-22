@@ -47,6 +47,12 @@ def initialize(paths: DeskPaths) -> None:
             # A real URL to observe, not a fabricated product, price, stock level or business recommendation.
             repo.save_source(Source(id="adafruit-4300", url="https://www.adafruit.com/product/4300"))
             repo.conn.execute("INSERT INTO arb_meta VALUES ('seed_v1','1')")
+        if not repo.conn.execute("SELECT 1 FROM arb_meta WHERE key='seed_discovery_v1'").fetchone():
+            from desk.arbitrage.discovery import FEEDS
+
+            for key, feed in FEEDS.items():
+                repo.save_source(Source(id="deals-" + key, url=feed["url"], adapter="deal_feed"))
+            repo.conn.execute("INSERT INTO arb_meta VALUES ('seed_discovery_v1','1')")
 
 
 async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any]:
@@ -56,8 +62,24 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
     with Repo.reader(paths) as repo:
         sources, jobs = repo.sources(), repo.jobs()
     # Oldest-attempted first; a broken source cannot monopolize the next bounded batch.
-    due = sorted((s for s in sources if s.enabled), key=lambda s: jobs.get(s.id, {}).get("attempted_at", ""))[:5]
+    from datetime import datetime
+
+    due = sorted(
+        (
+            s
+            for s in sources
+            if s.enabled
+            and (not jobs.get(s.id, {}).get("retry_at") or datetime.fromisoformat(jobs[s.id]["retry_at"]) <= now)
+            and (
+                s.adapter != "deal_feed"
+                or not jobs.get(s.id, {}).get("attempted_at")
+                or now - datetime.fromisoformat(jobs[s.id]["attempted_at"]) >= timedelta(minutes=15)
+            )
+        ),
+        key=lambda s: jobs.get(s.id, {}).get("attempted_at", ""),
+    )[:5]
     attempted = 0
+    from desk.arbitrage.discovery import FeedDelay
     from desk.arbitrage.ebay import Backoff, Browse
     from desk.arbitrage.integrations import load
 
@@ -76,7 +98,19 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
         with Repo.open(paths) as repo:
             repo.job(source.id, state)
         try:
-            if source.adapter == "ebay_browse":
+            if source.adapter == "deal_feed":
+                from desk.arbitrage.discovery import fetch_feed
+
+                leads, cache, unchanged = await fetch_feed(source, utc_now(), client=client, previous=last)
+                with Repo.open(paths) as repo:
+                    repo.save_leads(leads)
+                state.update(
+                    status="ok", last_ok_at=utc_now().isoformat(), error=None, items=len(leads), unchanged=unchanged, **cache
+                )
+                if unchanged:
+                    state.update({k: last[k] for k in ("etag", "last-modified") if k in last})
+                observed_rows = []
+            elif source.adapter == "ebay_browse":
                 if ebay is None:
                     raise DeskError(credential_error)
                 observed_rows = await ebay.search(client, source, utc_now())
@@ -85,7 +119,10 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
             with Repo.open(paths) as repo:
                 for observed in observed_rows:
                     repo.observe(observed)
-            state.update(status="ok", last_ok_at=utc_now().isoformat(), error=None, items=len(observed_rows))
+            if source.adapter != "deal_feed":
+                state.update(status="ok", last_ok_at=utc_now().isoformat(), error=None, items=len(observed_rows))
+        except FeedDelay as exc:
+            state.update(status="unavailable", error=str(exc), retry_at=exc.until.isoformat())
         except Backoff as exc:
             state.update(status="unavailable", error=str(exc), retry_at=exc.until.isoformat())
             with Repo.open(paths) as repo:

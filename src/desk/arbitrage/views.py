@@ -12,6 +12,7 @@ from desk.arbitrage.contracts import Observation, Route
 from desk.arbitrage.economics import allocate, evaluate
 from desk.arbitrage.heat import profiles
 from desk.arbitrage.inventory import ledger
+from desk.arbitrage.ranking import comparison, rankings
 from desk.arbitrage.repo import Repo
 
 
@@ -64,6 +65,14 @@ def snapshot(repo: Repo, now: datetime) -> dict[str, Any]:
                     observed_at=offer["at"],
                     decision_at=now.isoformat(),
                     route_id=route.id,
+                    source_current=timedelta(0) <= now - model.at <= timedelta(minutes=15)
+                    and model.availability != "UNAVAILABLE"
+                    and not (
+                        source_health.get("status") == "unavailable"
+                        and source_health.get("attempted_at")
+                        and datetime.fromisoformat(source_health["attempted_at"]) >= model.at
+                    ),
+                    scenario_current=route.valid_until >= now,
                 )
                 local_routes.append(result)
         local_routes.sort(key=lambda r: (not r["qualifies"], -Decimal(r["stress_profit"] or "-1000000000"), r["id"]))
@@ -83,13 +92,17 @@ def snapshot(repo: Repo, now: datetime) -> dict[str, Any]:
                 )
                 if exact and record["source_id"] == offer["source_id"] and record["currency"] == offer["currency"]:
                     by_day.setdefault(record["at"][:10], []).append(Decimal(record["price"]))
-            baseline = median([median(v) for k, v in by_day.items() if k < now.date().isoformat()]) if len(by_day) >= 6 else None
+            prior_days = [median(v) for k, v in by_day.items() if k < now.date().isoformat()]
+            baseline = median(prior_days) if len(prior_days) >= 6 else None
             deal.append(
                 {
                     "source_id": offer["source_id"],
                     "historical_daily_median": str(baseline) if baseline else None,
                     "discount_fraction": str(1 - Decimal(offer["price"]) / baseline) if baseline else None,
                     "days": len(by_day),
+                    "baseline_days": len(prior_days),
+                    "current": now - datetime.fromisoformat(offer["at"]) <= timedelta(minutes=15)
+                    and offer["availability"] != "UNAVAILABLE",
                     "basis": "Same-source observed asking prices; not completed sales",
                 }
             )
@@ -100,15 +113,23 @@ def snapshot(repo: Repo, now: datetime) -> dict[str, Any]:
                 "routes": local_routes,
                 "heat": heats.get(product.id, []),
                 "deal_history": deal,
+                "comparison": comparison(local_routes),
             }
         )
     board.sort(key=lambda b: (not bool(b["routes"] and b["routes"][0]["qualifies"]), b["product"]["title"]))
+    leads = repo.leads()
+    for lead in leads:
+        published = lead["published_at"] or lead["first_seen_at"]
+        lead["fresh"] = now - datetime.fromisoformat(published) <= timedelta(hours=24)
+        lead["age_basis"] = "Published time" if lead["published_at"] else "First seen; publication time unknown"
     return {
         "generated_at": now.isoformat(),
         "desk": "ARBITRAGE",
         "read_only_marketplaces": True,
         "settings": settings.model_dump(mode="json"),
         "board": board,
+        "rankings": rankings(board),
+        "leads": leads,
         "routes": evaluated,
         "configured_routes": [r.model_dump(mode="json") for r in routes],
         "sources": [s.model_dump(mode="json") for s in repo.sources()],
@@ -128,6 +149,7 @@ def snapshot(repo: Repo, now: datetime) -> dict[str, Any]:
             "projection_limit": 5000,
             "scope": "Bounded V1 observation board and reviewed scenarios; not broad-market discovery",
             "unknown_heat": ["momentum", "sell_through"],
+            "discovery": "Public feed leads are unverified mentions. Real-network feed acceptance is pending.",
             "note": "Missing demand, prices or fees are unknown; no demonstrated business edge",
         },
     }
