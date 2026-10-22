@@ -1,5 +1,9 @@
 # Validation evidence
 
+**Current rebuild:** read `rebuild-checks.json` and `../REBUILD_CHECKPOINT.md`. Existing browser PNGs and
+`browser-results.json` are older baseline evidence, not verification of the new interface. Browser/server execution
+is currently blocked by sandbox/approval-review limits. `capacity-10000.json` is the newer synthetic capacity check.
+
 `checks.json` records the frozen software verification. All screenshots, data and browser outcomes here are
 **synthetic fixtures**, not live offers, provider acceptance or business profit. `resources-synthetic.json`
 measures a cloud process, not the Dell laptop. Five opt-in live-provider tests were excluded.

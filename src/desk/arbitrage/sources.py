@@ -24,6 +24,12 @@ MAX_BYTES = 2_000_000
 
 def validate_source(source: Source) -> None:
     url = urlsplit(source.url)
+    if source.adapter in {"adafruit_sitemap", "shopify_catalog"}:
+        from desk.arbitrage.catalog import CATALOGS
+
+        if (source.adapter, source.url) not in CATALOGS.values() or source.product_id or source.query:
+            raise DeskError("Choose a supported fixed merchant catalog URL")
+        return
     if source.adapter == "deal_feed":
         from desk.arbitrage.discovery import descriptor
 
@@ -99,11 +105,20 @@ def parse_page(raw: str, source: Source, now: datetime) -> Observation:
         if status in {"OutOfStock", "Discontinued", "SoldOut"}
         else "UNKNOWN"
     )
+    brand = row.get("brand")
+    if isinstance(brand, dict):
+        brand = brand.get("name")
+    pack = row.get("numberOfItems")
+    if not isinstance(pack, int) or isinstance(pack, bool):
+        pack = None
+    condition = {"NewCondition": "new", "UsedCondition": "used", "RefurbishedCondition": "refurbished"}.get(
+        str(offers.get("itemCondition", "")).rsplit("/", 1)[-1], "Unknown")
     product = Product(
         id=source.product_id or "p-" + sha256_hex(source.url)[:20],
         title=str(row.get("name") or "Untitled product"),
         image_url=retailer_image(row.get("image")),
         mpn=str(row["mpn"]) if row.get("mpn") else None,
+        brand=str(brand)[:100] if brand else None, pack_count=pack, condition=condition,
         gtin=str(row.get("gtin13") or row.get("gtin12") or row.get("gtin"))
         if row.get("gtin13") or row.get("gtin12") or row.get("gtin")
         else None,

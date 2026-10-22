@@ -53,6 +53,12 @@ def initialize(paths: DeskPaths) -> None:
             for key, feed in FEEDS.items():
                 repo.save_source(Source(id="deals-" + key, url=feed["url"], adapter="deal_feed"))
             repo.conn.execute("INSERT INTO arb_meta VALUES ('seed_discovery_v1','1')")
+        if not repo.conn.execute("SELECT 1 FROM arb_meta WHERE key='seed_catalog_v1'").fetchone():
+            from desk.arbitrage.catalog import CATALOGS
+
+            for key, (adapter, url) in CATALOGS.items():
+                repo.save_source(Source(id=key, url=url, adapter=adapter))
+            repo.conn.execute("INSERT INTO arb_meta VALUES ('seed_catalog_v1','1')")
 
 
 async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any]:
@@ -71,7 +77,7 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
             if s.enabled
             and (not jobs.get(s.id, {}).get("retry_at") or datetime.fromisoformat(jobs[s.id]["retry_at"]) <= now)
             and (
-                s.adapter != "deal_feed"
+                (s.adapter != "deal_feed" and not jobs.get(s.id, {}).get("complete"))
                 or not jobs.get(s.id, {}).get("attempted_at")
                 or now - datetime.fromisoformat(jobs[s.id]["attempted_at"]) >= timedelta(minutes=15)
             )
@@ -94,16 +100,27 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
 
         if last.get("retry_at") and datetime.fromisoformat(last["retry_at"]) > now:
             continue
-        state: dict[str, Any] = {"attempted_at": now.isoformat(), "status": "fetching", "last_ok_at": last.get("last_ok_at")}
+        state: dict[str, Any] = {**last, "attempted_at": now.isoformat(), "status": "fetching",
+                                 "last_ok_at": last.get("last_ok_at")}
         with Repo.open(paths) as repo:
             repo.job(source.id, state)
         try:
-            if source.adapter == "deal_feed":
+            if source.adapter in {"adafruit_sitemap", "shopify_catalog"}:
+                from desk.arbitrage.catalog import fetch_catalog
+
+                observed_rows, urls, checkpoint = await fetch_catalog(source, utc_now(), client, last)
+                with Repo.open(paths) as repo:
+                    repo.queue_offers(urls, source.id, now.isoformat())
+                state.update(checkpoint)
+                if checkpoint.get("complete"):
+                    state["retry_at"] = (now + timedelta(hours=6)).isoformat()
+            elif source.adapter == "deal_feed":
                 from desk.arbitrage.discovery import fetch_feed
 
                 leads, cache, unchanged = await fetch_feed(source, utc_now(), client=client, previous=last)
                 with Repo.open(paths) as repo:
                     repo.save_leads(leads)
+                    repo.queue_offers([url for lead in leads for url in lead.merchant_urls], source.id, now.isoformat())
                 state.update(
                     status="ok", last_ok_at=utc_now().isoformat(), error=None, items=len(leads), unchanged=unchanged, **cache
                 )
@@ -113,10 +130,13 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
             elif source.adapter == "ebay_browse":
                 if ebay is None:
                     raise DeskError(credential_error)
-                observed_rows = await ebay.search(client, source, utc_now())
+                observed_rows = await ebay.search(client, source, utc_now(), offset=int(last.get("next_offset", 0)))
+                state.update(next_offset=ebay.next_offset, total_results=ebay.total)
+                if ebay.next_offset == 0:
+                    state["retry_at"] = (now + timedelta(hours=1)).isoformat()
             else:
                 observed_rows = [await fetch(source, utc_now(), client=client)]
-            with Repo.open(paths) as repo:
+            with Repo.open(paths) as repo, transaction(repo.conn):
                 for observed in observed_rows:
                     repo.observe(observed)
             if source.adapter != "deal_feed":
@@ -135,11 +155,71 @@ async def cycle(paths: DeskPaths, *, client: httpx.AsyncClient) -> dict[str, Any
             )
         except DeskError as exc:
             state.update(status="unavailable", error=str(exc), retry_at=(now + timedelta(minutes=15)).isoformat())
+        if state["status"] == "unavailable":
+            for key in ("next_offset", "next_page", "page_digest", "pending_sitemaps", "visited_sitemaps", "complete"):
+                if key in last:
+                    state[key] = last[key]
+                else:
+                    state.pop(key, None)
         with Repo.open(paths) as repo:
             repo.job(source.id, state)
         attempted += 1
         await asyncio.sleep(2)  # serial requests; avoid a burst against one retailer
+    # Persistent URL queue; at most 10 products/cycle, 1000 reserved page/robots attempts/day.
+    with Repo.reader(paths) as repo:
+        # Split the small batch between new catalog work and due refreshes, so neither starves the other.
+        due_queue = [dict(r) for r in repo.conn.execute(
+            "SELECT q.* FROM arb_offer_queue q JOIN arb_sources s ON s.id=q.source_id "
+            "WHERE json_extract(s.body,'$.enabled')=1 AND (q.retry_at IS NULL OR q.retry_at<=?) "
+            "ORDER BY COALESCE(q.attempted_at,''),q.url LIMIT 100", (now.isoformat(),))]
+        new = [r for r in due_queue if r["attempted_at"] is None]
+        refresh = [r for r in due_queue if r["attempted_at"] is not None]
+        # Query refreshes separately when a large new backlog fills the first bounded window.
+        if not refresh:
+            refresh = [dict(r) for r in repo.conn.execute(
+                "SELECT q.* FROM arb_offer_queue q JOIN arb_sources s ON s.id=q.source_id "
+                "WHERE json_extract(s.body,'$.enabled')=1 AND q.attempted_at IS NOT NULL AND q.retry_at<=? "
+                "ORDER BY q.attempted_at,q.url LIMIT 5", (now.isoformat(),))]
+        queued = [*new[:5], *refresh[:5]]
+        keys = {r["url"] for r in queued}
+        queued.extend(r for r in due_queue if r["url"] not in keys)
+        queued = queued[:10]
+    for item in queued:
+        with Repo.open(paths) as repo:
+            budget = repo.conn.execute("SELECT value FROM arb_meta WHERE key='merchant-budget'").fetchone()
+            b = json.loads(budget[0]) if budget else {}
+            if b.get("day") != now.date().isoformat():
+                b = {"day": now.date().isoformat(), "attempts": 0}
+            if b["attempts"] >= 1000:
+                break
+            b["attempts"] += 2  # robots and product request; reserve before requests, including failures
+            repo.conn.execute("INSERT OR REPLACE INTO arb_meta VALUES ('merchant-budget',?)", (json.dumps(b),))
+        error, product_id = None, item["product_id"]
+        monitored = False
+        try:
+            observation = await fetch(Source(id=item["source_id"], url=item["url"]), utc_now(), client=client)
+            with Repo.open(paths) as repo:
+                repo.observe(observation)
+                monitored = bool(repo.conn.execute("SELECT 1 FROM arb_routes WHERE product_id=? LIMIT 1",
+                                                   (observation.product.id,)).fetchone())
+            product_id = observation.product.id
+        except (DeskError, httpx.HTTPError) as exc:
+            error = str(exc)[:250] if isinstance(exc, DeskError) else "Merchant network/proxy failure"
+        with Repo.open(paths) as repo:
+            repo.conn.execute("UPDATE arb_offer_queue SET attempted_at=?,product_id=?,error=?,retry_at=? WHERE url=?",
+                              (now.isoformat(), product_id, error,
+                               (now + (timedelta(minutes=10) if monitored else timedelta(hours=6)) if not error
+                                else now + timedelta(minutes=30)).isoformat(), item["url"]))
+        await asyncio.sleep(1)
+    if ebay is not None and ebay.credentials.enabled and ebay.credentials.free_access_confirmed:
+        from desk.arbitrage.matching import enrich
+
+        matching = await enrich(paths, ebay, client, utc_now())
+        with Repo.open(paths) as repo:
+            repo.job("resale-matching", {"status": "partial" if matching["errors"] else "ok", **matching})
     with Repo.open(paths) as repo:
+        repo.conn.execute("DELETE FROM arb_comparables WHERE at<? AND json_extract(body,'$.evidence_type')='ASKING'",
+                          ((now-timedelta(hours=24)).isoformat(),))
         # Licensing-aware bounded derived-price history; inventory and own transaction records are never pruned.
         repo.conn.execute("DELETE FROM arb_observations WHERE at<?", ((now - timedelta(days=90)).isoformat(),))
         repo.conn.execute(

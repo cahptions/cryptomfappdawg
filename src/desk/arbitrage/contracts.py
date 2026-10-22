@@ -84,7 +84,7 @@ class Source(Record):
     id: Identifier
     product_id: Identifier | None = None
     url: str
-    adapter: Literal["jsonld", "ebay_browse", "deal_feed"] = "jsonld"
+    adapter: Literal["jsonld", "ebay_browse", "deal_feed", "adafruit_sitemap", "shopify_catalog"] = "jsonld"
     query: str | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool = True
 
@@ -102,6 +102,7 @@ class Observation(Record):
     currency: str = Field(pattern="^[A-Z]{3}$")
     at: datetime
     availability: Literal["DECLARED_AVAILABLE", "UNAVAILABLE", "UNKNOWN", "VERIFIED_AVAILABLE"]
+    external_id: str | None = Field(default=None, max_length=200)
     method: str = Field(max_length=100)
     region: str | None = Field(default=None, max_length=80)
     quantity: int | None = Field(default=None, ge=0, le=10000)
@@ -170,6 +171,7 @@ class DealLead(Record):
     source_id: Identifier
     title: str = Field(min_length=1, max_length=240)
     url: str
+    merchant_urls: list[str] = Field(default_factory=list, max_length=20)
     summary: str = Field(default="", max_length=1000)
     category: str = Field(default="Uncategorized", max_length=80)
     published_at: datetime | None = None

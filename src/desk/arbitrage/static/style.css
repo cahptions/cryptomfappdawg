@@ -1024,3 +1024,44 @@ code {
     transform: none;
   }
 }
+
+/* Operator sourcing layout: products lead, evidence stays adjacent to the purchase price. */
+header { padding-bottom:16px; margin-bottom:16px; }
+header h1 {font-size:24px;margin:4px 0;}
+header>div>p:last-child {display:none;}
+.stats {margin:14px 0;}
+.stat {padding:10px 14px;}
+.stat strong {font-size:23px;}
+.pipeline {padding:10px 0;margin-bottom:12px;flex-wrap:wrap;}
+.ranked-section>.section-heading {margin:14px 0;}
+.resale-stats {border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0;}
+.evidence-label,.resale-stats small {font-size:11px;color:var(--muted);}
+.resale-values {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0;}
+.resale-values span {font-size:11px;color:var(--muted);}
+.resale-values strong {display:block;color:var(--text);font-size:15px;font-variant-numeric:tabular-nums;}
+.landed {display:block;color:var(--muted);font-size:10px;max-width:180px;}
+.catalog-pagination {display:flex;gap:16px;align-items:center;justify-content:center;padding:18px 0;flex-wrap:wrap;}
+.catalog-pagination span {color:var(--muted);font-size:12px;}
+.commercial-principles {margin-top:20px;color:var(--muted);}
+.chart text {fill:var(--muted);font-size:11px;}
+.dense-list {display:flex;flex-direction:column;gap:8px;}
+.dense-list .deal-card {display:grid;grid-template-columns:96px 1fr;min-width:0;}
+.dense-list .product-photo {width:96px;height:110px;min-height:0;border-radius:8px;margin:12px;}
+.dense-list .product-photo img {object-fit:contain;}
+.dense-list .card-rank {font-size:10px;left:2px;top:2px;}
+.dense-list .deal-body {display:grid;grid-template-columns: minmax(180px,1.2fr) minmax(160px,1fr) minmax(230px,1.4fr) minmax(160px,1fr);gap:8px 16px;align-items:center;padding:14px 18px 14px 24px;}
+.dense-list .deal-body>.eyebrow {grid-column:1/-1;margin:0;}
+.dense-list h3 {font-size:14px;margin:0;}
+.dense-list .resale-stats {margin:0;padding:8px;}
+.dense-list .trade-path {margin:0;padding:0;border:0;}
+.dense-list .trade-path .path-arrow,.dense-list .trade-path>div:last-child {display:none;}
+.dense-list .trade-path strong {font-size:21px;}
+.dense-list .profit-strip {display:grid;padding:0;border:0;gap:6px;}
+.dense-list .card-facts,.dense-list .evidence-state,.dense-list .next-step,.dense-list .toolbar,.dense-list .deal-body>.caption {grid-column:auto;font-size:11px;margin:0;}
+.dense-list .toolbar {grid-column:3/-1;justify-content:flex-end;}
+.dense-list .deal-body>.caption {grid-column:1/-1;}
+@media(max-width:1250px){.dense-list .deal-body{grid-template-columns:1fr 1fr;}.dense-list .toolbar{grid-column:1/-1}.dense-list .resale-stats{grid-column:1/-1}}
+@media(max-width:650px){.dense-list .deal-card{grid-template-columns:64px 1fr}.dense-list .product-photo{width:60px;height:70px;margin:8px}.dense-list .deal-body{padding:10px 12px;gap:8px}.dense-list h3{grid-column:1/-1}.resale-values strong{font-size:13px}.catalog-pagination{gap:8px}.stats .caption{font-size:9px}.browse-bar{position:static}}
+.dense-list .deal-body,.dense-list .deal-body>* {min-width:0;}
+.dense-list h3,.resale-values strong,.line>div {overflow-wrap:anywhere;}
+@media(max-width:1400px){.dense-list .deal-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dense-list .toolbar,.dense-list .resale-stats{grid-column:1/-1}}

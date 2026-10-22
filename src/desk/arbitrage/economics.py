@@ -42,7 +42,7 @@ def evaluate(product: Product, offer: Observation, route: Route, settings: Setti
         blocked.append("Offer needs current regional availability verification")
     if offer.region != settings.region:
         blocked.append("Delivery region is unconfirmed or differs from the business profile")
-    if now - offer.at > timedelta(minutes=5) or offer.quantity == 0:
+    if now - offer.at > timedelta(minutes=5) or offer.quantity is None or offer.quantity <= 0:
         blocked.append("Availability must be rechecked within five minutes and quantity must be positive")
     if route.valid_until < now:
         blocked.append("Selling-price/fee scenario is stale")
@@ -119,7 +119,7 @@ def evaluate(product: Product, offer: Observation, route: Route, settings: Setti
     result["input_hash"] = sha256_hex(
         canonical_json(
             {
-                "spec": "arb-economics-v1",
+                "spec": "arb-economics-v2",
                 "product": product.model_dump(mode="json"),
                 "offer": offer.model_dump(mode="json"),
                 "route": route.model_dump(mode="json"),

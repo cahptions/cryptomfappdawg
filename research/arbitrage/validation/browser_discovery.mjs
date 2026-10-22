@@ -133,7 +133,7 @@ try {
   await page.locator("[data-action=lead-dismiss]").first().click();
   await page.locator("[data-action=lead-dismiss]").waitFor({ state: "hidden" });
   await page
-    .getByRole("link", { name: "Sources & system", exact: true })
+    .getByRole("link", { name: "Settings", exact: true })
     .click();
   await page.locator("#discovery-query").fill("LEGO 75375");
   await page

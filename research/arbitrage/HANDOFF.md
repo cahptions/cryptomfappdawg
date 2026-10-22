@@ -1,3 +1,15 @@
+# Current rebuild handoff — 2026-10-22
+
+Read `REBUILD_CHECKPOINT.md`, `validation/rebuild-checks.json`, `OPERATOR_REBUILD_REQUEST.md` and
+`../STOCKS_ACTIVITY_FIXES.md` first. The current working pass changes source pagination, merchant queues,
+exact comparable research, server catalog paging, price statistics, source navigation and cache invalidation.
+Source setup is in Settings; Sources is product browsing by actual merchant/marketplace. Real-source acceptance
+and current browser/HTTP verification remain open. No live trade, purchase or seller mutation was enabled.
+
+The earlier handoff below is historical baseline context; its screenshots/test results do not certify the new work.
+
+---
+
 # Arbitrage V1 continuation handoff — 2026-10-22
 
 Branch `codex/arbitrage-v1`, based on Stocks graceful dashboard restart fix `e9dcc5a`. The older Stocks branch was

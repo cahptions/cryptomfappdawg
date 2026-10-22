@@ -9,7 +9,7 @@ from decimal import Decimal
 from email.utils import parsedate_to_datetime
 from math import isfinite
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -83,7 +83,7 @@ def parse(data: dict[str, Any], source: Source, now: datetime) -> list[Observati
     if data.get("errors") or ("itemSummaries" not in data and data.get("total") != 0):
         raise DeskError("eBay search returned errors or an incomplete result; no successful empty result assumed")
     rows = data.get("itemSummaries", [])
-    if not isinstance(rows, list) or len(rows) > 20:
+    if not isinstance(rows, list) or len(rows) > 200:
         raise DeskError("Unexpected eBay search batch; no observations stored")
     output: list[Observation] = []
     try:
@@ -115,6 +115,7 @@ def parse(data: dict[str, Any], source: Source, now: datetime) -> list[Observati
                     currency=price["currency"],
                     at=now,
                     availability="DECLARED_AVAILABLE",
+                    external_id=str(row["itemId"]), region="US",
                     method="ebay-browse-active-listing-v1",
                     evidence="Active fixed-price listing, not a completed sale. Exact variant, delivery, stock quantity, "
                     "tax and resale eligibility unverified. US marketplace query.",
@@ -132,7 +133,13 @@ class Browse:
         self._token = ""
         self._expires = 0.0
 
-    async def search(self, client: httpx.AsyncClient, source: Source, now: datetime) -> list[Observation]:
+    async def search(self, client: httpx.AsyncClient, source: Source, now: datetime, *,
+                     offset: int = 0, limit: int = 200, gtin: str | None = None) -> list[Observation]:
+        if not 0 <= offset <= 9800 or not 1 <= limit <= 200:
+            raise DeskError("eBay pagination must remain inside the 10,000-result search window")
+        if gtin:
+            Product(id="check", title="check", gtin=gtin)
+        self.next_offset = offset
         credentials = self.credentials
         if not credentials.enabled or not credentials.free_access_confirmed:
             raise DeskError("eBay live listings are disabled; open Business settings for the free-access setup guide")
@@ -156,9 +163,25 @@ class Browse:
         async with client.stream(
             "GET",
             "https://api.ebay.com/buy/browse/v1/item_summary/search",
-            params={"q": source.query, "limit": 20},
+            params={**({"gtin": gtin} if gtin else {"q": source.query}), "limit": limit, "offset": offset},
             follow_redirects=False,
             headers={"Authorization": "Bearer " + self._token, "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
         ) as response:
             body = await response_json(response)
-        return parse(body, source, now)
+        rows = parse(body, source, now)
+        total = body.get("total")
+        if not isinstance(total, int) or total < 0:
+            raise DeskError("eBay total is missing; checkpoint was not advanced")
+        self.next_offset = offset + limit if offset + limit < min(total, 10000) else 0
+        self.total = total
+        return rows
+
+
+    async def item(self, client: httpx.AsyncClient, item_id: str) -> dict[str, Any]:
+        if not self._token or not item_id or len(item_id) > 200:
+            raise DeskError("Search must establish a valid token before item enrichment")
+        self._spend()
+        async with client.stream("GET", "https://api.ebay.com/buy/browse/v1/item/" + quote(item_id, safe=""),
+                                 follow_redirects=False, headers={"Authorization": "Bearer " + self._token,
+                                 "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"}) as response:
+            return await response_json(response)

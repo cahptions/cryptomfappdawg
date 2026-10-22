@@ -16,7 +16,7 @@
     ],
     "steps": [
       "Open Discover. Recent mentions appear in the discovery inbox after a permitted feed request succeeds. No API key is needed.",
-      "Open Sources & system to see each feed\u2019s last success or access error. Each feed runs at most once per 15 minutes and respects robots policy, server rate limits and Pause.",
+      "Open Settings to see each feed\u2019s last success or access error. Each feed runs at most once per 15 minutes and respects robots policy, server rate limits and Pause.",
       "Use Save to keep a lead. Check this deal opens a short review: follow the original deal to the merchant and record the actual product URL and price.",
       "The item then opens in Product research. Compare exact identity, resale evidence, destination costs and regional availability before considering a purchase.",
       "A community post may be old, unavailable, region-specific, conditional or mistaken. Re-fetching the feed does not reset its published or first-seen age."
@@ -28,7 +28,7 @@
     "id": "included",
     "title": "Included retailer observations",
     "status": "Implemented \u00b7 no API key",
-    "purpose": "Current asking price and retailer-declared availability from supported public product pages.",
+    "purpose": "Automatic public catalog discovery and product-page enrichment where the merchant publishes usable data and permits access.",
     "links": [
       {
         "label": "Adafruit products",
@@ -40,13 +40,13 @@
       }
     ],
     "steps": [
-      "Open Sources & system. The included product URL is observed automatically while collection is enabled.",
-      "Add a supported Adafruit /product/ URL to watch another exact item.",
-      "Open its dossier, review identity and record your regional delivery check. Retailer markup alone is not verified stock.",
-      "A network or robots restriction remains visible; the app does not bypass it."
+      "Open Settings to see the included Adafruit sitemap and Arduino public-catalog monitors. Both run automatically while collection is enabled; each reports its actual result.",
+      "Catalog pages/checkpoints and merchant product URLs persist across restarts. Unsupported markup, missing published currency, robots denial and blocked network access are explicit errors.",
+      "Browse Sources for collected products grouped by retailer, or use the paginated sourcing shortlist. Source URL/search entry and API credentials stay in Settings.",
+      "Retailer-declared stock is not a confirmed regional delivery check. Exact pack, condition, all costs and seller eligibility still need support before any recommendation."
     ],
     "cost": "No added API subscription. Your network and retailer access must work.",
-    "limitation": "A narrow observation adapter, not a whole-market arbitrage scanner or completed-sales feed."
+    "limitation": "Catalog adapters have synthetic payload coverage; real current endpoint compatibility/access has not been verified in this cloud. No store/API success or thousands of real offers are claimed."
   },
   {
     "id": "ebay",
@@ -76,8 +76,10 @@
       "Open Application Keys. App ID / Client ID goes in the app-key field; Cert ID / Client Secret goes in the app-secret field. Your Dev ID is not the client secret.",
       "Check current Browse production access, API terms, personal research use, retention rights and quota. Confirm this use has no additional API charge before enabling it.",
       "Enter credentials privately below, confirm permitted free access, enable live listings and save. No terminal restart or Ctrl+C is required. Blank fields preserve saved credentials.",
-      "Enabling adds three starter searches for tools, label printers and single-board computers. Add or pause your own searches in Sources & system.",
-      "Open Sources & system to see the first successful request or a specific access/network error. Credential presence alone does not mean connected."
+      "Enabling adds three starter searches for tools, label printers and single-board computers. Add or pause your own searches in Settings.",
+      "Open Settings to see the first successful request or a specific access/network error. Credential presence alone does not mean connected.",
+      "Searches collect up to 200 listings/page and persist offsets within the 10,000-result search window. API next links are never followed to arbitrary hosts.",
+      "For products with explicit GTIN, pack and condition, the collector can check production item details for exact current asking-price comparables. Missing identity fields remain exceptions; asking prices are not sold-history data."
     ],
     "cost": "Only enable after confirming permitted access with no additional API charge. Current program conditions and quotas must be checked in your account.",
     "limitation": "Active fixed-price asking-price listings only. No completed-sales or automatic resale eligibility. OAuth documentation was read; the Browse adapter is tested with synthetic HTTP responses and still requires actual production validation."

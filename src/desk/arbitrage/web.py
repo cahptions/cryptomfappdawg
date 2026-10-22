@@ -104,9 +104,20 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
         return GUIDES
 
     @app.get("/api/snapshot")
-    def read_snapshot() -> dict[str, Any]:
+    def read_snapshot(query: str = "", category: str = "", offset: int = 0, order: str = "profit",
+                      product_id: str | None = None, view: str = "catalog", source_host: str = "") -> dict[str, Any]:
+        if (offset < 0 or len(source_host) > 200 or len(query) > 200 or len(category) > 80
+                or order not in {"profit", "roi", "title"}):
+            raise HTTPException(400, "Invalid catalog page or filters")
         with Repo.reader(paths) as repo:
-            result = snapshot(repo, utc_now())
+            ids = [product_id] if product_id else None
+            if view == "planning":
+                ids = [r[0] for r in repo.conn.execute("SELECT DISTINCT product_id FROM arb_routes")]
+            result = snapshot(repo, utc_now(), query=query, category=category, offset=offset, order=order,
+                              product_ids=ids, source_host=source_host)
+            if view == "planning":
+                result["coverage"]["scope"] = "All configured selling routes; complete current inventory commitments"
+
         result["collector"] = {
             "active": bool(collector.task and not collector.task.done()),
             "external": collector.external,
@@ -122,6 +133,41 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
             connection["last_success_at"] = max((v.get("last_ok_at") or "" for v in attempts), default="") or None
         result["integrations"] = {"ebay": connection}
         return result
+
+    @app.post("/api/comparables/import")
+    async def import_comparables(request: Request) -> dict[str, int]:
+        import csv
+        import io
+
+        from desk.arbitrage.comparables import Comparable, save
+        from desk.core.hashing import sha256_hex
+        from desk.storage.db import transaction
+
+        data = await document(request)
+        raw = data.get("csv")
+        if not isinstance(raw, str):
+            raise HTTPException(400, "Choose a comparable-price CSV file")
+        try:
+            records = []
+            for i, row in enumerate(csv.DictReader(io.StringIO(raw))):
+                if i >= 500:
+                    raise ValueError("Import is limited to 500 rows per file")
+                row = {k: v for k, v in row.items() if v not in (None, "")}
+                row["product_id"] = str(data.get("product_id") or "")
+                row["id"] = "csv-" + sha256_hex(raw + str(i))[:32]
+                record = Comparable.model_validate(row)
+                if record.at.tzinfo is None or record.at > utc_now():
+                    raise ValueError("Comparable times must include a timezone and cannot be in the future")
+                records.append(record)
+            if not records:
+                raise ValueError("CSV contains no rows")
+            with Repo.open(paths) as repo, transaction(repo.conn):
+                for record in records:
+                    save(repo, record)
+            return {"saved": len(records)}
+        except ValueError as exc:
+            raise HTTPException(400, "Comparable import failed; all rows preserved unchanged. " +
+                                str(exc).split("\n")[0][:150]) from exc
 
     @app.post("/api/integrations/ebay")
     async def save_ebay(request: Request) -> dict[str, bool]:
@@ -162,7 +208,7 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
                     raise HTTPException(404, "Deal lead not found")
                 lead = DealLead.model_validate_json(row[0])
                 product_id = lead.id
-                existing = next((p for p in repo.products() if p.id == product_id), None)
+                existing = next(iter(repo.products([product_id])), None)
                 product = existing or Product(id=product_id, title=lead.title, category=lead.category, image_url=lead.image_url)
                 with transaction(repo.conn):
                     repo.observe(
@@ -187,6 +233,12 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
     def product(product_id: str) -> dict[str, Any]:
         with Repo.reader(paths) as repo:
             rows = repo.observations(product_id, limit=500)
+            products = repo.products([product_id])
+            current = products[0] if products else None
+            original_count = len(rows)
+            if current:
+                fields = ("brand", "mpn", "gtin", "variant", "pack_count", "condition")
+                rows = [r for r in rows if all(r["product"].get(k) == getattr(current, k) for k in fields)]
             sales = [
                 s.model_dump(mode="json")
                 for s in repo.signals()
@@ -194,6 +246,7 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
             ]
         return {
             "asking_history": list(reversed(rows)),
+            "excluded_identity_observations": original_count-len(rows),
             "reported_sales": sales,
             "basis": "Operator-imported sales retain their source claim; asking prices are never sales",
         }
@@ -291,7 +344,11 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
             ("inventory", InventoryEvent),
         ]
         return {
-            "retailer_hosts": sorted(ALLOWED_HOSTS),
+            "retailer_hosts": sorted(ALLOWED_HOSTS | {"store.arduino.cc"}),
+            "catalog": {"page_size": 50, "capacity": 50000, "source_setup": "Settings",
+                        "source_browser": "Sources", "checkpoints": True, "real_acceptance": "unverified"},
+            "resale_matching": "Read-only eBay GTIN + explicit pack + condition; current asking prices only",
+            "price_evidence": ["ASKING", "REPORTED_SOLD", "TRANSACTION_RECORD", "OWN_NET", "REFERENCE"],
             "marketplace_writes": False,
             "fee_estimate_integrations": [],
             "confirmed_sales_integrations": [],

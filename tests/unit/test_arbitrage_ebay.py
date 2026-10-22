@@ -94,7 +94,7 @@ async def test_oauth_search_is_bounded_read_only_and_reuses_token() -> None:
         if request.url.path.endswith("/token"):
             return httpx.Response(200, json={"access_token": "SYNTHETIC_TOKEN", "expires_in": 7200})
         assert request.method == "GET" and request.url.host == "api.ebay.com"
-        assert request.url.params["limit"] == "20"
+        assert request.url.params["limit"] == "200"
         assert request.headers["Authorization"] == "Bearer SYNTHETIC_TOKEN"
         return httpx.Response(200, json=listings())
 

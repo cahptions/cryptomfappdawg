@@ -28,7 +28,7 @@ paused it. The new desk has independent data, credentials and locks. Its icon op
 1. **Discover** opens first. Its ranked shortlist separates modeled dollar profit, ROI and observed source-price
    drops. Fresh community/editorial deal mentions appear in a separate discovery inbox after source access succeeds.
    You do not have to fill in every setting to browse or begin research.
-2. Open **Sources & system** to see the actual state of each automatic feed/monitor. Public feed candidates need
+2. Open **Settings** to see the actual state of each automatic feed/monitor. Public feed candidates need
    no API key; their real-network acceptance is pending. A blocked or broken source shows its error and retains
    already recorded work. No sample products are substituted for a failed source.
 3. **Business settings → Data connections & setup guides** explains each source, free-access conditions and limits.
@@ -78,7 +78,7 @@ tests, synthetic screenshots or stored URLs for a verified live feed or business
 
 ## Controls and diagnostics
 
-Pause/resume collection on **Sources & system**; it persists across app restarts. Settings saves do not require a
+Pause/resume collection on **Settings**; it persists across app restarts. Settings saves do not require a
 terminal shutdown. Closing a browser window need not stop its detached dashboard. A terminal-launched dashboard
 stops when that terminal process is interrupted. The laptop must remain powered and connected to collect; sleeping
 does not create observations for the missed period. Tailscale alone does not provide another always-on computer.
@@ -97,3 +97,16 @@ repricing or broker order action exists in this desk.
 Detailed architecture, math and limits: [implementation](../research/arbitrage/IMPLEMENTATION.md).
 Data access evidence: [feasibility](../research/arbitrage/FEASIBILITY.md).
 Outstanding acceptance and continuation: [handoff](../research/arbitrage/HANDOFF.md).
+
+
+## Current development correction (2026-10-22)
+
+Source connection setup, URLs, saved searches, private credentials and setup guides belong in **Settings**.
+**Sources** browses collected products by actual retailer/marketplace host, with server-side filtering and pagination.
+The sourcing shortlist defaults to compact rows and supports cards. Buy/landed costs appear alongside explicitly
+classified comparable low, average, high and median prices; missing evidence stays unknown.
+
+The new public catalog candidates and optional exact-identity eBay resale research are implemented against
+synthetic payloads. Real endpoint access/compatibility and the new browser workflows are not yet accepted.
+Read `research/arbitrage/REBUILD_CHECKPOINT.md` and `validation/rebuild-checks.json` before treating this revision as
+production-ready. Historical browser screenshots/results in `validation/` describe the earlier baseline.

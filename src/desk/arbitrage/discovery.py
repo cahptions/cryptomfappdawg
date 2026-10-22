@@ -36,7 +36,8 @@ FEEDS: dict[str, dict[str, str]] = {
     },
 }
 IMAGE_HOSTS = frozenset(
-    {"i.ebayimg.com", "i.ebaystatic.com", "cdn-shop.adafruit.com", "static.slickdealscdn.com", "st.slickdeals.net", "c.dlnws.com"}
+    {"i.ebayimg.com", "i.ebaystatic.com", "cdn-shop.adafruit.com", "cdn.shopify.com",
+     "static.slickdealscdn.com", "st.slickdeals.net", "c.dlnws.com"}
 )
 AGENT = "KESTRELResearch/0.2"
 
@@ -71,6 +72,19 @@ class PlainText(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         self.parts.append(data)
+
+
+class MerchantLinks(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.urls: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        from desk.arbitrage.catalog import merchant_url
+
+        href = dict(attrs).get("href")
+        if tag == "a" and href and merchant_url(href) and len(self.urls) < 20:
+            self.urls.append(href)
 
 
 def text_content(value: str, limit: int) -> str:
@@ -134,11 +148,14 @@ def parse_feed(raw: str, source: Source, now: datetime) -> list[DealLead]:
             None,
         )
         key = "lead-" + sha256_hex(source.id + "\n" + url)[:32]
+        links = MerchantLinks()
+        links.feed(value("description") or value("summary") or value("encoded"))
         leads[key] = DealLead(
             id=key,
             source_id=source.id,
             title=title,
             url=url,
+            merchant_urls=list(dict.fromkeys(links.urls)),
             summary=text_content(value("description") or value("summary") or value("encoded"), 1000),
             category=text_content(value("category"), 80) or "Uncategorized",
             image_url=image,

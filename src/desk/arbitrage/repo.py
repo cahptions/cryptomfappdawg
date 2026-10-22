@@ -13,7 +13,7 @@ from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
 from desk.storage.db import DbKind, StorageError, connect, transaction
 
-MAX_PRODUCTS = 2000
+MAX_PRODUCTS = 50000
 
 
 def isolated_paths(base: DeskPaths) -> DeskPaths:
@@ -56,6 +56,24 @@ CREATE INDEX IF NOT EXISTS arb_leads_time ON arb_leads(first_seen_at);
 """
 
 
+CATALOG_DDL = """
+CREATE TABLE IF NOT EXISTS arb_offer_queue(url TEXT PRIMARY KEY, source_id TEXT NOT NULL, discovered_at TEXT NOT NULL,
+ attempted_at TEXT, product_id TEXT, error TEXT, retry_at TEXT);
+CREATE INDEX IF NOT EXISTS arb_queue_due ON arb_offer_queue(retry_at,attempted_at);
+CREATE INDEX IF NOT EXISTS arb_observation_latest ON arb_observations(product_id,at DESC,id DESC);
+CREATE INDEX IF NOT EXISTS arb_product_title ON arb_products(json_extract(body,'$.title'),id);
+CREATE TABLE IF NOT EXISTS arb_comparables(id TEXT PRIMARY KEY, product_id TEXT NOT NULL, at TEXT NOT NULL,
+ body TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS arb_comp_product ON arb_comparables(product_id,at);
+CREATE TABLE IF NOT EXISTS arb_product_sources(product_id TEXT NOT NULL,host TEXT NOT NULL,
+ latest_at TEXT NOT NULL,PRIMARY KEY(product_id,host));
+CREATE INDEX IF NOT EXISTS arb_product_source_host ON arb_product_sources(host,product_id);
+CREATE TABLE IF NOT EXISTS arb_match_state(product_id TEXT PRIMARY KEY,attempted_at TEXT NOT NULL,error TEXT);
+CREATE TABLE IF NOT EXISTS arb_opportunity_index(product_id TEXT PRIMARY KEY,at TEXT NOT NULL,
+ profit REAL,roi REAL,body TEXT NOT NULL);
+"""
+
+
 class Repo:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
@@ -92,6 +110,19 @@ class Repo:
                 for statement in _split_sql(DISCOVERY_DDL):
                     conn.execute(statement)
                 conn.execute("INSERT OR IGNORE INTO arb_meta VALUES ('discovery_schema','1')")
+                for statement in _split_sql(CATALOG_DDL):
+                    conn.execute(statement)
+                conn.execute("INSERT OR IGNORE INTO arb_meta VALUES ('catalog_schema','1')")
+                if not conn.execute("SELECT 1 FROM arb_meta WHERE key='source_host_index_v1'").fetchone():
+                    from urllib.parse import urlsplit
+
+                    for row in conn.execute("SELECT product_id,at,body FROM arb_observations"):
+                        host = urlsplit(json.loads(row[2])["url"]).hostname
+                        if host:
+                            conn.execute("INSERT INTO arb_product_sources VALUES (?,?,?) "
+                                "ON CONFLICT(product_id,host) DO UPDATE SET latest_at=MAX(latest_at,excluded.latest_at)",
+                                (row[0], host, row[1]))
+                    conn.execute("INSERT INTO arb_meta VALUES ('source_host_index_v1','1')")
             yield cls(conn)
         finally:
             conn.close()
@@ -104,13 +135,50 @@ class Repo:
         with nullcontext() if self.conn.in_transaction else transaction(self.conn):
             if value.currency != self.settings().currency and self.conn.execute("SELECT 1 FROM arb_inventory LIMIT 1").fetchone():
                 raise StorageError("Inventory already exists; its currency cannot be relabeled or converted by a profile change")
+            self.conn.execute("DELETE FROM arb_opportunity_index")
             self.conn.execute("INSERT OR REPLACE INTO arb_meta VALUES ('settings',?)", (value.model_dump_json(),))
 
-    def products(self) -> list[Product]:
-        return [Product.model_validate_json(r[0]) for r in self.conn.execute("SELECT body FROM arb_products LIMIT 2000")]
+    def products(self, ids: list[str] | None = None) -> list[Product]:
+        if ids is not None:
+            return [Product.model_validate_json(row[0]) for pid in dict.fromkeys(ids)
+                    if (row := self.conn.execute("SELECT body FROM arb_products WHERE id=?", (pid,)).fetchone())]
+        return [Product.model_validate_json(r[0]) for r in self.conn.execute("SELECT body FROM arb_products LIMIT 50000")]
+
+    def catalog_ids(self, *, query: str = "", category: str = "", offset: int = 0, limit: int = 50,
+                    order: str = "profit", current_after: str = "9999", source_host: str = "",
+                    current_at: str = "") -> tuple[list[str], int]:
+        args = (query[:200], query[:200], category[:80], category[:80], source_host, source_host)
+        total = self.conn.execute("SELECT COUNT(*) FROM arb_products p WHERE "
+            "(?='' OR instr(lower(json_extract(p.body,'$.title')), lower(?))>0) "
+            "AND (?='' OR json_extract(p.body,'$.category')=?) "
+            "AND (?='' OR EXISTS(SELECT 1 FROM arb_product_sources m WHERE m.product_id=p.id AND m.host=?))", args).fetchone()[0]
+        rows = self.conn.execute("SELECT p.id FROM arb_products p LEFT JOIN arb_opportunity_index x "
+            "ON x.product_id=p.id AND x.at>=? AND json_extract(x.body,'$.catalog_expires_at')>=? WHERE "
+            "(?='' OR instr(lower(json_extract(p.body,'$.title')), lower(?))>0) "
+            "AND (?='' OR json_extract(p.body,'$.category')=?) "
+            "AND (?='' OR EXISTS(SELECT 1 FROM arb_product_sources m WHERE m.product_id=p.id AND m.host=?)) ORDER BY "
+            "CASE WHEN ?='profit' AND x.profit>0 THEN x.profit END DESC, "
+            "CASE WHEN ?='roi' AND x.roi>0 THEN x.roi END DESC, "
+            "json_extract(p.body,'$.title'),p.id LIMIT ? OFFSET ?",
+            (current_after, current_at, *args, order, order, min(100, max(1, limit)), max(0, offset)))
+        return [r[0] for r in rows], total
+
+    def queue_offers(self, urls: list[str], source_id: str, at: str) -> int:
+        from desk.arbitrage.catalog import merchant_url
+
+        added = 0
+        for url in dict.fromkeys(urls):
+            if merchant_url(url):
+                if self.conn.execute("SELECT COUNT(*) FROM arb_offer_queue").fetchone()[0] >= 50000:
+                    break
+                added += self.conn.execute("INSERT OR IGNORE INTO arb_offer_queue(url,source_id,discovered_at) "
+                                           "VALUES (?,?,?)", (url, source_id, at)).rowcount
+        return added
+
 
     def save_product(self, product: Product, *, manual: bool = False) -> None:
         with nullcontext() if self.conn.in_transaction else transaction(self.conn):
+            self.conn.execute("DELETE FROM arb_opportunity_index WHERE product_id=?", (product.id,))
             old = self.conn.execute("SELECT body FROM arb_products WHERE id=?", (product.id,)).fetchone()
             if not old and self.conn.execute("SELECT COUNT(*) FROM arb_products").fetchone()[0] >= MAX_PRODUCTS:
                 victim = self.conn.execute("""
@@ -120,6 +188,7 @@ class Repo:
                     AND NOT EXISTS(SELECT 1 FROM arb_routes r WHERE r.product_id=p.id)
                     AND NOT EXISTS(SELECT 1 FROM arb_inventory i WHERE i.product_id=p.id)
                     AND NOT EXISTS(SELECT 1 FROM arb_signals s WHERE s.product_id=p.id)
+                    AND NOT EXISTS(SELECT 1 FROM arb_comparables c WHERE c.product_id=p.id)
                     AND NOT EXISTS(SELECT 1 FROM arb_sources c WHERE json_extract(c.body,'$.product_id')=p.id)
                     AND NOT EXISTS(SELECT 1 FROM arb_observations o WHERE o.product_id=p.id
                                    AND json_extract(o.body,'$.method')!='ebay-browse-active-listing-v1')
@@ -129,6 +198,8 @@ class Repo:
                     raise StorageError("Protected catalog capacity reached; no reviewed or owned product was deleted")
                 self.conn.execute("DELETE FROM arb_observations WHERE product_id=?", (victim[0],))
                 self.conn.execute("DELETE FROM arb_products WHERE id=?", (victim[0],))
+                self.conn.execute("DELETE FROM arb_product_sources WHERE product_id=?", (victim[0],))
+                self.conn.execute("DELETE FROM arb_match_state WHERE product_id=?", (victim[0],))
             if manual:
                 self.conn.execute("INSERT OR IGNORE INTO arb_meta VALUES (?,?)", ("protected:" + product.id, "1"))
             if old:
@@ -154,8 +225,14 @@ class Repo:
         self.conn.execute("INSERT OR REPLACE INTO arb_sources VALUES (?,?)", (source.id, source.model_dump_json()))
 
     def observe(self, value: Observation) -> None:
+        from urllib.parse import urlsplit
+
         body = value.model_dump_json()
+        self.conn.execute("DELETE FROM arb_opportunity_index WHERE product_id=?", (value.product.id,))
         with nullcontext() if self.conn.in_transaction else transaction(self.conn):
+            self.conn.execute("INSERT INTO arb_product_sources VALUES (?,?,?) "
+                "ON CONFLICT(product_id,host) DO UPDATE SET latest_at=MAX(latest_at,excluded.latest_at)",
+                (value.product.id, urlsplit(value.url).hostname, value.at.isoformat()))
             if not self.conn.execute("SELECT 1 FROM arb_products WHERE id=?", (value.product.id,)).fetchone():
                 self.save_product(value.product)
             elif value.product.image_url:
@@ -176,13 +253,16 @@ class Repo:
             )
 
     def observations(self, product_id: str | None = None, *, limit: int = 5000) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT id,body,input_hash FROM arb_observations WHERE (? IS NULL OR product_id=?) ORDER BY at DESC,id DESC LIMIT ?",
-            (product_id, product_id, min(5000, limit)),
-        )
+        if product_id is not None:
+            rows = self.conn.execute("SELECT id,body,input_hash FROM arb_observations WHERE product_id=? "
+                                     "ORDER BY at DESC,id DESC LIMIT ?", (product_id, min(5000, max(0, limit))))
+        else:
+            rows = self.conn.execute("SELECT id,body,input_hash FROM arb_observations ORDER BY at DESC,id DESC LIMIT ?",
+                                     (min(5000, max(0, limit)),))
         return [{"id": r[0], "input_hash": r[2], **json.loads(r[1])} for r in rows]
 
     def save_route(self, value: Route) -> None:
+        self.conn.execute("DELETE FROM arb_opportunity_index WHERE product_id=?", (value.product_id,))
         if not self.conn.execute("SELECT 1 FROM arb_products WHERE id=?", (value.product_id,)).fetchone():
             raise StorageError("Record the product before its selling scenario")
         if not self.conn.execute("SELECT 1 FROM arb_routes WHERE id=?", (value.id,)).fetchone() and (
