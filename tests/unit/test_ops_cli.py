@@ -258,6 +258,7 @@ def test_open_restart_selects_the_exact_desk_lock_and_opens_in_background(paths,
     checks=iter([False,True])
     monkeypatch.setattr(launcher,'responding',lambda *_:next(checks))
     monkeypatch.setattr(launcher,'_start_dashboard',lambda d,p:actions.append(('start',d,p)))
+    monkeypatch.setattr('desk.stocks.runtime.server_is_current', lambda url: True)
     monkeypatch.setattr(launcher,'open_window',lambda *_:actions.append(('window',)))
     port=8767 if desk=='stocks' else 8768
     assert launcher.open_desk(desk,port,paths,restart=True)==f'http://127.0.0.1:{port}/'

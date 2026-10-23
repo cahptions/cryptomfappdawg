@@ -29,6 +29,7 @@ def test_existing_dashboard_opens_without_starting_or_stopping_a_worker(tmp_path
     paths = DeskPaths(tmp_path / 'home', REPO / 'config', tmp_path / 'private.env')
     monkeypatch.setattr(DeskPaths, 'from_env', lambda: paths)
     monkeypatch.setattr('desk.ops.launcher.responding', lambda url: True)
+    monkeypatch.setattr('desk.stocks.runtime.server_is_current', lambda url: True)
     opened = Mock()
     monkeypatch.setattr('desk.stocks.cli.webbrowser.open', opened)
     monkeypatch.setattr('desk.stocks.web.create_app', Mock(side_effect=AssertionError('no duplicate app')))

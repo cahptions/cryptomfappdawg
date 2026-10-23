@@ -3,6 +3,7 @@ const app = document.getElementById("app"),
   statusLine = document.getElementById("status");
 let snapshot = null,
   csrf = "",
+  serverCompatible = true,
   generation = 0,
   pauseRefresh = null;
 const money = (x) =>
@@ -117,6 +118,10 @@ async function api(path, body, renewSession = true) {
     csrf = (await api("session")).csrf_token;
     return api(path, body, false);
   }
+  if (!response.ok && response.status === 404 && value.detail === "Not Found")
+    throw Error(
+      "This running Stocks server does not have the updated feature. Reopen KESTREL Stocks from your application menu to load the installed update; refreshing this browser page cannot restart the server.",
+    );
   if (!response.ok)
     throw Error(value.detail || `Request failed (${response.status})`);
   return value;
@@ -795,6 +800,25 @@ async function render() {
     heading("Loading…");
     return;
   }
+  if (!serverCompatible) {
+    const notice = panel(
+      "Restart Stocks to finish updating",
+      "The page files were updated, but an older Stocks server is still running. Reopen KESTREL Stocks from your application menu so the launcher loads the installed version. Saved research, trades and connection settings are preserved.",
+    );
+    notice.setAttribute("role", "alert");
+    const check = el("button", "Check again", "primary");
+    check.onclick = () => location.reload();
+    notice.append(
+      el(
+        "p",
+        "Reloading the browser alone cannot restart an older server.",
+        "muted",
+      ),
+      check,
+    );
+    app.append(notice);
+    return;
+  }
   try {
     if (route.startsWith("stock/")) {
       heading("Loading stock…");
@@ -855,7 +879,9 @@ async function refresh(initial = false) {
 window.addEventListener("hashchange", render);
 (async () => {
   try {
-    csrf = (await api("session")).csrf_token;
+    const session = await api("session");
+    csrf = session.csrf_token;
+    serverCompatible = session.ui_protocol === 1;
     await refresh(true);
   } catch (error) {
     statusLine.textContent = error.message;

@@ -138,15 +138,22 @@ def run(args: argparse.Namespace) -> int:
             lock.acquire()
         except WorkerBusy:
             from desk.ops.launcher import responding
+            from desk.stocks.runtime import server_is_current
 
             url = f'http://127.0.0.1:{port}'
             if not responding(url):
                 raise DeskError('A Stocks dashboard is already running or starting. To restart it safely, run: '
                                 'uv run desk stocks dashboard --restart --open') from None
-            print(f'Stocks dashboard is already running: {url}')
-            if args.open:
-                webbrowser.open(url)
-            return 0
+            if server_is_current(url):
+                print(f'Stocks dashboard is already running: {url}')
+                if args.open:
+                    webbrowser.open(url)
+                return 0
+            from desk.ops.dashboard_restart import restart_dashboard
+
+            print('Loading the installed Stocks update; saved data and PAPER preferences are preserved.')
+            restart_dashboard(paths)
+            lock.acquire()
         try:
             print(f"Stocks PAPER dashboard: http://127.0.0.1:{port}")
             server = uvicorn.Server(uvicorn.Config(create_app(paths, loaded), host="127.0.0.1", port=port, access_log=False))

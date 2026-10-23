@@ -235,12 +235,16 @@ def open_window(url: str, desk: str, profiles: Path) -> list[str]:
 
 def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30, restart: bool = False) -> str:
     """Make sure the dashboard answers, then open it in its own window; returns the URL."""
+    url = f"http://127.0.0.1:{port}/"
+    if desk == "stocks" and not restart and responding(url):
+        from desk.stocks.runtime import server_is_current
+
+        restart = not server_is_current(url)
     if restart:
         from desk.arbitrage.repo import isolated_paths
         from desk.ops.dashboard_restart import restart_dashboard
 
         restart_dashboard(isolated_paths(paths) if desk == "arbitrage" else paths, desk=desk)
-    url = f"http://127.0.0.1:{port}/"
     if not responding(url):
         _start_dashboard(desk, port)
         deadline = time.monotonic() + wait_seconds
@@ -251,6 +255,12 @@ def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 3
                                     '`uv run desk arbitrage dashboard --open` to see its local error')
                 raise DeskError(f"the dashboard did not start on {url}; run `desk up` or check `desk services status`")
             time.sleep(0.5)
+    if desk == "stocks":
+        from desk.stocks.runtime import server_is_current
+
+        if not server_is_current(url):
+            raise DeskError("Stocks is responding from a different or older installation. No unrelated process was stopped. "
+                            "Open the updated installation with: uv run desk stocks dashboard --restart --open")
     open_window(url, desk, paths.home / "windows")
     return url
 

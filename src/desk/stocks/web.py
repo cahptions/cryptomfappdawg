@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import secrets
 import sqlite3
 from collections.abc import AsyncIterator, Iterator
@@ -14,8 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from desk.core.config import LoadedConfig, load_config
@@ -37,6 +37,7 @@ from desk.stocks.paper.book import PaperBook
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE, StocksDatabases, StocksMarket, StocksResearch
 from desk.stocks.research_worker import ResearchWorker
 from desk.stocks.runner import saved
+from desk.stocks.runtime import UI_PROTOCOL, source_revision
 from desk.storage.db import DbKind
 from desk.storage.db import connect as open_database
 from desk.web.app import install_browser_boundary
@@ -179,6 +180,9 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
 def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: ResearchWorker | None = None,
                auto_start: bool = True) -> FastAPI:
     config = loaded or load_config(paths.config_dir)
+    # A running Python server must not start serving a newer interface after an in-place git pull.
+    assets = {path.name: path.read_bytes() for path in STATIC.iterdir() if path.is_file()}
+    running_revision = source_revision()
     csrf = secrets.token_urlsafe(32)
     attempt: LoginAttempt | None = None
     login_lock = asyncio.Lock()
@@ -250,16 +254,28 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                                        "and retry. Existing data was preserved."}, status_code=503)
 
     @app.get("/")
-    def home() -> FileResponse:
-        return FileResponse(STATIC / "index.html")
+    def home() -> Response:
+        return Response(assets["index.html"], media_type="text/html")
+
+    @app.get("/assets/{name}")
+    def asset(name: str) -> Response:
+        if name not in assets:
+            raise HTTPException(404, "Asset not found")
+        return Response(assets[name], media_type=mimetypes.guess_type(name)[0] or "application/octet-stream")
 
     @app.get("/connection-guide")
     def guide() -> FileResponse:
         return FileResponse(REPO_ROOT / "docs" / "SCHWAB.md", media_type="text/plain")
 
     @app.get("/api/stocks/session")
-    def session() -> dict[str, str]:
-        return {"csrf_token": csrf}
+    def session() -> dict[str, Any]:
+        return {"csrf_token": csrf, "ui_protocol": UI_PROTOCOL}
+
+    @app.get("/api/stocks/runtime")
+    def runtime() -> dict[str, Any]:
+        installed = source_revision()
+        return {"application": "kestrel-stocks", "protocol": UI_PROTOCOL, "running_revision": running_revision,
+                "installed_revision": installed, "restart_required": installed != running_revision}
 
     @app.get("/api/stocks/snapshot")
     def overview() -> dict[str, Any]:
@@ -567,5 +583,4 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 attempt = None
         return connection()
 
-    app.mount("/assets", StaticFiles(directory=STATIC), name="stocks-assets")
     return app
