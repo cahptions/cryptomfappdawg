@@ -12,7 +12,10 @@ const expectForbidden = (url) =>
   expectedForbidden.set(url, (expectedForbidden.get(url) || 0) + 1);
 try {
   for (const width of [1366, 375]) {
-    const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 375 });
+    const page = await browser.newPage({
+      viewport: { width, height: 900 },
+      hasTouch: width === 375,
+    });
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => {
       if (m.type() !== "error") return;
@@ -28,7 +31,9 @@ try {
     });
     await page.goto(base);
     await page.getByRole("heading", { name: "Market overview" }).waitFor();
-    await page.getByRole("heading", { name: "Market & options top 10" }).waitFor();
+    await page
+      .getByRole("heading", { name: "Market & options top 10" })
+      .waitFor();
     await page.getByRole("heading", { name: "Options intelligence" }).waitFor();
     await page.getByRole("tab", { name: "Rising trends" }).click();
     await page
@@ -54,7 +59,8 @@ try {
         .waitFor();
       await page.locator(".price-path").waitFor();
       assert.equal(await page.locator(".desk-card").count(), 11);
-      const price = page.getByTestId("headline-price"), caption = page.getByTestId("price-caption");
+      const price = page.getByTestId("headline-price"),
+        caption = page.getByTestId("price-caption");
       const latestPrice = await price.innerText();
       const chart = page.locator("svg.price-chart");
       await chart.focus();
@@ -70,9 +76,15 @@ try {
       assert.equal(await price.innerText(), latestPrice);
       if (width === 375) {
         const touch = await page.context().newCDPSession(page);
-        await touch.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [{x: box.x + 3, y: box.y + 100}]});
+        await touch.send("Input.dispatchTouchEvent", {
+          type: "touchStart",
+          touchPoints: [{ x: box.x + 3, y: box.y + 100 }],
+        });
         assert.notEqual(await price.innerText(), latestPrice);
-        await touch.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
+        await touch.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
         assert.equal(await price.innerText(), latestPrice);
         await touch.detach();
       }
@@ -103,20 +115,33 @@ try {
         .getByRole("button", { name: "+ Add to watchlist", exact: true })
         .waitFor();
       await page.goto(`${base}/#stock/SPY`);
-      await page.getByText("ETF market/options profile", {exact: true}).waitFor();
-      await page.getByText("ETF PROFILE", {exact: true}).waitFor();
-      await page.getByRole("heading", {name: "ETF price & risk statistics", exact: true}).waitFor();
+      await page
+        .getByText("ETF market/options profile", { exact: true })
+        .waitFor();
+      await page.getByText("ETF PROFILE", { exact: true }).waitFor();
+      await page
+        .getByRole("heading", {
+          name: "ETF price & risk statistics",
+          exact: true,
+        })
+        .waitFor();
       assert.equal(await page.locator(".desk-card").count(), 3);
-      assert.equal(await page.getByText("Market cap", {exact: true}).count(), 0);
+      assert.equal(
+        await page.getByText("Market cap", { exact: true }).count(),
+        0,
+      );
       await page.getByRole("tab", { name: "Calls", exact: true }).waitFor();
-      assert.ok(await page.locator(".option-chain tbody tr").count() > 0);
+      assert.ok((await page.locator(".option-chain tbody tr").count()) > 0);
       await page.getByRole("tab", { name: "Puts", exact: true }).click();
-      assert.ok(await page.locator(".option-chain tbody tr").count() > 0);
-      await page.screenshot({path: `/tmp/kestrel-spy-${scenario}-${width}.png`, fullPage: true});
+      assert.ok((await page.locator(".option-chain tbody tr").count()) > 0);
+      await page.screenshot({
+        path: `/tmp/kestrel-spy-${scenario}-${width}.png`,
+        fullPage: true,
+      });
       await page.locator("svg.price-chart").waitFor();
       await page.goto(`${base}/#stock/QQQ`);
       await page.getByRole("tab", { name: "Calls", exact: true }).waitFor();
-      assert.ok(await page.locator(".option-chain tbody tr").count() > 0);
+      assert.ok((await page.locator(".option-chain tbody tr").count()) > 0);
     }
     await page.goto(`${base}/#options`);
     await page.getByRole("heading", { name: "Options overview" }).waitFor();
@@ -127,10 +152,15 @@ try {
       "gainers",
     );
     await page.goto(`${base}/#paper`);
-    await page.getByRole("heading", { name: "Paper portfolios." }).waitFor();
-    if (scenario === "populated")
-      await page.getByRole("cell", { name: "Hold SPY", exact: true }).waitFor();
-    else
+    await page
+      .getByRole("heading", { name: "Paper trading", exact: true })
+      .waitFor();
+    if (scenario === "populated") {
+      await page
+        .getByRole("button", { name: "All strategies", exact: true })
+        .click();
+      await page.getByRole("button", { name: /Hold SPY/ }).waitFor();
+    } else
       await page
         .getByRole("heading", { name: "The forward record starts here" })
         .waitFor();

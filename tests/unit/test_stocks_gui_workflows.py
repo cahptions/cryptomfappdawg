@@ -105,7 +105,8 @@ def test_gui_evaluation_and_connection_test_require_valid_session(tmp_path, monk
     monkeypatch.setattr(EvidenceWorker, "start", start)
     try:
         with TestClient(create_app(w.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
-            for path in ("proof/start", "proof/cancel", "connection/test", "stock/SPY/history/request", "stock/SPY/calculator"):
+            for path in ("proof/start", "proof/cancel", "connection/test", "stock/SPY/history/request", "stock/SPY/calculator",
+                         "backtest/start", "backtest/cancel", "backtest/automatic"):
                 assert client.post("/api/stocks/" + path, json={}).status_code == 403
             assert not start.called
             headers = {"X-CSRF-Token": client.get("/api/stocks/session").json()["csrf_token"]}

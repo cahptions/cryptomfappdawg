@@ -1,25 +1,25 @@
 # Stocks UI/data release checkpoint
 
-Base: 682369c on codex/arbitrage-v1. Current release verification is in progress.
+Branch: codex/arbitrage-v1. Chart/research release b3f6c75 is published and its remote hash was verified.
+The subsequent visual PAPER and historical replay release is implemented and verified, ready for publication.
 
-Implemented: OHLC/volume hover tooltip; visible Stocks explorer and quote/OI-screened option shortlist;
-GUI Evidence evaluation run/cancel/progress/report/health/download without adopting weights or changing PAPER;
-Settings market-data access test and safe provider volume diagnostics; PAPER session/date explanation;
-correct option capture-session stamping; quote-based research independent of zero reported daily volume;
-strike-click multi-leg options P/L calculator; genuine 5Y/Max chart coverage with weekly/monthly long candles;
-independent bounded Schwab-first stock-page quotes/history using existing authorization. Separate provider
-storage preserves history and avoids double adjustment or marking one symbol as a complete market-wide day.
-Massive remains the broad-universe unadjusted closing-price source for research/PAPER.
+Published in b3f6c75: OHLC/volume hover tooltip, Stocks explorer, Evidence evaluation GUI, Settings access test,
+option capture-session repairs, strike-click multi-leg P/L calculator, genuine 5Y/Max charts, and independent
+Schwab-first stock-page quotes/history. Massive remains the bulk unadjusted daily source for research/PAPER.
+See STOCKS_UI_AND_HISTORY.md for source boundaries and verification details.
 
-The temporary automatic approval usage-limit interruption resolved after its stated reset. Browser/runtime
-verification resumed through normal approval; the check was not bypassed.
+Implemented next: visual strategy accounts, interactive equity history, paged open/closed trade cards, leg/cost/
+decision detail, pending orders and decisions; automatic/manual 63/126/252-session chronological stock replays
+in isolated books, cancellation/progress, fixed weights, prior-session liquidity and held-out comparisons.
+See STOCKS_PAPER_REPLAY.md. Historical option quotes cannot be reconstructed from stock candles.
 
-Queued next at the user's explicit instruction to finish this work first:
-1. Visual interactive PAPER trades/positions/history instead of a large strategy table.
-2. Historical backtests with time-ordered decisions, costs, baselines and held-out/walk-forward evaluation.
-   Keep historical and forward records distinct; missing historical option chains cannot be invented.
-   Existing Evidence historical list reconstruction is not a full strategy-trade backtest.
+Verification: 1,297 offline tests passed (5 opt-in live tests deselected); targeted replay tests were rerun after
+retaining original reasons on older historical positions. Ruff, mypy (48 Stocks files), JavaScript syntax and
+diff checks passed. Desktop/phone flows passed for populated/empty data, visual PAPER, real replay lifecycle,
+long chart history, multi-leg calculator and Evidence evaluation. All browser sources and trades are synthetic.
+
+The earlier automatic approval usage-limit interruption resolved. Publication of b3f6c75 was explicitly
+approved by the operator after the initial destination/publication review rejection. No review was bypassed.
 
 No operator laptop, private credentials, funding, purchases or brokerage orders were accessed. No LIVE changes.
-Do not claim a local installation updated itself merely because the branch was pushed.
-See STOCKS_UI_AND_HISTORY.md for source/provenance/verification details.
+A branch push does not update the operator's installed or running application.

@@ -19,10 +19,10 @@ from desk.core.worker_lock import WorkerLock
 from desk.stocks.connection import _atomic_private
 
 
-def document(paths: DeskPaths, name: str) -> dict[str, Any] | None:
-    if name not in {"state", "report"}:
+def document(paths: DeskPaths, name: str, *, kind: str = "evidence") -> dict[str, Any] | None:
+    if name not in {"state", "report"} or kind not in {"evidence", "backtest"}:
         raise ValueError("unknown evidence document")
-    path = paths.home / f"stocks-evidence-{name}.json"
+    path = paths.home / f"stocks-{kind}-{name}.json"
     try:
         if path.stat().st_size > 4_000_000:
             return None
@@ -32,12 +32,17 @@ def document(paths: DeskPaths, name: str) -> dict[str, Any] | None:
         return None
 
 
-def publish(paths: DeskPaths, **value: Any) -> None:
-    _atomic_private(paths.home / "stocks-evidence-state.json", json.dumps({
+def publish(paths: DeskPaths, *, kind: str = "evidence", **value: Any) -> None:
+    if kind not in {"evidence", "backtest"}:
+        raise ValueError("unknown evaluation kind")
+    _atomic_private(paths.home / f"stocks-{kind}-state.json", json.dumps({
         **value, "updated_at": utc_now().isoformat(), "advisory_only": True}, allow_nan=False))
 
 
 class EvidenceWorker:
+    kind = "evidence"
+    module = "desk.stocks.evidence_job"
+
     def __init__(self, paths: DeskPaths) -> None:
         self.paths = paths
         self.process: subprocess.Popen[bytes] | None = None
@@ -46,9 +51,9 @@ class EvidenceWorker:
 
     def status(self) -> dict[str, Any]:
         with self.lock:
-            state = document(self.paths, "state") or {"status": "idle", "phase": "Ready when you are"}
+            state = document(self.paths, "state", kind=self.kind) or {"status": "idle", "phase": "Ready when you are"}
             running = self.process is not None and self.process.poll() is None
-            external = not running and WorkerLock(self.paths, "stocks-evidence").held()
+            external = not running and WorkerLock(self.paths, f"stocks-{self.kind}").held()
             if not running and not external and state.get("status") in {"running", "stopping"}:
                 state = {"status": "cancelled" if self.stopping else "interrupted",
                          "phase": "Evaluation stopped. Completed comparisons stay saved; you can run it again."}
@@ -62,28 +67,34 @@ class EvidenceWorker:
 
     def _start(self) -> dict[str, Any]:
         with self.lock:
+            if self.module not in {"desk.stocks.evidence_job", "desk.stocks.backtest_job"}:
+                raise ValueError("Unsupported local evaluation module")
             if self.status()["running"]:
                 raise DeskError("An evaluation is already running. Its progress is shown here.")
             self.paths.ensure()
-            publish(self.paths, status="running", phase="Preparing saved market data", completed=0, total=0)
-            path = self.paths.logs_dir / "stocks-evidence.log"
+            publish(self.paths, kind=self.kind, status="running", phase="Preparing saved market data", completed=0, total=0)
+            path = self.paths.logs_dir / f"stocks-{self.kind}.log"
             if path.exists() and path.stat().st_size > 2_000_000:
                 path.replace(path.with_suffix(".previous.log"))
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
             try:
                 os.fchmod(descriptor, 0o600)
                 with os.fdopen(descriptor, "ab") as log:
-                    self.process = subprocess.Popen(
-                        [sys.executable, "-m", "desk.stocks.evidence_job"], cwd=REPO_ROOT,
+                    self.process = subprocess.Popen(  # noqa: S603 -- fixed allowlisted module, no browser-supplied argv
+                        [sys.executable, "-m", self.module], cwd=REPO_ROOT,
                         env={**os.environ, "DESK_HOME": str(self.paths.home), "DESK_CONFIG_DIR": str(self.paths.config_dir),
                              "DESK_SECRETS_FILE": str(self.paths.secrets_file), "OPENBLAS_NUM_THREADS": "1",
-                             "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"},
+                             "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", **self.extra_env()},
                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
             except OSError as exc:
-                publish(self.paths, status="failed", phase="Could not start. Check Data health for storage problems.")
+                publish(self.paths, kind=self.kind, status="failed",
+                        phase="Could not start. Check Data health for storage problems.")
                 raise DeskError("Could not start the evaluation; collection is unaffected.") from exc
             self.stopping = False
             return self.status()
+
+    def extra_env(self) -> dict[str, str]:
+        return {}
 
     def cancel(self) -> dict[str, Any]:
         with self.lock:
@@ -91,7 +102,8 @@ class EvidenceWorker:
                 self.stopping = True
                 with suppress(ProcessLookupError):
                     self.process.terminate()  # exact owned child only; no signals from a PID file
-                publish(self.paths, status="stopping", phase="Stopping evaluation; collected observations are preserved")
+                publish(self.paths, kind=self.kind, status="stopping",
+                        phase="Stopping evaluation; collected observations are preserved")
             return self.status()
 
     def close(self) -> None:

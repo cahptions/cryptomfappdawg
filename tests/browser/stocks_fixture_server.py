@@ -8,12 +8,15 @@ from __future__ import annotations
 import argparse
 import tempfile
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 
 import uvicorn
 
 from desk.core.config import load_config
 from desk.core.paths import DeskPaths
+from desk.stocks import calendar as cal
+from desk.stocks.contracts import Bar
 from desk.stocks.hub import INDEX_NAMES, SECTOR_NAMES
 from desk.stocks.runner import process
 from desk.stocks.web import create_app
@@ -23,14 +26,16 @@ from tests.stocks_world import NOW, add_chains, make_world
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows"], default="populated")
+    parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows", "paper-workflows"],
+                        default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
         root = Path(directory)
         paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
         if args.scenario != "empty":
-            world = make_world(root, n=60)
+            through = NOW.date() - timedelta(days=7) if args.scenario == "paper-workflows" else NOW.date()
+            world = make_world(root, n=60, through=through)
             # Synthetic chart coverage for visual checks; never market observations or forward evidence.
             benchmarks = list(dict.fromkeys([*INDEX_NAMES, *SECTOR_NAMES]))
             for bar in world.market.bars("SPY"):
@@ -44,8 +49,21 @@ def main() -> None:
                 world.market.save_bars(bar.day, extras, "synthetic_browser_fixture", NOW)
             add_chains(world, ["SPY", "QQQ", "CHEAP", "SQZ", "S10", "S11"], world.days[-3:])
             world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
-            process(paths, load_config(paths.config_dir), world.dbs, NOW)
-            process(paths, load_config(paths.config_dir), world.dbs, NOW, research_only=True)
+            initial_now = cal.session_close(world.days[-1])+timedelta(minutes=76) if args.scenario == "paper-workflows" else NOW
+            process(paths, load_config(paths.config_dir), world.dbs, initial_now)
+            process(paths, load_config(paths.config_dir), world.dbs, initial_now, research_only=True)
+            if args.scenario == "paper-workflows":
+                # Three further genuinely processed synthetic sessions give filled positions and stop exits.
+                for index in range(3):
+                    previous = world.market.bar_days()[-1]
+                    day = cal.next_trading_day(previous)
+                    prior_bars = [Bar(r[0],previous,r[2],r[3],r[4],r[5],r[6]) for r in world.market.bar_rows(previous,previous)]
+                    bars = [replace(b, day=day, open=b.close, high=b.close*1.03,
+                                    low=b.close*(.70 if index == 1 and b.symbol != "SPY" else .98),
+                                    close=b.close*1.01) for b in prior_bars]
+                    world.market.save_bars(day, bars, "synthetic_browser_fixture", NOW)
+                    process(paths, load_config(paths.config_dir), world.dbs,
+                            cal.session_close(day)+timedelta(minutes=76))
             if args.scenario in {"stale-prices", "ui-workflows"}:
                 import asyncio
                 from types import SimpleNamespace
@@ -62,8 +80,6 @@ def main() -> None:
                 if args.scenario == "ui-workflows":
                     from datetime import date
 
-                    from desk.stocks import calendar as cal
-                    from desk.stocks.contracts import Bar
                     from desk.stocks.stock_views import request, save_history
 
                     # Synthetic long history exercises actual API storage/ranges, never provider access.

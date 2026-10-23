@@ -207,13 +207,22 @@ class PaperBook:
             self.add_cash(account, at, day, -(cost_m + fees_m), "OPEN", pid)
         return pid
 
-    def positions(self, account: str | None = None, state: str | None = "OPEN") -> list[Position]:
+    def positions(self, account: str | None = None, state: str | None = "OPEN", *,
+                  limit: int | None = None, offset: int = 0, symbol: str | None = None) -> list[Position]:
         sql, args = "SELECT * FROM stk_positions WHERE 1 = 1", list[str]()
         if account:
             sql, args = sql + " AND account = ?", [*args, account]
         if state:
             sql, args = sql + " AND state = ?", [*args, state]
-        return [_position(r) for r in self.conn.execute(sql + " ORDER BY opened_at, id", args)]
+        if symbol:
+            sql, args = sql + " AND symbol LIKE ?", [*args, symbol + "%"]
+        order = "closed_at" if state == "CLOSED" else "opened_at"
+        sql += " ORDER BY opened_at, id" if limit is None else f" ORDER BY {order} DESC, id DESC LIMIT ? OFFSET ?"
+        if limit is not None:
+            if not 1 <= limit <= 500 or offset < 0:
+                raise ValueError("Invalid position page")
+            return [_position(r) for r in self.conn.execute(sql, (*args, limit, offset))]
+        return [_position(r) for r in self.conn.execute(sql, args)]
 
     def mark(self, position_id: str, value: float, *, stop_price: float | None = None,
              marks: dict[str, Any] | None = None) -> None:

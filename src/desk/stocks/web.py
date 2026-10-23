@@ -16,12 +16,15 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from desk.core.config import LoadedConfig, load_config
 from desk.core.errors import DeskError
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import load_secrets
 from desk.core.worker_lock import WorkerLock
+from desk.stocks.backtest import position_view
+from desk.stocks.backtest_job import BacktestWorker
 from desk.stocks.calculator import ScenarioInput
 from desk.stocks.cli import new_login
 from desk.stocks.connection import LoginAttempt, connection_status, save_connection, save_sources
@@ -39,6 +42,11 @@ from desk.storage.db import connect as open_database
 from desk.web.app import install_browser_boundary
 
 STATIC = Path(__file__).with_name("static")
+
+
+class BacktestInput(BaseModel):
+    sessions: Literal[63, 126, 252] = 63
+    enabled: bool = True
 
 
 def saved_view(paths: DeskPaths, name: str) -> dict[str, Any] | None:
@@ -149,6 +157,9 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
         last = book.last_step()
         result = {"report": saved_view(paths, "paper"), "positions": positions, "decisions": book.decisions(limit=100),
                   "events": book.events(limit=100)}
+        result["trades"] = [position_view(p) for p in book.positions(state=None)[-500:]]
+        result["pending"] = [{"id": o.id, "account": o.account, "decision_id": o.decision_id,
+                              "fill_after": o.fill_after.isoformat(), "order": o.order} for o in book.pending()][:200]
         pending = len(book.pending())
     delay = load_config(paths.config_dir).settings.stocks.refresh_after_close_minutes
     target = cal.last_closed_session(utc_now(), timedelta(minutes=delay))
@@ -173,6 +184,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     login_lock = asyncio.Lock()
     collector = worker or ResearchWorker(paths)
     evidence = EvidenceWorker(paths)
+    backtests = BacktestWorker(paths)
+    analysis_start_lock = asyncio.Lock()
 
     def login_pending() -> bool:
         return attempt is not None and (not attempt.complete.is_set() or attempt.thread.is_alive())
@@ -196,6 +209,12 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         async def maintain() -> None:
             while not automation_stop.is_set():
                 await asyncio.to_thread(collector.maintain)
+                if collector.status().get("enabled") and not paths.stop_file.exists():
+                    async with analysis_start_lock:
+                        if not evidence.status()["running"]:
+                            await asyncio.to_thread(backtests.maintain)
+                else:
+                    await asyncio.to_thread(backtests.pause_automatic)
                 with suppress(TimeoutError):
                     await asyncio.wait_for(automation_stop.wait(), 5)
 
@@ -214,6 +233,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 await asyncio.gather(stock_automation, return_exceptions=True)
             await asyncio.to_thread(collector.stop, pause=False)
             await asyncio.to_thread(evidence.close)
+            await asyncio.to_thread(backtests.close)
             if attempt is not None:
                 await asyncio.to_thread(attempt.stop)
 
@@ -382,6 +402,52 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def paper_record() -> dict[str, Any]:
         return paper(paths)
 
+    @app.get("/api/stocks/paper/equity")
+    def paper_equity(account: str = Query(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_]+$")) -> dict[str, Any]:
+        with reader(paths, LEDGER_FILE) as conn:
+            rows = PaperBook(conn).equity(account)
+            return {"curve": [{"day": day.isoformat(), "equity": value} for day, _, _, value in rows]}
+
+    @app.get("/api/stocks/paper/trades")
+    def paper_trades(account: str = Query(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_]+$"),
+                     state: Literal["OPEN", "CLOSED"] = "OPEN", offset: int = Query(default=0, ge=0, le=10000000),
+                     limit: int = Query(default=60, ge=1, le=100),
+                     symbol: str = Query(default="", max_length=12, pattern=r"^[A-Z0-9.-]*$")) -> dict[str, Any]:
+        with reader(paths, LEDGER_FILE) as conn:
+            book = PaperBook(conn)
+            rows = book.positions(account, state, limit=limit, offset=offset, symbol=symbol)
+            total = conn.execute("SELECT COUNT(*) FROM stk_positions WHERE account=? AND state=? AND symbol LIKE ?",
+                                 (account,state,symbol + "%")).fetchone()[0]
+            reasons = {r["id"]: r["reasons"] for r in conn.execute(
+                "SELECT d.id,d.reasons FROM stk_decisions d JOIN stk_positions p ON p.decision_id=d.id "
+                "WHERE p.account=? AND p.state=? AND p.symbol LIKE ? ORDER BY "
+                "CASE WHEN p.state='CLOSED' THEN p.closed_at ELSE p.opened_at END DESC,p.id DESC LIMIT ? OFFSET ?",
+                (account,state,symbol + "%",limit,offset))}
+            return {"trades": [{**position_view(p), "entry_reason": reasons.get(p.decision_id)} for p in rows],
+                    "total": total, "offset": offset, "limit": limit, "decisions": book.decisions(account,limit=200),
+                    "pending": [{"id": o.id, "account": o.account, "decision_id": o.decision_id,
+                                 "fill_after": o.fill_after.isoformat(), "order": o.order} for o in book.pending(account)]}
+
+    @app.get("/api/stocks/backtest")
+    def backtest_record() -> dict[str, Any]:
+        return {"job": backtests.status(), "report": evidence_document(paths, "report", kind="backtest")}
+
+    @app.post("/api/stocks/backtest/start")
+    async def start_backtest(inputs: BacktestInput) -> dict[str, Any]:
+        async with analysis_start_lock:
+            if evidence.status()["running"]:
+                raise HTTPException(409, "Evidence evaluation is running. Finish or cancel it in Evidence "
+                                        "before replaying history.")
+            return await asyncio.to_thread(backtests.start, inputs.sessions)
+
+    @app.post("/api/stocks/backtest/automatic")
+    def automatic_backtest(inputs: BacktestInput) -> dict[str, Any]:
+        return backtests.automatic(inputs.enabled, inputs.sessions)
+
+    @app.post("/api/stocks/backtest/cancel")
+    async def cancel_backtest() -> dict[str, Any]:
+        return await asyncio.to_thread(backtests.cancel)
+
     @app.get("/api/stocks/proof")
     def proof() -> dict[str, Any]:
         with reader(paths, RESEARCH_FILE) as conn:
@@ -391,7 +457,10 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
     @app.post("/api/stocks/proof/start")
     async def start_evaluation() -> dict[str, Any]:
-        return await asyncio.to_thread(evidence.start)
+        async with analysis_start_lock:
+            if backtests.status()["running"]:
+                raise HTTPException(409, "Historical replay is running. Finish or cancel it on the Paper page before evaluating.")
+            return await asyncio.to_thread(evidence.start)
 
     @app.post("/api/stocks/proof/cancel")
     async def cancel_evaluation() -> dict[str, Any]:

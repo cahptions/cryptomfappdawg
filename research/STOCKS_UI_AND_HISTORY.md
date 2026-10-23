@@ -62,5 +62,5 @@ API tests check CSRF and read-only GET boundaries. Browser workflows cover deskt
 intervals, strike-click calculator and multiple expirations, GUI health, actual owned evaluation start/cancel
 and completion without PAPER position/event mutation. All browser data is synthetic.
 
-Final check counts and published commit are reported in the release response. The requested PAPER trade-view
-redesign and historical strategy backtests are queued separately, at the user's request to finish this work first.
+This batch was published as b3f6c75 on codex/arbitrage-v1 after 1,290 offline tests and desktop/mobile browser checks.
+The subsequent PAPER trade-view and historical strategy replay are documented in STOCKS_PAPER_REPLAY.md.

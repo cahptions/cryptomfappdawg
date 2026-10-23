@@ -438,75 +438,7 @@ async function stock(symbol, ticket) {
   return KestrelResearch.stock(symbol, ticket);
 }
 async function paperPage(ticket) {
-  heading(
-    "Paper portfolios.",
-    "Separate research experiments: $10,000 stock accounts and $50,000 options accounts. These are not the $500 crypto reference account.",
-  );
-  const data = await api("paper");
-  if (ticket !== generation) return;
-  const accounts = data.report?.accounts || [];
-  if (data.session_status) {
-    const s = data.session_status,
-      box = panel("What a PAPER session means", s.explanation);
-    box.append(
-      el(
-        "p",
-        `Last processed: ${s.last_processed || "not yet"} · Newest stored closing prices: ${s.latest_prices || "not yet"} · Pending simulated orders: ${s.pending_orders}.`,
-      ),
-    );
-    box.append(
-      el(
-        "p",
-        s.waiting_for_prices
-          ? `Waiting for published closing prices through ${s.expected_close}${s.price_source_error ? "; the price source currently reports a problem" : ""}. New imports do not create extra forward trading days.`
-          : "The daily PAPER engine processes each closed session once. Repeated collection does not increase this count.",
-        "muted",
-      ),
-    );
-    box.append(link("Check data health & progress ↗", "#proof"));
-    app.append(box);
-  }
-  if (!accounts.length) {
-    app.append(
-      panel(
-        "The forward record starts here",
-        "PAPER starts automatically with this app unless paused. Connect data in Settings; eligible strategies begin as their inputs arrive. Historical research comparisons and recorded forward trades are separate records.",
-      ),
-    );
-    return;
-  }
-  app.append(
-    table(
-      [
-        "Strategy",
-        "Simulated equity",
-        "Net return",
-        "Drawdown",
-        "Sessions",
-        "Evidence grade",
-      ],
-      accounts.map((a) => [
-        a.title,
-        money(a.equity),
-        percent(a.return),
-        percent(a.max_drawdown),
-        a.sessions,
-        typeof a.grade === "object"
-          ? a.grade.text ||
-            a.grade.label ||
-            a.grade.title ||
-            JSON.stringify(a.grade)
-          : a.grade,
-      ]),
-    ),
-  );
-  app.append(
-    details("Recent paper decisions and positions", {
-      positions: data.positions,
-      decisions: data.decisions,
-    }),
-    details("Report, costs and uncertainty", data.report),
-  );
+  return KestrelPaper.show(ticket);
 }
 function systemPage() {
   heading(
