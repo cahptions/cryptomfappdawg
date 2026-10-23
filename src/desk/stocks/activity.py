@@ -14,7 +14,7 @@ from desk.stocks.contracts import OptionQuote
 if TYPE_CHECKING:
     from desk.stocks.analysis import Day
 
-VERSION = 1
+VERSION = 2
 WEIGHTS = {"option_premium": .25, "option_volume": .20, "volume_oi": .10, "quote_quality": .10,
            "relative_volume": .15, "standardized_move": .10, "relative_strength": .10}
 
@@ -26,7 +26,8 @@ def quote_session(observed_at: datetime) -> date:
     return local.date()
 
 
-def chain_activity(quotes: Sequence[OptionQuote], observed_at: datetime) -> dict[str, Any]:
+def qualified_quotes(quotes: Sequence[OptionQuote], observed_at: datetime
+                     ) -> tuple[list[OptionQuote], dict[str, int]]:
     session = quote_session(observed_at)
     accepted: dict[str, OptionQuote] = {}
     rejected = {"stale_or_unknown_time": 0, "invalid_or_wide_quote": 0, "outside_horizon": 0}
@@ -44,7 +45,12 @@ def chain_activity(quotes: Sequence[OptionQuote], observed_at: datetime) -> dict
             rejected["invalid_or_wide_quote"] += 1
             continue
         accepted[q.occ] = q
-    liquid = list(accepted.values())
+    return list(accepted.values()), rejected
+
+
+def chain_activity(quotes: Sequence[OptionQuote], observed_at: datetime) -> dict[str, Any]:
+    session = quote_session(observed_at)
+    liquid, rejected = qualified_quotes(quotes, observed_at)
     volume, oi = sum(q.volume for q in liquid), sum(q.open_interest for q in liquid)
     traded = [q for q in liquid if q.volume > 0]
     spreads = [(q.ask - q.bid) / q.mid for q in traded if q.ask is not None and q.bid is not None and q.mid]
@@ -59,6 +65,18 @@ def chain_activity(quotes: Sequence[OptionQuote], observed_at: datetime) -> dict
                      "trade value, opening interest, buying pressure, smart money or a direction forecast."}
 
 
+def activity_failure(a: dict[str, Any], session: date) -> str | None:
+    if a.get("session") != session.isoformat():
+        return "different_session"
+    for key, minimum, reason in (("liquid_contracts", 4, "too_few_liquid_contracts"),
+                                  ("volume", 100, "low_sampled_volume"),
+                                  ("open_interest", 100, "low_open_interest"),
+                                  ("premium_proxy", 10000, "low_premium_proxy")):
+        if a.get(key, 0) < minimum:
+            return reason
+    return "missing_spread" if a.get("median_spread") is None else None
+
+
 def candidates(day: Day) -> tuple[list[dict[str, Any]], dict[str, int]]:
     prices = day.market_price or day.ctx.price
     counts = {"price_universe": len(prices), "same_session_options": 0, "quality_pass": 0}
@@ -69,9 +87,7 @@ def candidates(day: Day) -> tuple[list[dict[str, Any]], dict[str, int]]:
             continue
         counts["same_session_options"] += 1
         a = opt.get("activity") or {}
-        if (a.get("session") != day.asof.isoformat() or a.get("liquid_contracts", 0) < 4
-                or a.get("volume", 0) < 100 or a.get("open_interest", 0) < 100
-                or a.get("premium_proxy", 0) < 10000 or a.get("median_spread") is None):
+        if activity_failure(a, day.asof):
             continue
         required = [px.get(k) for k in ("rel_volume", "ret_1d", "vol_20d", "rs_63d")]
         if any(v is None or not math.isfinite(v) for v in required) or not px.get("vol_20d"):

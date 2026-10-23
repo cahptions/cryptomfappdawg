@@ -23,13 +23,13 @@ from tests.stocks_world import NOW, add_chains, make_world
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["empty", "populated"], default="populated")
+    parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices"], default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
         root = Path(directory)
         paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
-        if args.scenario == "populated":
+        if args.scenario != "empty":
             world = make_world(root, n=60)
             # Synthetic chart coverage for visual checks; never market observations or forward evidence.
             benchmarks = list(dict.fromkeys([*INDEX_NAMES, *SECTOR_NAMES]))
@@ -42,9 +42,23 @@ def main() -> None:
                     extras.append(replace(bar, symbol=symbol, open=bar.open * scale, high=bar.high * scale,
                                           low=bar.low * scale, close=bar.close * scale))
                 world.market.save_bars(bar.day, extras, "synthetic_browser_fixture", NOW)
-            add_chains(world, ["CHEAP", "SQZ", "S10", "S11"], world.days[-3:])
+            add_chains(world, ["SPY", "QQQ", "CHEAP", "SQZ", "S10", "S11"], world.days[-3:])
             world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
             process(paths, load_config(paths.config_dir), world.dbs, NOW)
+            process(paths, load_config(paths.config_dir), world.dbs, NOW, research_only=True)
+            if args.scenario == "stale-prices":
+                import asyncio
+                from types import SimpleNamespace
+
+                from desk.stocks.collect import option_chains
+                from tests.unit.test_stocks_options_population import CAPTURE, StandardSchwab
+
+                # Exact user failure scenario: newest options are independent of the denied newer close.
+                asyncio.run(option_chains(SimpleNamespace(tradier=StandardSchwab(), option_source="synthetic_schwab_shape"),
+                                           world.market, CAPTURE, ["SPY", "QQQ", "CHEAP"], rate=.04,
+                                           last_prices={}, clock=lambda: CAPTURE))
+                world.market.job("prices", CAPTURE, error="Synthetic Massive grouped_daily HTTP 403")
+                process(paths, load_config(paths.config_dir), world.dbs, CAPTURE, research_only=True)
             world.close()
         uvicorn.run(create_app(paths, auto_start=False), host="127.0.0.1", port=args.port, access_log=False)
 

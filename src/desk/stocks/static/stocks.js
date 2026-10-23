@@ -56,7 +56,11 @@ function table(headers, rows) {
     t = el("table"),
     head = el("thead"),
     tr = el("tr");
-  for (const h of headers) tr.append(el("th", h));
+  for (const h of headers) {
+    const cell = el("th", h);
+    cell.setAttribute("scope", "col");
+    tr.append(cell);
+  }
   head.append(tr);
   t.append(head);
   const body = el("tbody");
@@ -255,7 +259,7 @@ function sourceSetup() {
       "massive-key",
       "MASSIVE_API_KEY",
       "1. Stock price history · Massive",
-      "Create a free account, choose Stocks Basic ($0), then copy the API key from your account dashboard. End-of-day prices, not live quotes. Choose the free plan; no paid upgrade is needed.",
+      "Create a free account, choose Stocks Basic ($0), then copy the API key from your account dashboard. End-of-day prices, not live quotes. A recent-close 403 can mean publication delay or missing plan entitlement; the app retries and keeps downloading accessible older dates. Check your plan access before replacing a working key. Options chains use their own connection.",
       "password",
       "https://massive.com/",
       "Open Massive signup ↗",
@@ -394,14 +398,14 @@ function discover(selected) {
       el(
         "small",
         list.asof
-          ? `${list.preview ? "Current research preview · not a frozen forward record" : "Recorded list"} · closed session: ${list.asof}`
+          ? `${list.options_clock ? "Options snapshot · mutable research" : list.preview ? "Current research preview · not a frozen forward record" : "Recorded list"} · session: ${list.asof}`
           : "Waiting for the first eligible daily analysis",
       ),
     );
     if (list.rows.length)
       box.append(
         table(
-          ["Rank", "Stock", "Reference close", "Why it appears"],
+          ["Rank", "Stock", list.options_clock ? "Underlying at snapshot" : "Reference close", "Why it appears"],
           list.rows.map((r) => [
             r.rank,
             link(r.symbol, `#stock/${encodeURIComponent(r.symbol)}`),
@@ -414,7 +418,7 @@ function discover(selected) {
       box.append(
         el(
           "p",
-          "No qualifying stocks recorded. Check System for missing sources or warm-up history.",
+          list.empty_reason || "No qualifying stocks recorded. Check System for missing sources or warm-up history.",
           "notice",
         ),
       );
@@ -549,6 +553,23 @@ function systemPage() {
       snapshot.worker || { waiting: "No pass recorded" },
     ),
   );
+  if (snapshot.options_research) {
+    const options = snapshot.options_research, coverage = options.coverage;
+    app.append(panel(
+      "Options coverage",
+      `Options session ${options.asof || "not collected"} · ${coverage.same_session_options} underlyings · ${coverage.sampled_contracts} contracts · ${coverage.liquid_contracts} usable quotes · ${coverage.quality_pass} activity-qualified underlyings. Options update independently of stock-history backfill.`,
+    ));
+    app.append(table(
+      ["Underlying", "Stored contracts", "Usable quotes", "Activity status", "Quote exclusions"],
+      Object.entries(coverage.symbols).map(([symbol, info]) => [
+        symbol, info.contracts, info.liquid_contracts, info.reason?.replaceAll("_", " ") || "Qualified",
+        Object.entries(info.rejected || {}).filter(([, count]) => count).map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`).join("; ") || "None",
+      ]),
+    ));
+  }
+  if (snapshot.jobs.prices?.last_error?.includes("403") || snapshot.jobs.prices?.detail?.deferred_403?.length)
+    app.append(panel("Recent stock prices unavailable",
+      "Massive denied a closing-price request. This can mean the close is not yet available on your plan or the app lacks entitlement. Older downloads continue when accessible. Options chains do not wait for this source. Check the Massive account link in Settings; replacing a key is not always the solution."));
   app.append(
     panel(
       "Automatic PAPER simulation",

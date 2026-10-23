@@ -17,6 +17,8 @@ from desk.core.paths import DeskPaths
 from desk.core.secrets import load_secrets
 from desk.stocks import calendar as cal
 from desk.stocks import collect, daily, validation
+from desk.stocks.activity import VERSION as OPTIONS_VERSION
+from desk.stocks.activity import quote_session
 from desk.stocks.analysis import MIN_BARS, Analyzer, stock_detail
 from desk.stocks.connection import _atomic_private
 from desk.stocks.lists import LISTS, build_lists
@@ -35,7 +37,7 @@ class MemoryPressure(DeskError):
 
 
 def saved_path(paths: DeskPaths, name: str) -> Path:
-    if name not in {"worker", "paper", "research", "progress"}:
+    if name not in {"worker", "paper", "research", "progress", "options"}:
         raise ValueError("unknown Stocks record")
     return paths.home / f"stocks-{name}.json"
 
@@ -49,6 +51,14 @@ def saved(paths: DeskPaths, name: str) -> dict[str, Any] | None:
             raise ValueError
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):
+            raise ValueError
+        if name == "options" and (not isinstance(value.get("rows"), dict)
+                or not isinstance(value.get("coverage"), dict)
+                or not isinstance(value.get("asof"), (str, type(None)))
+                or "awaiting_newer_session" not in value
+                or any(not isinstance(rows, list) for rows in value["rows"].values())
+                or any(key not in value["coverage"] for key in
+                       ("symbols", "same_session_options", "sampled_contracts", "liquid_contracts", "quality_pass"))):
             raise ValueError
         if name == "research" and (not isinstance(value.get("lists"), list) or any(
                 not isinstance(item, dict) or not isinstance(item.get("id"), str)
@@ -77,6 +87,10 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     """Refresh a mutable research view during backfill; never step PAPER or rewrite frozen evidence."""
     settings = loaded.settings.stocks
     market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
+    from desk.stocks.options_view import build as options_view
+
+    # Available option observations are published even with no/unfinished/denied stock-history backfill.
+    _atomic_private(saved_path(paths, "options"), json.dumps(options_view(market, now), allow_nan=False))
     expected = cal.last_closed_session(now, timedelta(minutes=settings.refresh_after_close_minutes))
     days = [d for d in market.bar_days() if expected - timedelta(days=settings.history_days) <= d <= expected]
     if not days:
@@ -92,7 +106,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k != "prices"}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
-                                         "config": loaded.snapshot_hash, "preview_version": 3}))
+                                         "config": loaded.snapshot_hash, "preview_version": 4}))
     try:
         previous = saved(paths, "research")
     except DeskError:
@@ -209,7 +223,14 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
         # Publish usable stored research before lengthy network work, then again after a price batch.
         # The input signature skips unchanged analysis. Neither preview may step the PAPER book.
         preview_now()
-        if suite.options.configured and cal.is_trading_day(cal.new_york(now).date()) and _due(market, "options", now, 4):
+        options_job = market.jobs().get("options", {})
+        requested = market.requested_options(now)
+        local = cal.new_york(now)
+        market_window = cal.is_trading_day(local.date()) and (9, 30) <= (local.hour, local.minute) <= (16, 30)
+        last_options_ok = options_job.get("last_ok_at")
+        missed_session = not last_options_ok or quote_session(datetime.fromisoformat(last_options_ok)) != quote_session(now)
+        if (suite.options.configured and (((market_window or missed_session) and _due(market, "options", now, .25))
+                     or options_job.get("detail", {}).get("parser_version") != OPTIONS_VERSION or requested)):
             held = PaperBook(dbs.ledger).held_expirations()
             # Rotate bounded batches, with held contracts always included. Never fetch the whole universe on a tick.
             ranked = [r[0] for r in research.conn.execute(
@@ -219,16 +240,18 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             job = market.jobs().get("options", {}).get("detail", {})
             offset = int(job.get("next_offset", 0)) % len(candidates)
             # Core ETF chains are refreshed every options pass; broad rotation cannot starve SPY.
-            core = ["SPY", "QQQ"][:option_limit]
+            core = list(dict.fromkeys([*requested[:2], "SPY", "QQQ"]))[:option_limit]
             rotating = [s for s in candidates if s not in core]
             offset = offset % max(1, len(rotating))
             remainder = max(0, option_limit - len(core))
             wanted = [*core, *(rotating + rotating)[offset:offset + remainder]]
             jobs["options"] = await run_job("options", collect.option_chains(suite, market, now, wanted, rate=0.04,
                                                          last_prices={}, held=held))
+            market.attempted_options(wanted, utc_now())
             if jobs["options"].get("ok"):
                 detail = {**jobs["options"], "next_offset": (offset + remainder) % max(1, len(rotating))}
                 market.job("options", now, detail=detail)
+            preview_now()  # New chains must not wait behind SEC, prices or corporate-action downloads.
         directory = market.jobs().get("listings", {}).get("detail", {})
         needs_mapping = suite.sec.contact_configured and (not directory.get("with_cik") or directory.get("warning"))
         if _due(market, "listings", now, 24) or needs_mapping:

@@ -10,11 +10,12 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from desk.core.clock import utc_now
-from desk.core.errors import DeskError
+from desk.core.errors import DeskError, ProviderError
 from desk.core.hashing import sha256_hex
 from desk.stocks import calendar as cal
 from desk.stocks import options as opt
-from desk.stocks.activity import chain_activity, quote_session
+from desk.stocks.activity import VERSION as OPTIONS_VERSION
+from desk.stocks.activity import chain_activity, qualified_quotes, quote_session
 from desk.stocks.contracts import InsiderTrade
 from desk.stocks.fundamentals import CONCEPTS
 from desk.stocks.repo import FILING_FORMS, StocksMarket
@@ -31,14 +32,21 @@ MENTION_SOURCES = ("wallstreetbets", "all-stocks", "options")
 FACT_YEARS = 8           # company facts kept: enough for five-year growth and two years of point-in-time history
 
 
+class IncompleteJob(DeskError):
+    def __init__(self, message: str, detail: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.detail = detail
+
+
 async def _job(market: StocksMarket, name: str, now: datetime, work: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
     started = time.monotonic()
     try:
         detail = await work()
     except DeskError as exc:
-        market.job(name, now, error=str(exc)[:300])
+        detail = exc.detail if isinstance(exc, IncompleteJob) else {}
+        market.job(name, now, error=str(exc)[:300], detail=detail)
         log.warning("stocks job failed", extra={"job": name, "error": str(exc)[:200]})
-        return {"ok": False, "error": str(exc)[:300]}
+        return {"ok": False, "error": str(exc)[:300], **detail}
     detail["seconds"] = round(time.monotonic() - started, 1)
     market.job(name, now, detail=detail)
     return {"ok": True, **detail}
@@ -77,8 +85,17 @@ async def prices(suite: StocksSuite, market: StocksMarket, now: datetime, *, his
         keep = stored_symbols(market)
         days = missing_price_days(market, now, history_days, after_close)
         fetched, stored, empty = [], 0, []
+        deferred = []
         for d in days[:max_days] if max_days else days:
-            bars = await suite.massive.grouped_daily(d)
+            try:
+                bars = await suite.massive.grouped_daily(d)
+            except ProviderError as exc:
+                # A Basic subscription can deny an as-yet unavailable recent close. That must
+                # not starve all older history, nor count the denied day as downloaded/a holiday.
+                if exc.status_code == 403 and (cal.new_york(now).date() - d).days <= 3:
+                    deferred.append(d.isoformat())
+                    continue
+                raise
             received_at = clock()
             if not bars:
                 empty.append(d.isoformat())        # not published yet, or a closure the calendar does not know
@@ -90,8 +107,13 @@ async def prices(suite: StocksSuite, market: StocksMarket, now: datetime, *, his
                 raise DeskError(f"massive grouped daily for {d}: {wrong_day} bars stamped another day")
             stored += market.save_bars(d, [b for b in bars if b.symbol in keep], "massive", received_at)
             fetched.append(d.isoformat())
+        if deferred and not fetched:
+            raise DeskError("Massive denied recent closing prices (HTTP 403); publication delay or plan entitlement. "
+                            "Stored history is preserved; this is not proof the API key is wrong.")
         return {"days": len(fetched), "rows": stored, "empty": empty, "remaining": max(0, len(days) - len(fetched) - len(empty)),
-                "newest": fetched[0] if fetched else None}
+                "newest": fetched[0] if fetched else None, "deferred_403": deferred,
+                "warning": "Recent closes denied; retrying later. Check publication/plan entitlement in Settings."
+                           if deferred else None}
     return await _job(market, "prices", now, work)
 
 
@@ -335,6 +357,7 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
         today = quote_session(now)
         done, contracts, skipped = 0, 0, []
         errors = {}
+        coverage = {}
         wanted = list(dict.fromkeys([*symbols, *(held or {})]))
         for symbol in wanted:
             try:
@@ -343,34 +366,54 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                                 | {e for e in (held or {}).get(symbol, set()) if e in expirations and e >= today})
                 if not chosen:
                     skipped.append(symbol)
+                    coverage[symbol] = {"status": "no_eligible_expirations", "contracts": 0}
                     continue
                 chains = {}
+                received_at = clock()
                 for e in chosen:
                     chains[e] = await suite.tradier.chain(symbol, e)
+                    received_at = clock()
+                    # Persist the actual chain even when a subsequent underlying quote fails.
+                    # Never replace a useful stored expiry with an empty parser/provider response.
+                    if chains[e]:
+                        market.save_option_chain(symbol, today, e, received_at, last_prices.get(symbol), chains[e],
+                                                 source=suite.option_source)
+                        contracts += len(chains[e])
+                if not any(chains.values()):
+                    errors[symbol] = "No supported contracts returned; check provider response/standard deliverables"
+                    coverage[symbol] = {"status": "empty_chain", "contracts": 0}
+                    continue
                 price = last_prices.get(symbol)
                 if price is None:
                     stock = await suite.tradier.quotes([symbol])
                     price = stock[0].last if stock else None
-                if price is None:
-                    skipped.append(symbol)
+                if price is None or price <= 0:
+                    errors[symbol] = "Chains saved; underlying price unavailable for IV/expected moves"
+                    coverage[symbol] = {"status": "missing_underlying_price", "contracts": sum(map(len, chains.values()))}
                     continue
                 received_at = clock()
                 for e, quotes in chains.items():
-                    market.save_option_chain(symbol, today, e, received_at, price, quotes, source=suite.option_source)
-                    contracts += len(quotes)
-                summary = opt.daily_summary(chains, price, today, rate)
+                    if quotes:
+                        market.save_option_chain(symbol, today, e, received_at, price, quotes, source=suite.option_source)
+                valid, _ = qualified_quotes([q for qs in chains.values() for q in qs], received_at)
+                summary = opt.daily_summary({e: [q for q in valid if q.expiration == e] for e in chains}, price, today, rate)
                 summary["activity"] = chain_activity([q for qs in chains.values() for q in qs], received_at)
+                summary["analytics_version"] = OPTIONS_VERSION
+                summary["source"] = suite.option_source
                 market.save_option_daily(symbol, today, received_at, summary)
+                coverage[symbol] = {"status": "collected", **summary["activity"]}
                 done += 1
             except DeskError as exc:
                 errors[symbol] = str(exc)[:200]
                 continue
+        pruned = market.prune_option_chains(today - timedelta(days=45))
+        detail = {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned,
+                "source": suite.option_source, "errors": errors, "partial": bool(errors), "session": today.isoformat(),
+                "coverage": coverage, "parser_version": OPTIONS_VERSION}
         if errors and not done:
             first_error = next(iter(errors.values()))
-            raise DeskError(f"All {len(errors)} option requests failed; {first_error}")
-        pruned = market.prune_option_chains(today - timedelta(days=45))
-        return {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned,
-                "source": suite.option_source, "errors": errors, "partial": bool(errors), "session": today.isoformat()}
+            raise IncompleteJob(f"All {len(errors)} option requests failed; {first_error}", detail)
+        return detail
     return await _job(market, "options", now, work)
 
 

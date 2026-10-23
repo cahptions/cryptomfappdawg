@@ -135,6 +135,17 @@ def test_forward_pipeline_and_populated_dashboard_are_idempotent(tmp_path: Path)
             assert "CHEAP" in client.get("/api/stocks/home").json()["watchlist"]
             assert client.post("/api/stocks/watch/UNKNOWN?action=add", headers={"X-CSRF-Token": csrf}).status_code == 404
             assert client.get("/api/stocks/stock/CHEAP/options").json()["contracts"] == []
+            # A GET only reads. The automatic UI request is a protected, bounded POST, and
+            # never starts a paused worker, changes a watchlist or places a PAPER entry.
+            ledger = list(world.dbs.ledger.iterdump())
+            assert world.market.requested_options(NOW) == []
+            assert client.post("/api/stocks/stock/CHEAP/options/request", json={}).status_code == 403
+            queued = client.post("/api/stocks/stock/CHEAP/options/request", json={}, headers={"X-CSRF-Token": csrf})
+            assert queued.status_code == 200 and queued.json()["queued"]
+            assert not queued.json()["running"]
+            assert client.post("/api/stocks/stock/UNKNOWN/options/request", json={},
+                               headers={"X-CSRF-Token": csrf}).status_code == 404
+            assert list(world.dbs.ledger.iterdump()) == ledger
     finally:
         world.close()
 

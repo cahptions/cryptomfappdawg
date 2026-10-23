@@ -337,11 +337,14 @@ async def test_crowd_rates_and_option_chains(world: World) -> None:
             for kind in ("call", "put"):
                 options.append({"symbol": f"SPCX{exp}{kind[0]}{k}", "underlying": "SPCX", "option_type": kind, "strike": k,
                                 "expiration_date": exp, "bid": 4.9, "ask": 5.1, "last": 5.0, "volume": 120,
-                                "open_interest": 900, "average_volume": 100})
+                                "open_interest": 900, "average_volume": 100,
+                                "bid_date": int(cal.session_close(NOW.date()).timestamp() * 1000),
+                                "ask_date": int(cal.session_close(NOW.date()).timestamp() * 1000)})
         return httpx.Response(200, json={"options": {"option": options}})
 
     respx.get(url__startswith="https://sandbox.tradier.com/v1/markets/options/chains").mock(side_effect=chain)
-    report = await collect.option_chains(world.suite, world.market, NOW, ["SPCX"], rate=0.04, last_prices={"SPCX": 100.0})
+    report = await collect.option_chains(world.suite, world.market, NOW, ["SPCX"], rate=0.04,
+                                         last_prices={"SPCX": 100.0}, clock=lambda: NOW)
     assert report["ok"] and report["symbols"] == 1 and report["contracts"] == 24
     day, chains = world.market.option_chain("SPCX")
     assert day == date(2026, 10, 21) and sorted(chains) == exps

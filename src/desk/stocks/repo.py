@@ -8,7 +8,7 @@ import sqlite3
 import zlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -379,6 +379,27 @@ class StocksMarket:
             (series, day_of(since) if since else 0))]
 
     # options ──────────────────────────────────────────────────────────────────────────────────────
+    def request_options(self, symbol: str, now: datetime) -> None:
+        """Bounded latest-viewed queue. Refreshing a page does not endlessly reset a pending request."""
+        with transaction(self.conn):
+            self.conn.execute("INSERT INTO stk_option_requests(symbol,requested_at) VALUES (?,?) "
+                              "ON CONFLICT(symbol) DO UPDATE SET requested_at=excluded.requested_at "
+                              "WHERE stk_option_requests.attempted_at IS NOT NULL "
+                              "AND stk_option_requests.attempted_at < ?",
+                              (symbol, to_iso(now), to_iso(now - timedelta(minutes=15))))
+            self.conn.execute("DELETE FROM stk_option_requests WHERE symbol NOT IN "
+                              "(SELECT symbol FROM stk_option_requests ORDER BY requested_at DESC LIMIT 100)")
+
+    def requested_options(self, now: datetime) -> list[str]:
+        return [r[0] for r in self.conn.execute(
+            "SELECT symbol FROM stk_option_requests WHERE requested_at>=? "
+            "AND (attempted_at IS NULL OR requested_at>attempted_at) ORDER BY requested_at LIMIT 100",
+            (to_iso(now - timedelta(days=1)),))]
+
+    def attempted_options(self, symbols: Sequence[str], now: datetime) -> None:
+        self.conn.executemany("UPDATE stk_option_requests SET attempted_at=? WHERE symbol=?",
+                              [(to_iso(now), s) for s in symbols])
+
     def save_option_chain(self, underlying: str, day: date, expiration: date, observed_at: datetime,
                           underlying_price: float | None, quotes: Sequence[OptionQuote], *, source: str = "tradier") -> None:
         existing = self.conn.execute("SELECT DISTINCT source FROM stk_option_chains WHERE underlying=? AND day=?",

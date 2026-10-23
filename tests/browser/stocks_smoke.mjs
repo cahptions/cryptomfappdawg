@@ -108,8 +108,15 @@ try {
       await page.getByRole("heading", {name: "ETF price & risk statistics", exact: true}).waitFor();
       assert.equal(await page.locator(".desk-card").count(), 3);
       assert.equal(await page.getByText("Market cap", {exact: true}).count(), 0);
+      await page.getByRole("tab", { name: "Calls", exact: true }).waitFor();
+      assert.ok(await page.locator(".option-chain tbody tr").count() > 0);
+      await page.getByRole("tab", { name: "Puts", exact: true }).click();
+      assert.ok(await page.locator(".option-chain tbody tr").count() > 0);
       await page.screenshot({path: `/tmp/kestrel-spy-${scenario}-${width}.png`, fullPage: true});
       await page.locator("svg.price-chart").waitFor();
+      await page.goto(`${base}/#stock/QQQ`);
+      await page.getByRole("tab", { name: "Calls", exact: true }).waitFor();
+      assert.ok(await page.locator(".option-chain tbody tr").count() > 0);
     }
     await page.goto(`${base}/#options`);
     await page.getByRole("heading", { name: "Options overview" }).waitFor();

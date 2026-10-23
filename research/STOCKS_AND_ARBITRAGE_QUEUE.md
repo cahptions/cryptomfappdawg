@@ -11,6 +11,13 @@ Preserve laptop secrets, data, Pause and disabled orders. The release still requ
 
 # Operator task queue — 2026-10-22
 
+Latest: read [OPTIONS_POPULATION_REPAIR.md](OPTIONS_POPULATION_REPAIR.md). Schwab standard deliverables were
+being rejected and option lists were bound to a stale stock-history date. The parser, independent mutable
+options preview, bounded stock-view request queue, raw-chain preservation and per-symbol diagnostics are repaired.
+Latest full offline run: 1,260 passed, five live tests excluded. Authenticated laptop confirmation remains open.
+For the preceding actual retailer acceptance (2,526 catalog products), read
+[MISSING_DATA_FIXES.md](MISSING_DATA_FIXES.md). The older proxy-blocker paragraph below is historical and superseded.
+
 Stocks activity/ETF/chart and Arbitrage sourcing/navigation/price-evidence changes are implemented. Full offline
 suite: 1,229 passed, five opt-in live-provider tests excluded. Current Chromium desktop/mobile flows pass, including
 chart pointer/keyboard/touch, ETF profiles, comparable CSV import/statistics, metadata search and Settings/Sources.

@@ -23,6 +23,7 @@ const KestrelResearch = (() => {
       : value > 0
         ? "positive"
         : "negative";
+  const requestedChains = new Map();
   const change = (value) =>
     value == null ? "—" : `${value > 0 ? "+" : ""}${percent(value)}`;
   function badge(text, className = "") {
@@ -161,10 +162,10 @@ const KestrelResearch = (() => {
         );
         const value = el(
           "span",
-          option ? money(card.price) : change(card.change),
+          option ? money(row.price) : change(card.change),
           option ? "muted" : tone(card.change),
         );
-        if (option) value.title = "Underlying's latest stored close";
+        if (option) value.title = "Underlying reference recorded with the options snapshot";
         item.append(value);
         box.append(item);
       }
@@ -172,11 +173,11 @@ const KestrelResearch = (() => {
       box.append(
         el(
           "p",
-          !list?.asof
+          list?.empty_reason || (!list?.asof
             ? "Research not computed yet"
             : option
               ? "Waiting for qualifying chain snapshots"
-              : "No qualifying names recorded",
+              : "No qualifying names recorded"),
           "collection-wait",
         ),
       );
@@ -236,10 +237,12 @@ const KestrelResearch = (() => {
     );
     const day = el("div", undefined, "session-label");
     day.append(
-      badge("DAILY CLOSE DATA"),
+      badge(focus === "options" ? "OPTIONS SNAPSHOTS" : "DAILY CLOSE DATA"),
       el(
         "span",
-        snapshot.asof
+        focus === "options"
+          ? `Options session · ${shortDate(snapshot.options_research?.asof)} · Stock research · ${shortDate(snapshot.asof)}`
+          : snapshot.asof
           ? `Research session · ${shortDate(snapshot.asof)}`
           : "Awaiting the first research session",
         "muted caption",
@@ -317,12 +320,18 @@ const KestrelResearch = (() => {
           ]
         : [
             ["market_activity", "Market & options"],
+            ["options_activity", "Options activity"],
             ["trending", "Social attention"],
             ["momentum", "Rising trends"],
             ["gainers", "Top gainers"],
             ["losers", "Top losers"],
           ];
     let selected = choices[0][0];
+    const composite = snapshot.lists.find((l) => l.id === "market_activity"),
+      observedOptions = snapshot.lists.find((l) => l.id === "options_activity");
+    if (focus !== "options" && observedOptions?.rows.length &&
+        (!composite?.rows.length || observedOptions.asof > composite.asof))
+      selected = "options_activity";
     function showMovers() {
       content.replaceChildren();
       const list = snapshot.lists.find((l) => l.id === selected);
@@ -345,7 +354,7 @@ const KestrelResearch = (() => {
         ),
       );
       if (list?.rows.length) {
-        if (focus === "options") {
+        if (focus === "options" || selected === "options_activity") {
           const researchRows = list.rows
             .slice(0, 10)
             .map((row, index) => [
@@ -364,7 +373,9 @@ const KestrelResearch = (() => {
           }
         }
       } else if (!list?.asof) {
-        const readiness = researchReadiness();
+        const readiness = list?.options_clock
+          ? {title: "Options collection pending", message: list.empty_reason, href: "#system", action: "View collection status ↗"}
+          : researchReadiness();
         content.append(
           empty(
             readiness.title,
@@ -377,11 +388,11 @@ const KestrelResearch = (() => {
         content.append(
           empty(
             "No qualifying names yet",
-            selected === "trending"
+            list.empty_reason || (selected === "trending"
               ? "Trending combines observed attention and trading activity. Missing coverage stays missing."
               : ["market_activity", "options_activity", "unusual_options"].includes(selected)
-                ? `Options coverage: ${list.coverage?.same_session_options ?? "unknown"} same-session summaries; ${list.coverage?.quality_pass ?? "unknown"} pass quote/liquidity gates. The collector rotates a bounded sample. Missing, stale or wide quotes do not qualify. Check System for the options job result.`
-                : "The saved research list has no qualifying stocks for this session.",
+                ? `Options coverage: ${list.coverage?.same_session_options ?? "unknown"} same-session summaries; ${list.coverage?.sampled_contracts ?? "unknown"} sampled contracts; ${list.coverage?.quality_pass ?? "unknown"} underlyings pass quote/liquidity gates. ${Object.entries(list.coverage?.excluded || {}).map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`).join("; ")}. Open a stock to prioritize its chain, or see System for per-symbol details.`
+                : "The saved research list has no qualifying stocks for this session."),
             "#lists",
             "Explore other lists",
           ),
@@ -391,10 +402,10 @@ const KestrelResearch = (() => {
         el(
           "span",
           list?.asof
-            ? `${list.preview ? "Current research preview" : "Recorded list"}: ${list.asof} · up to 10 qualified names`
+            ? `${list.options_clock ? "Options snapshot" : list.preview ? "Current research preview" : "Recorded list"}: ${list.asof}${list.awaiting_newer_session ? " · awaiting a newer session" : ""} · up to 10 qualified names`
             : "First research list pending",
         ),
-        el("span", "Prices are the latest stored close"),
+        el("span", list?.options_clock ? "Dated option snapshots; benchmarks use stored stock closes" : "Prices are the latest stored close"),
       );
       content.append(note);
       for (const button of tabs.children)
@@ -785,6 +796,12 @@ const KestrelResearch = (() => {
         `stock/${encodeURIComponent(symbol)}/options${query}`,
       );
       if (ticket !== generation) return;
+      let queued;
+      if (Date.now() - (requestedChains.get(symbol) || 0) > 15 * 60 * 1000) {
+        queued = await api(`stock/${encodeURIComponent(symbol)}/options/request`, {});
+        requestedChains.set(symbol, Date.now());
+        if (ticket !== generation) return;
+      }
       container.replaceChildren(
         sectionTitle(
           "Options chain",
@@ -794,10 +811,12 @@ const KestrelResearch = (() => {
       if (!data.contracts.length) {
         container.append(
           empty(
-            "No chain snapshot available",
-            "Options appear when this underlying and expiration have been collected. Missing quotes are never simulated here.",
-            "#options",
-            "Explore options research ↗",
+            "Chain collection requested",
+            data.message || ((queued?.running ?? snapshot.worker_running)
+              ? "This stock is prioritized for the next available collection pass. The page refreshes as stored data arrives. See System for any source error."
+              : "This stock is queued. Start PAPER in System to resume collection, or connect your options provider in Settings."),
+            "#system",
+            "View collection status ↗",
           ),
         );
         return;
@@ -806,6 +825,8 @@ const KestrelResearch = (() => {
         expiry = el("select"),
         tabs = el("div", undefined, "research-tabs"),
         content = el("div");
+      if (data.stale_session || data.expired)
+        container.append(el("p", "Archived snapshot: a newer collection is requested. These stored quotes are not current executable prices.", "notice"));
       expiry.setAttribute("aria-label", "Options expiration");
       for (const date of data.expirations) {
         const option = el("option", shortDate(date));
@@ -815,18 +836,19 @@ const KestrelResearch = (() => {
       expiry.value = data.expiration;
       expiry.onchange = () =>
         optionChain(symbol, container, ticket, expiry.value);
-      let kind = "call";
+      let kind = data.contracts.some((c) => c.kind === "call") ? "call" : "put";
       function draw() {
         const rows = data.contracts.filter((c) => c.kind === kind);
         content.replaceChildren(
           table(
-            ["Strike", "Bid", "Ask", "Volume", "Open interest"],
+            ["Strike", "Bid", "Ask", "Volume", "Open interest", "Quote time (ET)"],
             rows.map((c) => [
               money(c.strike),
               money(c.bid),
               money(c.ask),
               compact(c.volume),
               compact(c.open_interest),
+              c.quoted_at ? new Date(c.quoted_at).toLocaleString("en-US", {timeZone: "America/New_York"}) : "Not supplied",
             ]),
           ),
         );
@@ -854,7 +876,7 @@ const KestrelResearch = (() => {
         content,
         el(
           "p",
-          `${data.source} · snapshot ${data.asof} · quotes may have different timestamps. No order can be placed here.`,
+          `${data.source} · snapshot ${data.asof} · showing ${data.displayed_contracts} of ${data.stored_contracts} stored contracts${data.underlying_price ? " nearest the underlying price" : "; underlying price unavailable"}. Quotes may have different timestamps. No order can be placed here.`,
           "muted caption",
         ),
       );

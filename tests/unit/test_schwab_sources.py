@@ -44,6 +44,27 @@ def test_standard_contracts_normalize_identity_and_do_not_invent_volume_history(
     assert parse_expirations(b'{"expirationList":[{"expirationDate":"2026-11-20"}]}') == [EXP]
 
 
+@pytest.mark.parametrize("symbol", ["SPY", "QQQ", "AAPL", "NVDA"])
+def test_explicit_standard_stock_deliverables_are_not_mistaken_for_adjusted_options(symbol: str) -> None:
+    # Shape checked against Schwabdev's public option_chains response example, retrieved 2026-10-23:
+    # https://tylerebowers.github.io/Schwabdev/pages/api.html . Values here are synthetic.
+    standard = contract(symbol=f"{symbol:<6}261120C00500000", nonStandard=False,
+                        optionDeliverablesList=[{"symbol": symbol, "assetType": "STOCK", "deliverableUnits": 100.0}])
+    parsed = parse_chain(chain(standard, symbol=symbol), symbol, EXP)
+    assert len(parsed) == 1 and parsed[0].underlying == symbol
+
+
+@pytest.mark.parametrize("deliverables", [
+    [{"symbol": "SPY", "assetType": "STOCK", "deliverableUnits": 99}],
+    [{"symbol": "QQQ", "assetType": "STOCK", "deliverableUnits": 100}],
+    [{"symbol": "SPY", "assetType": "CASH", "deliverableUnits": 100}],
+    [{"symbol": "SPY", "assetType": "STOCK", "deliverableUnits": 100}, {"assetType": "CASH"}],
+    {"symbol": "SPY", "assetType": "STOCK", "deliverableUnits": 100},
+])
+def test_adjusted_cash_basket_and_unknown_deliverables_stay_excluded(deliverables: object) -> None:
+    assert parse_chain(chain(contract(optionDeliverablesList=deliverables)), "SPY", EXP) == []
+
+
 @pytest.mark.parametrize("change", [{"multiplier": 10}, {"nonStandard": True}, {"optionDeliverablesList": [{}]},
                                     {"symbol": "QQQ   261120C00500000"}, {"strikePrice": 499},
                                     {"symbol": "SPY   261120P00500000"}, {"symbol": "SPY   261121C00500000"}])

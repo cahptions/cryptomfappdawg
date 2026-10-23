@@ -56,10 +56,13 @@ def reader(paths: DeskPaths, name: str) -> Iterator[sqlite3.Connection]:
 
 
 def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
+    from desk.stocks.options_view import overlay
+
     preview = saved_view(paths, 'research')
+    options_view = saved_view(paths, 'options')
     with reader(paths, RESEARCH_FILE) as conn:
         research = StocksResearch(conn)
-        lists = research_lists(research, preview)
+        lists = overlay(research_lists(research, preview), options_view)
         latest = research.latest_asof()
         computed = conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0]
     with reader(paths, MARKET_FILE) as conn:
@@ -75,13 +78,14 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
     current_progress = saved_view(paths, "progress")
     return {"mode": "PAPER", "orders_enabled": False, "asof": str(latest) if latest else None, "lists": lists,
             "desks": DESK_LABELS, "listings": count, "jobs": jobs, "worker": saved_view(paths, "worker"),
-            "report_errors": [name for name in ("worker", "research", "paper")
+            "report_errors": [name for name in ("worker", "research", "paper", "options")
                               if (paths.home / f"stocks-{name}.json").exists() and saved_view(paths, name) is None],
             "worker_running": WorkerLock(paths, "stocks-worker").held(), "stop": paths.stop_file.exists(),
             "connection": connection_status(paths, loaded.settings.stocks, credentials),
             "source_keys": {name: credentials.configured(name) for name in
                             ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")},
             "price_progress": price_progress,
+            "options_research": options_view,
             "progress": current_progress,
             "research_preview": {key: (preview or {}).get(key)
                                  for key in ('asof', 'expected_asof', 'awaiting_newer_close')},
@@ -187,7 +191,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.get("/api/stocks/home")
     def research_home() -> dict[str, Any]:
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
-            return hub_home(market, research, preview=saved_view(paths, "research"))
+            return hub_home(market, research, preview=saved_view(paths, "research"), options_view=saved_view(paths, "options"))
 
     @app.post("/api/stocks/research/start")
     async def start_research() -> dict[str, Any]:
@@ -226,6 +230,25 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             raise HTTPException(400, "Invalid stock symbol")
         with reader(paths, MARKET_FILE) as conn:
             return option_table(conn, symbol.upper(), expiration=expiration)
+
+    @app.post("/api/stocks/stock/{symbol}/options/request")
+    def request_options(symbol: str) -> dict[str, Any]:
+        from desk.core.clock import utc_now
+        from desk.stocks.hub import INDEX_NAMES, SECTOR_NAMES
+
+        symbol = symbol.upper()
+        with reader(paths, MARKET_FILE) as conn:
+            if (symbol not in INDEX_NAMES and symbol not in SECTOR_NAMES
+                    and conn.execute("SELECT 1 FROM stk_listings WHERE symbol=? AND active=1 AND test=0",
+                                     (symbol,)).fetchone() is None):
+                raise HTTPException(404, "No active listing for this symbol")
+        conn = open_database(paths.db_dir / MARKET_FILE, DbKind.STOCKS_MARKET)
+        try:
+            StocksMarket(conn).request_options(symbol, utc_now())
+        finally:
+            conn.close()
+        return {"queued": True, "symbol": symbol, "running": collector.status()["running"],
+                "note": "Market-data research only. Processed by the next available bounded collection pass."}
 
     @app.post("/api/stocks/watch/{symbol}")
     def watch(symbol: str, action: Literal["add", "remove"] = "add") -> dict[str, Any]:

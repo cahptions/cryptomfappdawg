@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from desk.stocks import calendar as cal
@@ -76,13 +76,15 @@ def research_lists(research: StocksResearch, preview: dict[str, Any] | None = No
 
 
 def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
-         preview: dict[str, Any] | None = None) -> dict[str, Any]:
+         preview: dict[str, Any] | None = None, options_view: dict[str, Any] | None = None) -> dict[str, Any]:
+    from desk.stocks.options_view import overlay
+
     research = StocksResearch(research_conn)
     priority = ["market_activity", "options_activity", "trending", "gainers", "losers", "momentum", "committee",
                 "undervalued", "squeeze", "unusual_options",
                 "cheap_iv", "big_moves", "earnings_week", "insider_buying", "quality_fair", "new_highs"]
     wanted = research.watchlist()[:25]
-    lists = {value["id"]: value for value in research_lists(research, preview)}
+    lists = {value["id"]: value for value in overlay(research_lists(research, preview), options_view)}
     for list_id in priority:
         wanted.extend(r["symbol"] for r in lists[list_id]["rows"][:10])
     wanted = list(dict.fromkeys(wanted))[:150]
@@ -107,7 +109,11 @@ def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
             "basis": "Stored daily closes; ETF benchmarks are proxies, not index quotes. No live data calls."}
 
 
-def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | None = None) -> dict[str, Any]:
+def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | None = None,
+                 now: datetime | None = None) -> dict[str, Any]:
+    from desk.core.clock import utc_now
+    from desk.stocks.activity import quote_session
+
     market = StocksMarket(conn)
     # Read one compressed expiry; never unpack a full-universe chain for a page request.
     newest = conn.execute("SELECT MAX(day) FROM stk_option_chains WHERE underlying=?", (symbol,)).fetchone()[0]
@@ -115,7 +121,8 @@ def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | No
         return {"asof": None, "expirations": [], "contracts": [], "source": None}
     expirations = [date_of(r[0]) for r in conn.execute(
         "SELECT expiration FROM stk_option_chains WHERE underlying=? AND day=? ORDER BY expiration", (symbol, newest))]
-    selected = expiration if expiration is not None else next((e for e in expirations if e >= date_of(newest)), expirations[0])
+    expected = quote_session(now or utc_now())
+    selected = expiration if expiration is not None else next((e for e in expirations if e >= expected), expirations[0])
     row = conn.execute("SELECT * FROM stk_option_chains WHERE underlying=? AND day=? AND expiration=?",
                        (symbol, newest, selected.toordinal())).fetchone()
     if row is None:
@@ -123,12 +130,28 @@ def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | No
                 "contracts": [], "source": None, "expiration": selected.isoformat()}
     import zlib
 
-    raw = json.loads(zlib.decompress(row["chain_zlib"]))
+    try:
+        raw = json.loads(zlib.decompress(row["chain_zlib"]))
+        if (not isinstance(raw, list) or any(not isinstance(q, list) or len(q) != 10
+                or not isinstance(q[0], str) or q[1] not in ("call", "put")
+                or not isinstance(q[2], (int, float)) for q in raw)):
+            raise ValueError
+    except (ValueError, TypeError, zlib.error):
+        return {"asof": date_of(newest).isoformat(), "expirations": [e.isoformat() for e in expirations],
+                "contracts": [], "source": row["source"], "status": "stored_snapshot_unreadable",
+                "message": "This saved expiry is unreadable. Collection has been requested again; other symbols are unaffected."}
     price = market.chain_underlying_price(symbol, date_of(newest))
-    nearest = sorted(raw, key=lambda q: abs(float(q[2]) - float(price or q[2])))[:40]
+    # Balance both sides: a large one-sided chain cannot consume the other tab's entire allowance.
+    per_side = {kind: sorted((q for q in raw if q[1] == kind),
+                            key=lambda q: abs(float(q[2]) - float(price or q[2])) or q[2])
+                for kind in ("call", "put")}
+    allowance = 20 if all(per_side.values()) else 40
+    nearest = [q for side in per_side.values() for q in side[:allowance]]
     contracts = [{"occ": q[0], "kind": q[1], "strike": q[2], "bid": q[3], "ask": q[4],
                   "last": q[5], "volume": q[6], "open_interest": q[7], "quoted_at": q[9]} for q in nearest]
     return {"asof": date_of(newest).isoformat(), "observed_at": row["observed_at"], "source": row["source"],
+            "stored_contracts": len(raw), "displayed_contracts": len(contracts),
+            "stale_session": date_of(newest) < expected, "expired": selected < expected,
             "expirations": [e.isoformat() for e in expirations], "expiration": selected.isoformat(),
             "underlying_price": price, "contracts": sorted(contracts, key=lambda q: (q["strike"], q["kind"]))}
 
@@ -172,7 +195,8 @@ def etf_profile(conn: sqlite3.Connection, symbol: str, bars: list[dict[str, Any]
         if len(closes) < lookback or not np.isfinite(closes[-lookback:]).all():
             for key in keys:
                 px[key] = None
-    opt = options(StocksMarket(conn), days[-1], symbol=symbol).get(symbol, {})
+    latest_option = conn.execute("SELECT MAX(day) FROM stk_option_daily WHERE underlying=?", (symbol,)).fetchone()[0]
+    opt = options(StocksMarket(conn), date_of(latest_option) if latest_option else days[-1], symbol=symbol).get(symbol, {})
     desks = {}
     for key, measures in {"momentum": ("ret_21d", "ret_63d", "above_sma200"),
                           "risk": ("vol_20d", "max_drawdown_1y", "beta_1y")}.items():

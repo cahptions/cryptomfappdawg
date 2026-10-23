@@ -58,6 +58,22 @@ def parse_expirations(body: bytes) -> list[date]:
         raise SchemaError("schwab expirations: invalid expiration list") from exc
 
 
+def _standard_deliverable(row: dict[str, Any], symbol: str) -> bool:
+    """Schwab also describes *standard* contracts with an explicit 100-stock deliverable.
+
+    A nonempty list is not itself an adjustment. Cash, baskets, other underlyings and unknown
+    deliverables still need a separate contract model and are excluded.
+    """
+    if row.get("nonStandard", False) or row.get("mini", False) or _f(row.get("multiplier")) != 100:
+        return False
+    items = row.get("optionDeliverablesList")
+    if items is None or items == []:
+        return True
+    return (isinstance(items, list) and len(items) == 1 and isinstance(items[0], dict)
+            and items[0].get("symbol") == symbol and items[0].get("assetType") == "STOCK"
+            and _f(items[0].get("deliverableUnits")) == 100)
+
+
 def parse_chain(body: bytes, symbol: str, expiration: date) -> list[OptionQuote]:
     value = _body(body)
     out: dict[str, OptionQuote] = {}
@@ -76,8 +92,7 @@ def parse_chain(body: bytes, symbol: str, expiration: date) -> list[OptionQuote]
                         occ = str(row.get("symbol", "")).replace(" ", "")
                         strike = _f(row.get("strikePrice"))
                         if (not OCC.fullmatch(occ) or strike is None or strike <= 0
-                                or row.get("nonStandard", False) or _f(row.get("multiplier")) != 100
-                                or row.get("optionDeliverablesList")):
+                                or not _standard_deliverable(row, symbol)):
                             continue
                         # Contract identity must agree with its map, not just have a plausible-looking name.
                         if (occ[:-15] != symbol or occ[-15:-9] != exp.strftime("%y%m%d") or occ[-9] != kind[0].upper()
