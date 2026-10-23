@@ -95,8 +95,8 @@ async function api(path, body, renewSession = true) {
   } catch (error) {
     throw Error(
       error.name === "TimeoutError"
-        ? "The dashboard took too long to respond. Keep its terminal open and try again."
-        : "Cannot reach the dashboard. Keep the terminal running desk stocks dashboard open; restart it if it was stopped.",
+        ? "Stocks took too long to respond. Try again; if it persists, use Evidence → Check data health."
+        : "Cannot reach Stocks. Reopen KESTREL Stocks, then use Evidence → Check data health.",
     );
   }
   let value;
@@ -104,7 +104,7 @@ async function api(path, body, renewSession = true) {
     value = await response.json();
   } catch {
     throw Error(
-      `Dashboard returned an unreadable response (HTTP ${response.status}). Check System or run desk stocks diagnose.`,
+      `Stocks returned an unreadable response (HTTP ${response.status}). Use Evidence → Check data health.`,
     );
   }
   if (
@@ -249,7 +249,7 @@ function updateConnectionControls() {
 function sourceSetup() {
   const box = panel(
       "Start here · free stock research",
-      "PAPER and collection start automatically with the app. Save these sources to add stock history and filings; unavailable inputs make the affected strategies wait. If paused, use Start PAPER.",
+      "Connected Schwab is preferred for viewed-stock quotes and up to 20 years of available daily chart history. Set it up in the Schwab connection section below. Massive supplies separate market-wide closing-price history for research and daily PAPER; SEC supplies company filings. Collection starts automatically unless paused.",
     ),
     form = el("form"),
     fields = {},
@@ -258,7 +258,7 @@ function sourceSetup() {
     [
       "massive-key",
       "MASSIVE_API_KEY",
-      "1. Stock price history · Massive",
+      "1. Broad-market history · Massive",
       "Create a free account, choose Stocks Basic ($0), then copy the API key from your account dashboard. End-of-day prices, not live quotes. A recent-close 403 can mean publication delay or missing plan entitlement; the app retries and keeps downloading accessible older dates. Check your plan access before replacing a working key. Options chains use their own connection.",
       "password",
       "https://massive.com/",
@@ -405,7 +405,12 @@ function discover(selected) {
     if (list.rows.length)
       box.append(
         table(
-          ["Rank", "Stock", list.options_clock ? "Underlying at snapshot" : "Reference close", "Why it appears"],
+          [
+            "Rank",
+            "Stock",
+            list.options_clock ? "Underlying at snapshot" : "Reference close",
+            "Why it appears",
+          ],
           list.rows.map((r) => [
             r.rank,
             link(r.symbol, `#stock/${encodeURIComponent(r.symbol)}`),
@@ -418,7 +423,8 @@ function discover(selected) {
       box.append(
         el(
           "p",
-          list.empty_reason || "No qualifying stocks recorded. Check System for missing sources or warm-up history.",
+          list.empty_reason ||
+            "No qualifying stocks recorded. Check System for missing sources or warm-up history.",
           "notice",
         ),
       );
@@ -439,11 +445,32 @@ async function paperPage(ticket) {
   const data = await api("paper");
   if (ticket !== generation) return;
   const accounts = data.report?.accounts || [];
+  if (data.session_status) {
+    const s = data.session_status,
+      box = panel("What a PAPER session means", s.explanation);
+    box.append(
+      el(
+        "p",
+        `Last processed: ${s.last_processed || "not yet"} · Newest stored closing prices: ${s.latest_prices || "not yet"} · Pending simulated orders: ${s.pending_orders}.`,
+      ),
+    );
+    box.append(
+      el(
+        "p",
+        s.waiting_for_prices
+          ? `Waiting for published closing prices through ${s.expected_close}${s.price_source_error ? "; the price source currently reports a problem" : ""}. New imports do not create extra forward trading days.`
+          : "The daily PAPER engine processes each closed session once. Repeated collection does not increase this count.",
+        "muted",
+      ),
+    );
+    box.append(link("Check data health & progress ↗", "#proof"));
+    app.append(box);
+  }
   if (!accounts.length) {
     app.append(
       panel(
         "The forward record starts here",
-        "Run the Stocks PAPER worker after connecting the free sources. Historical prices do not create an instant forward trading record.",
+        "PAPER starts automatically with this app unless paused. Connect data in Settings; eligible strategies begin as their inputs arrive. Historical research comparisons and recorded forward trades are separate records.",
       ),
     );
     return;
@@ -481,25 +508,6 @@ async function paperPage(ticket) {
     details("Report, costs and uncertainty", data.report),
   );
 }
-async function proofPage(ticket) {
-  heading(
-    "Evidence before confidence.",
-    "Historical reconstruction, synthetic checks and genuine forward observations are different records.",
-  );
-  const data = await api("proof");
-  if (ticket !== generation) return;
-  app.append(
-    panel(
-      "Validation status",
-      data.validation
-        ? "A stored validation report is available below. Inspect its caveats, uncertainty and source coverage before interpreting any grade."
-        : "No validation report yet. After history is collected, run: uv run desk stocks validate",
-    ),
-  );
-  if (data.validation)
-    app.append(details("Stored validation report", data.validation));
-  app.append(details("Recent research runs", data.runs));
-}
 function systemPage() {
   heading(
     "System.",
@@ -527,7 +535,7 @@ function systemPage() {
     app.append(
       panel(
         "Stored report needs rebuilding",
-        `${snapshot.report_errors.join(", ")} report unavailable. Collected observations remain saved; run desk stocks diagnose.`,
+        `${snapshot.report_errors.join(", ")} report unavailable. Collected observations remain saved. Research rebuilds during collection; use Evidence → Check data health to see any blockers.`,
       ),
     );
   if (snapshot.connection.configuration_error)
@@ -554,22 +562,53 @@ function systemPage() {
     ),
   );
   if (snapshot.options_research) {
-    const options = snapshot.options_research, coverage = options.coverage;
-    app.append(panel(
-      "Options coverage",
-      `Options session ${options.asof || "not collected"} · ${coverage.same_session_options} underlyings · ${coverage.sampled_contracts} contracts · ${coverage.liquid_contracts} usable quotes · ${coverage.quality_pass} activity-qualified underlyings. Options update independently of stock-history backfill.`,
-    ));
-    app.append(table(
-      ["Underlying", "Stored contracts", "Usable quotes", "Activity status", "Quote exclusions"],
-      Object.entries(coverage.symbols).map(([symbol, info]) => [
-        symbol, info.contracts, info.liquid_contracts, info.reason?.replaceAll("_", " ") || "Qualified",
-        Object.entries(info.rejected || {}).filter(([, count]) => count).map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`).join("; ") || "None",
-      ]),
-    ));
+    const options = snapshot.options_research,
+      coverage = options.coverage;
+    app.append(
+      panel(
+        "Options coverage",
+        `Options session ${options.asof || "not collected"} · ${coverage.same_session_options} underlyings · ${coverage.sampled_contracts} contracts · ${coverage.liquid_contracts} usable quotes · ${coverage.quote_quality_pass ?? "—"} quote-qualified underlyings · ${coverage.quality_pass} activity-qualified underlyings. Missing day volume can block activity rankings while chains and quote-based research remain usable.`,
+      ),
+    );
+    app.append(
+      table(
+        [
+          "Underlying",
+          "Stored contracts",
+          "Usable quotes",
+          "Activity status",
+          "Reported daily volume",
+          "Quote exclusions",
+        ],
+        Object.entries(coverage.symbols).map(([symbol, info]) => [
+          symbol,
+          info.contracts,
+          info.liquid_contracts,
+          info.reason === "low_sampled_volume"
+            ? "No positive volume or below the activity threshold"
+            : info.reason?.replaceAll("_", " ") || "Qualified",
+          info.provider_diagnostics?.raw_contracts &&
+          !info.provider_diagnostics.volume_fields_present
+            ? "Field not supplied"
+            : number(info.reported_volume),
+          Object.entries(info.rejected || {})
+            .filter(([, count]) => count)
+            .map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`)
+            .join("; ") || "None",
+        ]),
+      ),
+    );
   }
-  if (snapshot.jobs.prices?.last_error?.includes("403") || snapshot.jobs.prices?.detail?.deferred_403?.length)
-    app.append(panel("Recent stock prices unavailable",
-      "Massive denied a closing-price request. This can mean the close is not yet available on your plan or the app lacks entitlement. Older downloads continue when accessible. Options chains do not wait for this source. Check the Massive account link in Settings; replacing a key is not always the solution."));
+  if (
+    snapshot.jobs.prices?.last_error?.includes("403") ||
+    snapshot.jobs.prices?.detail?.deferred_403?.length
+  )
+    app.append(
+      panel(
+        "Broad-market closing-price backfill delayed",
+        "Massive denied a bulk closing-price request. This affects market-wide research and daily PAPER processing. Viewed stock charts and quotes now prefer connected Schwab data and update independently, as do options chains. Check your Massive plan's history and publication access in Settings. A per-stock Schwab download does not mark the whole market's closing prices complete.",
+      ),
+    );
   app.append(
     panel(
       "Automatic PAPER simulation",
@@ -600,7 +639,7 @@ async function settingsPage() {
   form.append(
     el(
       "p",
-      "For Schwab, choose Schwab market data. Copy Client ID into App key and Client Secret into App secret.",
+      "Copy Client ID into App key and Client Secret into App secret, save, then authorize with your brokerage login. Connected Schwab supplies stock-page quotes and long chart history automatically. Select Schwab below to use it for options too. No additional history API key is needed. Quotes show their actual timestamps; entitlement and market hours determine freshness.",
       "muted",
     ),
   );
@@ -732,7 +771,7 @@ async function settingsPage() {
     "Keep the dashboard terminal running. If collection is active, use Pause collector to save above. A collector started in a separate terminal must be stopped in that collector's terminal; do not stop desk stocks dashboard.",
     "Copy Client ID and Client Secret from the approved Schwab app into these fields. Choose Schwab market data, keep the registered callback identical, then click Save privately. Blank fields preserve already saved values.",
     "Click Start browser authorization, then Open Schwab authorization. Complete the broker login in your browser. Allow a self-signed warning only for your exact local callback address.",
-    "Check the connection below, then run uv run desk stocks doctor --online. That makes one SPY market quote request and places no order.",
+    "Choose Test market-data access below. This checks a SPY quote through your selected connection and places no order.",
     "If Schwab rejects the local callback registration, a free Tailscale .ts.net HTTPS hostname is the optional fallback. Read docs/SCHWAB.md before configuring Serve; KESTREL never enables public Funnel.",
   ]) {
     steps.append(el("li", text));
@@ -782,7 +821,7 @@ async function settingsPage() {
           ),
           el(
             "p",
-            "After authorization, run uv run desk stocks doctor --online to verify market-data access.",
+            "After authorization, choose Test market-data access below to verify the connection.",
             "muted",
           ),
         );
@@ -793,6 +832,21 @@ async function settingsPage() {
     }
   }
   update();
+  const test = el("button", "Test market-data access"),
+    result = el("p", undefined, "muted");
+  test.type = "button";
+  test.onclick = async () => {
+    test.disabled = true;
+    result.textContent = "Checking your selected provider…";
+    try {
+      result.textContent = (await api("connection/test", {})).message;
+    } catch (error) {
+      result.textContent = error.message;
+    } finally {
+      test.disabled = false;
+    }
+  };
+  health.append(test, result);
   updateConnectionControls();
 }
 async function render() {
@@ -814,11 +868,12 @@ async function render() {
       heading("Loading stock…");
       await stock(decodeURIComponent(route.slice(6)), ticket);
     } else if (route === "paper") await paperPage(ticket);
-    else if (route === "proof") await proofPage(ticket);
+    else if (route === "proof") await KestrelEvidence.show(ticket);
     else if (route === "settings") await settingsPage();
     else if (route === "system") systemPage();
-    else if (route === "lists" || route.startsWith("lists/"))
-      discover(route.split("/")[1]);
+    else if (route === "stocks" || route === "lists")
+      await KestrelExplore.show(ticket);
+    else if (route.startsWith("lists/")) discover(route.split("/")[1]);
     else
       await KestrelResearch.home(
         ticket,
@@ -842,7 +897,13 @@ async function refresh(initial = false) {
       JSON.stringify(previous?.collection) !==
         JSON.stringify(snapshot.collection) ||
       JSON.stringify(previous?.revision) !== JSON.stringify(snapshot.revision);
-    if (initial || (changed && location.hash !== "#settings")) render();
+    if (
+      initial ||
+      (changed &&
+        location.hash !== "#settings" &&
+        !document.querySelector("dialog[open]"))
+    )
+      render();
     else if (location.hash === "#settings") {
       // Keep unsaved credentials intact while updating start/pause state during a long collection pass.
       for (const node of document.querySelectorAll(".collection-controls"))

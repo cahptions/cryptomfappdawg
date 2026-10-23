@@ -60,6 +60,7 @@ class StocksSuite:
     client: httpx.AsyncClient
     problems: dict[str, str] = field(default_factory=dict)   # source → what the operator must do
     option_source: str = "tradier_sandbox"
+    schwab: SchwabClient | None = None
 
     @property
     def options(self) -> OptionData:
@@ -94,6 +95,7 @@ def build_stocks_suite(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets,
                                     http("apewisdom"), http("openfigi")),
                         MassiveClient(http("massive")), TradierClient(tradier), limiter, health, http_client)
     suite.option_source = tradier.name
+    suite.schwab = SchwabClient(http("schwab"), SchwabTokens(token_path(paths), secrets))
     try:
         provider = preferences(paths, settings.stocks)["options_provider"]
     except SchwabAuthError:
@@ -102,7 +104,7 @@ def build_stocks_suite(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets,
         suite.option_source = "unavailable"
         suite.problems["options"] = "Saved options connection settings are invalid; save the connection again"
     if provider == "schwab":
-        suite.tradier = SchwabClient(http("schwab"), SchwabTokens(token_path(paths), secrets))
+        suite.tradier = suite.schwab
         suite.option_source = "schwab"
     if sec_www.user_agent is None:
         suite.problems["sec"] = ("SEC_CONTACT_EMAIL is not in secrets.env: the SEC asks every program to name a contact, "

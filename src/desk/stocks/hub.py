@@ -110,7 +110,7 @@ def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
 
 
 def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | None = None,
-                 now: datetime | None = None) -> dict[str, Any]:
+                 now: datetime | None = None, limit: int = 40) -> dict[str, Any]:
     from desk.core.clock import utc_now
     from desk.stocks.activity import quote_session
 
@@ -145,7 +145,7 @@ def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | No
     per_side = {kind: sorted((q for q in raw if q[1] == kind),
                             key=lambda q: abs(float(q[2]) - float(price or q[2])) or q[2])
                 for kind in ("call", "put")}
-    allowance = 20 if all(per_side.values()) else 40
+    allowance = limit // 2 if all(per_side.values()) else limit
     nearest = [q for side in per_side.values() for q in side[:allowance]]
     contracts = [{"occ": q[0], "kind": q[1], "strike": q[2], "bid": q[3], "ask": q[4],
                   "last": q[5], "volume": q[6], "open_interest": q[7], "quoted_at": q[9]} for q in nearest]

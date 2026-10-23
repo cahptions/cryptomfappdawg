@@ -119,7 +119,9 @@ def test_forward_pipeline_and_populated_dashboard_are_idempotent(tmp_path: Path)
             snapshot = client.get("/api/stocks/snapshot").json()
             assert snapshot["asof"] == NOW.date().isoformat() and snapshot["lists"]
             detail = client.get("/api/stocks/stock/CHEAP").json()
-            assert len(detail["analysis"]["desks"]) == 11 and len(detail["bars"]) <= 400
+            assert len(detail["analysis"]["desks"]) == 11
+            assert len(detail["bars"]) == len(world.market.bars("CHEAP")) > 400
+            assert detail["coverage"]["sessions"] == len(detail["bars"])
             accounts = client.get("/api/stocks/paper").json()["report"]["accounts"]
             assert accounts and all(a["deposits"] in {10000, 50000} for a in accounts)
             assert client.get("/api/stocks/stock/TOO_LONG_SYMBOL").status_code == 400

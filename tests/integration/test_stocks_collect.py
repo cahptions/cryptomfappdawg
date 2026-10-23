@@ -354,7 +354,7 @@ async def test_crowd_rates_and_option_chains(world: World) -> None:
     assert collect.pick_expirations(exps, date(2026, 10, 21), earnings=date(2026, 11, 25)) == exps
     # a PAPER position holding the far expiration keeps it quoted
     report = await collect.option_chains(world.suite, world.market, NOW, [], rate=0.04, last_prices={"SPCX": 100.0},
-                                         held={"SPCX": {far}})
+                                         held={"SPCX": {far}}, clock=lambda: NOW)
     assert report["ok"] and report["symbols"] == 1
     assert sorted(world.market.option_chain("SPCX")[1]) == [*exps, far]
 

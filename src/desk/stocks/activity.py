@@ -14,7 +14,7 @@ from desk.stocks.contracts import OptionQuote
 if TYPE_CHECKING:
     from desk.stocks.analysis import Day
 
-VERSION = 2
+VERSION = 3
 WEIGHTS = {"option_premium": .25, "option_volume": .20, "volume_oi": .10, "quote_quality": .10,
            "relative_volume": .15, "standardized_move": .10, "relative_strength": .10}
 
@@ -59,6 +59,8 @@ def chain_activity(quotes: Sequence[OptionQuote], observed_at: datetime) -> dict
             "volume": volume, "open_interest": oi, "volume_oi": volume / oi if oi else None,
             "premium_proxy": sum(q.volume * (q.mid or 0) * 100 for q in traded),
             "median_spread": statistics.median(spreads) if spreads else None,
+            "median_quoted_spread": statistics.median([(q.ask-q.bid)/q.mid for q in liquid
+                                                       if q.ask is not None and q.bid is not None and q.mid]) if liquid else None,
             "call_volume": sum(q.volume for q in liquid if q.kind == "call"),
             "put_volume": sum(q.volume for q in liquid if q.kind == "put"), "rejected": rejected,
             "basis": "Sampled standard contracts only. Volume × quote midpoint × 100 is a premium proxy, not actual "

@@ -376,7 +376,8 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                     # Persist the actual chain even when a subsequent underlying quote fails.
                     # Never replace a useful stored expiry with an empty parser/provider response.
                     if chains[e]:
-                        market.save_option_chain(symbol, today, e, received_at, last_prices.get(symbol), chains[e],
+                        market.save_option_chain(symbol, quote_session(received_at), e, received_at,
+                                                 last_prices.get(symbol), chains[e],
                                                  source=suite.option_source)
                         contracts += len(chains[e])
                 if not any(chains.values()):
@@ -392,15 +393,18 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                     coverage[symbol] = {"status": "missing_underlying_price", "contracts": sum(map(len, chains.values()))}
                     continue
                 received_at = clock()
+                capture_day = quote_session(received_at)
                 for e, quotes in chains.items():
                     if quotes:
-                        market.save_option_chain(symbol, today, e, received_at, price, quotes, source=suite.option_source)
+                        market.save_option_chain(symbol, capture_day, e, received_at, price, quotes, source=suite.option_source)
                 valid, _ = qualified_quotes([q for qs in chains.values() for q in qs], received_at)
-                summary = opt.daily_summary({e: [q for q in valid if q.expiration == e] for e in chains}, price, today, rate)
+                summary = opt.daily_summary({e: [q for q in valid if q.expiration == e] for e in chains},
+                                            price, capture_day, rate)
                 summary["activity"] = chain_activity([q for qs in chains.values() for q in qs], received_at)
                 summary["analytics_version"] = OPTIONS_VERSION
                 summary["source"] = suite.option_source
-                market.save_option_daily(symbol, today, received_at, summary)
+                summary["provider_diagnostics"] = dict(getattr(suite.tradier, "chain_diagnostics", {}).get(symbol, {}))
+                market.save_option_daily(symbol, capture_day, received_at, summary)
                 coverage[symbol] = {"status": "collected", **summary["activity"]}
                 done += 1
             except DeskError as exc:

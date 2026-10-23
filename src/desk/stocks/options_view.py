@@ -37,7 +37,7 @@ def build(market: StocksMarket, now: datetime) -> dict[str, Any]:
     session = min(latest, expected) if latest else expected
     summaries = {s: o for s, o in options(market, session).items() if o["day"] == session.isoformat()}
     rows: dict[str, list[dict[str, Any]]] = {key: [] for key in OPTION_LISTS}
-    coverage: dict[str, Any] = {"same_session_options": len(summaries), "quality_pass": 0,
+    coverage: dict[str, Any] = {"same_session_options": len(summaries), "quality_pass": 0, "quote_quality_pass": 0,
                                "sampled_contracts": 0, "liquid_contracts": 0, "excluded": {}, "symbols": {}}
     for symbol, summary in summaries.items():
         activity = summary.get("activity") or {}
@@ -46,23 +46,31 @@ def build(market: StocksMarket, now: datetime) -> dict[str, Any]:
         coverage["liquid_contracts"] += activity.get("liquid_contracts", 0)
         coverage["symbols"][symbol] = {"reason": failure, "contracts": activity.get("sampled_contracts", 0),
                                         "liquid_contracts": activity.get("liquid_contracts", 0),
+                                        "reported_volume": activity.get("volume"),
+                                        "provider_diagnostics": summary.get("provider_diagnostics"),
                                         "rejected": activity.get("rejected", {})}
         if failure:
             excluded = coverage["excluded"]
             excluded[failure] = excluded.get(failure, 0) + 1
+        else:
+            coverage["quality_pass"] += 1
+        usable_quotes = (activity.get("session") == session.isoformat() and activity.get("liquid_contracts", 0) >= 4
+                         and activity.get("open_interest", 0) >= 100)
+        if not usable_quotes:
             continue
-        coverage["quality_pass"] += 1
+        coverage["quote_quality_pass"] += 1
 
         def row(value: float, reason: str, s: str = symbol, o: dict[str, Any] = summary,
                 a: dict[str, Any] = activity) -> dict[str, Any]:
             return {"symbol": s, "value": value, "reason": reason, "price": o.get("price"),
                     "observed_at": o.get("observed_at"), "options": a}
 
-        rows["options_activity"].append(row(activity["premium_proxy"],
-            f"{activity['volume']:,} sampled contracts; ${activity['premium_proxy']:,.0f} midpoint premium proxy; "
-            f"volume/OI {activity['volume_oi']:.2f}; median spread {activity['median_spread']:.1%}. "
-            "Not trade direction or opening interest."))
-        for unusual in summary.get("unusual", [])[:1]:
+        if not failure:
+            rows["options_activity"].append(row(activity["premium_proxy"],
+                f"{activity['volume']:,} sampled contracts; ${activity['premium_proxy']:,.0f} midpoint premium proxy; "
+                f"volume/OI {activity['volume_oi']:.2f}; median spread {activity['median_spread']:.1%}. "
+                "Not trade direction or opening interest."))
+        for unusual in ([] if failure else summary.get("unusual", [])[:1]):
             premium = unusual["volume"] * (unusual.get("mid") or 0) * 100
             rows["unusual_options"].append(row(premium,
                 f"{unusual['volume']:,} {unusual['expiration']} ${unusual['strike']:g} {unusual['kind']} contracts; "
@@ -85,7 +93,8 @@ def build(market: StocksMarket, now: datetime) -> dict[str, Any]:
         values.sort(key=lambda r: (r["value"] if key == "cheap_iv" else -r["value"], r["symbol"]))
         rows[key] = [{**r, "rank": i} for i, r in enumerate(values[:25], 1)]
     messages = {
-        "options_activity": "No underlyings pass the activity gates. See System for contract counts and quote exclusions.",
+        "options_activity": "No underlyings pass the measured-activity gates. If usable quotes exist but the provider "
+                            "reports no daily volume, chains, contract screens and price-based option measures remain available.",
         "unusual_options": "Chains were checked; no sampled contract meets the high-volume ratio rule.",
         "cheap_iv": "Relative IV needs usable option quotes and 21 consecutive closing prices through the same session. "
                     "Chains and other option lists update while that history is unavailable.",

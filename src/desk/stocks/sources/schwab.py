@@ -14,7 +14,8 @@ from typing import Any
 
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
-from desk.stocks.contracts import OptionQuote, StockQuote
+from desk.stocks import calendar as cal
+from desk.stocks.contracts import Bar, OptionQuote, StockQuote
 from desk.stocks.schwab_auth import SchwabTokens
 
 OCC = re.compile(r"^[A-Z0-9.]{1,6}\d{6}[CP]\d{8}$")
@@ -123,10 +124,36 @@ def parse_quotes(body: bytes) -> list[StockQuote]:
         raise SchemaError("schwab quotes: invalid quote map") from exc
 
 
+def parse_history(body: bytes, symbol: str) -> list[Bar]:
+    """Keep Schwab's candles separate from unadjusted bulk bars; never adjust them twice."""
+    value = _body(body)
+    try:
+        if value.get("symbol") != symbol or not isinstance(value.get("candles"), list):
+            raise ValueError
+        if len(value["candles"]) > 10000:
+            raise ValueError
+        out: dict[date, Bar] = {}
+        for row in value["candles"]:
+            stamp = _time(row["datetime"])
+            op, hi, lo, cl, volume = (_f(row[k]) for k in ("open", "high", "low", "close", "volume"))
+            if (stamp is None or any(v is None for v in (op, hi, lo, cl, volume))
+                    or op is None or hi is None or lo is None or cl is None or volume is None
+                    or min(op, hi, lo, cl) <= 0 or hi < max(op, lo, cl) or lo > min(op, hi, cl)):
+                raise ValueError
+            day = cal.new_york(stamp).date()
+            if day in out:
+                raise ValueError  # a daily request must not return intraday/duplicate candles
+            out[day] = Bar(symbol, day, op, hi, lo, cl, volume)
+        return [out[d] for d in sorted(out)]
+    except (KeyError, ValueError, TypeError, AttributeError) as exc:
+        raise SchemaError("schwab price history: invalid daily candles; existing history preserved") from exc
+
+
 class SchwabClient:
     def __init__(self, http: ProviderHttp, tokens: SchwabTokens) -> None:
         self.http, self.tokens = http, tokens
         self.http.auth_headers = tokens.headers
+        self.chain_diagnostics: dict[str, dict[str, int]] = {}
 
     @property
     def configured(self) -> bool:
@@ -134,21 +161,43 @@ class SchwabClient:
 
     async def _get(self, endpoint: str, params: dict[str, Any]) -> bytes:
         if not self.configured:
-            raise ProviderError("schwab", ProviderErrorKind.HTTP_ERROR, "Schwab is not connected; run desk stocks connect")
+            raise ProviderError("schwab", ProviderErrorKind.HTTP_ERROR, "Schwab is not connected; reconnect in Settings")
         response = await self.http.request(endpoint, params=params)
         if response.status != 200:
             raise ProviderError("schwab", ProviderErrorKind.HTTP_ERROR, f"{endpoint}: HTTP {response.status}", response.status)
         return response.body
 
     async def expirations(self, symbol: str) -> list[date]:
+        self.chain_diagnostics[symbol] = {"raw_contracts": 0, "parsed_contracts": 0, "volume_fields_present": 0,
+                                         "positive_volume_contracts": 0, "reported_volume": 0}
         return parse_expirations(await self._get("expirations", {"symbol": symbol}))
 
     async def chain(self, symbol: str, expiration: date) -> list[OptionQuote]:
-        return parse_chain(await self._get("chains", {"symbol": symbol, "contractType": "ALL", "strategy": "SINGLE",
+        body = await self._get("chains", {"symbol": symbol, "contractType": "ALL", "strategy": "SINGLE",
                                                        "fromDate": expiration.isoformat(), "toDate": expiration.isoformat(),
-                                                       "includeUnderlyingQuote": "true"}), symbol, expiration)
+                                                       "includeUnderlyingQuote": "true"})
+        parsed = parse_chain(body, symbol, expiration)
+        value = _body(body)
+        stats = self.chain_diagnostics.setdefault(symbol, {"raw_contracts": 0, "parsed_contracts": 0,
+              "volume_fields_present": 0, "positive_volume_contracts": 0, "reported_volume": 0})
+        for field in ("callExpDateMap", "putExpDateMap"):
+            for strikes in (value.get(field) or {}).values():
+                for contracts in strikes.values():
+                    for row in contracts:
+                        volume = _f(row.get("totalVolume"))
+                        stats["raw_contracts"] += 1
+                        stats["volume_fields_present"] += volume is not None
+                        stats["positive_volume_contracts"] += bool(volume)
+                        stats["reported_volume"] += int(volume or 0)
+        stats["parsed_contracts"] += len(parsed)
+        return parsed
 
     async def quotes(self, symbols: list[str]) -> list[StockQuote]:
         if not 1 <= len(symbols) <= 100:
             raise ValueError("Schwab quote batches contain 1..100 symbols")
         return parse_quotes(await self._get("quotes", {"symbols": ",".join(symbols), "fields": "quote"}))
+
+    async def price_history(self, symbol: str) -> list[Bar]:
+        return parse_history(await self._get("pricehistory", {
+            "symbol": symbol, "periodType": "year", "period": 20, "frequencyType": "daily", "frequency": 1,
+            "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)

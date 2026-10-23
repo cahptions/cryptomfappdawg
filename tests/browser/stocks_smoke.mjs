@@ -136,7 +136,7 @@ try {
         .waitFor();
     await page.goto(`${base}/#proof`);
     await page
-      .getByRole("heading", { name: "Evidence before confidence." })
+      .getByRole("heading", { name: "Evidence", exact: true })
       .waitFor();
     await page.goto(`${base}/#system`);
     await page.getByRole("heading", { name: "System.", exact: true }).waitFor();

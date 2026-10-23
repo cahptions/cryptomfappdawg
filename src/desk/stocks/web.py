@@ -9,11 +9,11 @@ import sqlite3
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -22,9 +22,12 @@ from desk.core.errors import DeskError
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import load_secrets
 from desk.core.worker_lock import WorkerLock
+from desk.stocks.calculator import ScenarioInput
 from desk.stocks.cli import new_login
 from desk.stocks.connection import LoginAttempt, connection_status, save_connection, save_sources
 from desk.stocks.desks import DESK_LABELS
+from desk.stocks.evidence_job import EvidenceWorker
+from desk.stocks.evidence_job import document as evidence_document
 from desk.stocks.hub import adjusted_bars, option_table, research_lists
 from desk.stocks.hub import home as hub_home
 from desk.stocks.paper.book import PaperBook
@@ -102,7 +105,7 @@ def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
         watched = symbol in StocksResearch(conn).watchlist()
     with reader(paths, MARKET_FILE) as conn:
         rows = conn.execute("SELECT day, open, high, low, close, volume FROM stk_bars WHERE symbol=? "
-                            "ORDER BY day DESC LIMIT 400", (symbol,)).fetchall()
+                            "ORDER BY day DESC LIMIT 20000", (symbol,)).fetchall()
         bars = adjusted_bars(conn, symbol, [dict(r) for r in reversed(rows)])
         listing = conn.execute("SELECT name, exchange, kind, etf FROM stk_listings WHERE symbol=?", (symbol,)).fetchone()
         from desk.stocks.hub import INDEX_NAMES, SECTOR_NAMES
@@ -112,16 +115,54 @@ def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
             from desk.stocks.hub import etf_profile
 
             value = etf_profile(conn, symbol, bars, listing["name"])
+        from desk.core.clock import utc_now
+        from desk.stocks.stock_views import read as stock_view
+
+        cached = stock_view(conn, symbol, utc_now())
+        basis = "Split-adjusted daily OHLC; no dividends"
+        source = "Massive · stored bulk history"
+        if cached["bars"]:
+            bars = cached.pop("bars")
+            basis, source = cached["basis"], cached["source"]
+            from desk.stocks import calendar as cal
+
+            for index, bar in enumerate(bars):
+                bar["gap_before"] = bool(index and cal.next_trading_day(date.fromordinal(bars[index - 1]["day"]))
+                                          != date.fromordinal(bar["day"]))
+        else:
+            cached.pop("bars")
     return {"symbol": symbol, "analysis": value, "bars": bars, "watchlisted": watched,
-            "listing": dict(listing) if listing else None, "chart_basis": "Split-adjusted daily OHLC; no dividends"}
+            "listing": dict(listing) if listing else None, "chart_basis": basis, "chart_source": source,
+            "stock_data": cached, "quote": cached.get("quote"),
+            "coverage": {"first": date.fromordinal(bars[0]["day"]).isoformat() if bars else None,
+                         "last": date.fromordinal(bars[-1]["day"]).isoformat() if bars else None,
+                         "sessions": len(bars)}}
 
 
 def paper(paths: DeskPaths) -> dict[str, Any]:
+    from desk.core.clock import utc_now
+    from desk.stocks import calendar as cal
+
     with reader(paths, LEDGER_FILE) as conn:
         book = PaperBook(conn)
         positions = [asdict(p) for p in book.positions()][:500]
-        return {"report": saved_view(paths, "paper"), "positions": positions, "decisions": book.decisions(limit=100),
-                "events": book.events(limit=100)}
+        last = book.last_step()
+        result = {"report": saved_view(paths, "paper"), "positions": positions, "decisions": book.decisions(limit=100),
+                  "events": book.events(limit=100)}
+        pending = len(book.pending())
+    delay = load_config(paths.config_dir).settings.stocks.refresh_after_close_minutes
+    target = cal.last_closed_session(utc_now(), timedelta(minutes=delay))
+    with reader(paths, MARKET_FILE) as conn:
+        days = StocksMarket(conn).bar_days()
+        latest = days[-1] if days else None
+        price_error = StocksMarket(conn).jobs().get("prices", {}).get("last_error")
+    result["session_status"] = {"last_processed": last.isoformat() if last else None,
+        "latest_prices": latest.isoformat() if latest else None, "expected_close": target.isoformat(),
+        "waiting_for_prices": latest is None or latest < target, "pending_orders": pending,
+        "price_source_error": bool(price_error),
+        "explanation": "Sessions are recorded trading days, not imports or application restarts. Evidence-grade "
+                       "thresholds do not block PAPER entries. Daily decisions need the next session's prices to fill."}
+    return result
 
 
 def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: ResearchWorker | None = None,
@@ -131,6 +172,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     attempt: LoginAttempt | None = None
     login_lock = asyncio.Lock()
     collector = worker or ResearchWorker(paths)
+    evidence = EvidenceWorker(paths)
 
     def login_pending() -> bool:
         return attempt is not None and (not attempt.complete.is_set() or attempt.thread.is_alive())
@@ -141,6 +183,16 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         dbs.close()
         automation_stop = asyncio.Event()
 
+        async def stock_data() -> None:
+            from desk.stocks.stock_views import refresh
+
+            while not automation_stop.is_set():
+                if collector.status().get("enabled") and not paths.stop_file.exists():
+                    with suppress(DeskError, sqlite3.Error, TimeoutError):
+                        await asyncio.wait_for(refresh(paths, config), 45)
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 5)
+
         async def maintain() -> None:
             while not automation_stop.is_set():
                 await asyncio.to_thread(collector.maintain)
@@ -150,13 +202,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         if auto_start:
             await asyncio.to_thread(collector.maintain)
         automation = asyncio.create_task(maintain()) if auto_start else None
+        stock_automation = asyncio.create_task(stock_data()) if auto_start else None
         try:
             yield
         finally:
             if automation is not None:
                 automation_stop.set()
                 await asyncio.gather(automation, return_exceptions=True)
+            if stock_automation is not None:
+                stock_automation.cancel()
+                await asyncio.gather(stock_automation, return_exceptions=True)
             await asyncio.to_thread(collector.stop, pause=False)
+            await asyncio.to_thread(evidence.close)
             if attempt is not None:
                 await asyncio.to_thread(attempt.stop)
 
@@ -169,8 +226,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
     @app.exception_handler(sqlite3.Error)
     async def storage_error(_: Request, exc: sqlite3.Error) -> JSONResponse:
-        return JSONResponse({"detail": "Stocks database is busy or unavailable. Run desk stocks diagnose; "
-                                       "existing data was preserved."}, status_code=503)
+        return JSONResponse({"detail": "Stored data is temporarily busy or unavailable. Use Evidence → Check data health "
+                                       "and retry. Existing data was preserved."}, status_code=503)
 
     @app.get("/")
     def home() -> FileResponse:
@@ -192,6 +249,14 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def research_home() -> dict[str, Any]:
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
             return hub_home(market, research, preview=saved_view(paths, "research"), options_view=saved_view(paths, "options"))
+
+    @app.get("/api/stocks/explore")
+    def explore() -> dict[str, Any]:
+        from desk.core.clock import utc_now
+        from desk.stocks.explore import option_setups, price_volume
+
+        with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
+            return {"option_setups": option_setups(market, utc_now()), "price_volume": price_volume(research)}
 
     @app.post("/api/stocks/research/start")
     async def start_research() -> dict[str, Any]:
@@ -225,11 +290,59 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         return detail(paths, symbol.upper())
 
     @app.get("/api/stocks/stock/{symbol}/options")
-    def options(symbol: str, expiration: date | None = None) -> dict[str, Any]:
+    def options(symbol: str, expiration: date | None = None, limit: int = Query(default=40, ge=2, le=1000)) -> dict[str, Any]:
         if not 1 <= len(symbol) <= 12:
             raise HTTPException(400, "Invalid stock symbol")
         with reader(paths, MARKET_FILE) as conn:
-            return option_table(conn, symbol.upper(), expiration=expiration)
+            return option_table(conn, symbol.upper(), expiration=expiration, limit=limit)
+
+    @app.post("/api/stocks/stock/{symbol}/calculator")
+    def calculator(symbol: str, inputs: ScenarioInput) -> dict[str, Any]:
+        from desk.core.clock import utc_now
+        from desk.stocks.calculator import calculate
+        from desk.stocks.contracts import OptionQuote
+
+        if not 1 <= len(symbol) <= 12:
+            raise HTTPException(400, "Invalid stock symbol")
+        with reader(paths, MARKET_FILE) as conn:
+            quotes = {}
+            first = None
+            try:
+                expirations = {date(2000 + int(leg.occ[-15:-13]), int(leg.occ[-13:-11]), int(leg.occ[-11:-9]))
+                               for leg in inputs.legs}
+            except ValueError as exc:
+                raise HTTPException(400, "Invalid contract expiration") from exc
+            for expiration in sorted(expirations):
+                view = option_table(conn, symbol.upper(), expiration=expiration, limit=1000)
+                first = first or view
+                for q in view["contracts"]:
+                    quotes[q["occ"]] = OptionQuote(q["occ"], symbol.upper(), q["kind"], q["strike"], expiration,
+                        q["bid"], q["ask"], q["last"], q["volume"], q["open_interest"], None,
+                        datetime.fromisoformat(q["quoted_at"]) if q["quoted_at"] else None)
+            if not first or not first.get("asof") or not first.get("underlying_price"):
+                raise HTTPException(400, "A saved chain and underlying price are needed. Open a collected options chain.")
+            return calculate(inputs, quotes, first["underlying_price"], date.fromisoformat(first["asof"]),
+                             utc_now().date())
+
+    @app.post("/api/stocks/stock/{symbol}/history/request")
+    def request_history(symbol: str) -> dict[str, Any]:
+        from desk.core.clock import utc_now
+        from desk.stocks.hub import INDEX_NAMES, SECTOR_NAMES
+        from desk.stocks.stock_views import request as request_view
+
+        symbol = symbol.upper()
+        with reader(paths, MARKET_FILE) as conn:
+            if (symbol not in INDEX_NAMES and symbol not in SECTOR_NAMES
+                    and conn.execute("SELECT 1 FROM stk_listings WHERE symbol=? AND active=1 AND test=0",
+                                     (symbol,)).fetchone() is None):
+                raise HTTPException(404, "No active listing for this symbol")
+        conn = open_database(paths.db_dir / MARKET_FILE, DbKind.STOCKS_MARKET)
+        try:
+            request_view(conn, symbol, utc_now())
+        finally:
+            conn.close()
+        return {"queued": True, "enabled": collector.status().get("enabled", False),
+                "note": "Schwab quotes and up to 20 years of available daily history; existing history is preserved."}
 
     @app.post("/api/stocks/stock/{symbol}/options/request")
     def request_options(symbol: str) -> dict[str, Any]:
@@ -273,13 +386,61 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def proof() -> dict[str, Any]:
         with reader(paths, RESEARCH_FILE) as conn:
             research = StocksResearch(conn)
-            return {"validation": research.latest_validation(), "runs": [dict(r) for r in research.runs(limit=20)]}
+            return {"validation": evidence_document(paths, "report") or research.latest_validation(),
+                    "job": evidence.status(), "runs": [dict(r) for r in research.runs(limit=20)]}
+
+    @app.post("/api/stocks/proof/start")
+    async def start_evaluation() -> dict[str, Any]:
+        return await asyncio.to_thread(evidence.start)
+
+    @app.post("/api/stocks/proof/cancel")
+    async def cancel_evaluation() -> dict[str, Any]:
+        return await asyncio.to_thread(evidence.cancel)
+
+    @app.get("/api/stocks/proof/health")
+    def evidence_health() -> dict[str, Any]:
+        from desk.stocks.diagnostics import diagnose
+
+        return diagnose(paths)
 
     @app.get("/api/stocks/connection")
     def connection() -> dict[str, Any]:
         return {**connection_status(paths, config.settings.stocks, load_secrets(paths.secrets_file)),
                 "login": {"pending": login_pending(),
                           "error": attempt.error if attempt is not None else None}}
+
+    @app.post("/api/stocks/connection/test")
+    async def test_connection() -> dict[str, Any]:
+        from desk.stocks.suite import build_stocks_suite
+
+        dbs = StocksDatabases.open(paths)
+        try:
+            suite = build_stocks_suite(paths, config, load_secrets(paths.secrets_file), dbs.runtime)
+        except BaseException:
+            dbs.close()
+            raise
+        try:
+            quotes = await suite.options.quotes(["SPY"])
+            message = ("Market-data access works. A SPY quote was received; no order was placed." if quotes else
+                       "The provider returned no SPY quote. Review its connection and data entitlement.")
+            diagnostics = {}
+            if quotes and suite.option_source == "schwab":
+                from desk.core.clock import utc_now
+                from desk.stocks.activity import quote_session
+
+                session = quote_session(utc_now())
+                expiries = [d for d in await suite.options.expirations("SPY") if 14 <= (d-session).days <= 60]
+                if expiries:
+                    await suite.options.chain("SPY", min(expiries, key=lambda d: abs((d-session).days-30)))
+                    diagnostics = getattr(suite.options, "chain_diagnostics", {}).get("SPY", {})
+                    if not diagnostics.get("positive_volume_contracts"):
+                        message += (" Standard chain quotes were checked, but the provider reports no positive day volume "
+                                    "in this sample. Quote-based research is available; activity rankings need volume.")
+            return {"provider": suite.option_source, "received": bool(quotes), "message": message,
+                    "chain_diagnostics": diagnostics}
+        finally:
+            await suite.aclose()
+            dbs.close()
 
     @app.post("/api/stocks/connection")
     async def configure(request: Request) -> dict[str, Any]:

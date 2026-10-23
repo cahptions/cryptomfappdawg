@@ -1,5 +1,7 @@
 "use strict";
 const KestrelResearch = (() => {
+  let chartId = 0;
+  const chartChoices = new Map();
   const compact = (value) =>
     value == null
       ? "—"
@@ -122,8 +124,16 @@ const KestrelResearch = (() => {
         );
       const signal = el("div", undefined, "row-signal");
       const displayedScore = activityRank ? r.value : card.score;
-      if (displayedScore != null) signal.append(badge(number(displayedScore), "score-badge"));
-      signal.append(el("small", activityRank ? "Activity, not direction" : card.verdict || "Research list"));
+      if (displayedScore != null)
+        signal.append(badge(number(displayedScore), "score-badge"));
+      signal.append(
+        el(
+          "small",
+          activityRank
+            ? "Activity, not direction"
+            : card.verdict || "Research list",
+        ),
+      );
       return [
         el("span", String(i + 1).padStart(2, "0"), "rank"),
         symbolCell(r, card),
@@ -134,7 +144,14 @@ const KestrelResearch = (() => {
       ];
     });
     const result = table(
-      ["#", "Company", "Stored close", "Change", "Price history", activityRank ? "Activity / 100" : "Committee"],
+      [
+        "#",
+        "Company",
+        "Stored close",
+        "Change",
+        "Price history",
+        activityRank ? "Activity / 100" : "Committee",
+      ],
       entries,
     );
     result.classList.add("market-table");
@@ -165,7 +182,9 @@ const KestrelResearch = (() => {
           option ? money(row.price) : change(card.change),
           option ? "muted" : tone(card.change),
         );
-        if (option) value.title = "Underlying reference recorded with the options snapshot";
+        if (option)
+          value.title =
+            "Underlying reference recorded with the options snapshot";
         item.append(value);
         box.append(item);
       }
@@ -173,11 +192,12 @@ const KestrelResearch = (() => {
       box.append(
         el(
           "p",
-          list?.empty_reason || (!list?.asof
-            ? "Research not computed yet"
-            : option
-              ? "Waiting for qualifying chain snapshots"
-              : "No qualifying names recorded"),
+          list?.empty_reason ||
+            (!list?.asof
+              ? "Research not computed yet"
+              : option
+                ? "Waiting for qualifying chain snapshots"
+                : "No qualifying names recorded"),
           "collection-wait",
         ),
       );
@@ -243,8 +263,8 @@ const KestrelResearch = (() => {
         focus === "options"
           ? `Options session · ${shortDate(snapshot.options_research?.asof)} · Stock research · ${shortDate(snapshot.asof)}`
           : snapshot.asof
-          ? `Research session · ${shortDate(snapshot.asof)}`
-          : "Awaiting the first research session",
+            ? `Research session · ${shortDate(snapshot.asof)}`
+            : "Awaiting the first research session",
         "muted caption",
       ),
     );
@@ -329,8 +349,11 @@ const KestrelResearch = (() => {
     let selected = choices[0][0];
     const composite = snapshot.lists.find((l) => l.id === "market_activity"),
       observedOptions = snapshot.lists.find((l) => l.id === "options_activity");
-    if (focus !== "options" && observedOptions?.rows.length &&
-        (!composite?.rows.length || observedOptions.asof > composite.asof))
+    if (
+      focus !== "options" &&
+      observedOptions?.rows.length &&
+      (!composite?.rows.length || observedOptions.asof > composite.asof)
+    )
       selected = "options_activity";
     function showMovers() {
       content.replaceChildren();
@@ -366,15 +389,29 @@ const KestrelResearch = (() => {
             table(["#", "Underlying", "Research signal"], researchRows),
           );
         } else {
-          content.append(stocksTable(list.rows, hub.stocks, 10, selected === "market_activity"));
+          content.append(
+            stocksTable(
+              list.rows,
+              hub.stocks,
+              10,
+              selected === "market_activity",
+            ),
+          );
           if (selected === "market_activity") {
             for (const row of list.rows.slice(0, 10))
-              content.append(el("p", `${row.symbol}: ${row.reason}`, "muted caption"));
+              content.append(
+                el("p", `${row.symbol}: ${row.reason}`, "muted caption"),
+              );
           }
         }
       } else if (!list?.asof) {
         const readiness = list?.options_clock
-          ? {title: "Options collection pending", message: list.empty_reason, href: "#system", action: "View collection status ↗"}
+          ? {
+              title: "Options collection pending",
+              message: list.empty_reason,
+              href: "#system",
+              action: "View collection status ↗",
+            }
           : researchReadiness();
         content.append(
           empty(
@@ -388,11 +425,25 @@ const KestrelResearch = (() => {
         content.append(
           empty(
             "No qualifying names yet",
-            list.empty_reason || (selected === "trending"
-              ? "Trending combines observed attention and trading activity. Missing coverage stays missing."
-              : ["market_activity", "options_activity", "unusual_options"].includes(selected)
-                ? `Options coverage: ${list.coverage?.same_session_options ?? "unknown"} same-session summaries; ${list.coverage?.sampled_contracts ?? "unknown"} sampled contracts; ${list.coverage?.quality_pass ?? "unknown"} underlyings pass quote/liquidity gates. ${Object.entries(list.coverage?.excluded || {}).map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`).join("; ")}. Open a stock to prioritize its chain, or see System for per-symbol details.`
-                : "The saved research list has no qualifying stocks for this session."),
+            list.empty_reason ||
+              (selected === "trending"
+                ? "Trending combines observed attention and trading activity. Missing coverage stays missing."
+                : [
+                      "market_activity",
+                      "options_activity",
+                      "unusual_options",
+                    ].includes(selected)
+                  ? `Options coverage: ${list.coverage?.same_session_options ?? "unknown"} same-session summaries; ${list.coverage?.sampled_contracts ?? "unknown"} sampled contracts; ${list.coverage?.quality_pass ?? "unknown"} underlyings pass quote/liquidity gates. ${Object.entries(
+                      list.coverage?.excluded || {},
+                    )
+                      .map(
+                        ([reason, count]) =>
+                          `${count} ${reason.replaceAll("_", " ")}`,
+                      )
+                      .join(
+                        "; ",
+                      )}. Open a stock to prioritize its chain, or see System for per-symbol details.`
+                  : "The saved research list has no qualifying stocks for this session."),
             "#lists",
             "Explore other lists",
           ),
@@ -405,7 +456,12 @@ const KestrelResearch = (() => {
             ? `${list.options_clock ? "Options snapshot" : list.preview ? "Current research preview" : "Recorded list"}: ${list.asof}${list.awaiting_newer_session ? " · awaiting a newer session" : ""} · up to 10 qualified names`
             : "First research list pending",
         ),
-        el("span", list?.options_clock ? "Dated option snapshots; benchmarks use stored stock closes" : "Prices are the latest stored close"),
+        el(
+          "span",
+          list?.options_clock
+            ? "Dated option snapshots; benchmarks use stored stock closes"
+            : "Prices are the latest stored close",
+        ),
       );
       content.append(note);
       for (const button of tabs.children)
@@ -577,19 +633,36 @@ const KestrelResearch = (() => {
     app.append(layout);
   }
 
-  function chartWidget(bars, onInspect = () => {}) {
+  function chartWidget(
+    bars,
+    onInspect = () => {},
+    basis = "Split-adjusted daily OHLC",
+    symbol = "",
+  ) {
     const wrapper = el("section", undefined, "chart-widget"),
       tools = el("div", undefined, "chart-tools"),
       ranges = el("div", undefined, "range-buttons"),
       types = el("div", undefined, "chart-types"),
       plot = el("div", undefined, "chart-plot"),
+      tooltip = el("div", undefined, "chart-tooltip"),
       readout = el("div", undefined, "chart-readout"),
       axis = el("div", undefined, "chart-axis");
-    let range = "3M",
-      kind = "Line";
-    const periods = { "1M": 30, "3M": 90, "6M": 180, "1Y": 365, ALL: Infinity };
+    let { range = "3M", kind = "Line" } = chartChoices.get(symbol) || {};
+    tooltip.hidden = true;
+    tooltip.id = `candle-tooltip-${++chartId}`;
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.dataset.testid = "candle-tooltip";
+    const periods = {
+      "1M": 30,
+      "3M": 90,
+      "6M": 180,
+      "1Y": 365,
+      "5Y": 1826,
+      Max: Infinity,
+    };
     function draw() {
       plot.replaceChildren();
+      tooltip.hidden = true;
       onInspect(null);
       if (bars.length < 2) {
         plot.append(
@@ -601,8 +674,46 @@ const KestrelResearch = (() => {
         );
         return;
       }
-      const end = bars.at(-1).day,
-        rows = bars.filter((b) => b.day >= end - periods[range]);
+      const end = bars.at(-1).day;
+      let rows = bars.filter((b) => b.day >= end - periods[range]);
+      // Long candle views use real calendar OHLC aggregation, rather than thousands of overlapping bodies.
+      if (kind === "Candles" && rows.length > 520) {
+        const monthly = rows.length > 2000,
+          grouped = new Map();
+        for (const row of rows) {
+          const d = new Date(dateOf(row.day) + "T12:00:00Z");
+          const key = monthly
+            ? dateOf(row.day).slice(0, 7)
+            : row.day - ((d.getUTCDay() + 6) % 7);
+          const prior = grouped.get(key);
+          if (prior) {
+            prior.day = row.day;
+            prior.high = Math.max(prior.high, row.high);
+            prior.low = Math.min(prior.low, row.low);
+            prior.close = row.close;
+            prior.volume += row.volume || 0;
+            prior.gap_before ||= row.gap_before;
+          } else
+            grouped.set(key, {
+              ...row,
+              start_day: row.day,
+              interval: monthly ? "Monthly" : "Weekly",
+              previous_close: bars[bars.indexOf(row) - 1]?.close,
+            });
+        }
+        rows = [...grouped.values()];
+      }
+      const observationLabel = rows[0]?.interval
+        ? `${rows[0].interval} candles · aggregated from daily OHLC`
+        : basis;
+      const axisDate = (value) =>
+        new Date(dateOf(value) + "T12:00:00Z").toLocaleDateString("en-US", {
+          month: "short",
+          ...(end - rows[0]?.day > 365
+            ? { year: "numeric" }
+            : { day: "numeric" }),
+          timeZone: "UTC",
+        });
       if (rows.length < 2) {
         plot.append(el("p", "Not enough observations in this range.", "muted"));
         return;
@@ -629,6 +740,7 @@ const KestrelResearch = (() => {
         role: "img",
         "aria-label": `${kind} chart of observed daily stock prices. Use left and right arrows to inspect closes; Escape returns to latest.`,
         tabindex: "0",
+        "aria-describedby": tooltip.id,
       });
       for (let i = 0; i < 4; i++) {
         const at = 10 + i * 78;
@@ -696,34 +808,99 @@ const KestrelResearch = (() => {
       });
       svg.append(cursor);
       let selectedIndex = rows.length - 1;
-      const inspect = (index) => {
+      const inspect = (index, pointer) => {
         selectedIndex = Math.max(0, Math.min(rows.length - 1, index));
         const nearest = rows[selectedIndex];
         cursor.setAttribute("x1", x(nearest));
         cursor.setAttribute("x2", x(nearest));
         cursor.setAttribute("visibility", "visible");
         readout.textContent = `${shortDate(dateOf(nearest.day))} · ${money(nearest.close)} · Volume ${compact(nearest.volume)}`;
+        const previousClose = nearest.interval
+            ? nearest.previous_close
+            : bars[bars.indexOf(nearest) - 1]?.close,
+          values = el("dl");
+        for (const [label, value] of [
+          ["Open", money(nearest.open)],
+          ["High", money(nearest.high)],
+          ["Low", money(nearest.low)],
+          ["Close", money(nearest.close)],
+          ["Volume", number(nearest.volume)],
+          [
+            nearest.gap_before
+              ? "Since last observed close"
+              : nearest.interval
+                ? "Period change"
+                : "Day change",
+            previousClose
+              ? change(nearest.close / previousClose - 1)
+              : "Not available",
+          ],
+        ]) {
+          values.append(el("dt", label), el("dd", value));
+        }
+        tooltip.replaceChildren(
+          el(
+            "strong",
+            new Date(dateOf(nearest.day) + "T12:00:00Z").toLocaleDateString(
+              "en-US",
+              {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                timeZone: "UTC",
+              },
+            ),
+          ),
+          values,
+          ...(nearest.interval
+            ? [
+                el(
+                  "small",
+                  `From ${dateOf(nearest.start_day)} · ${nearest.interval} OHLC and total volume`,
+                ),
+              ]
+            : []),
+          el("small", `${basis} · USD`),
+        );
+        tooltip.hidden = false;
+        const box = plot.getBoundingClientRect(),
+          bounds = svg.getBoundingClientRect(),
+          px = pointer
+            ? pointer.clientX - box.left
+            : (x(nearest) / width) * bounds.width,
+          py = pointer
+            ? pointer.clientY - box.top
+            : (y(nearest.close) / height) * bounds.height;
+        const tw = tooltip.offsetWidth,
+          th = tooltip.offsetHeight;
+        tooltip.style.left = `${Math.max(8, Math.min(box.width - tw - 8, px + tw + 20 > box.width ? px - tw - 14 : px + 16))}px`;
+        tooltip.style.top = `${Math.max(8, Math.min(box.height - th - 8, py + th + 16 > box.height ? py - th - 14 : py + 16))}px`;
         onInspect(nearest, rows[0]);
       };
       const reset = () => {
         selectedIndex = rows.length - 1;
         cursor.setAttribute("visibility", "hidden");
-        readout.textContent = "Daily prices · split-adjusted · volume below";
+        tooltip.hidden = true;
+        readout.textContent = `${observationLabel} · volume below`;
         onInspect(null);
       };
       svg.onpointermove = (event) => {
         const bounds = svg.getBoundingClientRect(),
           target = from + ((event.clientX - bounds.left) / bounds.width) * span;
         let index = 0;
-        rows.forEach((r, i) => { if (Math.abs(r.day - target) < Math.abs(rows[index].day - target)) index = i; });
-        inspect(index);
+        rows.forEach((r, i) => {
+          if (Math.abs(r.day - target) < Math.abs(rows[index].day - target))
+            index = i;
+        });
+        inspect(index, event);
       };
       svg.onpointerdown = (event) => {
         svg.setPointerCapture(event.pointerId);
         svg.onpointermove(event);
       };
       svg.onpointerup = (event) => {
-        if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+        if (svg.hasPointerCapture(event.pointerId))
+          svg.releasePointerCapture(event.pointerId);
         if (event.pointerType === "touch") reset();
       };
       svg.onpointercancel = reset;
@@ -731,17 +908,25 @@ const KestrelResearch = (() => {
       svg.onblur = reset;
       svg.onkeydown = (event) => {
         if (event.key === "Escape") reset();
-        else if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+        else if (
+          ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+        ) {
           event.preventDefault();
-          inspect(event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : selectedIndex + (event.key === "ArrowLeft" ? -1 : 1));
+          inspect(
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? rows.length - 1
+                : selectedIndex + (event.key === "ArrowLeft" ? -1 : 1),
+          );
         }
       };
-      plot.append(svg);
-      readout.textContent = "Daily prices · split-adjusted · volume below";
+      plot.append(svg, tooltip);
+      readout.textContent = `${observationLabel} · volume below`;
       axis.replaceChildren(
-        el("span", shortDate(dateOf(from))),
-        el("span", shortDate(dateOf(Math.round((from + end) / 2)))),
-        el("span", shortDate(dateOf(end))),
+        el("span", axisDate(from)),
+        el("span", axisDate(Math.round((from + end) / 2))),
+        el("span", axisDate(end)),
       );
       for (const button of ranges.children)
         button.setAttribute(
@@ -758,6 +943,7 @@ const KestrelResearch = (() => {
       const button = el("button", label);
       button.onclick = () => {
         range = label;
+        chartChoices.set(symbol, { range, kind });
         draw();
       };
       ranges.append(button);
@@ -766,6 +952,7 @@ const KestrelResearch = (() => {
       const button = el("button", label);
       button.onclick = () => {
         kind = label;
+        chartChoices.set(symbol, { range, kind });
         draw();
       };
       types.append(button);
@@ -798,7 +985,10 @@ const KestrelResearch = (() => {
       if (ticket !== generation) return;
       let queued;
       if (Date.now() - (requestedChains.get(symbol) || 0) > 15 * 60 * 1000) {
-        queued = await api(`stock/${encodeURIComponent(symbol)}/options/request`, {});
+        queued = await api(
+          `stock/${encodeURIComponent(symbol)}/options/request`,
+          {},
+        );
         requestedChains.set(symbol, Date.now());
         if (ticket !== generation) return;
       }
@@ -812,9 +1002,10 @@ const KestrelResearch = (() => {
         container.append(
           empty(
             "Chain collection requested",
-            data.message || ((queued?.running ?? snapshot.worker_running)
-              ? "This stock is prioritized for the next available collection pass. The page refreshes as stored data arrives. See System for any source error."
-              : "This stock is queued. Start PAPER in System to resume collection, or connect your options provider in Settings."),
+            data.message ||
+              ((queued?.running ?? snapshot.worker_running)
+                ? "This stock is prioritized for the next available collection pass. The page refreshes as stored data arrives. See System for any source error."
+                : "This stock is queued. Start PAPER in System to resume collection, or connect your options provider in Settings."),
             "#system",
             "View collection status ↗",
           ),
@@ -826,7 +1017,13 @@ const KestrelResearch = (() => {
         tabs = el("div", undefined, "research-tabs"),
         content = el("div");
       if (data.stale_session || data.expired)
-        container.append(el("p", "Archived snapshot: a newer collection is requested. These stored quotes are not current executable prices.", "notice"));
+        container.append(
+          el(
+            "p",
+            "Archived snapshot: a newer collection is requested. These stored quotes are not current executable prices.",
+            "notice",
+          ),
+        );
       expiry.setAttribute("aria-label", "Options expiration");
       for (const date of data.expirations) {
         const option = el("option", shortDate(date));
@@ -841,14 +1038,33 @@ const KestrelResearch = (() => {
         const rows = data.contracts.filter((c) => c.kind === kind);
         content.replaceChildren(
           table(
-            ["Strike", "Bid", "Ask", "Volume", "Open interest", "Quote time (ET)"],
+            [
+              "Strike",
+              "Bid",
+              "Ask",
+              "Volume",
+              "Open interest",
+              "Quote time (ET)",
+            ],
             rows.map((c) => [
-              money(c.strike),
+              (() => {
+                const button = el("button", money(c.strike), "strike-button");
+                button.setAttribute(
+                  "aria-label",
+                  `Calculate profit and loss for ${symbol} ${c.strike} ${c.kind} expiring ${data.expiration}`,
+                );
+                button.onclick = () => KestrelCalculator.open(symbol, c, data);
+                return button;
+              })(),
               money(c.bid),
               money(c.ask),
               compact(c.volume),
               compact(c.open_interest),
-              c.quoted_at ? new Date(c.quoted_at).toLocaleString("en-US", {timeZone: "America/New_York"}) : "Not supplied",
+              c.quoted_at
+                ? new Date(c.quoted_at).toLocaleString("en-US", {
+                    timeZone: "America/New_York",
+                  })
+                : "Not supplied",
             ]),
           ),
         );
@@ -887,19 +1103,31 @@ const KestrelResearch = (() => {
     }
   }
   async function stock(symbol, ticket) {
-    const data = await api(`stock/${encodeURIComponent(symbol)}`);
+    let data = await api(`stock/${encodeURIComponent(symbol)}`);
     if (ticket !== generation) return;
     app.replaceChildren();
     app.className = "stock-research";
     const d = data.analysis,
       p = d?.price || {},
       f = d?.fundamentals || {},
-      latest = data.bars.at(-1),
+      chartHost = el("div"),
+      historyStatus = el("p", "", "muted caption"),
+      coverageDetails = el("details"),
+      coverageInfo = el("p", "", "muted caption");
+    coverageDetails.append(
+      el("summary", "Chart history and quote coverage"),
+      coverageInfo,
+    );
+    let latest = data.bars.at(-1),
       previous = data.bars.at(-2),
-      daily =
-        latest && previous && previous.close
+      inspected = false;
+    function currentChange() {
+      return data.quote && !data.quote.stale && data.quote.prev_close
+        ? data.quote.last / data.quote.prev_close - 1
+        : latest && previous?.close
           ? latest.close / previous.close - 1
           : null;
+    }
     const breadcrumb = el("div", undefined, "breadcrumbs");
     breadcrumb.append(
       link("Markets", "#dashboard"),
@@ -920,84 +1148,182 @@ const KestrelResearch = (() => {
     const chips = el("div", undefined, "stock-chips");
     chips.append(
       badge(data.listing?.etf ? "ETF" : "US EQUITY"),
-      badge(data.listing?.etf ? "ETF market/options profile" : d?.sector || "Research coverage pending", "quiet"),
+      badge(
+        data.listing?.etf
+          ? "ETF market/options profile"
+          : d?.sector || "Research coverage pending",
+        "quiet",
+      ),
     );
     top.append(chips);
     const pricing = el("div", undefined, "stock-pricing"),
       headlinePrice = el("div", money(latest?.close ?? p.close), "big"),
-      headlineChange = el("span", change(daily), tone(daily)),
+      headlineChange = el(
+        "span",
+        change(currentChange()),
+        tone(currentChange()),
+      ),
       priceCaption = el("p", "", "muted caption");
     headlinePrice.dataset.testid = "headline-price";
     priceCaption.dataset.testid = "price-caption";
     pricing.append(headlinePrice, headlineChange);
     const inspectPrice = (row, baseline) => {
-      const delta = row && baseline?.close ? row.close / baseline.close - 1 : daily;
-      headlinePrice.textContent = money(row?.close ?? latest?.close ?? p.close);
+      inspected = !!row;
+      const quote = data.quote && !data.quote.stale ? data.quote : null;
+      const delta =
+        row && baseline?.close
+          ? row.close / baseline.close - 1
+          : currentChange();
+      headlinePrice.textContent = money(
+        row?.close ?? quote?.last ?? latest?.close ?? p.close,
+      );
       headlineChange.textContent = change(delta);
       headlineChange.className = tone(delta);
       priceCaption.textContent = row
-        ? `${shortDate(dateOf(row.day))} · Stored close · USD · Change since ${shortDate(dateOf(baseline.day))}`
-        : latest ? `Stored close · ${shortDate(dateOf(latest.day))} · USD · Change vs previous observed close`
-        : "No stored price history";
+        ? `${new Date(dateOf(row.day) + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · Stored close · USD · Change since ${dateOf(baseline.day)}`
+        : quote
+          ? `Schwab quote · ${new Date(quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET · USD · Change vs previous close`
+          : latest
+            ? `Stored close · ${shortDate(dateOf(latest.day))} · USD · Change vs previous observed close`
+            : "No stored price history";
     };
     inspectPrice(null);
     top.append(pricing, priceCaption);
-    main.append(top, chartWidget(data.bars, inspectPrice));
+    function updateHistoryStatus() {
+      const c = data.coverage;
+      historyStatus.textContent = `${data.chart_source} · ${c?.sessions || 0} daily observations${c?.first ? ` · ${c.first} through ${c.last}` : ""}${data.stock_data?.history_error ? ` · ${data.stock_data.history_error}` : ""}`;
+      coverageInfo.textContent = `${data.stock_data?.max_note || "Max shows all downloaded history. Connect Schwab in Settings for longer chart history."} ${data.chart_basis}. Daily candles may include an unfinished session. Research statistics below use separately dated bulk history. ${data.quote?.stale ? `The last Schwab quote is from ${new Date(data.quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET; the headline shows the stored close.` : ""} ${data.stock_data?.quote_error || ""}`;
+    }
+    function drawHistory() {
+      chartHost.replaceChildren(
+        chartWidget(
+          data.bars,
+          inspectPrice,
+          data.chart_source === "Schwab"
+            ? "Schwab daily candles"
+            : "Daily · split-adjusted",
+          symbol,
+        ),
+      );
+      updateHistoryStatus();
+    }
+    drawHistory();
+    main.append(top, chartHost, historyStatus, coverageDetails);
+    async function pollStock() {
+      if (ticket !== generation) return;
+      try {
+        if (document.visibilityState === "visible") {
+          await api(`stock/${encodeURIComponent(symbol)}/history/request`, {});
+          const next = await api(`stock/${encodeURIComponent(symbol)}`);
+          if (ticket !== generation) return;
+          const changed =
+            next.stock_data?.updated_at !== data.stock_data?.updated_at;
+          data = next;
+          latest = data.bars.at(-1);
+          previous = data.bars.at(-2);
+          if (changed) drawHistory();
+          else {
+            updateHistoryStatus();
+            if (!inspected) inspectPrice(null);
+          }
+        }
+      } catch (error) {
+        if (ticket === generation)
+          historyStatus.textContent =
+            error.message +
+            " Existing chart data was preserved. See Settings for market-data connections.";
+      }
+      if (ticket === generation)
+        setTimeout(pollStock, data.stock_data?.updated_at ? 30000 : 5000);
+    }
+    pollStock();
     main.append(
-      metrics(data.listing?.etf ? "ETF price & risk statistics" : "Key statistics", data.listing?.etf ? [
-        ["1-session return", percent(p.ret_1d)],
-        ["5-session return", percent(p.ret_5d)],
-        ["21-session return", percent(p.ret_21d)],
-        ["63-session return", percent(p.ret_63d)],
-        ["20-session annualized volatility", percent(p.vol_20d)],
-        ["Median 20-session dollar volume", p.dollar_volume_20d == null ? "—" : "$" + compact(p.dollar_volume_20d)],
-        ["50-session average", money(p.sma50)],
-        ["200-session average", money(p.sma200)],
-        ["52-week high", money(p.high_52w)],
-        ["52-week low", money(p.low_52w)],
-        ["Relative volume", p.rel_volume == null ? "—" : number(p.rel_volume) + "×"],
-        ["Stored sessions", compact(d?.coverage?.stored_sessions)],
-      ] : [
-        [
-          "Market cap",
-          f.market_cap == null ? "—" : "$" + compact(f.market_cap),
-        ],
-        ["P/E", number(f.pe)],
-        ["FCF yield", percent(f.fcf_yield)],
-        [
-          "20D dollar volume",
-          p.dollar_volume_20d == null
-            ? "—"
-            : "$" + compact(p.dollar_volume_20d),
-        ],
-        ["52-week high", money(p.high_52w)],
-        ["52-week low", money(p.low_52w)],
-        [
-          "Relative volume",
-          p.rel_volume == null ? "—" : number(p.rel_volume) + "×",
-        ],
-        ["1Y beta", number(p.beta_1y)],
-      ]),
+      metrics(
+        data.listing?.etf ? "ETF price & risk statistics" : "Key statistics",
+        data.listing?.etf
+          ? [
+              ["1-session return", percent(p.ret_1d)],
+              ["5-session return", percent(p.ret_5d)],
+              ["21-session return", percent(p.ret_21d)],
+              ["63-session return", percent(p.ret_63d)],
+              ["20-session annualized volatility", percent(p.vol_20d)],
+              [
+                "Median 20-session dollar volume",
+                p.dollar_volume_20d == null
+                  ? "—"
+                  : "$" + compact(p.dollar_volume_20d),
+              ],
+              ["50-session average", money(p.sma50)],
+              ["200-session average", money(p.sma200)],
+              ["52-week high", money(p.high_52w)],
+              ["52-week low", money(p.low_52w)],
+              [
+                "Relative volume",
+                p.rel_volume == null ? "—" : number(p.rel_volume) + "×",
+              ],
+              ["Stored sessions", compact(d?.coverage?.stored_sessions)],
+            ]
+          : [
+              [
+                "Market cap",
+                f.market_cap == null ? "—" : "$" + compact(f.market_cap),
+              ],
+              ["P/E", number(f.pe)],
+              ["FCF yield", percent(f.fcf_yield)],
+              [
+                "20D dollar volume",
+                p.dollar_volume_20d == null
+                  ? "—"
+                  : "$" + compact(p.dollar_volume_20d),
+              ],
+              ["52-week high", money(p.high_52w)],
+              ["52-week low", money(p.low_52w)],
+              [
+                "Relative volume",
+                p.rel_volume == null ? "—" : number(p.rel_volume) + "×",
+              ],
+              ["1Y beta", number(p.beta_1y)],
+            ],
+      ),
     );
     if (d) {
       const rationale = el("section", undefined, "detail-section");
       rationale.append(
         sectionTitle(
-          data.listing?.etf ? "Trend and risk observations" : "The investment case",
-          data.listing?.etf ? "Calculated from stored prices; these are observations, not a forecast." : "What supports the view—and what challenges it",
+          data.listing?.etf
+            ? "Trend and risk observations"
+            : "The investment case",
+          data.listing?.etf
+            ? "Calculated from stored prices; these are observations, not a forecast."
+            : "What supports the view—and what challenges it",
         ),
       );
       const cases = el("div", undefined, "case-grid");
       for (const [title, items, color] of [
-        [data.listing?.etf ? "Positive trend observations" : "Bull case", d.bull, "positive"],
-        [data.listing?.etf ? "Risk and limitations" : "Bear case", d.bear, "negative"],
+        [
+          data.listing?.etf ? "Positive trend observations" : "Bull case",
+          d.bull,
+          "positive",
+        ],
+        [
+          data.listing?.etf ? "Risk and limitations" : "Bear case",
+          d.bear,
+          "negative",
+        ],
       ]) {
         const card = el("div", undefined, "case-card");
         card.append(el("h3", title, color));
         const list = el("ul");
         for (const text of items || []) list.append(el("li", text));
         if (!items?.length)
-          list.append(el("li", data.listing?.etf ? "No positive trend observations in the measured windows." : "Insufficient evidence for a case."));
+          list.append(
+            el(
+              "li",
+              data.listing?.etf
+                ? "No positive trend observations in the measured windows."
+                : "Insufficient evidence for a case.",
+            ),
+          );
         card.append(list);
         cases.append(card);
       }
@@ -1013,12 +1339,20 @@ const KestrelResearch = (() => {
     desks.id = "desks";
     desks.append(
       sectionTitle(
-        data.listing?.etf ? "ETF market evidence" : "Eleven perspectives. One research record.",
+        data.listing?.etf
+          ? "ETF market evidence"
+          : "Eleven perspectives. One research record.",
         "Scores reflect the stored evidence. Coverage is not a probability of profit.",
       ),
     );
-    const etfValue = (id) => id === "momentum" ? percent(p.ret_21d)
-      : id === "risk" ? percent(p.vol_20d) : d?.options && Object.keys(d.options).length ? "Stored sample" : "No sample";
+    const etfValue = (id) =>
+      id === "momentum"
+        ? percent(p.ret_21d)
+        : id === "risk"
+          ? percent(p.vol_20d)
+          : d?.options && Object.keys(d.options).length
+            ? "Stored sample"
+            : "No sample";
     const grid = el("div", undefined, "grid desk-grid");
     for (const [id, label] of Object.entries(snapshot.desks)) {
       if (data.listing?.etf && !d?.desks?.[id]) continue;
@@ -1027,7 +1361,11 @@ const KestrelResearch = (() => {
       card.id = `desk-${id}`;
       card.append(
         el("div", label, "desk-label"),
-        el("strong", data.listing?.etf ? etfValue(id) : number(desk?.score), "desk-score"),
+        el(
+          "strong",
+          data.listing?.etf ? etfValue(id) : number(desk?.score),
+          "desk-score",
+        ),
         el("p", desk?.verdict || "Awaiting data", "muted caption"),
       );
       const bar = el("progress");
@@ -1057,7 +1395,13 @@ const KestrelResearch = (() => {
         }),
       );
     const committee = el("section", undefined, "committee-card");
-    committee.append(el("div", data.listing?.etf ? "ETF PROFILE" : "COMMITTEE VIEW", "eyebrow"));
+    committee.append(
+      el(
+        "div",
+        data.listing?.etf ? "ETF PROFILE" : "COMMITTEE VIEW",
+        "eyebrow",
+      ),
+    );
     const score = el("div", undefined, "committee-number");
     score.append(
       el("strong", data.listing?.etf ? "ETF" : number(d?.committee?.score)),
@@ -1065,12 +1409,19 @@ const KestrelResearch = (() => {
     );
     committee.append(
       score,
-      el("h2", data.listing?.etf ? "Market & options evidence" : d?.committee?.label || "Awaiting evidence"),
+      el(
+        "h2",
+        data.listing?.etf
+          ? "Market & options evidence"
+          : d?.committee?.label || "Awaiting evidence",
+      ),
     );
     committee.append(
       el(
         "p",
-        data.listing?.etf ? "Company valuation, earnings and insider models do not apply to funds. This profile shows observed price, risk and options data without a company committee score." : "A synthesis of the desks below, weighted by the recorded methodology.",
+        data.listing?.etf
+          ? "Company valuation, earnings and insider models do not apply to funds. This profile shows observed price, risk and options data without a company committee score."
+          : "A synthesis of the desks below, weighted by the recorded methodology.",
         "muted caption",
       ),
     );
@@ -1079,8 +1430,11 @@ const KestrelResearch = (() => {
       if (data.listing?.etf && !d?.desks?.[id]) continue;
       const score = d?.desks?.[id]?.score,
         a = link("", `#desk-${id}`);
-      a.className =
-        data.listing?.etf ? d?.desks?.[id]?.confidence ? "mixed" : "unavailable" : score == null
+      a.className = data.listing?.etf
+        ? d?.desks?.[id]?.confidence
+          ? "mixed"
+          : "unavailable"
+        : score == null
           ? "unavailable"
           : score >= 60
             ? "favorable"
@@ -1102,7 +1456,9 @@ const KestrelResearch = (() => {
       el(
         "p",
         d
-          ? data.listing?.etf ? `ETF profile · ${d.asof}` : `${d.committee?.desks_counted || 0} scored desks · ${d.asof}`
+          ? data.listing?.etf
+            ? `ETF profile · ${d.asof}`
+            : `${d.committee?.desks_counted || 0} scored desks · ${d.asof}`
           : "No eligible analysis stored",
         "muted caption",
       ),
@@ -1138,7 +1494,10 @@ const KestrelResearch = (() => {
       const row = el("div", undefined, "sector-row");
       row.append(
         el("span", label),
-        el("strong", data.listing?.etf ? etfValue(id) : number(d?.desks?.[id]?.score)),
+        el(
+          "strong",
+          data.listing?.etf ? etfValue(id) : number(d?.desks?.[id]?.score),
+        ),
       );
       overview.append(row);
     }

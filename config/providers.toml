@@ -652,3 +652,8 @@ verified_fields = []
 path = "/quotes"
 status = "to_verify"
 verified_fields = []
+
+[providers.schwab.endpoints.pricehistory]
+path = "/pricehistory"
+status = "to_verify"
+verified_fields = []

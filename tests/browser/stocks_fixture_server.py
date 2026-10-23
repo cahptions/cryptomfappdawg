@@ -23,7 +23,7 @@ from tests.stocks_world import NOW, add_chains, make_world
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices"], default="populated")
+    parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows"], default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
@@ -46,7 +46,7 @@ def main() -> None:
             world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
             process(paths, load_config(paths.config_dir), world.dbs, NOW)
             process(paths, load_config(paths.config_dir), world.dbs, NOW, research_only=True)
-            if args.scenario == "stale-prices":
+            if args.scenario in {"stale-prices", "ui-workflows"}:
                 import asyncio
                 from types import SimpleNamespace
 
@@ -59,6 +59,19 @@ def main() -> None:
                                            last_prices={}, clock=lambda: CAPTURE))
                 world.market.job("prices", CAPTURE, error="Synthetic Massive grouped_daily HTTP 403")
                 process(paths, load_config(paths.config_dir), world.dbs, CAPTURE, research_only=True)
+                if args.scenario == "ui-workflows":
+                    from datetime import date
+
+                    from desk.stocks import calendar as cal
+                    from desk.stocks.contracts import Bar
+                    from desk.stocks.stock_views import request, save_history
+
+                    # Synthetic long history exercises actual API storage/ranges, never provider access.
+                    bars = [Bar("SPY", day, 100 + i * .002, 101 + i * .002, 99 + i * .002,
+                                100.5 + i * .002, 1000000) for i, day in enumerate(
+                                    cal.trading_days(date(2006, 10, 23), CAPTURE.date()))]
+                    request(world.dbs.market, "SPY", CAPTURE)
+                    save_history(world.dbs.market, "SPY", bars, CAPTURE)
             world.close()
         uvicorn.run(create_app(paths, auto_start=False), host="127.0.0.1", port=args.port, access_log=False)
 
