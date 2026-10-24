@@ -27,3 +27,8 @@ For the separate Stocks PAPER Learning workspace, start
 `tests/browser/stocks_learning_workflows.mjs` with Playwright available and
 `KESTREL_STOCKS_URL=http://127.0.0.1:8891`. This fixture creates actual engine-generated synthetic fills and funding in a
 disposable private ledger; the browser checks desktop/mobile controls, accounting, order history, experiments and downloads.
+
+`stocks_paper_workflows.mjs` also checks archived session playback, date-scoped holdings and exact chart tooltips against
+the `paper-workflows` fixture. `stocks_paper_sparse.mjs` uses the same disposable server with synthetic three-observation
+responses to verify honest ranges and automatic forward-record polling without navigation. It also checks the separate
+Options discovery lanes and source-capability guides in Settings. Neither fixture contacts a provider.

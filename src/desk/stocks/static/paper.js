@@ -21,113 +21,8 @@ const KestrelPaper = (() => {
       node.setAttribute(key, value);
     return node;
   }
-  function equityChart(account) {
-    const box = el("section", undefined, "paper-equity"),
-      curves = account.curve || [],
-      controls = el("div", undefined, "research-tabs");
-    const plot = el("div"),
-      readout = el("p", "", "caption");
-    box.append(el("h3", "Simulated account value"), controls, plot, readout);
-    function draw(count) {
-      const rows = curves.slice(-count);
-      plot.replaceChildren();
-      if (!rows.length) {
-        plot.append(
-          el(
-            "p",
-            "The equity curve appears after the first processed session.",
-            "muted",
-          ),
-        );
-        return;
-      }
-      const lo = Math.min(...rows.map((r) => r.equity)),
-        hi = Math.max(...rows.map((r) => r.equity)),
-        span = hi - lo || Math.max(1, hi * 0.01);
-      const x = (i) => 20 + (i / Math.max(1, rows.length - 1)) * 960,
-        y = (v) => 215 - ((v - lo) / span) * 185;
-      const chart = svg("svg", {
-        viewBox: "0 0 1000 260",
-        role: "img",
-        tabindex: "0",
-        "aria-label":
-          "Simulated equity chart. Use arrow keys to inspect daily account values.",
-      });
-      chart.append(
-        svg("line", {
-          x1: 20,
-          x2: 980,
-          y1: 215,
-          y2: 215,
-          class: "chart-guide",
-        }),
-      );
-      chart.append(
-        svg("path", {
-          d: rows
-            .map((r, i) => `${i ? "L" : "M"}${x(i)},${y(r.equity)}`)
-            .join(""),
-          class: "paper-equity-line",
-        }),
-      );
-      const cursor = svg("circle", {
-        cx: x(rows.length - 1),
-        cy: y(rows.at(-1).equity),
-        r: 5,
-        class: "paper-equity-point",
-      });
-      chart.append(cursor);
-      let index = rows.length - 1;
-      function inspect(i) {
-        index = Math.max(0, Math.min(rows.length - 1, i));
-        const row = rows[index];
-        cursor.setAttribute("cx", x(index));
-        cursor.setAttribute("cy", y(row.equity));
-        readout.textContent = `${row.day} · ${money(row.equity)} · ${record === "live" ? "Recorded forward PAPER" : "Historical reconstruction"}`;
-      }
-      chart.onpointermove = (e) => {
-        const r = chart.getBoundingClientRect();
-        inspect(
-          Math.round(
-            ((((e.clientX - r.left) / r.width) * 1000 - 20) / 960) *
-              (rows.length - 1),
-          ),
-        );
-      };
-      chart.onpointerleave = () => inspect(rows.length - 1);
-      chart.onkeydown = (e) => {
-        if (
-          ["ArrowLeft", "ArrowRight", "Home", "End", "Escape"].includes(e.key)
-        ) {
-          e.preventDefault();
-          inspect(
-            e.key === "Home"
-              ? 0
-              : ["End", "Escape"].includes(e.key)
-                ? rows.length - 1
-                : index + (e.key === "ArrowLeft" ? -1 : 1),
-          );
-        }
-      };
-      const axis = el("div", undefined, "chart-axis");
-      axis.append(el("span", rows[0].day), el("span", rows.at(-1).day));
-      plot.append(chart, axis);
-      inspect(index);
-      for (const b of controls.children)
-        b.setAttribute("aria-selected", String(+b.dataset.count === count));
-    }
-    for (const [label, count] of [
-      ["1M", 21],
-      ["3M", 63],
-      ["Max", 10000],
-    ]) {
-      const b = el("button", label);
-      b.dataset.count = count;
-      b.onclick = () => draw(count);
-      controls.append(b);
-    }
-    draw(10000);
-    return box;
+  function equityChart(account, options = {}) {
+    return KestrelPaperChart.render(account, { record, ...options });
   }
   function tradeDialog(position, decisions, titles) {
     const dialog = el("dialog", undefined, "paper-trade-dialog"),
@@ -218,8 +113,43 @@ const KestrelPaper = (() => {
     dialog.showModal();
     dialog.onclose = () => {
       dialog.remove();
-      if (location.hash === "#paper") refresh(true);
     };
+  }
+  function walkForward(report) {
+    const section = el("section", undefined, "paper-walk-forward");
+    section.append(
+      el("h2", "Walk-forward strategy checks"),
+      el("p", report.walk_forward?.message || "", "muted"),
+    );
+    for (const w of report.walk_forward?.windows || []) {
+      const row = el("article", undefined, "paper-walk");
+      row.append(
+        el("strong", w.title),
+        el(
+          "p",
+          `Selected using data through ${w.train_through}. Held-out check: ${w.test_start} to ${w.test_end}.`,
+        ),
+        el(
+          "p",
+          `Past training return ${percent(w.training_return)} · Held-out return ${percent(w.test_return)} · SPY baseline ${percent(w.spy_return)} · Difference ${percent(w.excess_return)}`,
+          "muted",
+        ),
+      );
+      section.append(row);
+    }
+    const limits = el("details");
+    limits.append(el("summary", "Data coverage and replay assumptions"));
+    limits.append(
+      el(
+        "p",
+        `${report.requested_sessions} simulated sessions · ${report.warmup_sessions || 60} earlier warm-up sessions · ${report.skipped_sessions?.length || 0} skipped. Saved daily snapshots and the complete replay trade ledger remain separate from forward PAPER.`,
+        "muted",
+      ),
+    );
+    for (const note of report.limitations || [])
+      limits.append(el("p", note, "muted caption"));
+    section.append(limits);
+    return section;
   }
   async function show(ticket) {
     let [live, backtest] = await Promise.all([api("paper"), api("backtest")]);
@@ -253,7 +183,7 @@ const KestrelPaper = (() => {
       hero.append(heading, collectionControls());
       app.replaceChildren(hero);
       for (const [id, label] of [
-        ["live", "Live PAPER"],
+        ["live", "Forward PAPER"],
         ["historical", "Historical backtests"],
       ]) {
         const b = el("button", label);
@@ -279,7 +209,9 @@ const KestrelPaper = (() => {
             "strong",
             s.waiting_for_prices
               ? "Waiting for the next complete daily close"
-              : "Forward PAPER is recording each market session once",
+              : s.market_open
+                ? "Daily strategy record · awaiting this session's close"
+                : "Market closed · showing the last processed daily session",
           ),
           el(
             "p",
@@ -288,7 +220,39 @@ const KestrelPaper = (() => {
           ),
           link("Check data health ↗", "#proof"),
         );
+        if (s.next_daily_update_after)
+          note.append(
+            el(
+              "p",
+              `Next daily processing window: after ${new Date(s.next_daily_update_after).toLocaleString("en-US", { timeZone: "America/New_York" })} ET, once required prices arrive. The app checks for updates automatically; reopening it does not create another market session.`,
+              "muted caption",
+            ),
+          );
         app.append(note);
+        const history = el("section", undefined, "paper-history-launch"),
+          openHistory = el("button", "Inspect historical replay", "primary");
+        const coverage = backtest.job?.coverage || {};
+        history.append(
+          el("h2", "Explore strategies before today"),
+          el(
+            "p",
+            backtest.report
+              ? `A separate historical run covers ${backtest.report.first_day}–${backtest.report.last_day}: ${backtest.report.requested_sessions} simulated sessions. Step through its decisions, fills and holdings.`
+              : `${coverage.eligible_sessions || 0} historical sessions are eligible after warm-up. ${backtest.job?.running ? backtest.job.phase : backtest.job?.phase || "Replay runs automatically when saved history is ready."}`,
+            "muted",
+          ),
+        );
+        openHistory.onclick = () => {
+          record = "historical";
+          selected = "";
+          tradeOffset = 0;
+          draw();
+        };
+        history.append(
+          openHistory,
+          link("Intraday sizing experiments ↗", "#learning"),
+        );
+        app.append(history);
       } else {
         const job = backtest.job || {},
           section = el("section", undefined, "paper-backtest-controls"),
@@ -301,12 +265,17 @@ const KestrelPaper = (() => {
           ),
           auto = el("input"),
           autoLabel = el("label", undefined, "paper-auto");
-        for (const n of [63, 126, 252]) {
-          const o = el("option", `${n} trading sessions`);
+        for (const n of [0, 63, 126, 252]) {
+          const o = el(
+            "option",
+            n === 0
+              ? "All available history — earliest eligible session"
+              : `${n} trading sessions`,
+          );
           o.value = n;
           window.append(o);
         }
-        window.value = job.requested_sessions || 63;
+        window.value = job.requested_sessions ?? 0;
         window.setAttribute("aria-label", "Backtest window");
         window.disabled = !!job.running;
         run.disabled = !!job.running;
@@ -385,7 +354,7 @@ const KestrelPaper = (() => {
           section.append(
             el(
               "p",
-              `${c.sessions} stored sessions · ${c.warmup_sessions} earlier sessions reserved for warm-up · latest close ${c.latest || "unavailable"}. Automatic replay follows PAPER Pause/STOP.`,
+              `${c.sessions} stored sessions · ${c.eligible_sessions || 0} eligible after ${c.warmup_sessions} earlier warm-up sessions · source begins ${c.earliest || "not available"} · latest close ${c.latest || "unavailable"}. Automatic replay follows PAPER Pause/STOP.`,
               "muted caption",
             ),
           );
@@ -458,6 +427,24 @@ const KestrelPaper = (() => {
         el("p", account.hypothesis || "", "muted"),
       );
       app.append(selectedTitle);
+      if (record === "historical" && report.run_id) {
+        app.append(
+          KestrelReplay.panel(report, account, ticket, titles, tradeDialog),
+          walkForward(report),
+        );
+        poll();
+        return;
+      }
+      const behavior = el(
+        "p",
+        account.style === "rebalance"
+          ? "This portfolio selects holdings at monthly rebalances. It marks positions each processed daily close; it is not expected to buy and sell every day. Inspect its decision timeline for entry and exit reasons."
+          : account.style === "hold"
+            ? "This buy-and-hold baseline normally holds its original position; changing account value does not imply another trade."
+            : "This event strategy waits for qualifying evidence and executable prices; its decision timeline records trade and skip reasons.",
+        "muted caption",
+      );
+      app.append(behavior);
       const metrics = el("div", undefined, "paper-metrics");
       metrics.append(
         metric("Simulated equity", money(account.equity)),
@@ -472,7 +459,11 @@ const KestrelPaper = (() => {
         metric("Largest drawdown", percent(account.max_drawdown)),
         metric("Closed-trade win rate", percent(account.win_rate)),
       );
-      const curveHost = equityChart(account);
+      const benchmark = accounts.find((a) => a.id === "spy_hold")?.curve || [];
+      const curveHost = equityChart(account, {
+        benchmark,
+        trades: live.trades?.filter((p) => p.account === account.id) || [],
+      });
       app.append(metrics, curveHost);
       if (record === "live")
         api(`paper/equity?account=${encodeURIComponent(account.id)}`)
@@ -480,10 +471,16 @@ const KestrelPaper = (() => {
             if (
               ticket === generation &&
               curveHost.isConnected &&
-              data.curve.length > (account.curve || []).length
+              JSON.stringify(data.curve) !== JSON.stringify(account.curve || [])
             ) {
               account.curve = data.curve;
-              curveHost.replaceWith(equityChart(account));
+              curveHost.replaceWith(
+                equityChart(account, {
+                  benchmark,
+                  trades:
+                    live.trades?.filter((p) => p.account === account.id) || [],
+                }),
+              );
             }
           })
           .catch(() => {
@@ -749,53 +746,60 @@ const KestrelPaper = (() => {
     }
     function poll() {
       clearTimeout(timer);
-      if (backtest.job?.running || record === "historical")
-        timer = setTimeout(
-          async () => {
-            if (ticket !== generation) return;
-            if (document.querySelector("dialog[open]")) {
-              poll();
-              return;
-            }
-            try {
-              const next = await api("backtest");
-              const changed =
-                JSON.stringify([
-                  backtest.job?.running,
-                  backtest.job?.auto_enabled,
-                  backtest.job?.requested_sessions,
-                  backtest.report?.generated_at,
-                ]) !==
-                JSON.stringify([
-                  next.job?.running,
-                  next.job?.auto_enabled,
-                  next.job?.requested_sessions,
-                  next.report?.generated_at,
-                ]);
-              backtest = next;
-              if (changed && record === "historical") draw();
-              else {
-                if (record === "historical") {
-                  const phase = app.querySelector(
-                      ".paper-backtest-controls [role='status']",
-                    ),
-                    progress = app.querySelector(
-                      ".paper-backtest-controls progress",
-                    );
-                  if (phase) phase.textContent = next.job?.phase || "Ready";
-                  if (progress && next.job?.total) {
-                    progress.max = next.job.total;
-                    progress.value = next.job.completed;
-                  }
-                }
-                poll();
+      timer = setTimeout(
+        async () => {
+          if (ticket !== generation) return;
+          if (
+            document.querySelector("dialog[open]") ||
+            ["INPUT", "SELECT"].includes(
+              document.activeElement?.tagName?.toUpperCase(),
+            )
+          ) {
+            poll();
+            return;
+          }
+          try {
+            const [nextLive, next] = await Promise.all([
+              api("paper"),
+              api("backtest"),
+            ]);
+            const signature = (l, b) =>
+              JSON.stringify([
+                l.report?.accounts,
+                l.session_status,
+                l.trades?.map((p) => [p.id, p.state, p.unrealized_pnl]),
+                b.job?.running,
+                b.job?.status,
+                b.job?.auto_enabled,
+                b.job?.requested_sessions,
+                b.report?.generated_at,
+              ]);
+            const changed =
+              signature(live, backtest) !== signature(nextLive, next);
+            live = nextLive;
+            backtest = next;
+            if (changed) draw();
+            else {
+              const phase = app.querySelector(
+                  ".paper-backtest-controls [role='status']",
+                ),
+                progress = app.querySelector(
+                  ".paper-backtest-controls progress",
+                );
+              if (phase) phase.textContent = next.job?.phase || "Ready";
+              if (progress && next.job?.total) {
+                progress.max = next.job.total;
+                progress.value = next.job.completed;
               }
-            } catch (e) {
-              statusLine.textContent = e.message;
+              poll();
             }
-          },
-          backtest.job?.running ? 2000 : 5000,
-        );
+          } catch (e) {
+            statusLine.textContent = e.message;
+            poll();
+          }
+        },
+        backtest.job?.running ? 2000 : 10000,
+      );
     }
     draw();
   }

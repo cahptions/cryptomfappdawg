@@ -46,7 +46,7 @@ STATIC = Path(__file__).with_name("static")
 
 
 class BacktestInput(BaseModel):
-    sessions: Literal[63, 126, 252] = 63
+    sessions: Literal[0, 63, 126, 252] = 0
     enabled: bool = True
 
 
@@ -165,16 +165,22 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
 
     with reader(paths, LEDGER_FILE) as conn:
         book = PaperBook(conn)
-        positions = [asdict(p) for p in book.positions()][:500]
+        positions = [asdict(p) for p in book.positions(limit=500)]
         last = book.last_step()
         result = {"report": saved_view(paths, "paper"), "positions": positions, "decisions": book.decisions(limit=100),
                   "events": book.events(limit=100)}
-        result["trades"] = [position_view(p) for p in book.positions(state=None)[-500:]]
+        result["trades"] = [position_view(p) for p in book.positions(state=None, limit=500)]
         result["pending"] = [{"id": o.id, "account": o.account, "decision_id": o.decision_id,
                               "fill_after": o.fill_after.isoformat(), "order": o.order} for o in book.pending()][:200]
         pending = len(book.pending())
     delay = load_config(paths.config_dir).settings.stocks.refresh_after_close_minutes
-    target = cal.last_closed_session(utc_now(), timedelta(minutes=delay))
+    now = utc_now()
+    target = cal.last_closed_session(now, timedelta(minutes=delay))
+    local = cal.new_york(now)
+    trading_day = cal.is_trading_day(local.date())
+    market_open = trading_day and (local.hour,local.minute) >= (9,30) and now < cal.session_close(local.date())
+    next_day = (local.date() if trading_day and now < cal.session_close(local.date()) + timedelta(minutes=delay)
+                else cal.next_trading_day(local.date()))
     with reader(paths, MARKET_FILE) as conn:
         days = StocksMarket(conn).bar_days()
         latest = days[-1] if days else None
@@ -183,6 +189,8 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
         "latest_prices": latest.isoformat() if latest else None, "expected_close": target.isoformat(),
         "waiting_for_prices": latest is None or latest < target, "pending_orders": pending,
         "price_source_error": bool(price_error),
+        "market_open": market_open,
+        "next_daily_update_after": (cal.session_close(next_day) + timedelta(minutes=delay)).isoformat(),
         "explanation": "Sessions are recorded trading days, not imports or application restarts. Evidence-grade "
                        "thresholds do not block PAPER entries. Daily decisions need the next session's prices to fill."}
     return result
@@ -552,6 +560,15 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.get("/api/stocks/backtest")
     def backtest_record() -> dict[str, Any]:
         return {"job": backtests.status(), "report": evidence_document(paths, "report", kind="backtest")}
+
+    @app.get("/api/stocks/backtest/session")
+    def replay_session(day: date, run_id: str = Query(pattern=r"^[a-f0-9]{32}$"),
+                       account: str = Query(pattern=r"^[A-Za-z0-9_]+$", max_length=100),
+                       offset: int = Query(default=0, ge=0), closed: bool = False,
+                       symbol: str = Query(default="", max_length=12, pattern=r"^[A-Z0-9.-]*$")) -> dict[str, Any]:
+        from desk.stocks.replay_archive import session
+
+        return session(paths, run_id, account, day, offset, closed, symbol)
 
     @app.post("/api/stocks/backtest/start")
     async def start_backtest(inputs: BacktestInput) -> dict[str, Any]:

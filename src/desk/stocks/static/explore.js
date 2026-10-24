@@ -61,12 +61,12 @@ const KestrelExplore = (() => {
     section.append(footer);
     return section;
   }
-  function setups(data) {
+  function setups(data, options = {}) {
     const section = el("section", undefined, "option-research-section"),
       head = el("div", undefined, "section-heading"),
       text = el("div");
     text.append(
-      el("h2", "Top option setups"),
+      el("h2", options.title || "Top option setups"),
       el(
         "p",
         "A contract shortlist with visible costs, spreads and risk. Ranked by quote quality and liquidity, not promised profit.",
@@ -75,6 +75,13 @@ const KestrelExplore = (() => {
     );
     head.append(text, link("All options research ↗", "#options"));
     section.append(head);
+    section.append(
+      el(
+        "p",
+        `${data.sampled_underlyings} recently observed underlyings screened · ${data.calls ?? data.rows.filter((r) => r.kind === "call").length} call candidates · ${data.puts ?? data.rows.filter((r) => r.kind === "put").length} put candidates · session ${data.asof}. This is a quoted-liquidity screen, separate from unusual activity or a learned prediction.`,
+        "muted caption",
+      ),
+    );
     const controls = el("div", undefined, "screen-filters"),
       kind = el("select"),
       budget = el("input"),
@@ -89,6 +96,7 @@ const KestrelExplore = (() => {
       o.value = id;
       kind.append(o);
     }
+    kind.value = options.kind || "all";
     budget.type = "number";
     budget.min = "0";
     budget.placeholder = "Max cost per contract ($)";
@@ -294,5 +302,5 @@ const KestrelExplore = (() => {
       );
     app.append(watch);
   }
-  return { show };
+  return { show, setups };
 })();

@@ -248,7 +248,10 @@ const KestrelResearch = (() => {
     return section;
   }
   async function home(ticket, focus) {
-    const hub = await api("home");
+    const [hub, contractScreen] = await Promise.all([
+      api("home"),
+      focus === "options" ? api("explore") : Promise.resolve(null),
+    ]);
     if (ticket !== generation) return;
     app.className = "research-home";
     const top = el("div", undefined, "hub-title"),
@@ -319,7 +322,9 @@ const KestrelResearch = (() => {
       const progress = snapshot.price_progress || {},
         keyed = snapshot.source_keys.MASSIVE_API_KEY;
       const message = !keyed
-        ? "Stock prices are not connected. Add a free Massive Stocks Basic key in Settings; Schwab can wait."
+        ? focus === "options"
+          ? "Options use the selected Schwab or Tradier connection. The separate broad-market history feed is not configured; this does not prevent connected chains or quotes."
+          : "Broad-market research history is not configured. Set up that source in Settings; connected Schwab charts and options operate independently."
         : !snapshot.asof
           ? researchReadiness().message
           : `${number(progress.sessions)} price sessions stored · latest close ${progress.latest}. Research updates as new observations arrive.`;
@@ -332,9 +337,26 @@ const KestrelResearch = (() => {
     }
     if (focus === "options") {
       app.append(optionsCollections(hub));
+      app.append(
+        KestrelExplore.setups(contractScreen.option_setups, {
+          title: "Calls & puts: contract shortlist",
+          kind: "call",
+        }),
+      );
       const learned = await KestrelLearning.findings(ticket);
       if (ticket !== generation) return;
       app.append(learned);
+      const social = el("section", undefined, "paper-status");
+      social.append(
+        el("h2", "Social discovery · separate from market evidence"),
+        el(
+          "p",
+          "WSB and other ticker mentions can identify attention, but they do not establish an option trade, strike, expiration or buy direction. Social scores do not enter the market/options ranking or the PAPER learning evidence count.",
+          "muted",
+        ),
+        link("Inspect WSB vs recorded fundamentals ↗", "#lists/wsb_vs_reality"),
+      );
+      app.append(social);
     }
     const layout = el("div", undefined, "hub-layout"),
       main = el("div", undefined, "hub-main"),

@@ -6,6 +6,13 @@ to open as anything but PAPER.
 
 ## Accounts
 
+For the product audit and next build priorities, see [STOCKS_PRODUCT_REVIEW.md](STOCKS_PRODUCT_REVIEW.md).
+
+Historical backtests now default to all eligible saved sessions after warm-up. The main Paper page links directly to the
+replay; its date slider and first/previous/next/play controls review archived daily cash, holdings, marks, decisions and
+closed trades as they existed on the selected date. Playback is a review of an actual chronological computation, not a
+claim that an animation trains a model. The complete run has its own retained ledger under `stocks-replays/`.
+
 The separate **Learning** workspace has its own uncapped research book and finite $500,000 comparison book.
 Its virtual-funding override and intraday experiments are documented in [STOCKS_LEARNING.md](STOCKS_LEARNING.md).
 The strategy accounts described below retain their existing limits and history.

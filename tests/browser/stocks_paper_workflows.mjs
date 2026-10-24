@@ -25,7 +25,7 @@ try {
     await page.locator(".paper-trade-card").first().waitFor();
     assert.equal(await page.locator("#app table").count(), 0);
     const chart = page.locator(".paper-equity svg"),
-      readout = page.locator(".paper-equity .caption");
+      readout = page.locator(".paper-chart-readout");
     await chart.focus();
     await chart.press("Home");
     const first = await readout.innerText();
@@ -80,6 +80,9 @@ try {
     const previousReplay = (
       await (await page.request.get(`${base}/api/stocks/backtest`)).json()
     ).report?.generated_at;
+    await page
+      .getByLabel("Backtest window", { exact: true })
+      .selectOption("63");
     const auto = page.getByRole("checkbox", {
       name: /Automatically refresh this backtest/,
     });
@@ -123,6 +126,44 @@ try {
       "The new replay, rather than an older saved report, must complete",
     );
     assert.ok((await page.locator(".paper-walk").count()) > 0);
+    await page
+      .getByRole("heading", {
+        name: "Session-by-session strategy replay",
+        exact: true,
+      })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "First session", exact: true })
+      .click();
+    await page.getByText(/Session 1 of 63/, { exact: false }).waitFor();
+    await page
+      .getByText(/No open positions on this date/, { exact: false })
+      .waitFor();
+    assert.equal(
+      await page.locator(".paper-replay .paper-trade-card").count(),
+      0,
+    );
+    await page
+      .getByRole("tab", { name: "Session activity", exact: true })
+      .click();
+    await page.getByRole("heading", { name: /Decisions on/ }).waitFor();
+    await page
+      .getByRole("button", { name: "Play from start", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Pause playback", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Latest session", exact: true })
+      .click();
+    await page
+      .getByRole("tab", { name: "Open positions", exact: true })
+      .click();
+    await page.locator(".paper-replay .paper-trade-card").first().waitFor();
+    await page.locator(".paper-replay .paper-equity svg").focus();
+    await page.locator(".paper-replay .paper-equity svg").press("Home");
+    await page.getByRole("tooltip").waitFor();
+    await page.locator(".paper-replay .paper-equity svg").press("Escape");
     await page
       .getByText("Data coverage and replay assumptions", { exact: true })
       .click();

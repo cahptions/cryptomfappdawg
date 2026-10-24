@@ -31,7 +31,7 @@ from desk.stocks.prices import Panel, load_panel, split_factors
 from desk.stocks.repo import MARKET_FILE, StocksMarket, StocksResearch
 from desk.storage.db import DbKind, migrate
 
-VERSION = 1
+VERSION = 2
 
 
 class HistoricalMarket(StocksMarket):
@@ -197,20 +197,26 @@ def replay(
 ) -> dict[str, Any]:
     source = sqlite3.connect((paths.db_dir / MARKET_FILE).as_uri() + "?mode=ro", uri=True, isolation_level=None, timeout=2)
     source.row_factory = sqlite3.Row
-    research_db, ledger = memory_db(DbKind.STOCKS_RESEARCH), memory_db(DbKind.STOCKS_LEDGER)
+    from desk.stocks import replay_archive
+
+    research_db = memory_db(DbKind.STOCKS_RESEARCH)
+    run_id, ledger = replay_archive.create(paths)
     try:
         source.execute("BEGIN")  # one consistent source snapshot while collection can continue in WAL
         market = HistoricalMarket(source)
         days = market.bar_days()
+        requested = sessions
+        if sessions == 0:
+            sessions = max(0, len(days) - MIN_BARS)
         if sessions < 2 or len(days) < sessions + MIN_BARS:
             raise DeskError(
                 f"Replay needs {sessions} sessions plus {MIN_BARS} warm-up sessions; {len(days)} are saved. "
                 "Collection can continue automatically; see Settings for missing price access."
             )
         selected = days[-sessions:]
-        raw = load_panel(
-            market, days[-1] - timedelta(days=max(settings.history_days, sessions * 2 + 400)), days[-1], adjust=False
-        )
+        # A short evaluation window still needs long indicator lookbacks (for example 12-month momentum).
+        since = min(days[-sessions - MIN_BARS], days[-1] - timedelta(days=max(settings.history_days, sessions * 2 + 400)))
+        raw = load_panel(market, since, days[-1], adjust=False)
         if "SPY" not in raw.index:
             raise DeskError("SPY closing history is needed for the benchmark before replay can start")
         if raw.day_index(selected[0]) < MIN_BARS:
@@ -218,11 +224,18 @@ def replay(
         strategies = tuple(s for s in STRATEGIES if s.asset == "stock")
         # Squeeze rules require a properly archived/publication-timed short-interest history; unavailable here.
         strategies = tuple(s for s in strategies if s.id != "squeeze_runner")
+        ledger.execute("INSERT INTO replay_meta VALUES ('manifest',?)", (canonical_json({
+            "version": VERSION, "run_id": run_id, "first_day": selected[0].isoformat(), "last_day": selected[-1].isoformat(),
+            "settings": settings.model_dump(mode="json"), "strategies": {s.id: s.content() for s in strategies},
+            "weights": dict(DEFAULT_WEIGHTS), "stored_symbols": len(raw.symbols),
+            "source": "Consistent stored-data snapshot; current listing-universe and filing-revision limitations apply",
+        }),))
         book = PaperBook(ledger)
         analyzer = ReplayAnalyzer(market, StocksResearch(research_db), settings)
         engine = ReplayEngine(market, book, settings, strategies)
         splits = market.splits()
         skipped = []
+        drawdowns: dict[str, tuple[float, float]] = {}
         for index, asof in enumerate(selected):
             if progress:
                 progress(asof, index, len(selected))
@@ -240,6 +253,8 @@ def replay(
             result = engine.step(asof, cal.session_close(asof) + timedelta(minutes=1), day)
             if result.skipped:
                 skipped.append({"day": asof.isoformat(), "reason": result.skipped})
+            else:
+                replay_archive.capture(ledger, asof, drawdowns)
             engine.previous = day
             engine.previous_bars = engine._bars(asof)
         accounts = account_views(book, strategies)
@@ -248,10 +263,15 @@ def replay(
         for position in positions:
             reason = ledger.execute("SELECT reasons FROM stk_decisions WHERE id=?", (position.decision_id,)).fetchone()
             trades.append({**position_view(position), "entry_reason": reason[0] if reason else None})
+        ledger.execute("UPDATE replay_meta SET value='true' WHERE key='complete'")
         return {
             "version": VERSION,
+            "run_id": run_id,
             "record": "historical",
             "requested_sessions": sessions,
+            "window": "all_available" if requested == 0 else "recent_sessions",
+            "warmup_sessions": MIN_BARS,
+            "days": [d.isoformat() for d in selected if not any(s["day"] == d.isoformat() for s in skipped)],
             "first_day": selected[0].isoformat(),
             "last_day": selected[-1].isoformat(),
             "accounts": accounts,

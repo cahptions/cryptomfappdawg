@@ -26,12 +26,46 @@ def test_replay_records_actual_simulated_positions_without_mutating_source_resea
         assert result["trades"] and result["walk_forward"]["windows"]
         assert all(p["entry_reason"] for p in result["trades"])
         assert all(a["sessions"] == 63 and a["asset"] == "stock" for a in result["accounts"])
+        from desk.stocks.replay_archive import reader as archive_reader
+        from desk.stocks.replay_archive import session
+
+        with archive_reader(world.paths, result["run_id"]) as archive:
+            import json
+
+            manifest = json.loads(archive.execute("SELECT value FROM replay_meta WHERE key='manifest'").fetchone()[0])
+            assert "momentum" in manifest["strategies"] and manifest["settings"]
+
+        first = session(world.paths, result["run_id"], "spy_hold", date.fromisoformat(result["first_day"]))
+        final = session(world.paths, result["run_id"], "spy_hold", date.fromisoformat(result["last_day"]))
+        assert first["cash"] == first["equity"] == 10000 and first["open_positions"] == first["trades"] == 0
+        assert final["open_positions"] == 1 and final["cash"] < first["cash"]
+        momentum = next(a for a in result["accounts"] if a["id"] == "momentum")
+        assert momentum["open_positions"] > 0  # the 63-session evaluation retains earlier 12-month indicator history
+        assert all(d["asof"] <= first["day"] for d in first["decisions"])
+        assert session(world.paths, result["run_id"], "spy_hold", date.fromisoformat(first["day"]), closed=True)["total"] == 0
         assert all(p["entry_day"] > result["first_day"] for p in result["trades"])
         decisions = {d["id"]: d for d in result["decisions"]}
         for position in result["trades"]:
             if position["decision_id"] in decisions:
                 assert position["entry_day"] > decisions[position["decision_id"]]["asof"]
         assert [list(conn.iterdump()) for conn in (world.dbs.market, world.dbs.research, world.dbs.ledger)] == before
+    finally:
+        world.close()
+
+
+def test_all_history_begins_at_earliest_eligible_session_after_warmup(tmp_path, monkeypatch):
+    from desk.stocks.analysis import MIN_BARS
+    from desk.stocks.backtest import HistoricalMarket
+
+    world = make_world(tmp_path, n=12)
+    selected = world.days[:MIN_BARS+8]
+    monkeypatch.setattr(HistoricalMarket, "bar_days", lambda _: selected)
+    try:
+        result = replay(world.paths, load_config(REPO / "config").settings.stocks, 0)
+        assert result["window"] == "all_available"
+        assert result["requested_sessions"] == 8
+        assert result["first_day"] == selected[MIN_BARS].isoformat()
+        assert result["last_day"] == selected[-1].isoformat()
     finally:
         world.close()
 
@@ -116,7 +150,7 @@ def test_automatic_replay_is_once_per_input_and_only_cancels_owned_fixed_module(
         worker.maintain()
         assert spawn.call_count == 1
         assert spawn.call_args.args[0][1:] == ["-m", "desk.stocks.backtest_job"]
-        assert spawn.call_args.kwargs["env"]["DESK_STOCKS_BACKTEST_SESSIONS"] == "63"
+        assert spawn.call_args.kwargs["env"]["DESK_STOCKS_BACKTEST_SESSIONS"] == "0"
         worker.cancel()
         child.terminate.assert_called_once()
         child.poll.return_value = -15
@@ -152,5 +186,51 @@ def test_paper_pause_stops_only_owned_automatic_replay_and_can_resume_it(tmp_pat
         before = child.terminate.call_count
         worker.pause_automatic()
         assert child.terminate.call_count == before
+    finally:
+        world.close()
+
+
+def test_automatic_replay_can_start_before_63_sessions_and_retries_failed_inputs_after_cooldown(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from desk.core.clock import utc_now
+    from desk.stocks.evidence_job import publish
+
+    world = make_world(tmp_path, n=12)
+    child = Mock()
+    child.poll.return_value = None
+    spawn = Mock(return_value=child)
+    monkeypatch.setattr("desk.stocks.evidence_job.subprocess.Popen", spawn)
+    try:
+        worker = BacktestWorker(world.paths)
+        monkeypatch.setattr(worker,"coverage",lambda: {"sessions":65,"eligible_sessions":5,"warmup_sessions":60,
+                                                       "latest":"2026-10-21","earliest":"2026-07-01","rows":1000})
+        worker.maintain()
+        assert spawn.call_count == 1
+        child.poll.return_value = 1
+        publish(world.paths,kind="backtest",status="failed",phase="Synthetic provider/storage failure")
+        worker.maintain()
+        assert spawn.call_count == 1
+        prefs=worker.preferences()
+        prefs["attempted_at"]=(utc_now()-timedelta(minutes=11)).isoformat()
+        worker.save_preferences(prefs)
+        worker.maintain()
+        assert spawn.call_count == 2
+    finally:
+        world.close()
+
+
+@pytest.mark.parametrize("attempted_at", [123, "not-a-date", "2026-10-24T12:00:00"])
+def test_malformed_retry_clock_is_repairable_without_crashing_automation(tmp_path, attempted_at):
+    import json
+
+    world = make_world(tmp_path, n=12)
+    try:
+        (world.paths.home / "stocks-backtest-preferences.json").write_text(json.dumps(
+            {"enabled":True,"sessions":0,"attempted_at":attempted_at}))
+        worker = BacktestWorker(world.paths)
+        worker.maintain()
+        assert worker.status()["preference_error"]
+        assert worker.automatic(True, 0)["auto_enabled"]
     finally:
         world.close()

@@ -57,7 +57,11 @@ def option_setups(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]:
                          "reason": "Near-the-money standard contract; screened for quoted spread and open interest. "
                                    "Reported daily volume is shown separately and may be zero after hours."})
     rows.sort(key=lambda r: (r["spread_fraction"], -r["open_interest"], -r["volume"], r["occ"]))
-    return {"rows": rows[:20], "sampled_underlyings": len(selected), "asof": session.isoformat(),
+    balanced = [r for kind in ("call", "put") for r in [row for row in rows if row["kind"] == kind][:10]]
+    balanced.sort(key=lambda r: (r["spread_fraction"], -r["open_interest"], -r["volume"], r["occ"]))
+    return {"rows": balanced, "sampled_underlyings": len(selected), "asof": session.isoformat(),
+            "calls": len([r for r in balanced if r["kind"] == "call"]),
+            "puts": len([r for r in balanced if r["kind"] == "put"]),
             "basis": "Research shortlist, ranked by spread then open interest and volume; not expected profit. "
                      "One long contract at the saved ask plus $0.65 entry-fee estimate. "
                      "Expiry break-even excludes exit/exercise costs. No order is created."}

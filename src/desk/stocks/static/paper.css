@@ -101,6 +101,79 @@
   stroke: #739de5;
   stroke-width: 2;
 }
+.paper-chart-plot {
+  position: relative;
+}
+.paper-value-axis {
+  fill: #b7c8dd;
+  font-size: 13px;
+}
+.paper-benchmark-line {
+  fill: none;
+  stroke: #c8ab80;
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+}
+.paper-chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  padding: 12px 16px;
+  border: 1px solid #6684b3;
+  border-radius: 8px;
+  background: #142235;
+  color: #edf5ff;
+  width: 210px;
+  max-width: 100%;
+  z-index: 2;
+}
+.paper-chart-tooltip p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.paper-trade-marker.entry {
+  fill: #79dcba;
+}
+.paper-trade-marker.exit {
+  fill: #ffa6b5;
+}
+.paper-history-launch {
+  padding: 20px;
+  border: 1px solid #4f6b91;
+  border-radius: 12px;
+  background: #172437;
+  margin: 24px 0;
+}
+.paper-history-launch a {
+  display: inline-block;
+  margin: 12px;
+  color: #b5d0ff;
+}
+.paper-playback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
+}
+.paper-replay > input[type="range"] {
+  width: 100%;
+  max-width: none;
+  accent-color: #abc6ff;
+  margin: 20px 0;
+}
+.paper-replay > input[type="search"] {
+  max-width: 340px;
+  margin-top: 20px;
+}
+.paper-replay > strong {
+  display: block;
+  color: #d7e7ff;
+}
+.paper-replay button.primary,
+.paper-history-launch button.primary {
+  background: #abc6ff;
+  color: #101b2c;
+  border-color: #abc6ff;
+}
 .learning-page .paper-metric strong,
 .learning-page .paper-trade-card {
   overflow-wrap: anywhere;
@@ -253,6 +326,9 @@
   }
 }
 @media (max-width: 500px) {
+  .paper-value-axis {
+    font-size: 17px;
+  }
   .learning-page .paper-metrics {
     grid-template-columns: minmax(0, 1fr);
   }

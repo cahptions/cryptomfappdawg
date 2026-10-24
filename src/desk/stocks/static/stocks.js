@@ -559,6 +559,46 @@ async function settingsPage() {
     "Keys stay on this laptop. The Stocks desk remains PAPER and cannot place a brokerage order.",
   );
   app.append(sourceSetup());
+  const roles = panel(
+    "What each data connection powers",
+    "Sources have different coverage and clocks. A working live quote does not prove that broad-market backtests or historical option quotes are available.",
+  );
+  roles.append(
+    table(
+      ["Source", "Used for", "Coverage and setup"],
+      [
+        [
+          link("Schwab Developer Portal ↗", "https://developer.schwab.com/"),
+          "Viewed-stock quotes, 1-minute charts, available daily chart history and option chains",
+          "Authorize the brokerage login below and choose Test market-data access. Quote delay and availability depend on your entitlements. Charts can request up to 20 years where supplied.",
+        ],
+        [
+          link("Massive stocks plans ↗", "https://massive.com/stocks"),
+          "Market-wide closing bars for cross-sectional research, daily strategy PAPER and chronological stock replay",
+          "Check your plan's accessible dates and publication delay. A 403 does not necessarily mean the key is wrong. A per-stock Schwab chart does not substitute for a complete market-wide session.",
+        ],
+        [
+          link("Tradier documentation ↗", "https://docs.tradier.com/"),
+          "Alternative stock/options observations",
+          "Sandbox data is delayed. Use the selected provider and the timestamps shown on each observation.",
+        ],
+        [
+          link(
+            "SEC data access ↗",
+            "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+          ),
+          "Dated filings and company fundamentals",
+          "Save your contact email above; no paid account is required. Publication dates govern which filings a replay may use.",
+        ],
+        [
+          "Archived historical options",
+          "Required for genuine historical bid/ask, IV and option-strategy fills",
+          "Not supplied by a stock price chart. This app archives observations it receives; buying a historical dataset alone will not integrate it. A separately implemented and tested import adapter is required.",
+        ],
+      ],
+    ),
+  );
+  app.append(roles);
   const box = panel("Schwab connection"),
     form = el("form"),
     message = el("p", undefined, "muted");
@@ -859,6 +899,7 @@ async function refresh(initial = false) {
       (changed &&
         location.hash !== "#settings" &&
         location.hash !== "#learning" &&
+        location.hash !== "#paper" &&
         !document.querySelector("dialog[open]"))
     )
       render();
@@ -883,7 +924,7 @@ window.addEventListener("hashchange", render);
   try {
     const session = await api("session");
     csrf = session.csrf_token;
-    serverCompatible = session.ui_protocol === 3;
+    serverCompatible = session.ui_protocol === 4;
     await refresh(true);
   } catch (error) {
     statusLine.textContent = error.message;
