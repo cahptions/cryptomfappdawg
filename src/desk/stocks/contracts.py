@@ -35,6 +35,17 @@ class Bar:
 
 
 @dataclass(frozen=True)
+class IntradayBar:
+    symbol: str
+    at: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+@dataclass(frozen=True)
 class Split:
     symbol: str
     execution_date: date

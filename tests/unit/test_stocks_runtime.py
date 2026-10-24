@@ -65,9 +65,9 @@ def test_source_revision_changes_when_python_or_interface_changes_but_ignores_da
 
 
 @pytest.mark.parametrize("payload,expected", [
-    ({"application": "kestrel-stocks", "protocol": 1, "running_revision": "installed"}, True),
-    ({"application": "kestrel-stocks", "protocol": 1, "running_revision": "previous"}, False),
-    ({"application": "another-app", "protocol": 1, "running_revision": "installed"}, False),
+    ({"application": "kestrel-stocks", "protocol": runtime.UI_PROTOCOL, "running_revision": "installed"}, True),
+    ({"application": "kestrel-stocks", "protocol": runtime.UI_PROTOCOL, "running_revision": "previous"}, False),
+    ({"application": "another-app", "protocol": runtime.UI_PROTOCOL, "running_revision": "installed"}, False),
     ({"application": "kestrel-stocks", "protocol": 0, "running_revision": "installed"}, False),
     ({}, False),
     ([], False),

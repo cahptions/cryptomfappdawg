@@ -378,7 +378,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         finally:
             conn.close()
         return {"queued": True, "enabled": collector.status().get("enabled", False),
-                "note": "Schwab quotes and up to 20 years of available daily history; existing history is preserved."}
+                "note": "Schwab quotes, 1-minute intraday candles and up to 20 years of daily history; cached data is preserved."}
 
     @app.post("/api/stocks/stock/{symbol}/options/request")
     def request_options(symbol: str) -> dict[str, Any]:

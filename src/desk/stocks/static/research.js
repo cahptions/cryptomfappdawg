@@ -19,6 +19,13 @@ const KestrelResearch = (() => {
       : "Not available";
   const dateOf = (ordinal) =>
     new Date((ordinal - 719163) * 86400000).toISOString().slice(0, 10);
+  const intradayTime = (at, full = false) =>
+    new Date(at).toLocaleString("en-US", {
+      ...(full ? { month: "short", day: "numeric", year: "numeric" } : {}),
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York",
+    }) + " ET";
   const tone = (value) =>
     value == null || value === 0
       ? "neutral"
@@ -634,10 +641,11 @@ const KestrelResearch = (() => {
   }
 
   function chartWidget(
-    bars,
+    dailyBars,
     onInspect = () => {},
     basis = "Split-adjusted daily OHLC",
     symbol = "",
+    intraday = {},
   ) {
     const wrapper = el("section", undefined, "chart-widget"),
       tools = el("div", undefined, "chart-tools"),
@@ -653,6 +661,7 @@ const KestrelResearch = (() => {
     tooltip.setAttribute("role", "tooltip");
     tooltip.dataset.testid = "candle-tooltip";
     const periods = {
+      "1D": 0,
       "1M": 30,
       "3M": 90,
       "6M": 180,
@@ -662,20 +671,51 @@ const KestrelResearch = (() => {
     };
     function draw() {
       plot.replaceChildren();
+      axis.replaceChildren();
       tooltip.hidden = true;
-      onInspect(null);
+      const minuteMode = range === "1D",
+        bars = minuteMode
+          ? (intraday.bars || []).map((b) => ({
+              ...b,
+              day: Date.parse(b.at) / 86400000 + 719163,
+            }))
+          : dailyBars;
+      for (const button of ranges.children)
+        button.setAttribute(
+          "aria-pressed",
+          String(button.textContent === range),
+        );
+      for (const button of types.children)
+        button.setAttribute(
+          "aria-pressed",
+          String(button.textContent === kind),
+        );
+      onInspect(null, null, minuteMode ? intraday : null);
+      readout.textContent = minuteMode
+        ? "Schwab 1-minute candles · regular trading session · latest minute may still be forming"
+        : basis;
       if (bars.length < 2) {
         plot.append(
           empty(
-            "Price history is building",
-            "A chart appears after at least two real daily observations are stored.",
-            null,
+            minuteMode
+              ? intraday.error
+                ? "Intraday chart unavailable"
+                : "Intraday data is loading"
+              : "Price history is building",
+            minuteMode
+              ? intraday.error ||
+                  "The app is requesting Schwab minute candles. The 1D chart appears as data arrives; longer-range charts remain available."
+              : "A chart appears after at least two real daily observations are stored.",
+            minuteMode && intraday.error ? "#settings" : null,
+            "Review Schwab connection",
           ),
         );
         return;
       }
       const end = bars.at(-1).day;
-      let rows = bars.filter((b) => b.day >= end - periods[range]);
+      let rows = minuteMode
+        ? bars
+        : bars.filter((b) => b.day >= end - periods[range]);
       // Long candle views use real calendar OHLC aggregation, rather than thousands of overlapping bodies.
       if (kind === "Candles" && rows.length > 520) {
         const monthly = rows.length > 2000,
@@ -703,17 +743,21 @@ const KestrelResearch = (() => {
         }
         rows = [...grouped.values()];
       }
-      const observationLabel = rows[0]?.interval
-        ? `${rows[0].interval} candles · aggregated from daily OHLC`
-        : basis;
+      const observationLabel = minuteMode
+        ? `Schwab 1-minute candles · regular session ${intraday.session || ""} · latest minute may still be forming`
+        : rows[0]?.interval
+          ? `${rows[0].interval} candles · aggregated from daily OHLC`
+          : basis;
       const axisDate = (value) =>
-        new Date(dateOf(value) + "T12:00:00Z").toLocaleDateString("en-US", {
-          month: "short",
-          ...(end - rows[0]?.day > 365
-            ? { year: "numeric" }
-            : { day: "numeric" }),
-          timeZone: "UTC",
-        });
+        minuteMode
+          ? intradayTime(Math.round((value - 719163) * 86400000))
+          : new Date(dateOf(value) + "T12:00:00Z").toLocaleDateString("en-US", {
+              month: "short",
+              ...(end - rows[0]?.day > 365
+                ? { year: "numeric" }
+                : { day: "numeric" }),
+              timeZone: "UTC",
+            });
       if (rows.length < 2) {
         plot.append(el("p", "Not enough observations in this range.", "muted"));
         return;
@@ -738,7 +782,7 @@ const KestrelResearch = (() => {
         preserveAspectRatio: "none",
         class: "price-chart",
         role: "img",
-        "aria-label": `${kind} chart of observed daily stock prices. Use left and right arrows to inspect closes; Escape returns to latest.`,
+        "aria-label": `${kind} chart of observed ${minuteMode ? "1-minute intraday" : "daily"} stock prices. Use left and right arrows to inspect closes; Escape returns to latest.`,
         tabindex: "0",
         "aria-describedby": tooltip.id,
       });
@@ -814,7 +858,7 @@ const KestrelResearch = (() => {
         cursor.setAttribute("x1", x(nearest));
         cursor.setAttribute("x2", x(nearest));
         cursor.setAttribute("visibility", "visible");
-        readout.textContent = `${shortDate(dateOf(nearest.day))} · ${money(nearest.close)} · Volume ${compact(nearest.volume)}`;
+        readout.textContent = `${minuteMode ? intradayTime(nearest.at, true) : shortDate(dateOf(nearest.day))} · ${money(nearest.close)} · Volume ${compact(nearest.volume)}`;
         const previousClose = nearest.interval
             ? nearest.previous_close
             : bars[bars.indexOf(nearest) - 1]?.close,
@@ -830,7 +874,9 @@ const KestrelResearch = (() => {
               ? "Since last observed close"
               : nearest.interval
                 ? "Period change"
-                : "Day change",
+                : minuteMode
+                  ? "Minute change"
+                  : "Day change",
             previousClose
               ? change(nearest.close / previousClose - 1)
               : "Not available",
@@ -841,15 +887,17 @@ const KestrelResearch = (() => {
         tooltip.replaceChildren(
           el(
             "strong",
-            new Date(dateOf(nearest.day) + "T12:00:00Z").toLocaleDateString(
-              "en-US",
-              {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-                timeZone: "UTC",
-              },
-            ),
+            minuteMode
+              ? intradayTime(nearest.at, true)
+              : new Date(dateOf(nearest.day) + "T12:00:00Z").toLocaleDateString(
+                  "en-US",
+                  {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  },
+                ),
           ),
           values,
           ...(nearest.interval
@@ -860,7 +908,10 @@ const KestrelResearch = (() => {
                 ),
               ]
             : []),
-          el("small", `${basis} · USD`),
+          el(
+            "small",
+            `${minuteMode ? "Schwab 1-minute OHLC · regular session" : basis} · USD`,
+          ),
         );
         tooltip.hidden = false;
         const box = plot.getBoundingClientRect(),
@@ -875,14 +926,14 @@ const KestrelResearch = (() => {
           th = tooltip.offsetHeight;
         tooltip.style.left = `${Math.max(8, Math.min(box.width - tw - 8, px + tw + 20 > box.width ? px - tw - 14 : px + 16))}px`;
         tooltip.style.top = `${Math.max(8, Math.min(box.height - th - 8, py + th + 16 > box.height ? py - th - 14 : py + 16))}px`;
-        onInspect(nearest, rows[0]);
+        onInspect(nearest, rows[0], minuteMode ? intraday : null);
       };
       const reset = () => {
         selectedIndex = rows.length - 1;
         cursor.setAttribute("visibility", "hidden");
         tooltip.hidden = true;
         readout.textContent = `${observationLabel} · volume below`;
-        onInspect(null);
+        onInspect(null, null, minuteMode ? intraday : null);
       };
       svg.onpointermove = (event) => {
         const bounds = svg.getBoundingClientRect(),
@@ -925,19 +976,14 @@ const KestrelResearch = (() => {
       readout.textContent = `${observationLabel} · volume below`;
       axis.replaceChildren(
         el("span", axisDate(from)),
-        el("span", axisDate(Math.round((from + end) / 2))),
+        el(
+          "span",
+          axisDate(
+            minuteMode ? (from + end) / 2 : Math.round((from + end) / 2),
+          ),
+        ),
         el("span", axisDate(end)),
       );
-      for (const button of ranges.children)
-        button.setAttribute(
-          "aria-pressed",
-          String(button.textContent === range),
-        );
-      for (const button of types.children)
-        button.setAttribute(
-          "aria-pressed",
-          String(button.textContent === kind),
-        );
     }
     for (const label of Object.keys(periods)) {
       const button = el("button", label);
@@ -1120,7 +1166,10 @@ const KestrelResearch = (() => {
     );
     let latest = data.bars.at(-1),
       previous = data.bars.at(-2),
-      inspected = false;
+      inspected = false,
+      intradayMode = false,
+      renderedDailyAt = null,
+      renderedMinuteAt = null;
     function currentChange() {
       return data.quote && !data.quote.stale && data.quote.prev_close
         ? data.quote.last / data.quote.prev_close - 1
@@ -1167,32 +1216,51 @@ const KestrelResearch = (() => {
     headlinePrice.dataset.testid = "headline-price";
     priceCaption.dataset.testid = "price-caption";
     pricing.append(headlinePrice, headlineChange);
-    const inspectPrice = (row, baseline) => {
+    const inspectPrice = (row, baseline, session = null) => {
       inspected = !!row;
+      intradayMode = session !== null;
       const quote = data.quote && !data.quote.stale ? data.quote : null;
+      const minuteLast = session?.bars?.at(-1),
+        minuteBase = session?.previous_close || session?.bars?.[0]?.open;
       const delta =
-        row && baseline?.close
-          ? row.close / baseline.close - 1
-          : currentChange();
+        row && session && minuteBase
+          ? row.close / minuteBase - 1
+          : row && baseline?.close
+            ? row.close / baseline.close - 1
+            : !quote && minuteLast && minuteBase
+              ? minuteLast.close / minuteBase - 1
+              : currentChange();
       headlinePrice.textContent = money(
-        row?.close ?? quote?.last ?? latest?.close ?? p.close,
+        row?.close ??
+          quote?.last ??
+          minuteLast?.close ??
+          latest?.close ??
+          p.close,
       );
       headlineChange.textContent = change(delta);
       headlineChange.className = tone(delta);
-      priceCaption.textContent = row
-        ? `${new Date(dateOf(row.day) + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · Stored close · USD · Change since ${dateOf(baseline.day)}`
-        : quote
-          ? `Schwab quote · ${new Date(quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET · USD · Change vs previous close`
-          : latest
-            ? `Stored close · ${shortDate(dateOf(latest.day))} · USD · Change vs previous observed close`
-            : "No stored price history";
+      priceCaption.textContent = row?.at
+        ? `${intradayTime(row.at, true)} · 1-minute close · USD · ${session?.previous_close ? "Change vs previous close" : "Change since session open"}`
+        : row
+          ? `${new Date(dateOf(row.day) + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · Stored close · USD · Change since ${dateOf(baseline.day)}`
+          : quote
+            ? `Schwab quote · ${new Date(quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET · USD · Change vs previous close`
+            : minuteLast
+              ? `${intradayTime(minuteLast.at, true)} · Last saved 1-minute close · USD · ${session.previous_close ? "Change vs previous close" : "Change since session open"}`
+              : latest
+                ? `Stored close · ${shortDate(dateOf(latest.day))} · USD · Change vs previous observed close`
+                : "No stored price history";
+      updateHistoryStatus();
     };
     inspectPrice(null);
     top.append(pricing, priceCaption);
     function updateHistoryStatus() {
       const c = data.coverage;
-      historyStatus.textContent = `${data.chart_source} · ${c?.sessions || 0} daily observations${c?.first ? ` · ${c.first} through ${c.last}` : ""}${data.stock_data?.history_error ? ` · ${data.stock_data.history_error}` : ""}`;
-      coverageInfo.textContent = `${data.stock_data?.max_note || "Max shows all downloaded history. Connect Schwab in Settings for longer chart history."} ${data.chart_basis}. Daily candles may include an unfinished session. Research statistics below use separately dated bulk history. ${data.quote?.stale ? `The last Schwab quote is from ${new Date(data.quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET; the headline shows the stored close.` : ""} ${data.stock_data?.quote_error || ""}`;
+      const minute = data.stock_data?.intraday || {};
+      historyStatus.textContent = intradayMode
+        ? `Schwab · 1-minute candles · regular trading session${minute.session ? ` ${minute.session}` : " pending"} · ${minute.bars?.length || 0} observations${minute.last_at ? ` · latest ${intradayTime(minute.last_at)}` : ""}${minute.error ? ` · ${minute.error}` : ""}`
+        : `${data.chart_source} · ${c?.sessions || 0} daily observations${c?.first ? ` · ${c.first} through ${c.last}` : ""}${data.stock_data?.history_error ? ` · ${data.stock_data.history_error}` : ""}`;
+      coverageInfo.textContent = `1D uses actual Schwab 1-minute candles for the latest available regular trading session; it excludes extended hours. The latest minute may still be forming. ${data.stock_data?.max_note || "Max shows all downloaded history. Connect Schwab in Settings for longer chart history."} ${data.chart_basis}. Daily candles may include an unfinished session. Research statistics below use separately dated bulk history. ${data.quote?.stale ? `The last Schwab quote is from ${new Date(data.quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET; current quotes are not being inferred from candles.` : ""} ${data.stock_data?.quote_error || ""}`;
     }
     function drawHistory() {
       chartHost.replaceChildren(
@@ -1203,8 +1271,11 @@ const KestrelResearch = (() => {
             ? "Schwab daily candles"
             : "Daily · split-adjusted",
           symbol,
+          data.stock_data?.intraday || {},
         ),
       );
+      renderedDailyAt = data.stock_data?.updated_at;
+      renderedMinuteAt = data.stock_data?.intraday?.updated_at;
       updateHistoryStatus();
     }
     drawHistory();
@@ -1217,14 +1288,20 @@ const KestrelResearch = (() => {
           const next = await api(`stock/${encodeURIComponent(symbol)}`);
           if (ticket !== generation) return;
           const changed =
-            next.stock_data?.updated_at !== data.stock_data?.updated_at;
+            next.stock_data?.updated_at !== renderedDailyAt ||
+            next.stock_data?.intraday?.updated_at !== renderedMinuteAt;
           data = next;
           latest = data.bars.at(-1);
           previous = data.bars.at(-2);
-          if (changed) drawHistory();
+          if (changed && !inspected) drawHistory();
           else {
             updateHistoryStatus();
-            if (!inspected) inspectPrice(null);
+            if (!inspected)
+              inspectPrice(
+                null,
+                null,
+                intradayMode ? data.stock_data?.intraday || {} : null,
+              );
           }
         }
       } catch (error) {

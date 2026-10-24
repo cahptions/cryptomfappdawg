@@ -15,7 +15,7 @@ from typing import Any
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
 from desk.stocks import calendar as cal
-from desk.stocks.contracts import Bar, OptionQuote, StockQuote
+from desk.stocks.contracts import Bar, IntradayBar, OptionQuote, StockQuote
 from desk.stocks.schwab_auth import SchwabTokens
 
 OCC = re.compile(r"^[A-Z0-9.]{1,6}\d{6}[CP]\d{8}$")
@@ -149,6 +149,25 @@ def parse_history(body: bytes, symbol: str) -> list[Bar]:
         raise SchemaError("schwab price history: invalid daily candles; existing history preserved") from exc
 
 
+def parse_intraday(body: bytes, symbol: str) -> list[IntradayBar]:
+    value = _body(body)
+    try:
+        if value.get("symbol") != symbol or not isinstance(value.get("candles"), list) or len(value["candles"]) > 10000:
+            raise ValueError
+        out: dict[datetime, IntradayBar] = {}
+        for row in value["candles"]:
+            stamp = _time(row["datetime"])
+            op, hi, lo, cl, volume = (_f(row[k]) for k in ("open", "high", "low", "close", "volume"))
+            if (stamp is None or stamp.second or stamp.microsecond or stamp in out
+                    or op is None or hi is None or lo is None or cl is None or volume is None
+                    or min(op, hi, lo, cl) <= 0 or hi < max(op, lo, cl) or lo > min(op, hi, cl)):
+                raise ValueError
+            out[stamp] = IntradayBar(symbol, stamp, op, hi, lo, cl, volume)
+        return [out[at] for at in sorted(out)]
+    except (KeyError, ValueError, TypeError, AttributeError) as exc:
+        raise SchemaError("schwab price history: invalid minute candles; existing intraday chart preserved") from exc
+
+
 class SchwabClient:
     def __init__(self, http: ProviderHttp, tokens: SchwabTokens) -> None:
         self.http, self.tokens = http, tokens
@@ -200,4 +219,10 @@ class SchwabClient:
     async def price_history(self, symbol: str) -> list[Bar]:
         return parse_history(await self._get("pricehistory", {
             "symbol": symbol, "periodType": "year", "period": 20, "frequencyType": "daily", "frequency": 1,
+            "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
+
+    async def intraday_history(self, symbol: str) -> list[IntradayBar]:
+        # Several sessions allow a real previous session at weekends, holidays and before today's open.
+        return parse_intraday(await self._get("pricehistory", {
+            "symbol": symbol, "periodType": "day", "period": 5, "frequencyType": "minute", "frequency": 1,
             "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)

@@ -34,9 +34,12 @@ mutate the forward PAPER book. Normal use requires no terminal evaluation comman
 
 With valid existing Schwab credentials, stock-page quotes and daily chart history refresh independently of
 long-running collection/backfill. A CSRF-protected POST registers active-page interest. A lifespan task processes
-at most two histories and one <=100-symbol quote batch per pass through the existing shared rate limiter.
+at most two daily histories, two minute histories and one <=100-symbol quote batch per pass through the shared rate limiter.
 Quote attempts are paced at 30 seconds; history at 15 minutes with a five-minute failed-attempt cooldown.
 Only pages active in the last two minutes are served. Global STOP/PAPER Pause is respected.
+
+The subsequent 1D chart uses a separate timestamped minute cache. See ../docs/STOCKS_INTRADAY.md for its session,
+refresh, source and verification details. Minute observations are not daily research/PAPER inputs.
 
 Requests use GET /marketdata/v1/pricehistory with year/20, daily/1, extended hours off. Public Schwabdev
 documentation examples were used to check the request/response shape; no operator-authorized live history

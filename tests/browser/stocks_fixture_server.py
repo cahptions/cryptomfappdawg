@@ -26,8 +26,8 @@ from tests.stocks_world import NOW, add_chains, make_world
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows", "paper-workflows"],
-                        default="populated")
+    parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
+                                               "paper-workflows", "intraday-workflows"], default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
@@ -88,6 +88,27 @@ def main() -> None:
                                     cal.trading_days(date(2006, 10, 23), CAPTURE.date()))]
                     request(world.dbs.market, "SPY", CAPTURE)
                     save_history(world.dbs.market, "SPY", bars, CAPTURE)
+            if args.scenario == "intraday-workflows":
+                import math
+
+                from desk.stocks.contracts import IntradayBar
+                from desk.stocks.stock_views import request, save_history, save_intraday
+
+                for symbol in ("SPY", "QQQ"):
+                    session = world.days[-1]
+                    opening = cal.session_close(session) - timedelta(hours=6, minutes=30)
+                    minutes = []
+                    for minute in range(390):
+                        op = 100 + minute * .005
+                        close = op + .02 * math.cos(minute)
+                        minutes.append(IntradayBar(symbol, opening + timedelta(minutes=minute), op,
+                                       max(op, close) + .04, min(op, close) - .04, close, 1000 + minute))
+                    request(world.dbs.market, symbol, NOW)
+                    save_intraday(world.dbs.market, symbol, minutes, NOW)
+                    save_history(world.dbs.market, symbol, [
+                        Bar(symbol, world.days[-2], 99, 100, 98, 99.5, 100000),
+                        Bar(symbol, session, 100, 103, 99, minutes[-1].close, 100000),
+                    ], NOW)
             world.close()
         uvicorn.run(create_app(paths, auto_start=False), host="127.0.0.1", port=args.port, access_log=False)
 

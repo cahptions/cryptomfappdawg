@@ -68,6 +68,7 @@ def test_chart_cache_does_not_mark_bulk_day_complete_or_mutate_paper_and_retains
 async def test_view_collection_is_independent_of_massive_and_failures_preserve_cached_history(tmp_path, monkeypatch):
     w = make_world(tmp_path, n=12)
     client = SimpleNamespace(configured=True,
+        intraday_history=AsyncMock(return_value=[]),
         quotes=AsyncMock(return_value=[StockQuote("SPY", 111, 110, 112, 108, 123, NOW)]),
         price_history=AsyncMock(return_value=[Bar("SPY", date(2010, 1, 4), 10, 12, 9, 11, 1000)]))
     suite = SimpleNamespace(schwab=client, aclose=AsyncMock())
