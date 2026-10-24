@@ -21,3 +21,9 @@ KESTREL_BROWSER_SCENARIO=empty node tests/browser/smoke.mjs
 Restart the fixture server with `--scenario populated` and run with `KESTREL_BROWSER_SCENARIO=populated` to check candidates, position and strategy dossiers, and recorded trade downloads. Screenshots and JSON evidence go to `/tmp/kestrel-browser-results` by default. `PLAYWRIGHT_MODULE`, `KESTREL_BROWSER_URL`, and `KESTREL_BROWSER_OUTPUT` can override the driver, server address, and artifact directory.
 
 The heap and connection checks cover a short sample and repeated navigation. They do not replace laptop resource measurements or the required long-duration forward runs.
+
+For the separate Stocks PAPER Learning workspace, start
+`python -m tests.browser.stocks_fixture_server --scenario learning-workflows --port 8891` and run
+`tests/browser/stocks_learning_workflows.mjs` with Playwright available and
+`KESTREL_STOCKS_URL=http://127.0.0.1:8891`. This fixture creates actual engine-generated synthetic fills and funding in a
+disposable private ledger; the browser checks desktop/mobile controls, accounting, order history, experiments and downloads.

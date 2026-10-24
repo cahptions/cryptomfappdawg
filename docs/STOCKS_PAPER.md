@@ -6,6 +6,10 @@ to open as anything but PAPER.
 
 ## Accounts
 
+The separate **Learning** workspace has its own uncapped research book and finite $500,000 comparison book.
+Its virtual-funding override and intraday experiments are documented in [STOCKS_LEARNING.md](STOCKS_LEARNING.md).
+The strategy accounts described below retain their existing limits and history.
+
 Every strategy trades its own paper account, so strategies never compete for cash and each has a clean record.
 Stock accounts start with $10,000 and option accounts with $50,000 (so that 2% of the account buys one contract of
 most liquid names). Results are compared in percentages, but contract minimums/capacity differ by capital:

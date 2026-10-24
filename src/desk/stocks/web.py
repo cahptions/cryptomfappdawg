@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from desk.core.config import LoadedConfig, load_config
 from desk.core.errors import DeskError
@@ -48,6 +48,17 @@ STATIC = Path(__file__).with_name("static")
 class BacktestInput(BaseModel):
     sessions: Literal[63, 126, 252] = 63
     enabled: bool = True
+
+
+class LearningControl(BaseModel):
+    enabled: bool
+
+
+class LearningExperiment(BaseModel):
+    structure: Literal["long_call", "long_put", "long_straddle"]
+    budget: float = Field(gt=0, allow_inf_nan=False)
+    hold_minutes: int = Field(ge=1, le=129600)
+    repeat_minutes: int = Field(default=0, ge=0, le=129600)
 
 
 def saved_view(paths: DeskPaths, name: str) -> dict[str, Any] | None:
@@ -190,6 +201,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     evidence = EvidenceWorker(paths)
     backtests = BacktestWorker(paths)
     analysis_start_lock = asyncio.Lock()
+    learning_state: dict[str, Any] = {"phase": "Preparing learning workspace"}
 
     def login_pending() -> bool:
         return attempt is not None and (not attempt.complete.is_set() or attempt.thread.is_alive())
@@ -198,7 +210,34 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         dbs = StocksDatabases.open(paths)
         dbs.close()
+        from desk.stocks import learning
+
+        learning_conn = learning.open_book(paths)
+        try:
+            from desk.core.clock import utc_now
+
+            learning.initialize(learning_conn, utc_now())
+        finally:
+            learning_conn.close()
         automation_stop = asyncio.Event()
+
+        async def learn_options() -> None:
+            from desk.stocks import learning_service
+
+            while not automation_stop.is_set():
+                delay = 15
+                try:
+                    if collector.status().get("enabled") and learning_service.allowed(paths):
+                        learning_state.update(phase="Learning is active; watching new option observations", error=None)
+                        await asyncio.wait_for(learning_service.cycle(paths, config), 45)
+                    else:
+                        learning_state.update(phase="Learning paused; observations and losses remain saved", error=None)
+                except Exception:
+                    delay = 60
+                    learning_state.update(phase="Learning will retry in one minute; saved records are preserved",
+                                          error="Source or storage unavailable. Check Settings and data health.")
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), delay)
 
         async def stock_data() -> None:
             from desk.stocks.stock_views import refresh
@@ -226,6 +265,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             await asyncio.to_thread(collector.maintain)
         automation = asyncio.create_task(maintain()) if auto_start else None
         stock_automation = asyncio.create_task(stock_data()) if auto_start else None
+        learning_automation = asyncio.create_task(learn_options()) if auto_start else None
         try:
             yield
         finally:
@@ -235,6 +275,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             if stock_automation is not None:
                 stock_automation.cancel()
                 await asyncio.gather(stock_automation, return_exceptions=True)
+            if learning_automation is not None:
+                learning_automation.cancel()
+                await asyncio.gather(learning_automation, return_exceptions=True)
             await asyncio.to_thread(collector.stop, pause=False)
             await asyncio.to_thread(evidence.close)
             await asyncio.to_thread(backtests.close)
@@ -417,6 +460,68 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.get("/api/stocks/paper")
     def paper_record() -> dict[str, Any]:
         return paper(paths)
+
+    @app.get("/api/stocks/learning")
+    def learning_report() -> dict[str, Any]:
+        from desk.stocks import learning, learning_service
+
+        try:
+            prefs = learning_service.preferences(paths)
+        except DeskError:
+            prefs = {"enabled": False, "error": "Save Start/Pause Learning to repair preferences"}
+        with reader(paths, learning.FILE) as conn:
+            return {**learning.report(conn), "control": prefs, "worker": learning_state,
+                    "paper_enabled": collector.status().get("enabled"), "stop": paths.stop_file.exists()}
+
+    @app.post("/api/stocks/learning/control")
+    def learning_control(inputs: LearningControl) -> dict[str, Any]:
+        from desk.stocks.learning_service import control
+
+        return control(paths, inputs.enabled)
+
+    @app.post("/api/stocks/learning/experiments")
+    def learning_experiment(inputs: LearningExperiment) -> dict[str, Any]:
+        from desk.core.clock import utc_now
+        from desk.stocks import learning
+
+        conn = learning.open_book(paths)
+        try:
+            ident = learning.add_experiment(conn, utc_now(), inputs.structure, inputs.budget,
+                                            inputs.hold_minutes, inputs.repeat_minutes)
+            return {"id": ident, "registered": True}
+        finally:
+            conn.close()
+
+    @app.get("/api/stocks/learning/trades")
+    def learning_trades(account: Literal["uncapped_research", "reference_500k"] = "uncapped_research",
+                        state: Literal["OPEN", "CLOSED"] = "OPEN", offset: int = Query(default=0, ge=0),
+                        limit: int = Query(default=12, ge=1, le=100)) -> dict[str, Any]:
+        from desk.stocks import learning
+
+        with reader(paths, learning.FILE) as conn:
+            book = PaperBook(conn)
+            rows = book.positions(account, state, limit=limit, offset=offset)
+            values = []
+            for position in rows:
+                reason = conn.execute("SELECT reasons FROM stk_decisions WHERE id=?", (position.decision_id,)).fetchone()
+                values.append({**position_view(position), "entry_reason": reason[0] if reason else None})
+            return {"positions": values, "total": conn.execute(
+                "SELECT COUNT(*) FROM stk_positions WHERE account=? AND state=?", (account, state)).fetchone()[0],
+                "decisions": book.decisions(account, limit=100)}
+
+    @app.get("/api/stocks/learning/orders")
+    def learning_orders(account: Literal["uncapped_research", "reference_500k"] = "uncapped_research",
+                        offset: int = Query(default=0, ge=0), limit: int = Query(default=12, ge=1, le=100)) -> dict[str, Any]:
+        from desk.stocks import learning
+
+        with reader(paths, learning.FILE) as conn:
+            rows = conn.execute(
+                "SELECT p.id,p.account,p.state,p.created_at,p.note,json_extract(p.order_json,'$.symbol') symbol,"
+                "i.desired_units,COALESCE(SUM(f.units),0) filled_units FROM stk_pending p "
+                "JOIN stk_learning_intents i ON i.order_id=p.id LEFT JOIN stk_learning_fills f ON f.order_id=p.id "
+                "WHERE p.account=? GROUP BY p.id ORDER BY p.id DESC LIMIT ? OFFSET ?", (account,limit,offset))
+            return {"orders": [dict(r) for r in rows], "total": conn.execute(
+                "SELECT COUNT(*) FROM stk_pending WHERE account=?", (account,)).fetchone()[0]}
 
     @app.get("/api/stocks/paper/equity")
     def paper_equity(account: str = Query(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_]+$")) -> dict[str, Any]:

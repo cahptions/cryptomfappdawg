@@ -799,5 +799,5 @@ const KestrelPaper = (() => {
     }
     draw();
   }
-  return { show };
+  return { show, tradeDialog };
 })();

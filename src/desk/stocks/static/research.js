@@ -330,7 +330,12 @@ const KestrelResearch = (() => {
       );
       app.append(setup);
     }
-    if (focus === "options") app.append(optionsCollections(hub));
+    if (focus === "options") {
+      app.append(optionsCollections(hub));
+      const learned = await KestrelLearning.findings(ticket);
+      if (ticket !== generation) return;
+      app.append(learned);
+    }
     const layout = el("div", undefined, "hub-layout"),
       main = el("div", undefined, "hub-main"),
       aside = el("aside", undefined, "hub-aside");

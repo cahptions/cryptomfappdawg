@@ -101,6 +101,38 @@
   stroke: #739de5;
   stroke-width: 2;
 }
+.learning-page .paper-metric strong,
+.learning-page .paper-trade-card {
+  overflow-wrap: anywhere;
+}
+.learning-page form.evidence-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  align-items: end;
+}
+.learning-page form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.learning-page form input,
+.learning-page form select {
+  width: 100%;
+  min-width: 0;
+}
+.learning-page button.primary {
+  background: #abc6ff;
+  color: #101b2c;
+  border-color: #abc6ff;
+}
+.learning-page .research-tabs button[aria-pressed="true"] {
+  color: #c6d9ff;
+  border-bottom: 2px solid #abc6ff;
+}
+.learning-findings {
+  margin-bottom: 30px;
+}
 .paper-trades {
   margin: 32px 0;
   border-top: 1px solid #344257;
@@ -221,6 +253,9 @@
   }
 }
 @media (max-width: 500px) {
+  .learning-page .paper-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .paper-strategies {
     grid-template-columns: minmax(0, 1fr);
   }

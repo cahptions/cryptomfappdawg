@@ -1,0 +1,82 @@
+# PAPER Learning workspace
+
+Open **Learning** in Stocks. It runs automatically with the dashboard during regular market hours when the selected
+options provider is connected. **Pause Learning**, the global PAPER pause, and STOP all suspend its funding and trading.
+An explicit pause persists across dashboard restarts. No brokerage orders or real transfers are possible here.
+
+## Capital and evidence
+
+The independent `stocks-learning-paper.db` contains two books:
+
+- **Uncapped research:** a $500,000 starting reference deposit. The engine automatically records additional virtual deposits
+  when fills need more cash. There are no policy ceilings on aggregate spending, trades, positions or contract quantities.
+- **$500,000 reference:** receives the same order intents but buys only what its remaining cash can afford, including impact
+  and fees. It receives no top-ups and cannot restrict research. Its result measures the cost of finite buying power.
+
+Equity is cash plus marked positions. **Trading P/L = equity minus all contributed capital**, with realized/unrealized P/L,
+fees, marked capital employed, contributions and funding-excluded dollar drawdown reported separately. Additional deposits
+cannot cure a trading loss. Financial numbers must remain finite and representable in the integer-microdollar ledger;
+this is a storage constraint, not an account allocation rule.
+
+No destructive reset or failed-experiment deletion is provided. Prior source observations, specifications, orders, partial
+fills, cash movements, closed trades, outcomes and check-ins remain stored. A changed sizing policy gets a new hashed
+specification, with a parent hypothesis and change description. Ordinary Stocks strategy accounts and historical backtests
+retain their own ledgers and behavior.
+
+## Experiments and execution
+
+The initial registry explores long calls, long puts and long straddles at $5,000, $50,000, $500,000 and $1,000,000 target
+debits, 30/120-minute holding horizons, and additional 30/120-minute entry-spacing comparisons. A zero entry spacing permits
+each new eligible source observation, subject to unresolved order deduplication. Positions may overlap. The optional
+experiment form accepts other sizes, horizons and entry spacing without changing existing histories.
+
+For every decision, the ledger freezes its hypothesis, policy hash, underlying price, original timestamped chain and
+provisional expected return. Entry waits for a **strictly later** quote. Quotes must be at most 120 seconds old, not from
+the future, and have a usable two-sided spread. Long entries pay ask plus adverse square-root impact; exits receive bid
+minus impact. Fees are $0.65 per contract per side. Long premium plus fees is fully cash-collateralized; virtual funding
+can provide that cash. Naked shorts, assignment/exercise financing and short-leg structures are not supported by this lab.
+
+There is no order-book depth feed. Capacity is **explicitly estimated** at 0.1% of open interest per contract quote timestamp
+(minimum one); usage is shared across all orders in each independent hypothetical book. Repeated snapshots with the same
+contract timestamp do not replenish capacity or repeatedly count cumulative daily volume. Orders can partially fill,
+and the remainder stays unfilled until a later quote or its 90-minute timeout. The GUI shows requested, filled and
+unfilled quantities. Unconstrained requested exposure is not represented as executable profit.
+
+The holding horizon is elapsed clock time. Positions exit on the first later usable quote with sufficient modeled
+capacity, so actual holding can exceed the target. Missing, stale or too-wide quotes do not generate imaginary exits.
+Expired positions without verified settlement remain visibly unresolved, retain their last marks, and do not train the
+model. This is a material limitation; retained marked equity can be stale. The app does not claim these modeled results
+prove real execution capacity.
+
+Provider polling and machine scheduling are separate from financial limits: provider collection is paced to a minute,
+rotates two underlyings and two expirations per pass, and shares the existing provider rate limiter. Saved observations
+are evaluated on a 15-second schedule with rotating batches for orders, positions and proposals. These batches advance
+their cursors rather than permanently discarding excess experiments. Collection has its own source-health job and never
+postpones the ordinary options collector. Closed markets and missing connections produce readable statuses and retry later.
+
+## Learning and check-ins
+
+This is an initial empirical research engine, not a proven prediction system. Registered hypotheses run before there is
+enough evidence for a grade. Only later closed outcomes can update the provisional, shrunk block-mean forecast. Multiple
+fills are grouped by underlying/entry day rather than counted as independent proof. Dollars of profit and number of
+contracts do not increase the sample's independent evidence count.
+
+Chronological comparisons select among structure families on the earlier half of entry dates and evaluate on later dates.
+Training labels must mature before test entries. Advisory promotion requires at least 20 new test days since the previous
+promotion and an approximate mean-minus-three-standard-errors hurdle over day means. A promotion prioritizes that structure
+and registers a linked doubled-budget sizing experiment; all challengers and losses remain. The comparison reports its
+uninvested-cash baseline and separate finite-capital book. Reused rolling comparisons, overlapping exposures, multiple
+trials and modeled depth limit confidence; the hurdle is not a formal guarantee of profitability or significance.
+
+The page shows model version, training/test coverage, changes, open/closed trades and daily/Friday weekly check-ins, with
+Markdown/JSON downloads. Options shows a separate learning-findings panel and links to the supporting workspace. Learning
+does not blend social mentions or unusual-volume rankings into its evidence count. There is no supported finding until
+the experiment results warrant one.
+
+## Verification
+
+Offline tests cover funding after losses, exclusion of deposits from P/L/drawdown, later-quote execution, shared estimated
+capacity, partial fills, immutable history, temporal label separation, losing held-out results, policy lineage, independent
+collection, CSRF and persisted pauses. The `learning-workflows` browser fixture exercises actual engine-generated synthetic
+trades, funding, account selection, trade details, custom experiments and downloads at desktop and phone widths.
+These checks validate implementation; they are not live provider or profitability evidence.
