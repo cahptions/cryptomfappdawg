@@ -430,6 +430,30 @@ class StocksMarket:
                                for q in _unpack(r["chain_zlib"])]
         return date_of(row["d"]), out
 
+    def option_days(self, before: date, limit: int) -> list[date]:
+        """The most recent days with stored chains before ``before``, newest first."""
+        return [date_of(r["day"]) for r in self.conn.execute(
+            "SELECT DISTINCT day FROM stk_option_chains WHERE day < ? ORDER BY day DESC LIMIT ?", (day_of(before), limit))]
+
+    def chains_on(self, day: date, symbols: Sequence[str] | None = None) -> dict[str, dict[str, Any]]:
+        """Every chain stored for ``day``: underlying → {price, observed_at, source, expirations: {date: [OptionQuote]}}.
+        The price is the one recorded with the newest expiry observation."""
+        wanted = None if symbols is None else set(symbols)
+        out: dict[str, dict[str, Any]] = {}
+        for r in self.conn.execute("SELECT * FROM stk_option_chains WHERE day = ? ORDER BY underlying, observed_at",
+                                   (day_of(day),)):
+            symbol = r["underlying"]
+            if wanted is not None and symbol not in wanted:
+                continue
+            item = out.setdefault(symbol, {"price": None, "observed_at": None, "source": r["source"], "expirations": {}})
+            if r["underlying_price"]:
+                item["price"], item["observed_at"] = r["underlying_price"], r["observed_at"]
+            expiration = date_of(r["expiration"])
+            item["expirations"][expiration] = [
+                OptionQuote(q[0], symbol, q[1], q[2], expiration, q[3], q[4], q[5], q[6], q[7], q[8],
+                            datetime.fromisoformat(q[9]) if q[9] else None) for q in _unpack(r["chain_zlib"])]
+        return out
+
     def chain_underlying_price(self, underlying: str, day: date) -> float | None:
         row = self.conn.execute("SELECT underlying_price FROM stk_option_chains WHERE underlying = ? AND day = ? LIMIT 1",
                                 (underlying, day_of(day))).fetchone()

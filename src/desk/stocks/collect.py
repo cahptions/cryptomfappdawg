@@ -333,13 +333,17 @@ async def rates(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict
 
 # ── options ──────────────────────────────────────────────────────────────────────────────────────
 def pick_expirations(expirations: Sequence[date], today: date, earnings: date | None = None) -> list[date]:
-    """The nearest weekly (2+ days out), and the ones closest to 30, 60 and 90 days, plus the first after earnings."""
+    """The nearest weekly (2+ days out), the ones closest to 30, 60 and 90 days, the one nearest a year out (180+ days),
+    and the first after earnings."""
     future = [e for e in sorted(expirations) if (e - today).days >= 2]
     if not future:
         return []
     picked = {future[0]}
     for target in (30, 60, 90):
         picked.add(min(future, key=lambda e: abs((e - today).days - target)))
+    long_dated = [e for e in future if (e - today).days >= 180]
+    if long_dated:                               # one LEAPS expiry, nearest a year out (Plays → LEAPS)
+        picked.add(min(long_dated, key=lambda e: abs((e - today).days - 365)))
     if earnings is not None:
         after = [e for e in future if e > earnings]
         if after:

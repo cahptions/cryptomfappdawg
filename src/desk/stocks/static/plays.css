@@ -1,0 +1,136 @@
+/* Plays: today's option ideas. Builds on the research card styles (setup-card, research-badge, screen-filters). */
+.plays-page .play-strip {
+  margin: 4px 0 18px;
+}
+.play-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+.play-tab {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.play-tab[aria-selected="true"] {
+  border-color: var(--green);
+  color: var(--green);
+}
+.play-tab:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.play-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+.play-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.research-badge.buy {
+  color: var(--green);
+  border-color: var(--green);
+}
+.research-badge.sell {
+  color: #f5c542;
+  border-color: #f5c542;
+}
+.play-contract {
+  margin: 6px 0;
+  font-weight: 600;
+}
+.play-legs {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.play-chance {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+}
+.play-chance-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.play-chance strong {
+  font-size: 26px;
+  line-height: 1.1;
+}
+.play-chance-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.play-chance-bar span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+.play-chance small {
+  color: var(--muted);
+}
+.play-metrics {
+  font-size: 12px;
+}
+.play-unusual {
+  border-left: 2px solid var(--green);
+  padding-left: 10px;
+  margin: 8px 0;
+}
+.play-unusual p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.play-confirm {
+  color: var(--green);
+}
+.play-reasons {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.play-reasons .play-flag {
+  color: #f5c542;
+}
+.play-record p {
+  margin: 4px 0;
+}
+.play-filters {
+  flex-wrap: wrap;
+}
+.play-filters input {
+  width: 220px;
+}
+@media (max-width: 640px) {
+  .play-grid {
+    grid-template-columns: 1fr;
+  }
+  .play-filters input,
+  .play-filters select {
+    width: 100%;
+  }
+  .play-tab {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+}
+.play-followups {
+  margin: 10px 0 16px;
+}
+.play-followups summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 8px;
+}

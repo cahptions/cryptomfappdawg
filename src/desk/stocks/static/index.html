@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/assets/stocks.css" />
     <link rel="stylesheet" href="/assets/research.css" />
     <link rel="stylesheet" href="/assets/paper.css" />
+    <link rel="stylesheet" href="/assets/plays.css" />
     <script src="/assets/research.js" defer></script>
     <script src="/assets/calculator.js" defer></script>
     <script src="/assets/explore.js" defer></script>
@@ -16,6 +17,7 @@
     <script src="/assets/paper_chart.js" defer></script>
     <script src="/assets/replay.js" defer></script>
     <script src="/assets/learning.js" defer></script>
+    <script src="/assets/plays.js" defer></script>
     <script src="/assets/stocks.js" defer></script>
   </head>
   <body>
@@ -26,9 +28,10 @@
       >
       <nav aria-label="Main">
         <a href="#dashboard">Home</a><a href="#stocks">Stocks</a
-        ><a href="#options">Options</a> <a href="#paper">Paper</a
-        ><a href="#learning">Learning</a><a href="#proof">Evidence</a
-        ><a href="#system">System</a><a href="#settings">Settings</a>
+        ><a href="#options">Options</a> <a href="#plays">Plays</a
+        ><a href="#paper">Paper</a><a href="#learning">Learning</a
+        ><a href="#proof">Evidence</a><a href="#system">System</a
+        ><a href="#settings">Settings</a>
       </nav>
       <form id="stock-search" role="search">
         <input
@@ -51,7 +54,8 @@
     <main id="app"></main>
     <footer>
       Research and simulated orders only. No brokerage trades can be placed from
-      this desk. Scores are not probabilities.
+      this desk. Desk scores are not probabilities; the chances on Plays are
+      estimates, graded against how past plays finished.
     </footer>
   </body>
 </html>

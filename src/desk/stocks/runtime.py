@@ -10,7 +10,7 @@ from pathlib import Path
 
 from desk.core.paths import REPO_ROOT
 
-UI_PROTOCOL = 4
+UI_PROTOCOL = 5
 
 
 def source_revision(root: Path = REPO_ROOT) -> str:

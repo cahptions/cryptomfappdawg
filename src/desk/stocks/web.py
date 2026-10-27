@@ -332,6 +332,15 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def overview() -> dict[str, Any]:
         return {**snapshot(paths, config), "collection": collector.status()}
 
+    @app.get("/api/stocks/plays")
+    def plays_view() -> dict[str, Any]:
+        value = saved_view(paths, "plays")
+        if value is None:
+            return {"version": 1, "asof": None, "categories": [],
+                    "message": "Plays are built by the Stocks worker after each options pass. Collection starts with "
+                               "PAPER (System), and needs an options connection (Settings)."}
+        return value
+
     @app.get("/api/stocks/home")
     def research_home() -> dict[str, Any]:
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:

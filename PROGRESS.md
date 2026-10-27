@@ -3,6 +3,36 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-27 — Plays: the options of the day
+
+Branch `claude/funny-rubin-gq99vj` was fast-forwarded to `codex/arbitrage-v1` (`1398d8c`, 1,337 tests passing) and
+then gained **Plays** (operator request): a Stocks tab ranking option ideas in twelve categories — most likely to
+finish ITM, biggest model edge, unusual activity, cheap volatility, earnings, trend calls, bearish puts, squeeze
+calls, sell rich premium (credit spreads only), lottos, LEAPS and the watchlist. Each play shows buy/sell, type,
+strike, expiry, stock price, bid/ask/spread, volume/OI, IV and rank, net greeks, cost or credit, worst/best case,
+break-even, expected value and three chances in the money (market-implied, the stock's own history, and KESTREL's
+forecast, which is tilted only by the committee's measured IC and calibrated on graded plays).
+
+- `odds.py`: closed-form and history probabilities, touch probability, expected payoff, IC-bounded tilt and
+  calibration; checked against simulation (6 tests).
+- `plays.py`: vectorized IV/greeks over every stored contract (~0.3 s for 1,440), category selectors, unusual-activity
+  scoring on eight quote-snapshot signals with next-session open-interest confirmation, once-per-session recording
+  after the close (`stk_play_days`, `stk_plays`) and once-only grading at expiry (`stk_play_outcomes`), all
+  append-only (migration `stocks_research/0006_plays.sql`). Built in `research_preview` after each options pass,
+  skipped when its inputs are unchanged, saved to `stocks-plays.json`; a failure is shown on the page and never stops
+  collection. Session = newest stored chain day.
+- Collection now also fetches the expiry nearest a year out (≥ 180 days) for LEAPS.
+- `GET /api/stocks/plays`; UI protocol 4 → 5 (page and server must match; restart once after updating).
+- Tests: 6 odds unit tests, 6 Plays integration tests (consistency of prices/odds/greeks, planted unusual burst,
+  next-session confirmation, record once, grade at expiry, endpoint), browser check `tests/browser/stocks_plays.mjs`
+  passed populated and empty fixtures at 1366 px and 375 px with no console errors or horizontal scroll.
+
+Limits: quote snapshots, not exchange prints (direction is a labelled inference); coverage is the collector's rotating
+batches; greeks are computed from mids without dividends; recorded entries use end-of-session quotes; KESTREL's
+chance is uncalibrated until 30 plays resolve and untilted until the committee has a positive measured IC. Docs:
+[docs/STOCKS_PLAYS.md](docs/STOCKS_PLAYS.md). Next: watch the first recorded sessions and gradings on the laptop;
+consider keeping Schwab's own greeks/IV in the chain parser (currently discarded) to cross-check the computed ones.
+
 ## 2026-10-21 — Stocks continuation and optional Schwab market data
 
 **2026-10-22 UTC reliability campaign:** see `research/reliability/HANDOFF.md` and its fault registry/results.

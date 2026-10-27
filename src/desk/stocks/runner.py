@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Awaitable
 from datetime import datetime, timedelta
@@ -31,13 +32,15 @@ from desk.stocks.prices import load_panel
 from desk.stocks.repo import StocksDatabases, StocksMarket, StocksResearch
 from desk.stocks.suite import build_stocks_suite
 
+log = logging.getLogger(__name__)
+
 
 class MemoryPressure(DeskError):
     pass
 
 
 def saved_path(paths: DeskPaths, name: str) -> Path:
-    if name not in {"worker", "paper", "research", "progress", "options"}:
+    if name not in {"worker", "paper", "research", "progress", "options", "plays"}:
         raise ValueError("unknown Stocks record")
     return paths.home / f"stocks-{name}.json"
 
@@ -59,6 +62,10 @@ def saved(paths: DeskPaths, name: str) -> dict[str, Any] | None:
                 or any(not isinstance(rows, list) for rows in value["rows"].values())
                 or any(key not in value["coverage"] for key in
                        ("symbols", "same_session_options", "sampled_contracts", "liquid_contracts", "quality_pass"))):
+            raise ValueError
+        if name == "plays" and (not isinstance(value.get("categories"), list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or not isinstance(item.get("plays"), list) for item in value["categories"])):
             raise ValueError
         if name == "research" and (not isinstance(value.get("lists"), list) or any(
                 not isinstance(item, dict) or not isinstance(item.get("id"), str)
@@ -83,6 +90,26 @@ def _due(market: StocksMarket, name: str, now: datetime, hours: float) -> bool:
     return not at or now - datetime.fromisoformat(at) >= timedelta(hours=hours)
 
 
+def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None:
+    """Rebuild Plays from the stored chains (skipped when nothing it reads has changed). A failure here is reported on
+    the Plays page and never stops research collection."""
+    from desk.stocks import plays
+
+    try:
+        previous = saved(paths, "plays")
+    except DeskError:
+        previous = None
+    try:
+        value = plays.build(StocksMarket(dbs.market), StocksResearch(dbs.research), now, ledger=PaperBook(dbs.ledger),
+                            previous=previous)
+    except Exception as exc:  # surfaced on the page; collection continues
+        log.warning("plays build failed", extra={"error": type(exc).__name__})
+        value = {"version": plays.VERSION, "asof": None, "generated_at": now.isoformat(), "categories": [],
+                 "message": f"Plays could not be built this pass ({type(exc).__name__}); stored data is unchanged and the "
+                            "next options pass retries. Evidence → Check data health shows source status."}
+    _atomic_private(saved_path(paths, "plays"), json.dumps(value, allow_nan=False))
+
+
 def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
     """Refresh a mutable research view during backfill; never step PAPER or rewrite frozen evidence."""
     settings = loaded.settings.stocks
@@ -91,6 +118,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
 
     # Available option observations are published even with no/unfinished/denied stock-history backfill.
     _atomic_private(saved_path(paths, "options"), json.dumps(options_view(market, now), allow_nan=False))
+    publish_plays(paths, dbs, now)
     expected = cal.last_closed_session(now, timedelta(minutes=settings.refresh_after_close_minutes))
     days = [d for d in market.bar_days() if expected - timedelta(days=settings.history_days) <= d <= expected]
     if not days:

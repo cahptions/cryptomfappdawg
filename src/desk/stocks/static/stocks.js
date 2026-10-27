@@ -864,6 +864,7 @@ async function render() {
       heading("Loading stock…");
       await stock(decodeURIComponent(route.slice(6)), ticket);
     } else if (route === "paper") await paperPage(ticket);
+    else if (route === "plays") await KestrelPlays.show(ticket);
     else if (route === "learning") await KestrelLearning.show(ticket);
     else if (route === "proof") await KestrelEvidence.show(ticket);
     else if (route === "settings") await settingsPage();
@@ -924,7 +925,7 @@ window.addEventListener("hashchange", render);
   try {
     const session = await api("session");
     csrf = session.csrf_token;
-    serverCompatible = session.ui_protocol === 4;
+    serverCompatible = session.ui_protocol === 5;
     await refresh(true);
   } catch (error) {
     statusLine.textContent = error.message;

@@ -25,7 +25,9 @@ If the browser does not open automatically, enter the full dashboard address in 
 
 The default **Home** is a stock/options research hub: benchmark ETF prices, a top10 Trending/Rising trends/
 Gainers/Losers table, value/quality/squeeze/insider collections, options intelligence, breadth, sectors and a
-watchlist. **Options** has its own overview; **Stocks** opens the full saved lists. A stock page combines
+watchlist. **Options** has its own overview; **Plays** ranks the options of the day in twelve categories with
+each contract's greeks and three chances of finishing in the money ([STOCKS_PLAYS.md](STOCKS_PLAYS.md));
+**Stocks** opens the full saved lists. A stock page combines
 split-adjusted line/candlestick charts and volume, financial statistics, the committee and eleven desks,
 bull/bear evidence and a dated calls/puts table. Missing observations remain missing; a chart breaks at
 missing sessions rather than manufacturing candles. Top10 means up to ten qualifying names, never padding.

@@ -226,7 +226,8 @@ def occ(symbol: str, expiration: date, kind: str, strike: float) -> str:
     return f"{symbol}{expiration:%y%m%d}{'C' if kind == 'call' else 'P'}{round(strike * 1000):08d}"
 
 
-def add_chains(world: StocksWorld, symbols: list[str], days: list[date], *, iv: float = 0.4, spread: float = 0.06) -> None:
+def add_chains(world: StocksWorld, symbols: list[str], days: list[date], *, iv: float = 0.4, spread: float = 0.06,
+               max_days: int = 100) -> None:
     """Monthly-expiry chains priced with Black-Scholes at ``iv`` around each day's close, quoted ``spread`` wide."""
     from desk.stocks import options as opt
     from desk.stocks.contracts import OptionQuote
@@ -240,7 +241,7 @@ def add_chains(world: StocksWorld, symbols: list[str], days: list[date], *, iv: 
             step = 1.0 if s0 < 50 else 2.5 if s0 < 200 else 5.0
             strikes = [round(k * step, 2) for k in range(int(s0 * 0.6 / step), int(s0 * 1.4 / step) + 1)]
             observed = datetime.combine(d, time(21, 30), UTC)
-            for e in (e for e in expirations if 2 <= (e - d).days <= 100):
+            for e in (e for e in expirations if 2 <= (e - d).days <= max_days):
                 t = opt.year_fraction(d, e)
                 quotes = []
                 for kind in ("call", "put"):
