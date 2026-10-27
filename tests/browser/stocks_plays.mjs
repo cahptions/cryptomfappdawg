@@ -60,7 +60,13 @@ try {
       await first.locator(".play-chance strong").innerText(),
       /^\d+%$/,
     );
-    assert.match(await first.innerText(), /Δ Γ Θ ν/);
+    for (const name of [
+      "Δ Delta",
+      "Γ Gamma",
+      "Θ Theta / day",
+      "ν Vega / IV point",
+    ])
+      assert.ok((await first.innerText()).includes(name));
     assert.match(await first.innerText(), /Market \d+% · History/);
     // the selling category shows credits and the chance of expiring worthless
     await page.getByRole("tab", { name: /Sell rich premium/ }).click();

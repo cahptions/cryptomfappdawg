@@ -110,13 +110,15 @@ def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
 
 
 def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | None = None,
-                 now: datetime | None = None, limit: int = 40) -> dict[str, Any]:
+                 now: datetime | None = None, limit: int = 40, asof: date | None = None,
+                 focus: tuple[str, ...] = ()) -> dict[str, Any]:
     from desk.core.clock import utc_now
     from desk.stocks.activity import quote_session
 
     market = StocksMarket(conn)
     # Read one compressed expiry; never unpack a full-universe chain for a page request.
-    newest = conn.execute("SELECT MAX(day) FROM stk_option_chains WHERE underlying=?", (symbol,)).fetchone()[0]
+    newest = (asof.toordinal() if asof is not None else
+              conn.execute("SELECT MAX(day) FROM stk_option_chains WHERE underlying=?", (symbol,)).fetchone()[0])
     if newest is None:
         return {"asof": None, "expirations": [], "contracts": [], "source": None}
     expirations = [date_of(r[0]) for r in conn.execute(
@@ -147,6 +149,8 @@ def option_table(conn: sqlite3.Connection, symbol: str, *, expiration: date | No
                 for kind in ("call", "put")}
     allowance = limit // 2 if all(per_side.values()) else limit
     nearest = [q for side in per_side.values() for q in side[:allowance]]
+    focused = [q for q in raw if q[0] in focus]
+    nearest = (focused + [q for q in nearest if q[0] not in focus])[:max(limit, len(focused))]
     contracts = [{"occ": q[0], "kind": q[1], "strike": q[2], "bid": q[3], "ask": q[4],
                   "last": q[5], "volume": q[6], "open_interest": q[7], "quoted_at": q[9]} for q in nearest]
     return {"asof": date_of(newest).isoformat(), "observed_at": row["observed_at"], "source": row["source"],

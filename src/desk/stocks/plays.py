@@ -870,6 +870,9 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         "earnings": earnings, "liquidity": grade, "score": round(c.score, 4), "reasons": c.reasons, "flags": flags,
         "unusual": c.unusual, "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source,
         "calibration": move_level if c.structure == "long_straddle" else itm_level, "odds_version": od.MODEL_VERSION}
+    from desk.stocks.play_targets import build as target_probabilities
+
+    play["probability_targets"] = target_probabilities(play, sigma, up.drift if c.structure == "long_straddle" else o.drift, t)
     return play
 
 

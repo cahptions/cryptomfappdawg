@@ -136,6 +136,7 @@ class Company:
     fiscal_year_end: str | None
     category: str | None
     filings: tuple[Filing, ...]
+    profile: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)

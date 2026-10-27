@@ -354,7 +354,10 @@ const KestrelResearch = (() => {
           "WSB and other ticker mentions can identify attention, but they do not establish an option trade, strike, expiration or buy direction. Social scores do not enter the market/options ranking or the PAPER learning evidence count.",
           "muted",
         ),
-        link("Inspect WSB vs recorded fundamentals ↗", "#lists/wsb_vs_reality"),
+        link(
+          "Inspect WSB vs recorded fundamentals ↗",
+          "#lists/wsb_vs_reality",
+        ),
       );
       app.append(social);
     }
@@ -1175,6 +1178,108 @@ const KestrelResearch = (() => {
         container.replaceChildren(el("p", error.message, "error"));
     }
   }
+  function companyProfile(data, symbol) {
+    const profile = data.company_profile || {},
+      section = el("section", undefined, "detail-section company-profile");
+    section.append(
+      sectionTitle(
+        data.listing?.etf ? "About this fund" : "About the company",
+        profile.name || data.listing?.name || symbol,
+      ),
+    );
+    if (data.listing?.etf) {
+      section.append(
+        el(
+          "p",
+          "This is an exchange-traded fund. Company earnings, employee counts and corporate business scores do not apply directly to the fund. Its market and options data appear in this profile.",
+        ),
+      );
+      return section;
+    }
+    const metadata = profile.metadata || {};
+    if (profile.about)
+      section.append(el("p", profile.about, "company-description"));
+    else
+      section.append(
+        el(
+          "p",
+          profile.updated_at
+            ? "The business description is unavailable from the supported annual filing. Available company details appear below."
+            : "Company details load automatically while you use this profile. The business description comes from the issuer's annual SEC filing.",
+          "muted",
+        ),
+      );
+    const facts = el("dl", undefined, "company-facts");
+    for (const [name, value] of [
+      ["Sector", profile.sector],
+      ["Industry", profile.sic_description],
+      ["Headquarters", metadata.headquarters],
+      ["Phone", metadata.phone],
+      [
+        "Fiscal year end",
+        profile.fiscal_year_end?.length === 4
+          ? `${profile.fiscal_year_end.slice(0, 2)}/${profile.fiscal_year_end.slice(2)}`
+          : null,
+      ],
+      ["Filer category", profile.category],
+    ]) {
+      if (value) facts.append(el("dt", name), el("dd", value));
+    }
+    if (metadata.website) {
+      try {
+        const url = new URL(
+          /^https?:\/\//i.test(metadata.website)
+            ? metadata.website
+            : `https://${metadata.website}`,
+        );
+        if (["https:", "http:"].includes(url.protocol)) {
+          const a = link(url.hostname, url.href);
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          facts.append(el("dt", "Website"), a);
+        }
+      } catch {
+        /* malformed issuer URL is omitted */
+      }
+    }
+    section.append(facts);
+    if (profile.source_url) {
+      const source = link(
+        `Read annual filing · ${profile.filing_date || "SEC"} ↗`,
+        profile.source_url,
+      );
+      source.target = "_blank";
+      source.rel = "noopener noreferrer";
+      section.append(source);
+    }
+    if (profile.submissions_at)
+      section.append(
+        el(
+          "p",
+          `SEC company metadata updated ${new Date(profile.submissions_at).toLocaleDateString()}. Business text is an excerpt, not a forecast.`,
+          "caption muted",
+        ),
+      );
+    const state = el("p", profile.error || "", "caption muted"),
+      refresh = el("button", "Refresh company information");
+    refresh.onclick = async () => {
+      refresh.disabled = true;
+      try {
+        const result = await api(
+          `stock/${encodeURIComponent(symbol)}/profile/request`,
+          {},
+        );
+        state.textContent = result.note;
+      } catch (e) {
+        state.textContent = e.message;
+      } finally {
+        refresh.disabled = false;
+      }
+    };
+    section.append(state, refresh, link("Data-source settings →", "#settings"));
+    return section;
+  }
+
   async function stock(symbol, ticket) {
     let data = await api(`stock/${encodeURIComponent(symbol)}`);
     if (ticket !== generation) return;
@@ -1318,6 +1423,11 @@ const KestrelResearch = (() => {
             next.stock_data?.updated_at !== renderedDailyAt ||
             next.stock_data?.intraday?.updated_at !== renderedMinuteAt;
           data = next;
+          const nextProfile = JSON.stringify(data.company_profile);
+          if (nextProfile !== renderedProfile) {
+            about.replaceChildren(companyProfile(data, symbol));
+            renderedProfile = nextProfile;
+          }
           latest = data.bars.at(-1);
           previous = data.bars.at(-2);
           if (changed && !inspected) drawHistory();
@@ -1434,6 +1544,10 @@ const KestrelResearch = (() => {
       rationale.append(cases);
       main.append(rationale);
     }
+    const about = el("div");
+    let renderedProfile = JSON.stringify(data.company_profile);
+    about.append(companyProfile(data, symbol));
+    main.append(about);
     const chains = el("section", undefined, "detail-section option-chain");
     chains.append(
       sectionTitle("Options chain", "Loading stored observations…"),

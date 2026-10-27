@@ -22,12 +22,13 @@ class LegInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     occ: str = Field(min_length=16, max_length=32, pattern=r"^[A-Z0-9.]{1,12}[0-9]{6}[CP][0-9]{8}$")
     action: Literal["buy", "sell"] = "buy"
-    quantity: int = Field(default=1, ge=1, le=10000, strict=True)
+    quantity: int = Field(default=1, ge=1, le=2**53-1, strict=True)
     entry_price: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
 
 
 class ScenarioInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    idea_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     legs: list[LegInput] = Field(min_length=1, max_length=8)
     valuation_date: date
     underlying_price: float = Field(gt=0, le=10000000, allow_inf_nan=False)

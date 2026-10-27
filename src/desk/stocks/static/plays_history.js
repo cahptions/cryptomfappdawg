@@ -83,6 +83,7 @@ const KestrelPlaysHistory = (() => {
     nav.setAttribute("aria-label", "Plays views");
     for (const [href, label, id] of [
       ["#plays", "Today's plays", "board"],
+      ["#plays/mine", "My tracked plays", "mine"],
       ["#plays/history", "History", "history"],
       ["#plays/performance", "Performance", "performance"],
     ]) {
@@ -388,7 +389,7 @@ const KestrelPlaysHistory = (() => {
       basis = hasFirst ? "first" : "close",
       twin = false,
       includeEstimates = false,
-      quantity = 1,
+      quantity = data.contract_quantity || 1,
       inspectedTime = null,
       seekPeak = false;
     const summary = el("div", undefined, "pl-exit-summary");
@@ -421,7 +422,7 @@ const KestrelPlaysHistory = (() => {
     input.type = "number";
     input.min = "1";
     input.step = "1";
-    input.value = "1";
+    input.value = String(quantity);
     contracts.append(
       el("span", data.legs.length > 1 ? "Contracts per leg" : "Contracts"),
       input,
@@ -490,7 +491,7 @@ const KestrelPlaysHistory = (() => {
       group(
         "Bought",
         [
-          ["close", "At the close"],
+          ["close", data.basis_labels?.close || "At the close"],
           ["first", "When first shown", !hasFirst],
         ],
         () => basis,
@@ -858,6 +859,12 @@ const KestrelPlaysHistory = (() => {
         .join(" ");
     }
     draw();
+    box.updateData = (next) => {
+      const hadFocus = plot.contains(document.activeElement);
+      data = next;
+      draw();
+      if (hadFocus) plot.querySelector("svg")?.focus({ preventScroll: true });
+    };
     return box;
   }
 
@@ -1569,5 +1576,5 @@ const KestrelPlaysHistory = (() => {
     }
   }
 
-  return { views, history, detail, performance, sparkline };
+  return { views, history, detail, performance, sparkline, chart: plChart };
 })();

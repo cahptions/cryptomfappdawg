@@ -65,8 +65,10 @@ const KestrelPlays = (() => {
       play.action === "SELL" && value !== null && value !== undefined
         ? 1 - value
         : value;
+    fill.style.width = `${Math.max(0, Math.min(100, 100 * (shown ?? 0)))}%`;
+    bar.setAttribute("aria-label", `${label} at expiry: ${pct(shown)}`);
     box.append(
-      el("span", label, "play-chance-label"),
+      el("span", `${label} at expiry`, "play-chance-label"),
       el("strong", pct(shown)),
       bar,
       el(
@@ -96,11 +98,8 @@ const KestrelPlays = (() => {
       head = el("div", undefined, "setup-heading play-heading");
     head.append(
       link(play.symbol, `#stock/${encodeURIComponent(play.symbol)}`),
-      el(
-        "span",
-        `${play.action} ${play.type}`,
-        `research-badge ${play.action === "SELL" ? "sell" : "buy"}`,
-      ),
+      el("span", money(play.underlying_price), "play-underlying"),
+      KestrelPlayWorkflow.trackButton(play),
     );
     if (play.unusual?.tier)
       head.append(el("span", play.unusual.tier, "research-badge quiet"));
@@ -108,13 +107,14 @@ const KestrelPlays = (() => {
     c.append(
       el(
         "p",
-        `${money(play.strike)} strike · ${play.expiration} (${play.dte}d) · stock ${money(play.underlying_price)}`,
+        `${money(play.strike)} strike · ${play.expiration} (${play.dte}d)`,
         "play-contract",
       ),
     );
     const legs = legsLine(play);
     if (legs) c.append(legs);
     c.append(chanceMeter(play));
+    c.append(KestrelPlayWorkflow.targets(play));
     const metrics = el("dl", undefined, "setup-metrics play-metrics");
     const cost =
       play.action === "SELL"
@@ -139,10 +139,10 @@ const KestrelPlays = (() => {
         "IV (rank)",
         `${pct(play.iv, 1)}${play.iv_rank === null || play.iv_rank === undefined ? "" : ` (${Math.round(play.iv_rank)})`}`,
       ],
-      [
-        "Δ Γ Θ ν",
-        `${greek(play.delta, 2)} · ${greek(play.gamma)} · ${greek(play.theta, 2)} · ${greek(play.vega, 2)}`,
-      ],
+      ["Δ Delta", greek(play.delta, 2)],
+      ["Γ Gamma", greek(play.gamma)],
+      ["Θ Theta / day", greek(play.theta, 2)],
+      ["ν Vega / IV point", greek(play.vega, 2)],
       [
         "Volume / OI",
         `${number(play.volume)} / ${number(play.open_interest)}${play.vol_oi ? ` (${play.vol_oi.toFixed(1)}×)` : ""}`,
@@ -158,6 +158,7 @@ const KestrelPlays = (() => {
     ])
       metrics.append(el("dt", label), el("dd", value));
     c.append(metrics);
+    c.append(KestrelPlayWorkflow.greeks(play));
     if (play.unusual) {
       const u = el("div", undefined, "play-unusual");
       u.append(
@@ -178,8 +179,10 @@ const KestrelPlays = (() => {
         `${play.source} · quoted ${when(play.quoted_at)} · liquidity ${play.liquidity}`,
       ),
       link(
-        "Open the chain & payoff calculator ↗",
-        `#stock/${encodeURIComponent(play.symbol)}`,
+        "Open play, P/L & exact-leg calculator ↗",
+        play.idea_id
+          ? `#plays/idea/${play.idea_id}`
+          : `#stock/${encodeURIComponent(play.symbol)}`,
       ),
     );
     return c;
@@ -206,7 +209,9 @@ const KestrelPlays = (() => {
         (() => {
           const a = link(
             `${p.symbol} ${p.action} ${p.type}`,
-            `#stock/${encodeURIComponent(p.symbol)}`,
+            p.idea_id
+              ? `#plays/idea/${p.idea_id}`
+              : `#stock/${encodeURIComponent(p.symbol)}`,
           );
           return a;
         })(),
@@ -380,6 +385,12 @@ const KestrelPlays = (() => {
 
   async function show(ticket, route = "plays") {
     const parts = route.split("/");
+    if (parts[1] === "idea")
+      return KestrelPlayWorkflow.detail(ticket, parts[2]);
+    if (parts[1] === "mine")
+      return parts[2]
+        ? KestrelPlayWorkflow.detail(ticket, parts[2], true)
+        : KestrelPlayWorkflow.mine(ticket);
     if (parts[1] === "history")
       return KestrelPlaysHistory.history(ticket, parts[2]);
     if (parts[1] === "play" && parts.length === 5)
@@ -560,5 +571,5 @@ const KestrelPlays = (() => {
       );
     return wrap;
   }
-  return { show, tracking };
+  return { show, tracking, card };
 })();

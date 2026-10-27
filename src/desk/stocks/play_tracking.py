@@ -114,6 +114,10 @@ def tracked_set(research: sqlite3.Connection, today: date, board: dict[str, Any]
         for play in category.get("plays") or []:
             for leg in play.get("legs") or []:
                 want(str(leg.get("occ", "")), 0)
+    from desk.stocks.play_selections import active_legs
+
+    for leg in active_legs(research, today):
+        want(leg["occ"], 0)
     out = {}
     for occ, priority in wanted.items():
         symbol, kind, strike, expiration = parse_occ(occ)
@@ -546,6 +550,9 @@ async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now
     folded = fold_due(research, now, rate)
     compacted = compact(research, today)
     report: dict[str, Any] = {"at": to_iso(now), "folded": [d.isoformat() for d in folded], "compacted": compacted}
+    from desk.stocks.play_selections import advance
+
+    report["personal_updates"] = advance(market, research, now)
     if board:
         report["first_seen"] = first_seen(research, board, now)
     marked = get_state(research, "marks").get("at")
@@ -574,6 +581,7 @@ async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now
             save_ticks(research, tick_rows(ticks, clock(), today, source))
 
     result = await quote_pass(due_now, save, schwab=schwab, chains=chains, use_quotes=not retry)
+    report["personal_updates"] += advance(market, research, clock())
     if result.endpoint:
         put_state(research, "endpoint", {"state": result.endpoint, "day": today.isoformat(), "at": to_iso(now)}, now)
     last = last_ticks(research, today)

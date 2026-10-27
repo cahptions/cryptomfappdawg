@@ -105,6 +105,9 @@ def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None
     try:
         value = plays.build(StocksMarket(dbs.market), StocksResearch(dbs.research), now, ledger=PaperBook(dbs.ledger),
                             previous=previous)
+        from desk.stocks.play_selections import register
+
+        register(dbs.research, value, now)
     except Exception as exc:  # surfaced on the page; collection continues
         log.warning("plays build failed", extra={"error": type(exc).__name__})
         value = {"version": plays.VERSION, "asof": None, "generated_at": now.isoformat(), "categories": [],

@@ -12,6 +12,79 @@ Code: `src/desk/stocks/plays.py` (categories, unusual activity, recording and gr
 (the probabilities), `src/desk/stocks/static/plays.js` (the page); history, performance and learning are described
 below.
 
+## Personal selections and exact-play details
+
+Click a **BUY/SELL badge** to open an adjacent confirmation window and choose a whole-contract quantity. Confirming
+creates a personal selection in **Plays → My tracked plays**, separate from the automatic research cohorts, strategy
+PAPER ledgers and uncapped Learning account. It sends **no brokerage order**. Repeated submission of the same
+confirmation is idempotent. Ideas, confirmations and lifecycle events are append-only and survive restarts.
+
+Premarket confirmations become eligible at **9:30 AM New York time on the next trading session**, not 9:45. A
+confirmation made during the regular session becomes eligible immediately and cannot backdate to that morning's
+open. After close, weekends and exchange holidays queue for the next session. The default is the opening session;
+**no validated adaptive entry-timing model is active**. The dashboard must be running with collection enabled to
+capture an entry. This calendar currently assumes a 16:00 close and does not implement exchange half days.
+
+On a tracking pass, every exact leg must have a positive, noncrossed bid/ask, a provider timestamp at or after
+eligibility, and a quote age of at most two minutes. Entry uses asks for bought legs and bids for sold legs. The
+actual capture time is recorded, so a missed opening is never reconstructed as an opening fill. These are PAPER
+quote references, **not depth-aware execution simulations or proof a large order could fill**. Existing tracker
+request/rate budgets still apply; the nominal five-minute quote cadence can miss a faster move.
+
+Queued selections can be cancelled; open selections can request a PAPER close, recorded only from a subsequent
+fresh regular-hours liquidation quote. Original entry quotes and quantity remain saved. Expired open selections
+receive a separately labelled intrinsic expiry comparison when the official underlying close becomes available;
+the app performs no exercise or assignment. Contracts expiring before any valid entry are cancelled without an
+invented fill. Pause/STOP continues to pause source collection and tracking.
+
+The **Open play, P/L & exact-leg calculator** link opens a stable, dedicated detail page. The P/L chart follows the
+retained quote path from the idea reference, or from the captured personal entry, with the best observed earlier
+exit and the expiry comparison. Quantity defaults to the personal selection's size and scales every leg. Active
+details check saved observations every fifteen seconds, preserving chart quantity, range and inspected timestamp.
+
+The calculator preselects the exact OCC contracts, call/put, strikes, expirations and buy/sell sides, including
+multi-leg spreads. It uses the **dated original idea snapshot** for scenario pricing, clearly distinct from the
+personal entry history. It never silently swaps in the first strike from today's chain. Frozen idea legs remain
+available after raw chain retention expires; other strikes/expirations require the same session's saved chain.
+Calculator edits and chart quantity changes are hypothetical and do not change a saved selection.
+
+Code: `play_selections.py`, `static/play_workflow.js`; research migration `0010_personal_plays.sql`.
+
+## Profit targets, stock prices and understandable Greeks
+
+Cards show the underlying price next to the ticker, as of the play's quote. Dedicated saved details label their
+price at identification. Separate meters show the original event odds, **profit at expiry**, and a **+50% return on
+maximum risk at expiry**, with +25%/+100% targets in the expandable explanation. `play_targets.py` integrates the
+favorable regions of the exact piecewise terminal payoff under the recorded lognormal forecast, after opening
+fees. These target probabilities are **model estimates, not empirically calibrated target-hit rates**; they do
+not estimate selling at a peak or hitting a target before expiry. The original ITM calibration does not calibrate
+these profit targets. Older saved ideas may not contain target estimates.
+
+Finite credit spreads can show the probability of maximum expiry gain. Long calls have unbounded maximum gain;
+long puts reach their theoretical maximum only with the underlying at zero. The UI explains these cases instead
+of fabricating a useful maximum-gain percentage.
+
+Each card includes a plain-language guide: **Δ Delta** is sensitivity to a $1 stock rise; **Γ Gamma** is Delta's
+change for that rise; **Θ Theta** is value change per calendar day; **ν Vega** is value change for one percentage
+point of IV (e.g. 40% → 41%). Dollar examples use the standard 100-share multiplier and signed net spread Greeks.
+They are local sensitivities with other inputs held constant, not fixed forecasts across large moves.
+
+## Company profiles
+
+Stock profiles automatically queue SEC company information alongside the viewed-symbol history request. The
+**About the company** section includes a sourced annual business excerpt, available sector/industry, headquarters,
+phone, website, fiscal year-end and filer category. The annual filing link/date and metadata retrieval date are
+visible. ETFs have a fund-specific explanation rather than invented company fundamentals.
+
+A separate bounded background task downloads at most one requested profile per pass, sharing the existing SEC rate
+limiter and contact-email setting. Profiles cache for thirty days, failures back off ten minutes, and a refresh
+preserves the last good description. The GUI's **Refresh company information** queues another attempt; missing
+SEC identification directs to Settings. There is no new paid API requirement. The extractor rejects table-of-
+contents entries and uncertain section boundaries instead of inventing a company description. Unsupported filings
+or unavailable fields remain explicitly missing. Display-only profile text never enters historical trading features.
+
+Code: `company_profiles.py`, SEC submissions parser and market migration `0006_company_profiles.sql`.
+
 ## Three chances, side by side
 
 | View | What it is |

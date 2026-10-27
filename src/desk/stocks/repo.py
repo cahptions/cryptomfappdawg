@@ -159,6 +159,10 @@ class StocksMarket:
                 " submissions_at = excluded.submissions_at",
                 (company.cik, company.name, company.sic, company.sic_description, sector, company.fiscal_year_end,
                  company.category, to_iso(at)))
+            if company.profile is not None:
+                self.conn.execute("INSERT INTO stk_company_profiles(cik,metadata_json) VALUES (?,?) "
+                                  "ON CONFLICT(cik) DO UPDATE SET metadata_json=excluded.metadata_json",
+                                  (company.cik, json.dumps(company.profile)))
             for f in company.filings:
                 if f.form not in FILING_FORMS:
                     continue

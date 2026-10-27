@@ -150,7 +150,7 @@ const KestrelCalculator = (() => {
     );
     return box;
   }
-  async function open(symbol, contract, initial) {
+  async function open(symbol, contract, initial, selectedLegs = null) {
     document.querySelector(".options-calculator")?.remove();
     const dialog = el("dialog", undefined, "options-calculator");
     const header = el("div", undefined, "calc-heading"),
@@ -177,20 +177,28 @@ const KestrelCalculator = (() => {
       closed = false;
     const cache = new Map();
     const spot = initial.underlying_price || contract.strike;
-    const legs = [
-      {
-        quote: contract,
-        expiration: initial.expiration,
-        action: "buy",
-        quantity: 1,
-        premium: null,
-      },
-    ];
-    const price = numeric(spot, 0.01, 10000000, 0.01),
+    const legs = selectedLegs
+      ? selectedLegs.map((l) => ({
+          quote: l,
+          expiration: l.expiration,
+          action: l.side,
+          quantity: initial.contract_quantity || 1,
+          premium: null,
+        }))
+      : [
+          {
+            quote: contract,
+            expiration: initial.expiration,
+            action: "buy",
+            quantity: 1,
+            premium: null,
+          },
+        ];
+    const price = numeric(Number(spot.toFixed(2)), 0.01, 10000000, 0.01),
       priceSlider = numeric(
         spot,
-        Math.max(0.01, spot * 0.1),
-        spot * 2.5,
+        Math.max(0.01, Number((spot * 0.1).toFixed(2))),
+        Number((spot * 2.5).toFixed(2)),
         0.01,
         "range",
       );
@@ -255,7 +263,7 @@ const KestrelCalculator = (() => {
     async function load(expiration) {
       if (!cache.has(expiration)) {
         const data = await api(
-          `stock/${encodeURIComponent(symbol)}/options?expiration=${encodeURIComponent(expiration)}&limit=1000`,
+          `stock/${encodeURIComponent(symbol)}/options?expiration=${encodeURIComponent(expiration)}&limit=1000${initial.idea_id ? `&idea_id=${initial.idea_id}` : ""}`,
         );
         if (!data.contracts.length)
           throw Error(
@@ -280,6 +288,7 @@ const KestrelCalculator = (() => {
         const result = await api(
           `stock/${encodeURIComponent(symbol)}/calculator`,
           {
+            ...(initial.idea_id ? { idea_id: initial.idea_id } : {}),
             legs: legs.map((l) => ({
               occ: l.quote.occ,
               action: l.action,
@@ -392,7 +401,7 @@ const KestrelCalculator = (() => {
             ],
             leg.action,
           ),
-          quantity = numeric(leg.quantity, 1, 10000, 1);
+          quantity = numeric(leg.quantity, 1, Number.MAX_SAFE_INTEGER, 1);
         const type = select(
           [
             ["call", "Call"],
@@ -545,7 +554,8 @@ const KestrelCalculator = (() => {
     };
     for (const n of [rate, dividend, fee]) n.oninput = schedule;
     try {
-      await load(initial.expiration);
+      const expirations = [...new Set(legs.map((l) => l.expiration))];
+      for (const expiration of expirations) await load(expiration);
       if (!closed) {
         dates();
         drawLegs();

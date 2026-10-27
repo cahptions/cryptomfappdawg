@@ -65,6 +65,16 @@ class LearningExperiment(BaseModel):
     repeat_minutes: int = Field(default=0, ge=0, le=129600)
 
 
+class PlaySelection(BaseModel):
+    idea_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    quantity: int = Field(default=1, strict=True, gt=0, le=2**53-1)
+    request_id: str = Field(min_length=36, max_length=36)
+
+
+class SelectionAction(BaseModel):
+    action: Literal["cancel", "close"]
+
+
 def saved_view(paths: DeskPaths, name: str) -> dict[str, Any] | None:
     try:
         return saved(paths, name)
@@ -145,6 +155,9 @@ def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
         from desk.stocks.stock_views import read as stock_view
 
         cached = stock_view(conn, symbol, utc_now())
+        from desk.stocks.company_profiles import read as company_profile
+
+        profile = company_profile(conn, symbol)
         basis = "Split-adjusted daily OHLC; no dividends"
         source = "Massive · stored bulk history"
         if cached["bars"]:
@@ -159,7 +172,7 @@ def detail(paths: DeskPaths, symbol: str) -> dict[str, Any]:
             cached.pop("bars")
     return {"symbol": symbol, "analysis": value, "bars": bars, "watchlisted": watched,
             "listing": dict(listing) if listing else None, "chart_basis": basis, "chart_source": source,
-            "stock_data": cached, "quote": cached.get("quote"),
+            "stock_data": cached, "quote": cached.get("quote"), "company_profile": profile,
             "coverage": {"first": date.fromordinal(bars[0]["day"]).isoformat() if bars else None,
                          "last": date.fromordinal(bars[-1]["day"]).isoformat() if bars else None,
                          "sessions": len(bars)}}
@@ -223,13 +236,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         dbs = StocksDatabases.open(paths)
-        dbs.close()
+        from desk.stocks.play_selections import register
+
+        try:
+            previous_board = saved_view(paths, "plays")
+            if previous_board:
+                register(dbs.research, previous_board, utc_now())
+        finally:
+            dbs.close()
         from desk.stocks import learning
 
         learning_conn = learning.open_book(paths)
         try:
-            from desk.core.clock import utc_now
-
             learning.initialize(learning_conn, utc_now())
         finally:
             learning_conn.close()
@@ -275,6 +293,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 with suppress(TimeoutError):
                     await asyncio.wait_for(automation_stop.wait(), 30)
 
+        async def company_data() -> None:
+            from desk.stocks.company_profiles import refresh
+
+            while not automation_stop.is_set():
+                if collector.status().get("enabled") and not paths.stop_file.exists():
+                    try:
+                        await asyncio.wait_for(refresh(paths, config), 45)
+                    except Exception as exc:
+                        log.warning("company profile refresh will retry", extra={"error": type(exc).__name__})
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 10)
+
         async def maintain() -> None:
             while not automation_stop.is_set():
                 await asyncio.to_thread(collector.maintain)
@@ -293,6 +323,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         stock_automation = asyncio.create_task(stock_data()) if auto_start else None
         learning_automation = asyncio.create_task(learn_options()) if auto_start else None
         tracking_automation = asyncio.create_task(track_plays()) if auto_start else None
+        company_automation = asyncio.create_task(company_data()) if auto_start else None
         try:
             yield
         finally:
@@ -308,6 +339,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             if tracking_automation is not None:
                 tracking_automation.cancel()
                 await asyncio.gather(tracking_automation, return_exceptions=True)
+            if company_automation is not None:
+                company_automation.cancel()
+                await asyncio.gather(company_automation, return_exceptions=True)
             await asyncio.to_thread(collector.stop, pause=False)
             await asyncio.to_thread(evidence.close)
             await asyncio.to_thread(backtests.close)
@@ -361,7 +395,53 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             return {"version": 1, "asof": None, "categories": [],
                     "message": "Plays are built by the Stocks worker after each options pass. Collection starts with "
                                "PAPER (System), and needs an options connection (Settings)."}
+        from desk.stocks.play_selections import idea_id
+
+        for category in value.get("categories", []):
+            for play in category.get("plays", []):
+                play["idea_id"] = idea_id(value["asof"], category["id"], str(value.get("method", "unknown")), play)
         return value
+
+    @app.get("/api/stocks/plays/idea/{ident}")
+    def play_idea(ident: str) -> dict[str, Any]:
+        from desk.stocks.play_selections import view
+
+        with reader(paths, RESEARCH_FILE) as conn:
+            return view(conn, ident, utc_now())
+
+    @app.post("/api/stocks/plays/select")
+    def select_play(inputs: PlaySelection) -> dict[str, Any]:
+        from desk.stocks.play_selections import confirm
+
+        conn = open_database(paths.db_dir / RESEARCH_FILE, DbKind.STOCKS_RESEARCH)
+        try:
+            return confirm(conn, inputs.idea_id, inputs.quantity, inputs.request_id, utc_now())
+        finally:
+            conn.close()
+
+    @app.get("/api/stocks/plays/mine")
+    def my_plays(offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
+        from desk.stocks.play_selections import listing
+
+        with reader(paths, RESEARCH_FILE) as conn:
+            return listing(conn, utc_now(), offset, limit)
+
+    @app.get("/api/stocks/plays/mine/{ident}")
+    def my_play(ident: str) -> dict[str, Any]:
+        from desk.stocks.play_selections import view
+
+        with reader(paths, RESEARCH_FILE) as conn:
+            return view(conn, ident, utc_now(), personal=True)
+
+    @app.post("/api/stocks/plays/mine/{ident}/action")
+    def my_play_action(ident: str, inputs: SelectionAction) -> dict[str, Any]:
+        from desk.stocks.play_selections import action
+
+        conn = open_database(paths.db_dir / RESEARCH_FILE, DbKind.STOCKS_RESEARCH)
+        try:
+            return action(conn, ident, inputs.action, utc_now())
+        finally:
+            conn.close()
 
     @app.get("/api/stocks/plays/sessions")
     def plays_sessions() -> dict[str, Any]:
@@ -452,10 +532,17 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         return detail(paths, symbol.upper())
 
     @app.get("/api/stocks/stock/{symbol}/options")
-    def options(symbol: str, expiration: date | None = None, limit: int = Query(default=40, ge=2, le=1000)) -> dict[str, Any]:
+    def options(symbol: str, expiration: date | None = None, limit: int = Query(default=40, ge=2, le=1000),
+                idea_id: str | None = Query(default=None, pattern=r"^[a-f0-9]{32}$")) -> dict[str, Any]:
         if not 1 <= len(symbol) <= 12:
             raise HTTPException(400, "Invalid stock symbol")
         with reader(paths, MARKET_FILE) as conn:
+            if idea_id is not None:
+                from desk.stocks.play_selections import calculator_chain, idea
+
+                with reader(paths, RESEARCH_FILE) as research:
+                    chosen = expiration or date.fromisoformat(idea(research, idea_id)["play"]["expiration"])
+                    return calculator_chain(conn, research, idea_id, symbol.upper(), chosen, limit)
             return option_table(conn, symbol.upper(), expiration=expiration, limit=limit)
 
     @app.post("/api/stocks/stock/{symbol}/calculator")
@@ -475,7 +562,14 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             except ValueError as exc:
                 raise HTTPException(400, "Invalid contract expiration") from exc
             for expiration in sorted(expirations):
-                view = option_table(conn, symbol.upper(), expiration=expiration, limit=1000)
+                if inputs.idea_id:
+                    from desk.stocks.play_selections import calculator_chain
+
+                    with reader(paths, RESEARCH_FILE) as research:
+                        view = calculator_chain(conn, research, inputs.idea_id, symbol.upper(), expiration)
+                else:
+                    view = option_table(conn, symbol.upper(), expiration=expiration, limit=1000,
+                                        focus=tuple(leg.occ for leg in inputs.legs))
                 first = first or view
                 for q in view["contracts"]:
                     quotes[q["occ"]] = OptionQuote(q["occ"], symbol.upper(), q["kind"], q["strike"], expiration,
@@ -501,10 +595,27 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         conn = open_database(paths.db_dir / MARKET_FILE, DbKind.STOCKS_MARKET)
         try:
             request_view(conn, symbol, utc_now())
+            from desk.stocks.company_profiles import request as request_profile
+
+            request_profile(conn, symbol, utc_now())
         finally:
             conn.close()
         return {"queued": True, "enabled": collector.status().get("enabled", False),
                 "note": "Schwab quotes, 1-minute intraday candles and up to 20 years of daily history; cached data is preserved."}
+
+    @app.post("/api/stocks/stock/{symbol}/profile/request")
+    def request_profile(symbol: str) -> dict[str, Any]:
+        from desk.stocks.company_profiles import request
+
+        conn = open_database(paths.db_dir / MARKET_FILE, DbKind.STOCKS_MARKET)
+        try:
+            request(conn, symbol.upper(), utc_now())
+            conn.execute("UPDATE stk_company_profiles SET updated_at=NULL WHERE cik IN "
+                         "(SELECT cik FROM stk_listings WHERE symbol=? AND etf=0)", (symbol.upper(),))
+        finally:
+            conn.close()
+        return {"queued": True, "note": "SEC metadata and the annual business section refresh in the background. "
+                "Failed requests retry after ten minutes; existing information is preserved."}
 
     @app.post("/api/stocks/stock/{symbol}/options/request")
     def request_options(symbol: str) -> dict[str, Any]:

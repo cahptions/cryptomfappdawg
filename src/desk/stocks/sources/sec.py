@@ -68,7 +68,10 @@ def parse_submissions(body: bytes) -> Company:
                        tickers=tuple(canonical_symbol(t) for t in d.get("tickers", [])),
                        exchanges=tuple(e or "" for e in d.get("exchanges", [])),
                        fiscal_year_end=d.get("fiscalYearEnd") or None, category=d.get("category") or None,
-                       filings=tuple(filings))
+                       filings=tuple(filings), profile={
+                           "website": str(d.get("website") or ""), "phone": str(d.get("phone") or ""),
+                           "headquarters": ", ".join(str(v) for k in ("street1", "street2", "city", "stateOrCountry", "zipCode")
+                               if (v := ((d.get("addresses") or {}).get("business") or {}).get(k)))})
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         raise SchemaError("sec submissions: invalid filing response") from exc
 

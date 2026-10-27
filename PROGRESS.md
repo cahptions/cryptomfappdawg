@@ -3,6 +3,49 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-27 — Personal play tracking, exact calculators, profit targets and company context
+
+Continued from `d6c86d8` on the existing `claude/funny-rubin-gq99vj` release branch. All requested workflow additions
+are implemented; the automatic Plays cohorts, strategy PAPER books, Learning journal and real brokerage boundary
+remain separate.
+
+- BUY/SELL badges open an adjacent, keyboard-accessible confirmation with quantity. **My tracked plays** lists
+  confirmed selections, entry status and detail links. Stable idea IDs retain exact contracts even as ranks move.
+  Confirmations are idempotent; ideas, selections and lifecycle events are append-only and survive restart.
+- The operator clarified **market open, not a fifteen-minute delay**: premarket selections become eligible at
+  9:30 New York; during-session confirmations need a subsequent quote, never a backdated opening fill. The next
+  shared tracking pass captures fresh timestamped bid/ask references only. Entry/cancellation decisions serialize
+  transactionally. Stale, future, missing-time, crossed and premarket quotes cannot enter a selection. No validated
+  learned timing override exists, so the opening-session default is active. No brokerage orders are sent.
+- Dedicated idea/personal pages show the retained pre-expiry P/L path and best observed exit, exact contracts,
+  cancel/close controls, original analysis and an exact-leg calculator. It preserves call/put, strikes, expiry,
+  sides and personal quantity, including spread legs. Frozen idea quotes survive loss of raw chain history; other
+  strikes use the same saved session. Scenarios explicitly use the original idea snapshot, separately from actual
+  personal-entry P/L. Active pages poll saved observations while preserving chart controls and inspected time.
+- Cards put stock price beside ticker, label each Greek separately and explain Delta/Gamma/Theta/Vega with correct
+  100-share dollar examples and per-day/per-IV-point units. Profit and +50%-on-risk-at-expiry meters are separate
+  from ITM; +25%/+100% targets and finite-spread maximum-gain odds have expandable explanations. Analytic payoff-region
+  probabilities are model estimates, not calibrated early-exit target-hit rates. Long-call/put theoretical maxima
+  receive meaningful explanations rather than invented maximum-gain chances.
+- Stock profiles automatically queue SEC company metadata and a sourced annual business excerpt in a separate,
+  bounded, cached task. About shows available industry/sector, headquarters, phone, website, fiscal year-end,
+  provenance and GUI refresh/settings links. Failures preserve the previous description and back off; unsupported
+  annual layouts remain explicitly missing. Fund context stays distinct. No new paid data API is required.
+- Browser checks found and fixed a scenario-input step mismatch on fractional-cent underlying prices. Integration
+  checks caught the need to restrict profile serialization to display fields rather than compressed company facts.
+
+Validation: **1,421 offline tests passed, 5 opt-in live tests deselected**. Ruff, strict mypy (239 source files), JS
+syntax and Prettier checks pass.
+Desktop/375px browser workflows pass: adjacent confirmation, exact put and multi-leg calculator, quantity, fresh
+entry, fresh exit, restart/reload persistence, active chart-update control preservation and company context. Existing
+Plays filters/cards/table and History/Performance checks pass at both widths. All fixtures are explicitly synthetic;
+no operator credentials, private data or brokerage orders were used.
+
+Limits: quote references are not depth-aware fills; provider budgets/cadence and the running dashboard determine
+capture time. The calendar assumes a 16:00 close (half days remain unsupported). No hindsight-optimal sale or
+profitable timing model is claimed. Real connection freshness and company filing extraction on the laptop still
+depend on the configured providers; older missing option paths are never invented.
+
 ## 2026-10-27 — Earlier exit opportunities on the Plays P/L chart
 
 Reviewed the latest published Stocks work at `a87feec` on `claude/funny-rubin-gq99vj`, which includes all of

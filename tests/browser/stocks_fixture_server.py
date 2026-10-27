@@ -28,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
-                                               "plays-history"],
+                                               "plays-history", "personal-workflows"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
@@ -134,8 +134,65 @@ def main() -> None:
                         learning.tick(lab,world.market,at)
                 finally:
                     lab.close()
+            if args.scenario == "personal-workflows":
+                import json
+                from copy import deepcopy
+
+                from desk.stocks import play_selections
+                from desk.stocks.company_profiles import request
+                from desk.stocks.runner import saved, saved_path
+
+                # Explicit synthetic put counterexample for exact-side navigation (this world's natural picks are calls).
+                board = saved(paths,"plays")
+                sample = deepcopy(board["categories"][0]["plays"][0])
+                _, chains = world.market.option_chain(sample["symbol"],world.days[-1])
+                expiration = next(e for e in chains if e.isoformat() == sample["expiration"])
+                quote = min((q for q in chains[expiration] if q.kind == "put"),key=lambda q:abs(q.strike-sample["strike"]))
+                sample.update(type="PUT",structure="long_put",strike=quote.strike,entry=quote.ask,
+                              rank=3,source="synthetic_browser_fixture",delta=-.5,
+                              cost=quote.ask*100+.65,max_loss=quote.ask*100+.65,
+                              max_gain=quote.strike*100-quote.ask*100-.65,
+                              reasons=["Synthetic exact-put navigation counterexample"],
+                              legs=[{"occ":quote.occ,"kind":"put","side":"buy","strike":quote.strike,
+                                     "expiration":expiration.isoformat(),"bid":quote.bid,"ask":quote.ask}])
+                sample.pop("probability_targets",None)
+                board["categories"][0]["plays"].append(sample)
+                play_selections.register(world.dbs.research,board,NOW)
+                saved_path(paths,"plays").write_text(json.dumps(board))
+
+                for symbol in ("CHEAP", "SQZ", "S10", "S11"):
+                    request(world.dbs.market, symbol, NOW)
+                    world.dbs.market.execute("UPDATE stk_company_profiles SET about=?,metadata_json=?,source_url=?,"
+                        "filing_date='2026-02-20',updated_at=? WHERE cik=(SELECT cik FROM stk_listings WHERE symbol=?)",
+                        ("Synthetic company: designs and sells consumer products. This is a browser fixture, not issuer data.",
+                         json.dumps({"headquarters":"Pittsburgh, PA", "website":"https://example.test", "phone":"555-0100"}),
+                         "https://www.sec.gov/", NOW.isoformat(),symbol))
             world.close()
-        uvicorn.run(create_app(paths, auto_start=False), host="127.0.0.1", port=args.port, access_log=False)
+        app = create_app(paths, auto_start=False)
+        if args.scenario == "personal-workflows":
+            from datetime import datetime
+
+            from desk.stocks import play_selections, web
+            from desk.stocks.repo import StocksDatabases
+
+            clock = [datetime(2026,10,22,8,tzinfo=cal.NEW_YORK)]
+            web.utc_now = lambda: clock[0]
+
+            @app.post("/test/quote-pass")
+            def fixture_quote_pass() -> dict:
+                clock[0] = clock[0].replace(hour=9,minute=30) if clock[0].hour < 9 else clock[0]+timedelta(minutes=1)
+                dbs = StocksDatabases.open(paths)
+                try:
+                    active = play_selections.active_legs(dbs.research, clock[0].date())
+                    factor = 1.1 + .025*(clock[0].minute-30)
+                    for leg in {item["occ"]:item for item in active}.values():
+                        dbs.research.execute("INSERT INTO stk_track_ticks(occ,at,session,bid,ask,underlying,quoted_at,source)"
+                            " VALUES (?,?,?,?,?,?,?,?)",(leg["occ"],clock[0].isoformat(),clock[0].date().toordinal(),
+                                leg["bid"]*factor,leg["ask"]*factor,100.,clock[0].isoformat(),"synthetic_browser_fixture"))
+                    return {"changed":play_selections.advance(dbs.market,dbs.research,clock[0])}
+                finally:
+                    dbs.close()
+        uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=False)
 
 
 if __name__ == "__main__":
