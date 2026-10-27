@@ -293,6 +293,16 @@ class SchwabClient:
             "symbol": symbol, "periodType": "year", "period": 20, "frequencyType": "daily", "frequency": 1,
             "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
 
+    async def daily_since(self, symbol: str, since: date, today: date) -> list[Bar]:
+        """Daily candles back to ``since`` with the smallest documented period that reaches it (gap repair)."""
+        span = (today - since).days
+        period_type, period = next(((kind, n) for kind, n, days in (("month", 1, 27), ("month", 3, 88), ("month", 6, 180),
+                                                                    ("year", 1, 360), ("year", 5, 1820)) if span <= days),
+                                   ("year", 20))
+        return parse_history(await self._get("pricehistory", {
+            "symbol": symbol, "periodType": period_type, "period": period, "frequencyType": "daily", "frequency": 1,
+            "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
+
     async def intraday_history(self, symbol: str) -> list[IntradayBar]:
         # Several sessions allow a real previous session at weekends, holidays and before today's open.
         return parse_intraday(await self._get("pricehistory", {

@@ -197,14 +197,11 @@ async def quote_pass(due_now: Sequence[Tracked], save: Save, *, schwab: QuoteCli
                 result.endpoint = result.endpoint or "no_options"
                 break
             usable = [t for t in ticks if t.bid is not None and t.ask is not None and t.ask > 0]
-            if usable:
+            if usable:                     # an empty answer proves nothing (the contracts may not be listed)
                 save(usable, "schwab_quotes")
                 got.update(t.occ for t in usable)
                 result.sources["schwab_quotes"] += len(usable)
                 result.endpoint = "working"
-            elif start == 0 and result.endpoint is None:
-                result.endpoint = "no_options"   # the endpoint answered but carried no option quotes
-                break
     left = [occ for occ in pending if occ not in got]
     if left and chains is not None and chains.configured:
         groups: dict[tuple[str, date], list[str]] = defaultdict(list)
@@ -259,14 +256,15 @@ def save_ticks(research: sqlite3.Connection, rows: list[tuple[Any, ...]]) -> Non
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
 
 
-def archive_ticks(market: sqlite3.Connection, tracked: dict[str, Tracked], session: date,
-                  after: str | None) -> tuple[list[tuple[Any, ...]], str | None]:
-    """Tracked contracts in chains the research collector stored since ``after`` (no extra request)."""
+def archive_ticks(market: sqlite3.Connection, tracked: dict[str, Tracked], session: date, after: str | None,
+                  now: datetime) -> tuple[list[tuple[Any, ...]], str | None]:
+    """Tracked contracts in chains the research collector stored since ``after`` and by ``now`` (no extra request)."""
     symbols = {t.symbol for t in tracked.values()}
     rows: list[tuple[Any, ...]] = []
     newest = after
     for r in market.execute("SELECT underlying, observed_at, underlying_price, chain_zlib, source FROM stk_option_chains"
-                            " WHERE day = ? AND observed_at > ? ORDER BY observed_at", (day_of(session), after or "")):
+                            " WHERE day = ? AND observed_at > ? AND observed_at <= ? ORDER BY observed_at",
+                            (day_of(session), after or "", to_iso(now))):
         newest = max(newest or "", r["observed_at"])
         if r["underlying"] not in symbols:
             continue
@@ -534,23 +532,36 @@ async def probe(schwab: QuoteClient, chains: ChainClient, market: sqlite3.Connec
 
 
 # ── one pass ─────────────────────────────────────────────────────────────────────────────────────
+MARKS_EVERY = timedelta(hours=1)    # marks and gap repair: every pass after the close, hourly while trading
+
+
 async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now: datetime, *,
                    board: dict[str, Any] | None, schwab: QuoteClient | None, chains: ChainClient | None,
-                   rate: Callable[[date], float], clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
-    """Fold closed sessions, compact old detail and, in market hours, quote whatever is due."""
+                   rate: Callable[[date], float], history: Any = None,
+                   clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
+    """Fold closed sessions, compact old detail, mark and repair plays and, in market hours, quote what is due."""
+    from desk.stocks import play_marks
+
     today = cal.new_york(now).date()
     folded = fold_due(research, now, rate)
     compacted = compact(research, today)
     report: dict[str, Any] = {"at": to_iso(now), "folded": [d.isoformat() for d in folded], "compacted": compacted}
     if board:
         report["first_seen"] = first_seen(research, board, now)
-    if not market_open(now):
+    marked = get_state(research, "marks").get("at")
+    trading = market_open(now)
+    if folded or not trading or not marked or now - datetime.fromisoformat(marked) >= MARKS_EVERY:
+        budget = play_marks.REPAIR_BUDGET_OPEN if trading else play_marks.REPAIR_BUDGET_CLOSED
+        report["marks"] = await play_marks.update(market, research, now, history=history, rate=rate, budget=budget)
+        put_state(research, "marks", {"at": to_iso(now), **{k: v for k, v in report["marks"].items() if k != "errors"}},
+                  now)
+    if not trading:
         report["market"] = "closed"
         put_state(research, "idle", report, now)
         return report
     tracked = tracked_set(research, today, board)
     state = get_state(research, "pass")
-    archived, newest = archive_ticks(market, tracked, today, state.get("archive_after"))
+    archived, newest = archive_ticks(market, tracked, today, state.get("archive_after"), now)
     with transaction(research):
         save_ticks(research, archived)
     last = last_ticks(research, today)
@@ -609,11 +620,10 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = N
             board = saved(paths, "plays")
         except DeskError:
             board = None
-        if market_open(now):
-            suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), runtime)
+        suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), runtime)
         stocks_market = StocksMarket(market)
         report = await run_pass(market, research, now, board=board, schwab=suite.schwab if suite else None,
-                                chains=suite.options if suite else None,
+                                chains=suite.options if suite else None, history=suite.schwab if suite else None,
                                 rate=lambda d: _rate(stocks_market, d))
         put_state(research, "cycle", {"slot": slot(now), "at": to_iso(now)}, now)
         return report

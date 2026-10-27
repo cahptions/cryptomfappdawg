@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import sqlite3
 import statistics
 from collections import Counter, defaultdict
@@ -917,6 +918,96 @@ def record(research: StocksResearch, session: date, categories: dict[str, list[d
     return added
 
 
+# ── twins: the random baseline each play must beat ──────────────────────────────────────────────
+TWIN_SEARCH = 6                     # other stocks tried before a play is left without a twin
+
+
+def _twin_leg(tb: Table, i: int, side: str) -> dict[str, Any]:
+    q = tb.quotes[i]
+    return {"occ": q.occ, "kind": q.kind, "side": side, "strike": q.strike, "expiration": q.expiration.isoformat(),
+            "bid": float(tb.bid[i]), "ask": float(tb.ask[i]), "mid": round(float(tb.mid[i]), 4),
+            "iv": round(float(tb.iv[i]), 4), "delta": round(float(tb.delta[i]), 4), "underlying": tb.u.price}
+
+
+def twin(play: dict[str, Any], tables: Sequence[Table], session: date) -> dict[str, Any] | None:
+    """A random contract on another stock with the same structure, expiry (or the nearest within a week) and delta.
+    Seeded by the play's identity, so the same record always draws the same twin."""
+    rng = random.Random(f"{session.isoformat()}:{play['category']}:{play['rank']}")  # noqa: S311 - a reproducible draw, not a secret
+    dte = (date.fromisoformat(play["expiration"]) - session).days
+    pool = []
+    for tb in tables:
+        if tb.u.symbol == play["symbol"] or not len(tb):
+            continue
+        gaps = np.abs(tb.dte - dte)
+        if gaps.min() <= 7:
+            pool.append((tb, float(tb.dte[int(np.argmin(gaps))])))
+    exact = [x for x in pool if x[1] == dte]
+    pool = exact or pool
+    rng.shuffle(pool)
+    legs, structure = play["legs"], play["structure"]
+    for tb, days in pool[:TWIN_SEARCH]:
+        on = tb.dte == days
+        chosen: list[tuple[int, str]] = []
+        if structure in ("long_call", "long_put"):
+            kind = legs[0]["kind"]
+            rows = np.where(on & (tb.call == (kind == "call")))[0]
+            if len(rows):
+                i = int(min(rows, key=lambda r: abs(abs(tb.delta[r]) - abs(legs[0]["delta"]))))
+                chosen = [(i, "buy")]
+        elif structure == "long_straddle":
+            calls = np.where(on & tb.call)[0]
+            if len(calls):
+                c = int(min(calls, key=lambda r: abs(tb.delta[r] - 0.5)))
+                puts = np.where(on & ~tb.call & (tb.k == tb.k[c]))[0]
+                if len(puts):
+                    chosen = [(c, "buy"), (int(puts[0]), "buy")]
+        else:                                                   # credit spreads: short leg first
+            short, long_ = legs[0], legs[1]
+            kind = short["kind"]
+            rows = np.where(on & (tb.call == (kind == "call")))[0]
+            if len(rows):
+                i = int(min(rows, key=lambda r: abs(abs(tb.delta[r]) - abs(short["delta"]))))
+                width = abs(long_["strike"] - short["strike"]) / max(play["underlying_price"], 1e-9) * tb.u.price
+                target = tb.k[i] + width if kind == "call" else tb.k[i] - width
+                further = rows[(tb.k[rows] > tb.k[i]) if kind == "call" else (tb.k[rows] < tb.k[i])]
+                if len(further):
+                    j = int(min(further, key=lambda r: abs(tb.k[r] - target)))
+                    chosen = [(i, "sell"), (j, "buy")]
+        if not chosen:
+            continue
+        twin_legs = [_twin_leg(tb, i, side) for i, side in chosen]
+        if play["action"] == "BUY":
+            entry = sum(leg["ask"] if leg["side"] == "buy" else -leg["bid"] for leg in twin_legs)
+            max_loss = entry * 100 + FEE * len(twin_legs)
+        else:
+            entry = sum(leg["bid"] if leg["side"] == "sell" else -leg["ask"] for leg in twin_legs)
+            width = abs(twin_legs[1]["strike"] - twin_legs[0]["strike"])
+            max_loss = (width - entry) * 100 + FEE * len(twin_legs)
+        if entry <= 0 or max_loss <= 0:
+            continue
+        return {"symbol": tb.u.symbol, "action": play["action"], "structure": structure,
+                "expiration": twin_legs[0]["expiration"], "legs": twin_legs, "entry": round(entry, 4),
+                "max_loss": round(max_loss, 2)}
+    return None
+
+
+def record_twins(research: StocksResearch, session: date, plays: dict[str, list[dict[str, Any]]],
+                 tables: Sequence[Table], now: datetime) -> int:
+    rows = []
+    for category, items in plays.items():
+        for p in items:
+            t = twin(p, tables, session)
+            if t is not None:
+                rows.append((day_of(session), category, p["rank"], t["symbol"], t["action"], t["structure"],
+                             day_of(date.fromisoformat(t["expiration"])), canonical_json(t["legs"]), t["entry"],
+                             t["max_loss"], to_iso(now)))
+    with transaction(research.conn):
+        research.conn.executemany("INSERT OR IGNORE INTO stk_play_twins(session, category, rank, symbol, action, "
+                                  "structure, expiration, legs_json, entry, max_loss, recorded_at) VALUES "
+                                  "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+    return len(rows)
+
+
 def settle_value(legs: Sequence[dict[str, Any]], close: float) -> float:
     """Per-share value at expiration of the position as held (long +, short −)."""
     total = 0.0
@@ -1074,6 +1165,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
             entry["followups"] = followups(ctx.flagged, tables)
         out_categories.append(entry)
     added = record(research, session, recorded, now) if session_closed(session, now) else []
+    twins = record_twins(research, session, {c: recorded[c] for c in added}, tables, now) if added else 0
     cal_itm = ctx.calibration["itm"]
     sources = Counter(tb.u.source for tb in tables)
     return {
@@ -1087,7 +1179,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                                     for p, n, o in cal_itm.buckets]},
         "model": {"ic": ic, "ic_months": round(months, 1), "ic_source": source, "iv_weight": od.IV_WEIGHT,
                   "rate": round(ctx.rate, 4)},
-        "recorded": added, "graded": graded, "session_closed": session_closed(session, now),
+        "recorded": added, "twins": twins, "graded": graded, "session_closed": session_closed(session, now),
         "categories": out_categories,
         "message": f"Plays from the {session.isoformat()} options session"
                    + ("" if session == expected else f"; waiting for {expected.isoformat()} chains"),
@@ -1096,5 +1188,5 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
 
 __all__ = ["BY_CATEGORY", "CATEGORIES", "Candidate", "Category", "Context", "Table", "Underlying", "build",
            "calibration", "committee_ic", "finish", "flagged_before", "followups", "grade", "implied_vols", "load",
-           "method", "record", "records",
-           "session_closed", "settle_value", "signature", "table"]
+           "method", "record", "record_twins", "records",
+           "session_closed", "settle_value", "signature", "table", "twin"]

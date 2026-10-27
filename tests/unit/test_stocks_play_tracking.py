@@ -206,7 +206,7 @@ class Refusing:
         raise ProviderError("schwab", ProviderErrorKind.HTTP_ERROR, f"quotes: HTTP {self.status}", self.status)
 
 
-@pytest.mark.parametrize(("status", "state"), [(400, "refused"), (None, "no_options"), (503, None)])
+@pytest.mark.parametrize(("status", "state"), [(400, "refused"), (None, None), (503, None)])
 async def test_an_endpoint_without_option_quotes_falls_back_to_chains(status: int | None, state: str | None) -> None:
     chains = FakeChains()
     result = await pt.quote_pass(tracked(20), lambda *_: None, schwab=Refusing(status), chains=chains)
