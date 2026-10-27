@@ -107,6 +107,32 @@ Two bases, labelled: **at the close** is the recorded entry (the ask of the sess
 shown** is the ask when the play first appeared on the live board that session (`stk_play_first_seen`, recorded only
 while the dashboard was running during the session).
 
+### Selling before expiry
+
+The per-play chart defaults to dollar P/L across the full recorded holding window. **All and 1M retain the available
+five-minute observations**, rather than reducing them to daily closes and hiding a profitable spike. Month ranges end
+at the play's last observation, so an old expired play remains inspectable. The chart does not add invented movement
+between sparse observations; estimates remain dashed, and histories with fewer than three points explain the limit.
+The default chart leaves estimated intervals as gaps. **Include estimated gaps** overlays them as dashed amber lines;
+their values stay separate from the observed best exit and cannot dominate its default chart scale.
+
+Three cards show the P/L at the inspected time, the **best observed exit before expiry**, and the latest value or expiry
+outcome for comparison. The best exit has a date/time and a chart marker; **Show best exit on chart** selects it. An
+editable contract quantity scales dollar P/L and fees already included per contract; for a multi-leg structure the
+quantity applies to every leg. Changing quantity does not place orders or change a PAPER account. Cursor/touch
+inspection also shows a rectangular tooltip. The first-shown entry is the default when it was actually recorded.
+
+Best observed means the largest net liquidation P/L among retained quoted observations after that entry and before
+settlement: longs sell at bid and shorts buy back at ask, with fees. It can be negative when no observed exit made
+money. Quotes before the chosen entry, future observations, settlement values and modelled/estimated/provisional
+highs cannot win this ranking. Multi-leg paths reject combinations carrying a leg forward by more than five minutes.
+Estimated highs are reported separately, and expiry-only data cannot establish an earlier quoted sale opportunity.
+
+This is hindsight, **not a prediction of the peak or proof an order could fill there**. It is the best retained
+observation, not the true maximum across every market trade. Five-minute coverage can miss a faster spike; after
+intraday retention expires only the stored daily closes remain. No historical option quotes are manufactured from
+stock prices, and the app does not perform assignment or exercise when displaying an expiry comparison.
+
 ### Live tracking (Schwab)
 
 Code: `src/desk/stocks/play_tracking.py`. The dashboard follows every leg of every unexpired recorded play, today's

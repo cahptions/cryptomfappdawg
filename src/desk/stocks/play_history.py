@@ -211,21 +211,70 @@ def _combine(legs: list[dict[str, Any]], by_leg: dict[str, list[tuple[datetime, 
     """Merge legs' quote paths: a point wherever every leg has a quote so far (each carried forward)."""
     times = sorted({t for occ in by_leg for t, *_ in by_leg[occ]})
     cursor = {occ: 0 for occ in by_leg}
-    current: dict[str, tuple[float, float, float | None]] = {}
+    current: dict[str, tuple[float, float, float | None, datetime]] = {}
     out = []
     for t in times:
         for occ, points in by_leg.items():
             while cursor[occ] < len(points) and points[cursor[occ]][0] <= t:
                 _, bid, ask, s = points[cursor[occ]]
-                current[occ] = (bid, ask, s)
+                current[occ] = (bid, ask, s, points[cursor[occ]][0])
                 cursor[occ] += 1
         if len(current) < len(legs):
             continue
+        if any(t - current[leg["occ"]][3] > timedelta(minutes=5) for leg in legs):
+            continue  # distant leg highs do not constitute a contemporaneous spread exit
         value = sum(current[leg["occ"]][0] if leg["side"] == "buy" else -current[leg["occ"]][1] for leg in legs)
         s = next((current[leg["occ"]][2] for leg in legs if current[leg["occ"]][2]), None)
         st = "estimated" if any(status.get(leg["occ"]) == "estimated" for leg in legs) else "quoted"
         out.append((t, value, s, st))
     return out
+
+
+def point_time(point: dict[str, Any]) -> datetime:
+    """Use the shared New York session clock (including DST), rather than a hard-coded UTC close."""
+    stamp = point.get("at") or point["t"]
+    return cal.session_close(date.fromisoformat(stamp)) if len(stamp) == 10 else datetime.fromisoformat(stamp)
+
+
+def exit_opportunities(daily: list[dict[str, Any]], intraday: list[dict[str, Any]],
+                       entries: dict[str, datetime], end: datetime) -> dict[str, Any]:
+    """Hindsight on retained observations, not an executable optimum or a forecast.
+
+    An expiry settlement and a modelled spike are never a quoted sale opportunity. Every basis has its own entry
+    time; in particular a closing-price entry cannot claim an earlier intraday high. Quoted duplicates at a daily
+    close count once. The caller already values long legs at bid and short legs at ask, with fees per leg.
+    """
+    result = {}
+    for basis, entry_at in entries.items():
+        points: dict[datetime, dict[str, Any]] = {}
+        for point in [*intraday, *daily]:
+            stamp = point_time(point)
+            if basis not in point or stamp < entry_at or stamp > end:
+                continue
+            existing = points.get(stamp)
+            if existing is None or existing["status"] not in {"quoted", "live"} or point["status"] == "settled":
+                points[stamp] = point
+        ordered = sorted(points.items())
+
+        def snapshot(point: dict[str, Any], entry_basis: str = basis) -> dict[str, Any]:
+            return {"t": point["t"], "at": point_time(point).isoformat(), "status": point["status"],
+                    "value": point["value"], "underlying": point.get("underlying"), **point[entry_basis]}
+
+        observed = [p for at, p in ordered if at > entry_at and p["status"] in {"quoted", "live"}]
+        estimates = [p for at, p in ordered if at > entry_at and p["status"] in
+                     {"modelled", "estimated", "provisional"}]
+        best = max(observed, key=lambda p: p[basis]["pnl"], default=None)
+        worst = min(observed, key=lambda p: p[basis]["pnl"], default=None)
+        estimated = max(estimates, key=lambda p: p[basis]["pnl"], default=None)
+        latest = ordered[-1][1] if ordered else None
+        result[basis] = {"best": snapshot(best) if best else None,
+                         "worst": snapshot(worst) if worst else None,
+                         "latest": snapshot(latest) if latest else None,
+                         "best_estimate": snapshot(estimated) if estimated else None,
+                         "observations": len(observed), "estimates": len(estimates),
+                         "giveback": round(best[basis]["pnl"] - latest[basis]["pnl"], 2)
+                         if best is not None and latest is not None else None}
+    return result
 
 
 def play_view(research: sqlite3.Connection, session: date, category: str, rank: int, now: datetime) -> dict[str, Any]:
@@ -240,14 +289,20 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
     seen = research.execute("SELECT seen_at, entry, legs_json FROM stk_play_first_seen WHERE session = ? AND "
                             "category = ? AND key = ?", (n, category, legs_key(legs))).fetchone()
     bases: dict[str, float] = {"close": entry}
+    entries = {"close": cal.session_close(session)}
     if seen is not None:
         bases["first"] = seen["entry"]
+        entries["first"] = datetime.fromisoformat(seen["seen_at"])
+    settles = settle_day(date.fromisoformat(play["expiration"]))
+    end = min(now, cal.session_close(settles))
 
     def point(t: str, value: float, status: str, s: float | None, settled: bool = False, note: str | None = None,
               stored: sqlite3.Row | None = None) -> dict[str, Any]:
-        out = {"t": t, "value": round(value, 4), "status": status, "underlying": s, "note": note,
-               **{b: pnl(action, e, legs, value, settled) for b, e in bases.items()}}
-        if stored is not None:                 # the recorded mark is the official close-basis figure
+        stamp = cal.session_close(date.fromisoformat(t)) if len(t) == 10 else datetime.fromisoformat(t)
+        out = {"t": t, "at": stamp.isoformat(), "value": round(value, 4), "status": status, "underlying": s,
+               "note": note, **{b: pnl(action, e, legs, value, settled) for b, e in bases.items()
+                                if entries[b] <= stamp <= end}}
+        if stored is not None and "close" in out:   # the recorded mark is the official close-basis figure
             out["close"] = {"pnl": stored["pnl"], "pct": stored["pnl_pct"]}
         return out
 
@@ -259,7 +314,7 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
               for r in research.execute("SELECT * FROM stk_play_marks_provisional WHERE session = ? AND category = ? "
                                         "AND rank = ? AND twin = 0 ORDER BY day", (n, category, rank))
               if _iso(r["day"]) not in marked]
-    daily.sort(key=lambda p: p["t"])
+    daily = sorted((p for p in daily if any(b in p for b in bases)), key=point_time)
     # intraday: stored five-minute paths (kept 30+ days), then today's live quotes
     occs = [leg["occ"] for leg in legs]
     marks = ",".join("?" * len(occs))
@@ -282,12 +337,13 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
             status[day_of(today)].setdefault(r["occ"], "live")
     intraday = []
     for day in sorted(paths):
-        if day < n or len(paths[day]) < len(legs):
+        if day < n or day > day_of(settles) or len(paths[day]) < len(legs):
             continue
         for t, value, s, st in _combine(legs, paths[day], status[day]):
             st = "live" if day == day_of(today) and st == "quoted" and all(
                 status[day].get(o) == "live" for o in occs) else st
-            intraday.append(point(t.isoformat(), value, st, s))
+            if min(entries.values()) <= t <= end:
+                intraday.append(point(t.isoformat(), value, st, s))
     # greeks then (as recorded) and now (latest stored close, KESTREL's and Schwab's)
     latest: dict[str, dict[str, Any]] = {}
     for r in research.execute(f"SELECT * FROM stk_track_days WHERE occ IN ({marks}) ORDER BY session", occs):  # noqa: S608
@@ -311,7 +367,6 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
     then = {g: play.get(g) if play.get(g) is not None else from_legs.get(g)
             for g in ("iv", "delta", "gamma", "theta", "vega")}
     cat = BY_CATEGORY.get(category)
-    settles = settle_day(date.fromisoformat(play["expiration"]))
     return {"version": VERSION, "found": True, "session": session.isoformat(), "category": category, "rank": rank,
             "category_title": cat.title if cat else category, "emoji": cat.emoji if cat else "",
             "label": label({**dict(row), "legs": legs, "expiration": play["expiration"]}), "play": play,
@@ -320,6 +375,8 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
             "first_seen": None if seen is None else {"at": seen["seen_at"], "entry": seen["entry"],
                                                      "legs": json.loads(seen["legs_json"])},
             "daily": daily, "intraday": intraday, "expiration": play["expiration"], "settles": settles.isoformat(),
+            "entry_times": {b: t.isoformat() for b, t in entries.items()},
+            "exits": exit_opportunities(daily, intraday, entries, end),
             "expired": settles < today or any(p["status"] == "settled" for p in daily),
             "greeks": {"then": then, "now": _net(legs, latest), "schwab_now": _net(legs, latest, "schwab_"),
                        "as_of": None if as_of is None else _iso(as_of)},
@@ -352,5 +409,5 @@ def resolve(research: sqlite3.Connection, when: str, now: datetime) -> date | No
     return nearest_session(research, date.fromisoformat(when))
 
 
-__all__ = ["basis_loss", "label", "live_values", "nearest_session", "play_view", "pnl", "resolve", "session_view",
-           "sessions"]
+__all__ = ["basis_loss", "exit_opportunities", "label", "live_values", "nearest_session", "play_view", "pnl",
+           "point_time", "resolve", "session_view", "sessions"]

@@ -55,7 +55,7 @@ const KestrelPlaysHistory = (() => {
     ["year", "1 year"],
   ];
   const STATUS = {
-    quoted: "quoted at the close",
+    quoted: "recorded quote",
     settled: "settled at expiration",
     live: "live quote",
     modelled: "modelled (no closing quote)",
@@ -334,6 +334,11 @@ const KestrelPlaysHistory = (() => {
   }
 
   // ── the P/L chart ───────────────────────────────────────────────────────────────────────────
+  const pointTime = (p) =>
+    Date.parse(p.at || (p.t.length === 10 ? `${p.t}T21:00:00Z` : p.t));
+  const pointWhen = (p) =>
+    `${longDate(p.t)} · ${clock(new Date(pointTime(p)).toISOString())} ET${p.t.length === 10 ? " close" : ""}`;
+
   function series(data, range) {
     const daily = data.daily || [],
       intraday = data.intraday || [];
@@ -343,17 +348,18 @@ const KestrelPlaysHistory = (() => {
         : new Date(p.t).toLocaleDateString("en-CA", {
             timeZone: "America/New_York",
           });
-    const withIntraday = new Set(intraday.map(dayOf));
-    const dense = [
-      ...intraday,
-      ...daily.filter((p) => !withIntraday.has(p.t)),
-    ].sort((a, b) =>
-      (a.t.length === 10 ? `${a.t}T21:00:00Z` : a.t) <
-      (b.t.length === 10 ? `${b.t}T21:00:00Z` : b.t)
-        ? -1
-        : 1,
+    // Keep the actual intraday path in EVERY range, not only 1D/1W. A closing-only chart hides a spike followed
+    // by a reversal. Deduplicate the same instant, preserving a real quote over a modelled daily value.
+    const points = new Map();
+    for (const p of [...intraday, ...daily]) {
+      const key = pointTime(p),
+        previous = points.get(key);
+      if (!previous || isDashed(previous.status) || !isDashed(p.status))
+        points.set(key, p);
+    }
+    const dense = [...points.values()].sort(
+      (a, b) => pointTime(a) - pointTime(b),
     );
-    const live = intraday.filter((p) => p.status === "live").at(-1);
     const sessions = [...new Set(dense.map(dayOf))];
     if (range === "1D") {
       const last = sessions.at(-1);
@@ -363,16 +369,11 @@ const KestrelPlaysHistory = (() => {
       const keep = new Set(sessions.slice(-5));
       return dense.filter((p) => keep.has(dayOf(p)));
     }
-    let out = daily;
     if (range === "1M") {
-      const since = new Date(Date.now() - 31 * 864e5)
-        .toISOString()
-        .slice(0, 10);
-      out = daily.filter((p) => p.t >= since);
+      const since = dense.length ? pointTime(dense.at(-1)) - 31 * 864e5 : 0;
+      return dense.filter((p) => pointTime(p) >= since);
     }
-    if (live && (!out.length || out.at(-1).t < dayOf(live)))
-      out = [...out, live];
-    return out;
+    return dense;
   }
 
   function plChart(data) {
@@ -382,10 +383,70 @@ const KestrelPlaysHistory = (() => {
       readout = el("p", "", "caption pl-readout"),
       legend = el("p", "", "caption muted");
     const hasFirst = data.bases.first !== undefined;
-    let range = (data.daily || []).length > 21 ? "All" : "1M",
-      unit = "pct",
-      basis = "close",
-      twin = false;
+    let range = "All",
+      unit = "usd",
+      basis = hasFirst ? "first" : "close",
+      twin = false,
+      includeEstimates = false,
+      quantity = 1,
+      inspectedTime = null,
+      seekPeak = false;
+    const summary = el("div", undefined, "pl-exit-summary");
+    const metric = (title, cls) => {
+      const node = el("section", undefined, `pl-exit-metric ${cls}`),
+        label = el("h3", title),
+        value = el("strong", "—"),
+        meta = el("p", "", "caption muted");
+      node.append(label, value, meta);
+      summary.append(node);
+      return { node, label, value, meta };
+    };
+    const selected = metric("If closed at selected time", "pl-selected-exit"),
+      peakCard = metric("Best observed exit before expiry", "pl-best-exit"),
+      endCard = metric("Latest recorded value", "pl-latest-exit");
+    const jump = el("button", "Show best exit on chart", "pl-jump-peak");
+    jump.type = "button";
+    jump.onclick = () => {
+      range = "All";
+      seekPeak = true;
+      for (const b of controls.querySelector('[aria-label="Time range"]')
+        .children)
+        b.setAttribute("aria-pressed", String(b.textContent === "All"));
+      draw();
+      plot.scrollIntoView({ block: "center" });
+    };
+    peakCard.node.append(jump);
+    const contracts = el("label", undefined, "pl-contracts"),
+      input = el("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.value = "1";
+    contracts.append(
+      el("span", data.legs.length > 1 ? "Contracts per leg" : "Contracts"),
+      input,
+    );
+    input.oninput = () => {
+      const n = Number(input.value);
+      const valid = Number.isSafeInteger(n) && n > 0;
+      input.setCustomValidity(
+        valid ? "" : "Enter a positive whole number of contracts.",
+      );
+      if (valid) {
+        quantity = n;
+        draw();
+      }
+    };
+    const showMetric = (target, p) => {
+      target.value.textContent = p
+        ? `${usd(p.pnl * quantity)} (${pct(p.pct)})`
+        : "—";
+      target.value.className =
+        p && isDashed(p.status) ? "pl-estimated-value" : p ? tone(p.pnl) : "";
+      target.meta.textContent = p
+        ? `${pointWhen(p)} · ${quantity} contract${quantity === 1 ? "" : "s"}${data.legs.length > 1 ? " per leg" : ""}`
+        : "No eligible quote-based exit recorded yet.";
+    };
     const group = (label, options, get, set) => {
       const g = el("div", undefined, "research-tabs pl-group");
       g.setAttribute("role", "group");
@@ -435,6 +496,7 @@ const KestrelPlaysHistory = (() => {
         () => basis,
         (v) => (basis = v),
       ),
+      contracts,
     );
     if (data.twin?.marks?.length) {
       const t = el("label", undefined, "pl-toggle"),
@@ -447,23 +509,78 @@ const KestrelPlaysHistory = (() => {
       t.append(box2, el("span", `Random twin (${data.twin.symbol})`));
       controls.append(t);
     }
-    box.append(controls, plot, readout, legend);
+    const estimates = el("label", undefined, "pl-toggle"),
+      estimatesInput = el("input");
+    estimatesInput.type = "checkbox";
+    estimatesInput.onchange = () => {
+      includeEstimates = estimatesInput.checked;
+      draw();
+    };
+    estimates.append(estimatesInput, el("span", "Include estimated gaps"));
+    controls.append(estimates);
+    const method = el("details", undefined, "pl-chart-method"),
+      methodBody = el("p", "", "caption muted");
+    method.append(
+      el("summary", "How this P/L and peak are calculated"),
+      methodBody,
+    );
+    box.append(summary, controls, plot, readout, legend, method);
 
     function draw() {
-      const rows = series(data, range).filter((p) => p[basis]);
+      const available = series(data, range).filter((p) => p[basis]);
+      const hiddenTimes = includeEstimates
+        ? []
+        : available.filter((p) => isDashed(p.status)).map(pointTime);
+      const rows = available.filter(
+        (p) => includeEstimates || !isDashed(p.status),
+      );
       plot.replaceChildren();
+      const exits = data.exits?.[basis] || {},
+        best = exits.best,
+        latest = exits.latest;
+      showMetric(peakCard, best);
+      jump.disabled = !best;
+      showMetric(endCard, latest);
+      endCard.label.textContent =
+        latest?.status === "settled"
+          ? "Expiry outcome — for comparison"
+          : latest && isDashed(latest.status)
+            ? "Latest estimated value"
+            : "Latest recorded value";
+      if (latest && exits.giveback > 0)
+        endCard.meta.append(
+          document.createTextNode(
+            ` · ${usd(exits.giveback * quantity)} below the best observed exit`,
+          ),
+        );
+      methodBody.textContent = [
+        data.intraday_note,
+        "Best observed exit uses retained bid/ask quotes after your selected entry, before settlement, and includes fees. It is hindsight, not a forecast or a guaranteed fill; unobserved peaks may be missed.",
+        "The quoted option value reflects stock moves, remaining time and implied volatility, rather than intrinsic value alone. Contract quantity applies to each leg.",
+        exits.best_estimate
+          ? `Estimated high (not observed): ${usd(exits.best_estimate.pnl * quantity)} · ${pct(exits.best_estimate.pct)}.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       if (!rows.length) {
         plot.append(
           el(
             "p",
-            "No marks in this range yet. Daily marks start at the close it was picked; five-minute marks while the dashboard tracks it.",
+            available.length
+              ? "Only estimated values are available in this range. Turn on Include estimated gaps to inspect them; no quote-based sale opportunity is established."
+              : "No marks in this range yet. Daily marks start at the close it was picked; five-minute marks while the dashboard tracks it.",
             "muted",
           ),
         );
         readout.textContent = "";
+        legend.textContent =
+          "No observed quote path is available in this range.";
+        showMetric(selected, null);
         return;
       }
-      const value = (p) => (unit === "pct" ? p[basis].pct : p[basis].pnl);
+      const value = (p) =>
+        unit === "pct" ? p[basis].pct : p[basis].pnl * quantity;
       const values = rows.map(value);
       const daily = range === "1M" || range === "All";
       const twinRows =
@@ -478,7 +595,10 @@ const KestrelPlaysHistory = (() => {
       const scale = niceScale(Math.min(...all), Math.max(...all)),
         lo = scale.lo,
         hi = scale.hi;
-      const width = window.innerWidth < 600 ? 520 : 1000,
+      const width =
+          window.innerWidth < 600
+            ? Math.max(260, window.innerWidth - 48)
+            : 1000,
         height = 300,
         left = 70,
         right = 20,
@@ -486,9 +606,13 @@ const KestrelPlaysHistory = (() => {
         bottom = 34,
         plotW = width - left - right,
         plotH = height - top - bottom;
+      const times = rows.map(pointTime),
+        span = times.at(-1) - times[0] || 1;
       const x = (i) =>
           left +
-          (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW),
+          (rows.length === 1
+            ? plotW / 2
+            : ((times[i] - times[0]) / span) * plotW),
         y = (v) => top + (1 - (v - lo) / (hi - lo)) * plotH;
       const fmt = (v) =>
         unit === "pct"
@@ -539,6 +663,7 @@ const KestrelPlaysHistory = (() => {
       }
       const lineTone = tone(values.at(-1)) || "flat";
       for (let i = 1; i < rows.length; i++) {
+        if (hiddenTimes.some((t) => times[i - 1] < t && t < times[i])) continue;
         const dashed = isDashed(rows[i].status) || isDashed(rows[i - 1].status);
         chart.append(
           svg("line", {
@@ -550,7 +675,9 @@ const KestrelPlaysHistory = (() => {
           }),
         );
       }
-      const peak = values.indexOf(Math.max(...values)),
+      const peak = best
+          ? rows.findIndex((p) => pointTime(p) === Date.parse(best.at))
+          : -1,
         low = values.indexOf(Math.min(...values));
       const marker = (i, kind, title) => {
         const m = svg("circle", {
@@ -567,11 +694,23 @@ const KestrelPlaysHistory = (() => {
       const first = (data.daily || [])[0];
       if (first && rows[0].t === first.t)
         marker(0, "entry", `Picked ${first.t}`);
-      if (rows.length > 2) {
-        if (peak !== rows.length - 1)
-          marker(peak, "peak", `Peak ${fmt(values[peak])}`);
-        if (low !== 0) marker(low, "low", `Low ${fmt(values[low])}`);
+      if (peak >= 0) {
+        marker(
+          peak,
+          "peak",
+          `Best observed exit ${usd(best.pnl * quantity)} (${pct(best.pct)}) · ${pointWhen(best)}`,
+        );
+        const annotation = svg("text", {
+          x: x(peak),
+          y: Math.max(top + 14, y(values[peak]) - 12),
+          "text-anchor": x(peak) > width / 2 ? "end" : "start",
+          class: "pl-peak-label",
+        });
+        annotation.textContent = `Best ${usd(best.pnl * quantity)}`;
+        chart.append(annotation);
       }
+      if (rows.length > 2 && low !== 0)
+        marker(low, "low", `Low ${fmt(values[low])}`);
       if (rows.at(-1).status === "settled")
         marker(rows.length - 1, "expiry", `Expired ${rows.at(-1).t}`);
       const guide = svg("line", {
@@ -588,39 +727,86 @@ const KestrelPlaysHistory = (() => {
           class: `pl-dot ${lineTone}`,
         });
       chart.append(guide, dot);
-      let index = rows.length - 1;
+      const tooltip = el("div", undefined, "pl-tooltip");
+      tooltip.hidden = true;
+      const previousIndex = rows.findIndex(
+        (p) => pointTime(p) === inspectedTime,
+      );
+      let index =
+        seekPeak && peak >= 0
+          ? peak
+          : previousIndex >= 0
+            ? previousIndex
+            : rows.length - 1;
+      seekPeak = false;
       function inspect(i) {
         index = Math.max(0, Math.min(rows.length - 1, i));
         const p = rows[index];
+        inspectedTime = pointTime(p);
+        dot.setAttribute(
+          "class",
+          `pl-dot ${isDashed(p.status) ? "estimated" : tone(values[index]) || "flat"}`,
+        );
         guide.setAttribute("x1", x(index));
         guide.setAttribute("x2", x(index));
         dot.setAttribute("cx", x(index));
         dot.setAttribute("cy", y(values[index]));
-        const when =
-          p.t.length === 10 ? longDate(p.t) : `${shortDate(p.t)} ${clock(p.t)}`;
+        const when = pointWhen(p);
+        showMetric(selected, { ...p, ...p[basis] });
+        selected.label.textContent =
+          p.status === "settled"
+            ? "At expiry — not an earlier sale"
+            : isDashed(p.status)
+              ? "Estimated P/L at selected time"
+              : "If closed at selected time";
         readout.replaceChildren(
           el("strong", when),
           document.createTextNode(` · worth ${price(p.value)}/share · P/L `),
           el(
             "strong",
-            `${pct(p[basis].pct)} (${usd(p[basis].pnl)})`,
+            `${usd(p[basis].pnl * quantity)} (${pct(p[basis].pct)})`,
             tone(p[basis].pct),
           ),
           document.createTextNode(
             ` · ${data.play.symbol} ${price(p.underlying)} · ${STATUS[p.status] || p.status}${p.note ? ` · ${p.note}` : ""}`,
           ),
         );
+        tooltip.replaceChildren(
+          el(
+            "strong",
+            `${usd(p[basis].pnl * quantity)} · ${pct(p[basis].pct)}`,
+          ),
+          el("span", when),
+          el("span", STATUS[p.status] || p.status),
+        );
       }
       chart.onpointermove = (e) => {
         const b = chart.getBoundingClientRect();
+        const target =
+          times[0] +
+          ((((e.clientX - b.left) / b.width) * width - left) / plotW) * span;
+        let lo = 0,
+          hi = times.length - 1;
+        while (lo < hi) {
+          const middle = Math.floor((lo + hi) / 2);
+          if (times[middle] < target) lo = middle + 1;
+          else hi = middle;
+        }
         inspect(
-          Math.round(
-            ((((e.clientX - b.left) / b.width) * width - left) / plotW) *
-              (rows.length - 1),
-          ),
+          lo > 0 &&
+            Math.abs(times[lo - 1] - target) < Math.abs(times[lo] - target)
+            ? lo - 1
+            : lo,
         );
+        tooltip.hidden = false;
+        const bounds = plot.getBoundingClientRect();
+        tooltip.style.left = `${Math.max(0, Math.min(bounds.width - tooltip.offsetWidth, e.clientX - bounds.left + 12))}px`;
+        tooltip.style.top = `${Math.max(0, Math.min(bounds.height - tooltip.offsetHeight, e.clientY - bounds.top - tooltip.offsetHeight - 12))}px`;
       };
-      chart.onpointerleave = () => inspect(rows.length - 1);
+      chart.onpointerleave = () => {
+        tooltip.hidden = true;
+      };
+      chart.onpointerdown = chart.onpointermove;
       chart.onkeydown = (e) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
         e.preventDefault();
@@ -634,30 +820,39 @@ const KestrelPlaysHistory = (() => {
       };
       const axis = el("div", undefined, "chart-axis");
       const tick = (p) =>
-        p.t.length === 10 || !["1D"].includes(range)
-          ? shortDate(p.t)
-          : clock(p.t);
+        range === "1D"
+          ? clock(new Date(pointTime(p)).toISOString())
+          : shortDate(p.t);
+      const middleTime = new Date((times[0] + times.at(-1)) / 2);
+      const middlePoint = {
+        t: middleTime.toLocaleDateString("en-CA", {
+          timeZone: "America/New_York",
+        }),
+        at: middleTime.toISOString(),
+      };
       axis.append(
         el("span", tick(rows[0])),
-        el(
-          "span",
-          rows.length > 2 ? tick(rows[Math.floor(rows.length / 2)]) : "",
-        ),
+        el("span", rows.length > 2 ? tick(middlePoint) : ""),
         el("span", tick(rows.at(-1))),
       );
-      plot.append(chart, axis);
+      plot.append(chart, axis, tooltip);
       inspect(index);
       const statuses = new Set(rows.map((p) => p.status));
       legend.textContent = [
-        "Solid: quoted or settled.",
+        `${rows.length} stored marks in this range. Solid: quoted or settled.`,
         [...statuses].some(isDashed)
           ? "Dashed: modelled or estimated (not real quotes; never graded)."
+          : "",
+        hiddenTimes.length
+          ? `${hiddenTimes.length} estimated marks hidden; unquoted intervals are left as gaps. Use Include estimated gaps to inspect the modelled path.`
           : "",
         twinRows.length ? "Grey: the random twin." : "",
         data.expired
           ? `Expired ${data.settles}: nothing is drawn after it.`
           : `Expires ${data.expiration}; the line extends each session until then.`,
-        range === "1D" || range === "1W" ? data.intraday_note : "",
+        rows.length < 3
+          ? "Too few observations to show the intervening path; no extra price movement has been invented."
+          : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -727,18 +922,13 @@ const KestrelPlaysHistory = (() => {
       ),
       el("h1", data.label),
     );
-    const big = el("p", undefined, "pl-headline");
-    if (latest)
-      big.append(
-        el("strong", pct(latest.close.pct), tone(latest.close.pct)),
-        el(
-          "span",
-          ` ${usd(latest.close.pnl)} per contract · ${price(data.bases.close)} → ${price(latest.value)} · ${STATUS[latest.status] || latest.status}`,
-          "muted",
-        ),
-      );
-    else big.append(el("span", "Waiting for its first mark.", "muted"));
-    titles.append(big);
+    titles.append(
+      el(
+        "p",
+        "Explore selling before expiry: inspect the option's recorded P/L path, compare an earlier exit with the final result, and change the contract quantity.",
+        "muted",
+      ),
+    );
     hero.append(titles);
     app.append(
       hero,
@@ -795,12 +985,21 @@ const KestrelPlaysHistory = (() => {
       ),
     );
     const happened = el("section", undefined, "panel");
-    happened.append(el("h3", "What happened"));
+    happened.append(el("h3", "Earlier exits and expiry comparison"));
+    const bestExit =
+      data.exits?.[data.bases.first !== undefined ? "first" : "close"]?.best;
+    if (bestExit)
+      happened.append(
+        el(
+          "p",
+          `Best observed earlier exit: ${usd(bestExit.pnl)} (${pct(bestExit.pct)}) per contract, ${pointWhen(bestExit)}. This uses the recorded closing bid/ask and fees; it was not a prediction of the peak.`,
+        ),
+      );
     if (data.outcome)
       happened.append(
         el(
           "p",
-          `At expiration the stock closed at ${price(data.outcome.underlying_close)}: ${data.outcome.hit ? "the event happened" : "the event did not happen"}; it paid ${price(data.outcome.payoff)} a share, ${pct(data.outcome.net_return)} after fees.`,
+          `Holding until expiry: the stock closed at ${price(data.outcome.underlying_close)}; the position's intrinsic value was ${price(data.outcome.payoff)} a share, ${pct(data.outcome.net_return)} after fees. This expiry comparison is separate from the earlier sale opportunities; no exercise or assignment was performed.`,
         ),
       );
     else if (latest)

@@ -81,13 +81,22 @@ try {
     const open = page.locator("a.pl-row", { hasText: /Open/ }).first();
     await open.click();
     await page.locator(".pl-plot svg").waitFor();
+    const detailUrl = page.url();
     await page.getByRole("button", { name: "All" }).click();
+    assert.ok(
+      (await page.locator(".pl-plot .pl-line").count()) > 10,
+      "All retains the intraday path instead of reducing it to a few daily closes",
+    );
+    await page
+      .getByRole("heading", { name: "Best observed exit before expiry" })
+      .waitFor();
+    await page.getByLabel("Include estimated gaps").check();
     assert.ok(
       (await page.locator(".pl-plot .pl-line.dashed").count()) > 0,
       "the laptop-off session is drawn dashed",
     );
     assert.match(
-      await page.locator(".pl-chart .caption.muted").last().innerText(),
+      await page.locator(".pl-chart > .caption.muted").innerText(),
       /Dashed: modelled or estimated/,
     );
     assert.equal(
@@ -181,6 +190,144 @@ try {
       path: `${out}/plays-performance-${width}.png`,
       fullPage: true,
     });
+
+    // Explicit synthetic counterexample: a profitable quoted spike, a higher unobserved estimate, and a worthless
+    // expiry. The estimated high and the expiry result must never hide or masquerade as the earlier quoted exit.
+    let onlyEstimates = false;
+    await page.route("**/api/stocks/plays/play?*", async (route) => {
+      const response = await route.fetch(),
+        data = await response.json();
+      const point = (t, value, status) => {
+        const pnl =
+          Math.round(
+            ((value - 2) * 100 - (status === "settled" ? 0.65 : 1.3)) * 100,
+          ) / 100;
+        return {
+          t,
+          at: t.length === 10 ? `${t}T16:00:00-04:00` : t,
+          value,
+          status,
+          underlying: 100,
+          close: { pnl, pct: pnl / 200.65 },
+        };
+      };
+      const spike = point("2026-10-13T11:00:00-04:00", 4, "quoted"),
+        estimate = point("2026-10-14", 30, "estimated"),
+        settled = point("2026-10-16", 0, "settled");
+      const snapshot = (p) => ({ ...p, ...p.close });
+      data.session = "2026-10-12";
+      data.expiration = data.settles = "2026-10-16";
+      data.expired = true;
+      data.bases = { close: 2 };
+      data.first_seen = null;
+      data.outcome = {
+        hit: false,
+        payoff: 0,
+        net_return: -1,
+        underlying_close: 90,
+      };
+      data.legs = [{ side: "buy", kind: "call", strike: 100 }];
+      data.daily = [point("2026-10-12", 1.8, "quoted"), estimate, settled];
+      data.intraday = [
+        point("2026-10-13T10:00:00-04:00", 1.5, "quoted"),
+        spike,
+        point("2026-10-13T15:55:00-04:00", 1, "quoted"),
+      ];
+      data.exits = {
+        close: {
+          best: snapshot(spike),
+          latest: snapshot(settled),
+          best_estimate: snapshot(estimate),
+          giveback: 399.35,
+          observations: 3,
+          estimates: 1,
+        },
+      };
+      if (onlyEstimates) {
+        data.expired = false;
+        data.outcome = null;
+        data.daily = [estimate];
+        data.intraday = [];
+        data.exits.close.best = null;
+        data.exits.close.latest = snapshot(estimate);
+        data.exits.close.giveback = null;
+      }
+      await route.fulfill({ json: data });
+    });
+    await page.goto(detailUrl);
+    const bestCard = page.locator(".pl-best-exit");
+    await bestCard.getByText("+$198.70 (+99.0%)", { exact: true }).waitFor();
+    await page.getByLabel("Contracts", { exact: true }).fill("3");
+    await bestCard.getByText("+$596.10 (+99.0%)", { exact: true }).waitFor();
+    assert.match(
+      await page.locator(".pl-latest-exit > strong").innerText(),
+      /601\.95/,
+    );
+    assert.match(await page.locator(".pl-peak-label").textContent(), /596\.10/);
+    await page.getByRole("button", { name: "Show best exit on chart" }).click();
+    assert.match(
+      await page.locator(".pl-selected-exit > strong").innerText(),
+      /596\.10/,
+    );
+    assert.match(
+      await page.locator(".pl-selected-exit p").innerText(),
+      /11:00 AM ET/,
+    );
+    await page.getByLabel("Contracts", { exact: true }).fill("4");
+    assert.match(
+      await page.locator(".pl-selected-exit > strong").innerText(),
+      /794\.80/,
+      "changing quantity preserves the inspected exit time",
+    );
+    await page.getByLabel("Contracts", { exact: true }).fill("3");
+    await page.getByRole("button", { name: "1M", exact: true }).click();
+    assert.ok(
+      (await page.locator(".pl-plot .pl-line").count()) >= 3,
+      "one month preserves the spike even when the play expired in an earlier calendar month",
+    );
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Include estimated gaps").isChecked(),
+      false,
+    );
+    assert.equal(await page.locator(".pl-line.dashed").count(), 0);
+    assert.equal(
+      await page.locator(".pl-chart .chart-axis span").nth(1).innerText(),
+      "Oct 14",
+      "the midpoint label follows elapsed time, not the density of captured quotes",
+    );
+    await page.mouse.move(0, 0);
+    await page.locator(".pl-plot svg").hover();
+    await page.locator(".pl-tooltip").waitFor({ state: "visible" });
+    assert.match(
+      await page.locator(".pl-tooltip").innerText(),
+      /recorded quote/,
+    );
+    assert.ok((await overflow()) <= 1, `exit controls fit at ${width}px`);
+    await page.screenshot({
+      path: `${out}/plays-exit-opportunity-${width}.png`,
+      fullPage: true,
+    });
+    onlyEstimates = true;
+    await page.reload();
+    await page.getByText(/^Only estimated values are available/).waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Show best exit on chart" })
+        .isDisabled(),
+      true,
+    );
+    await page.getByLabel("Include estimated gaps").check();
+    await page.locator(".pl-plot svg").waitFor();
+    assert.match(
+      await page.locator(".pl-selected-exit h3").innerText(),
+      /Estimated/,
+    );
+    assert.ok(
+      (await page
+        .locator(".pl-selected-exit > .pl-estimated-value")
+        .count()) === 1,
+    );
     await page.close();
   }
   assert.deepEqual(errors, [], "no page errors");

@@ -3,6 +3,37 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-27 — Earlier exit opportunities on the Plays P/L chart
+
+Reviewed the latest published Stocks work at `a87feec` on `claude/funny-rubin-gq99vj`, which includes all of
+`codex/arbitrage-v1` plus Plays, quote tracking, history, performance and learning. This change addresses the operator's
+request to see what an option could have sold for before expiry, even when it eventually expired worthless.
+
+- All/1M now preserve the available intraday path instead of discarding it for daily closes. The month ends at the
+  play's last observation, and the time scale/cursor use actual timestamps. Dollar P/L is the default.
+- Selected exit, best observed pre-expiry exit and the latest/expiry comparison have separate cards. The best has
+  its timestamp, percentage, dollar amount, chart marker and jump button. Contract quantity scales dollars on every
+  leg and preserves the inspected date. Pointer/touch inspection has a rectangular tooltip.
+- Best observed uses bid/ask liquidation values after entry and fees. A different entry time applies to first-shown
+  and close bases. Pre-entry, future, modelled/estimated/provisional and settlement points cannot win. Spread paths
+  reject leg combinations more than five minutes apart. A losing best exit remains negative.
+- Estimated gaps are optional, dashed amber, and excluded from the default chart scale and best observed result.
+  Hidden estimates leave real gaps, not an invented bridge. Estimated-only data has a usable explicit state and
+  overlay control. Retention/quote coverage and hindsight limitations are explained in expandable calculation notes.
+- The expiry comparison describes a hypothetical hold, not an actual exercise/assignment or the only exit outcome.
+
+Validation: **1,398 offline tests passed, 5 opt-in live tests deselected**; Ruff and strict mypy over 236 source files
+passed. Desktop/375px browser checks cover the real multi-session fixture plus an explicitly synthetic quoted profit
+spike followed by a worthless expiry, a higher excluded estimate, quantity/date preservation, range density,
+tooltip, quote-only gaps and estimated-only recovery. No private laptop data, brokerage credentials or orders used.
+Three baseline dashboard-start checks initially timed out under concurrent browser/suite load; all 11 startup tests
+passed independently and the subsequent full offline run passed without those failures.
+
+Limits: the best retained quote is not the true market-wide optimum or a guaranteed executable fill. Missing option
+quotes remain estimates; after intraday retention expires the older path has only daily marks. This presentation
+does not train on hindsight-optimal exits or establish a profitable strategy. Authenticated laptop freshness and
+sustained forward acceptance remain to be checked on the actual running installation.
+
 ## 2026-10-27 — Plays history: every pick tracked, marked, charted, graded and learned from
 
 Built from `research/plays/HISTORY_BUILD_PROMPT.md` in five pushed steps on `claude/funny-rubin-gq99vj`

@@ -187,6 +187,23 @@ def test_the_first_day_is_the_recorded_close_and_costs_the_spread(history: Any) 
     assert all(r["pnl"] < 0 for r in rows if r["action"] == "BUY")    # bought at the ask, valued at the bid, fees
 
 
+def test_exit_chart_keeps_intraday_observations_but_never_offers_a_close_basis_before_entry(history: Any) -> None:
+    from desk.stocks.play_history import play_view, point_time
+
+    session = history.sessions[0]
+    row = history.research.conn.execute("SELECT category, rank FROM stk_plays WHERE session = ? AND category != "
+                                        "'lottos' ORDER BY category, rank LIMIT 1", (day_of(session),)).fetchone()
+    data = play_view(history.research.conn, session, row["category"], row["rank"], at(history.sessions[-1], 17))
+    assert len(data["intraday"]) > len(data["daily"])
+    entry = datetime.fromisoformat(data["entry_times"]["close"])
+    assert all(point_time(p) >= entry for p in data["intraday"] if "close" in p)
+    exits = data["exits"]["close"]
+    assert exits["observations"] > 0 and exits["best"]["status"] in {"quoted", "live"}
+    assert datetime.fromisoformat(exits["best"]["at"]) > entry
+    assert exits["best_estimate"] is not None
+    json.dumps(data, allow_nan=False)
+
+
 def test_tracking_status_reports_storage(history: Any, tmp_path: Path) -> None:
     status = pt.status(history.research.conn, at(history.sessions[-1], 17))
     assert status["storage"]["rows"]["stk_play_marks"] > 0 and status["last_close_folded"]
