@@ -384,6 +384,8 @@ const KestrelPlays = (() => {
       return KestrelPlaysHistory.history(ticket, parts[2]);
     if (parts[1] === "play" && parts.length === 5)
       return KestrelPlaysHistory.detail(ticket, parts[2], parts[3], parts[4]);
+    if (parts[1] === "performance")
+      return KestrelPlaysHistory.performance(ticket);
     const data = await api("plays");
     if (ticket !== generation) return;
     app.className = "plays-page";

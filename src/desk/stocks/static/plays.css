@@ -392,3 +392,104 @@
     height: 240px;
   }
 }
+/* Plays performance: one validated pair (blue picks/KESTREL, orange SPY/market) and a grey dashed baseline */
+.plays-page {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-ref: #8d9488;
+}
+.pf-section,
+.pf-chart {
+  margin: 28px 0;
+}
+.pf-cell {
+  display: inline-flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+}
+.pf-cell small,
+.pf-name small {
+  font-size: 11px;
+}
+.pf-name {
+  display: flex;
+  flex-direction: column;
+}
+.pf-label.failing {
+  color: var(--negative);
+}
+.pf-label.proven {
+  color: var(--positive);
+}
+.pf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 13px;
+  margin: 6px 0 10px;
+}
+.pf-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pf-key i {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid;
+}
+.pf-key i.pf-picks {
+  border-color: var(--series-1);
+}
+.pf-key i.pf-spy {
+  border-color: var(--series-2);
+}
+.pf-key i.pf-twins {
+  border-color: var(--series-ref);
+  border-top-style: dashed;
+}
+.pf-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.pf-line.pf-picks {
+  stroke: var(--series-1);
+}
+.pf-line.pf-spy {
+  stroke: var(--series-2);
+}
+.pf-line.pf-twins {
+  stroke: var(--series-ref);
+  stroke-dasharray: 5 4;
+}
+.pf-dot {
+  stroke: #080a08;
+  stroke-width: 2;
+}
+.pf-dot.pf-picks {
+  fill: var(--series-1);
+}
+.pf-dot.pf-spy {
+  fill: var(--series-2);
+}
+.pf-dot.pf-twins {
+  fill: var(--series-ref);
+}
+.pf-end {
+  fill: var(--muted);
+  font-size: 12px;
+}
+.pf-diagonal {
+  stroke: var(--series-ref);
+  stroke-dasharray: 4 4;
+}
+.pf-calibration {
+  width: min(100%, 420px);
+  height: auto;
+  display: block;
+}
+.pf-chart select {
+  max-width: 100%;
+}

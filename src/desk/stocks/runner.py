@@ -40,7 +40,7 @@ class MemoryPressure(DeskError):
 
 
 def saved_path(paths: DeskPaths, name: str) -> Path:
-    if name not in {"worker", "paper", "research", "progress", "options", "plays"}:
+    if name not in {"worker", "paper", "research", "progress", "options", "plays", "plays-performance"}:
         raise ValueError("unknown Stocks record")
     return paths.home / f"stocks-{name}.json"
 
@@ -66,6 +66,9 @@ def saved(paths: DeskPaths, name: str) -> dict[str, Any] | None:
         if name == "plays" and (not isinstance(value.get("categories"), list) or any(
                 not isinstance(item, dict) or not isinstance(item.get("id"), str)
                 or not isinstance(item.get("plays"), list) for item in value["categories"])):
+            raise ValueError
+        if name == "plays-performance" and (not isinstance(value.get("categories"), list)
+                                            or not isinstance(value.get("generated_at"), str)):
             raise ValueError
         if name == "research" and (not isinstance(value.get("lists"), list) or any(
                 not isinstance(item, dict) or not isinstance(item.get("id"), str)

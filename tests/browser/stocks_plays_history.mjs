@@ -125,6 +125,51 @@ try {
     });
     await page.getByRole("link", { name: /← All plays of/ }).click();
     await page.getByRole("heading", { name: /^Plays of / }).waitFor();
+
+    // performance across sessions
+    await page
+      .getByRole("navigation", { name: "Plays views" })
+      .getByRole("link", { name: "Performance" })
+      .click();
+    await page.getByRole("heading", { name: "Performance" }).waitFor();
+    await page.getByRole("heading", { name: "By holding period" }).waitFor();
+    await page.getByRole("heading", { name: "$100 into every play" }).waitFor();
+    assert.equal(
+      await page.locator(".pf-chart .pf-line").count(),
+      3,
+      "picks, random twins and SPY",
+    );
+    assert.match(
+      await page.locator(".pf-chart .pl-readout").first().innerText(),
+      /1 settled/,
+    );
+    await page.getByLabel("Category").selectOption("likely_itm");
+    await page.getByText("No play in this view has settled yet.").waitFor();
+    await page.getByLabel("Category").selectOption("lottos");
+    assert.match(
+      await page.locator(".pf-chart .pl-readout").first().innerText(),
+      /settled .* picks/,
+    );
+    await page.getByRole("heading", { name: "By category" }).waitFor();
+    assert.match(
+      await page.locator(".pf-section table").nth(1).innerText(),
+      /current rules/,
+    );
+    await page
+      .getByRole("heading", { name: "Predicted chance vs what happened" })
+      .waitFor();
+    assert.ok(
+      (await page.locator(".pf-calibration .pf-dot").count()) > 0,
+      "calibration dots are drawn",
+    );
+    await page
+      .getByRole("heading", { name: "By days to expiry when picked" })
+      .waitFor();
+    assert.ok((await overflow()) <= 1, `no horizontal scroll at ${width}px`);
+    await page.screenshot({
+      path: `${out}/plays-performance-${width}.png`,
+      fullPage: true,
+    });
     await page.close();
   }
   assert.deepEqual(errors, [], "no page errors");

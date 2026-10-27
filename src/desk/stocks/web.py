@@ -393,6 +393,15 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             raise HTTPException(404, "That play is not in the record")
         return value
 
+    @app.get("/api/stocks/plays/performance")
+    def plays_performance() -> dict[str, Any]:
+        value = saved_view(paths, "plays-performance")
+        if value is None:
+            return {"version": 1, "categories": [], "generated_at": None,
+                    "message": "Performance is built after the close once plays have been marked. The first numbers "
+                               "appear the evening after the first recorded session."}
+        return value
+
     @app.get("/api/stocks/plays/tracking")
     def plays_tracking() -> dict[str, Any]:
         with reader(paths, RESEARCH_FILE) as conn:

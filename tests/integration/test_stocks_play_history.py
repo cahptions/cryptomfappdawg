@@ -235,3 +235,34 @@ def test_the_history_endpoints_serve_sessions_plays_and_charts(history: Any) -> 
         assert client.get("/api/stocks/plays/play?session=2020-01-02&category=edge&rank=1").status_code == 404
         assert client.get("/assets/plays_history.js").status_code == 200
         assert client.get("/api/stocks/session").json()["ui_protocol"] == 6
+
+
+def test_performance_grades_quoted_marks_and_settlements_against_twins_and_spy(history: Any) -> None:
+    from desk.stocks import play_performance as perf
+
+    out = perf.build(history.market.conn, history.research.conn, at(history.sessions[-1], 17))
+    json.dumps(out, allow_nan=False)
+    assert out["plays"] > 20 and out["resolved"] >= 1 and out["categories"]
+    rows = perf.returns_table(history.research.conn)
+    # a return at a holding period is a quoted mark or a settlement, never an estimate
+    excluded = 0
+    for r in rows:
+        for i, value, status in r.path:
+            if r.settled_index is not None and r.settled_index <= i:
+                continue
+            if status in ("estimated", "modelled"):
+                assert r.at(i) is None
+                excluded += 1
+            else:
+                assert r.at(i) == value
+    assert excluded > 0, "the laptop-off session left estimates to exclude"
+    day = next(x for x in out["overall"] if x["label"] == "1 day")
+    assert day["plays"]["n"] > 0 and day["twins"]["n"] > 0
+    expiry = next(x for x in out["overall"] if x["label"] == "At expiry")
+    assert expiry["plays"]["n"] == out["resolved"]
+    curve = out["cumulative"]["all"]
+    assert curve and curve[-1]["settled"] == out["resolved"] and curve[-1]["invested"] == 100 * out["resolved"]
+    settled = [r.at(None) for r in rows if r.at(None) is not None]
+    assert curve[-1]["picks"] == pytest.approx(sum(100 * x for x in settled), abs=0.05)
+    assert out["calibration"]["itm_kestrel"]["resolved"] >= 1 and out["dte"] and out["price"]
+    assert all(c["versions"][0]["current"] for c in out["categories"])         # the current rules come first

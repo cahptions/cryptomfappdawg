@@ -626,6 +626,11 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = N
                                 chains=suite.options if suite else None, history=suite.schwab if suite else None,
                                 rate=lambda d: _rate(stocks_market, d))
         put_state(research, "cycle", {"slot": slot(now), "at": to_iso(now)}, now)
+        if not market_open(now):
+            from desk.stocks import play_performance
+
+            report["performance"] = play_performance.refresh(paths, market, research, now,
+                                                             changed=bool((report.get("marks") or {}).get("marks")))
         return report
     finally:
         if suite is not None:

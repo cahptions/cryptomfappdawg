@@ -62,6 +62,18 @@ const KestrelPlaysHistory = (() => {
     estimated: "estimated (laptop was off)",
     provisional: "provisional estimate",
   };
+  // Round axis steps (1, 2, 2.5, 5 × a power of ten) and a domain that starts and ends on them.
+  function niceScale(lo, hi, count = 4) {
+    const raw = (hi - lo || Math.abs(hi) || 1) / count,
+      mag = 10 ** Math.floor(Math.log10(raw)),
+      step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((v) => v >= raw);
+    const start = Math.floor(lo / step) * step,
+      end = Math.ceil(hi / step) * step,
+      ticks = [];
+    for (let v = start; v <= end + step / 2; v += step)
+      ticks.push(Math.round(v / step) * step);
+    return { lo: start, hi: end, ticks };
+  }
   const isDashed = (status) =>
     ["modelled", "estimated", "provisional"].includes(status);
 
@@ -72,6 +84,7 @@ const KestrelPlaysHistory = (() => {
     for (const [href, label, id] of [
       ["#plays", "Today's plays", "board"],
       ["#plays/history", "History", "history"],
+      ["#plays/performance", "Performance", "performance"],
     ]) {
       const a = link(label, href);
       a.setAttribute("aria-selected", String(id === active));
@@ -462,11 +475,9 @@ const KestrelPlaysHistory = (() => {
             )
           : [];
       const all = [...values, ...twinRows.filter((v) => v !== null), 0];
-      let lo = Math.min(...all),
-        hi = Math.max(...all);
-      const pad = Math.max((hi - lo) * 0.1, unit === "pct" ? 0.01 : 1);
-      lo -= pad;
-      hi += pad;
+      const scale = niceScale(Math.min(...all), Math.max(...all)),
+        lo = scale.lo,
+        hi = scale.hi;
       const width = window.innerWidth < 600 ? 520 : 1000,
         height = 300,
         left = 70,
@@ -479,7 +490,10 @@ const KestrelPlaysHistory = (() => {
           left +
           (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW),
         y = (v) => top + (1 - (v - lo) / (hi - lo)) * plotH;
-      const fmt = (v) => (unit === "pct" ? pct(v, 0) : usd(v));
+      const fmt = (v) =>
+        unit === "pct"
+          ? pct(v, Math.abs(hi - lo) < 0.05 ? 1 : 0)
+          : usd(v).replace(".00", "");
       const chart = svg("svg", {
         viewBox: `0 0 ${width} ${height}`,
         preserveAspectRatio: "none",
@@ -487,8 +501,7 @@ const KestrelPlaysHistory = (() => {
         tabindex: "0",
         "aria-label": `Profit and loss of ${data.label}, ${rows.length} marks. Arrow keys inspect each mark.`,
       });
-      for (let i = 0; i <= 4; i++) {
-        const v = lo + ((hi - lo) * i) / 4;
+      for (const v of scale.ticks) {
         chart.append(
           svg("line", {
             x1: left,
@@ -837,5 +850,428 @@ const KestrelPlaysHistory = (() => {
     );
   }
 
-  return { views, history, detail, sparkline };
+  // ── performance across sessions ─────────────────────────────────────────────────────────────
+  const cell = (s) => {
+    if (!s) return "—";
+    const box = el("span", undefined, "pf-cell");
+    box.append(
+      el("strong", pct(s.mean), tone(s.mean)),
+      el("small", `${Math.round(100 * s.hit_rate)}% up · n ${s.n}`, "muted"),
+    );
+    return box;
+  };
+
+  function cumulativeChart(curves, categories) {
+    const box = el("section", undefined, "pf-chart"),
+      controls = el("div", undefined, "pl-controls"),
+      plot = el("div", undefined, "pl-plot"),
+      readout = el("p", "", "caption pl-readout"),
+      legend = el("div", undefined, "pf-legend");
+    const pick = el("select");
+    pick.setAttribute("aria-label", "Category");
+    pick.append(new Option("Every category", "all"));
+    for (const c of categories)
+      if (curves[c.id]) pick.append(new Option(`${c.emoji} ${c.title}`, c.id));
+    controls.append(pick);
+    const series = [
+      ["picks", "Picks", "pf-picks"],
+      ["twins", "Random twins", "pf-twins"],
+      ["spy", "SPY, same dates", "pf-spy"],
+    ];
+    for (const [, label, cls] of series) {
+      const item = el("span", undefined, "pf-key");
+      item.append(el("i", undefined, cls), document.createTextNode(label));
+      legend.append(item);
+    }
+    box.append(
+      el("h2", "$100 into every play"),
+      el(
+        "p",
+        "Cumulative profit or loss of putting $100 into each play when it was picked (at the close), counted when it settles, against the same $100 into its random twin and into SPY over the same dates.",
+        "muted",
+      ),
+      controls,
+      legend,
+      plot,
+      readout,
+    );
+    function draw() {
+      const rows = curves[pick.value] || [];
+      plot.replaceChildren();
+      if (!rows.length) {
+        plot.append(el("p", "No play in this view has settled yet.", "muted"));
+        readout.textContent = "";
+        return;
+      }
+      const values = rows.flatMap((r) => [r.picks, r.twins, r.spy, 0]),
+        scale = niceScale(Math.min(...values), Math.max(...values)),
+        lo = scale.lo,
+        hi = scale.hi;
+      const width = window.innerWidth < 600 ? 520 : 1000,
+        height = 280,
+        left = 70,
+        right = 110,
+        top = 14,
+        bottom = 30,
+        plotW = width - left - right,
+        plotH = height - top - bottom;
+      const x = (i) =>
+          left +
+          (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW),
+        y = (v) => top + (1 - (v - lo) / (hi - lo)) * plotH;
+      const chart = svg("svg", {
+        viewBox: `0 0 ${width} ${height}`,
+        preserveAspectRatio: "none",
+        role: "img",
+        tabindex: "0",
+        "aria-label": `Cumulative profit of $100 per play, ${rows.length} settlement dates. Arrow keys inspect each date.`,
+      });
+      for (const v of scale.ticks) {
+        chart.append(
+          svg("line", {
+            x1: left,
+            x2: width - right,
+            y1: y(v),
+            y2: y(v),
+            class: "chart-guide",
+          }),
+        );
+        const t = svg("text", {
+          x: left - 8,
+          y: y(v) + 4,
+          "text-anchor": "end",
+          class: "pl-axis",
+        });
+        t.textContent = usd(v).replace(".00", "");
+        chart.append(t);
+      }
+      chart.append(
+        svg("line", {
+          x1: left,
+          x2: width - right,
+          y1: y(0),
+          y2: y(0),
+          class: "pl-zero",
+        }),
+      );
+      for (const [key, label, cls] of series) {
+        const d = rows
+          .map((r, i) => `${i ? "L" : "M"}${x(i)},${y(r[key])}`)
+          .join("");
+        chart.append(svg("path", { d, class: `pf-line ${cls}` }));
+        if (rows.length === 1)
+          chart.append(
+            svg("circle", {
+              cx: x(0),
+              cy: y(rows[0][key]),
+              r: 4,
+              class: `pf-dot ${cls}`,
+            }),
+          );
+      }
+      // direct labels at the line ends, nudged apart so they never overlap
+      const ends = series
+        .map(([key, label]) => ({
+          label: label.split(",")[0],
+          y: y(rows.at(-1)[key]),
+        }))
+        .sort((a, b) => a.y - b.y);
+      for (let i = 1; i < ends.length; i++)
+        ends[i].y = Math.max(ends[i].y, ends[i - 1].y + 15);
+      for (const e of ends) {
+        const end = svg("text", {
+          x: x(rows.length - 1) + 8,
+          y: e.y + 4,
+          class: "pf-end",
+        });
+        end.textContent = e.label;
+        chart.append(end);
+      }
+      const guide = svg("line", {
+        x1: 0,
+        x2: 0,
+        y1: top,
+        y2: height - bottom,
+        class: "pl-crosshair",
+      });
+      chart.append(guide);
+      let index = rows.length - 1;
+      function inspect(i) {
+        index = Math.max(0, Math.min(rows.length - 1, i));
+        const r = rows[index];
+        guide.setAttribute("x1", x(index));
+        guide.setAttribute("x2", x(index));
+        readout.replaceChildren(
+          el("strong", longDate(r.t)),
+          document.createTextNode(
+            ` · ${r.settled} settled ($${number(r.invested)} put in) · picks `,
+          ),
+          el("strong", usd(r.picks), tone(r.picks)),
+          document.createTextNode(" · random twins "),
+          el("strong", usd(r.twins), tone(r.twins)),
+          document.createTextNode(" · SPY "),
+          el("strong", usd(r.spy), tone(r.spy)),
+        );
+      }
+      chart.onpointermove = (e) => {
+        const b = chart.getBoundingClientRect();
+        inspect(
+          Math.round(
+            ((((e.clientX - b.left) / b.width) * width - left) / plotW) *
+              (rows.length - 1),
+          ),
+        );
+      };
+      chart.onpointerleave = () => inspect(rows.length - 1);
+      chart.onkeydown = (e) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        inspect(
+          e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? rows.length - 1
+              : index + (e.key === "ArrowLeft" ? -1 : 1),
+        );
+      };
+      const axis = el("div", undefined, "chart-axis");
+      axis.append(
+        el("span", shortDate(rows[0].t)),
+        el("span", shortDate(rows.at(-1).t)),
+      );
+      plot.append(chart, axis);
+      inspect(index);
+    }
+    pick.onchange = draw;
+    draw();
+    return box;
+  }
+
+  function calibrationChart(cal) {
+    const box = el("section", undefined, "pf-chart"),
+      readout = el("p", "Hover a dot to see its bucket.", "caption pl-readout"),
+      legend = el("div", undefined, "pf-legend");
+    const groups = [
+      ["itm_kestrel", "pf-picks"],
+      ["itm_market", "pf-spy"],
+    ];
+    for (const [key, cls] of groups) {
+      const item = el("span", undefined, "pf-key");
+      item.append(
+        el("i", undefined, cls),
+        document.createTextNode(
+          `${cal[key].label} (${cal[key].resolved} resolved${cal[key].brier === null ? "" : `, Brier ${cal[key].brier}`})`,
+        ),
+      );
+      legend.append(item);
+    }
+    box.append(
+      el("h2", "Predicted chance vs what happened"),
+      el(
+        "p",
+        "Each dot is a tenth of predicted chances: across (what was predicted) against up (how often the play's event actually happened at expiry). Dots on the diagonal are well calibrated. KESTREL's chance is what the page showed when the play was picked.",
+        "muted",
+      ),
+      legend,
+    );
+    const size = 320,
+      pad = 40,
+      span = size - 2 * pad,
+      x = (p) => pad + p * span,
+      y = (p) => size - pad - p * span;
+    const chart = svg("svg", {
+      viewBox: `0 0 ${size} ${size}`,
+      class: "pf-calibration",
+      role: "img",
+      "aria-label":
+        "Calibration: predicted chance against observed frequency, by tenths. A table follows.",
+    });
+    for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+      chart.append(
+        svg("line", {
+          x1: x(0),
+          x2: x(1),
+          y1: y(v),
+          y2: y(v),
+          class: "chart-guide",
+        }),
+      );
+      const a = svg("text", {
+        x: x(0) - 6,
+        y: y(v) + 4,
+        "text-anchor": "end",
+        class: "pl-axis",
+      });
+      a.textContent = `${100 * v}%`;
+      const b = svg("text", {
+        x: x(v),
+        y: size - pad + 16,
+        "text-anchor": "middle",
+        class: "pl-axis",
+      });
+      b.textContent = `${100 * v}%`;
+      chart.append(a, b);
+    }
+    chart.append(
+      svg("line", {
+        x1: x(0),
+        y1: y(0),
+        x2: x(1),
+        y2: y(1),
+        class: "pf-diagonal",
+      }),
+    );
+    for (const [key, cls] of groups)
+      for (const p of cal[key].points) {
+        const dot = svg("circle", {
+          cx: x(p.predicted),
+          cy: y(p.observed),
+          r: Math.max(4, Math.min(10, 2 + Math.sqrt(p.n))),
+          class: `pf-dot ${cls}`,
+          tabindex: "0",
+        });
+        const title = svg("title", {});
+        const text = `${cal[key].label} · predicted ${p.bucket} (mean ${Math.round(100 * p.predicted)}%) · happened ${Math.round(100 * p.observed)}% of ${p.n}`;
+        title.textContent = text;
+        dot.append(title);
+        dot.onpointerenter = dot.onfocus = () => (readout.textContent = text);
+        chart.append(dot);
+      }
+    box.append(chart, readout);
+    const rows = groups.flatMap(([key]) =>
+      cal[key].points.map((p) => [
+        cal[key].label,
+        p.bucket,
+        `${Math.round(100 * p.predicted)}%`,
+        `${Math.round(100 * p.observed)}%`,
+        p.n,
+      ]),
+    );
+    const t = el("details", undefined, "pl-marks");
+    t.append(
+      el("summary", "As a table"),
+      table(
+        ["Model", "Predicted", "Mean predicted", "Happened", "Plays"],
+        rows,
+      ),
+    );
+    box.append(t);
+    return box;
+  }
+
+  async function performance(ticket) {
+    const data = await api("plays/performance");
+    if (ticket !== generation) return;
+    app.className = "plays-page";
+    const hero = el("div", undefined, "explorer-heading"),
+      titles = el("div");
+    titles.append(
+      el("div", "HOW THE PICKS HAVE DONE", "eyebrow"),
+      el("h1", "Performance"),
+      el(
+        "p",
+        "Every recorded play graded on quoted closing marks and exact settlements only, by category and rule version, against random twins and SPY. Research, not financial advice.",
+        "muted",
+      ),
+    );
+    hero.append(titles);
+    app.append(hero, views("performance"));
+    if (!data.categories?.length) {
+      app.append(panel("Nothing graded yet", data.message || ""));
+      return;
+    }
+    app.append(
+      el(
+        "p",
+        `${number(data.plays)} plays over ${data.sessions} sessions · ${number(data.resolved)} settled · current rules ${data.method} · built ${new Date(data.generated_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET. ${data.note}`,
+        "muted caption",
+      ),
+    );
+    const overall = el("section", undefined, "pf-section");
+    overall.append(
+      el("h2", "By holding period"),
+      table(
+        ["Held", "Plays", "Median", "Random twins"],
+        data.overall.map((h) => [
+          h.label,
+          cell(h.plays),
+          h.plays ? pct(h.plays.median) : "—",
+          cell(h.twins),
+        ]),
+      ),
+    );
+    app.append(overall, cumulativeChart(data.cumulative, data.categories));
+    const cats = el("section", undefined, "pf-section");
+    cats.append(
+      el("h2", "By category"),
+      el(
+        "p",
+        "Average return on the money at risk (share of plays in profit, number graded). Each rule version is graded separately; earlier versions stay visible below the current one.",
+        "muted",
+      ),
+    );
+    const rows = [];
+    for (const c of data.categories)
+      for (const v of c.versions) {
+        const name = el("span", undefined, "pf-name");
+        name.append(
+          el("strong", `${c.emoji} ${c.title}`),
+          el(
+            "small",
+            v.current ? "current rules" : `earlier rules ${v.method}`,
+            "muted",
+          ),
+        );
+        if (c.label && v.current)
+          name.append(el("small", c.label.text, `pf-label ${c.label.state}`));
+        const at = (label) =>
+          cell(v.horizons.find((h) => h.label === label)?.plays);
+        rows.push([
+          name,
+          `${v.plays} (${v.open} open)`,
+          at("1 day"),
+          at("1 week"),
+          at("1 month"),
+          at("At expiry"),
+          cell(v.horizons.find((h) => h.label === "At expiry")?.twins),
+        ]);
+      }
+    cats.append(
+      table(
+        [
+          "Category",
+          "Plays",
+          "1 day",
+          "1 week",
+          "1 month",
+          "At expiry",
+          "Twins at expiry",
+        ],
+        rows,
+      ),
+    );
+    app.append(cats, calibrationChart(data.calibration));
+    for (const [title, key, first] of [
+      ["By days to expiry when picked", "dte", "Days to expiry"],
+      ["By price per share when picked", "price", "Entry price"],
+    ]) {
+      const section = el("section", undefined, "pf-section");
+      section.append(
+        el("h2", title),
+        table(
+          [first, "Plays", "1 week", "At expiry", "Twins at expiry"],
+          data[key].map((b) => [
+            b.label,
+            b.plays,
+            cell(b.week),
+            cell(b.expiry),
+            cell(b.twins_expiry),
+          ]),
+        ),
+      );
+      app.append(section);
+    }
+  }
+
+  return { views, history, detail, performance, sparkline };
 })();
