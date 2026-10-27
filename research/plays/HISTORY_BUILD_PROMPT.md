@@ -48,9 +48,20 @@ and use them to learn and refine its picks, without ever rewriting what it showe
     clearly flagged) or **settled** (expiration: intrinsic on the close).
   - After 30 days, intraday detail may be compacted to a daily high/low/close of the play's value. Never delete
     or change a daily close mark.
-- Gaps (no quote, halted stock, holiday, laptop off or asleep) stay visible as gaps and are filled from the next
-  quote; do not invent prices. Handle splits/adjusted contracts, early assignment risk on short legs and delistings
-  explicitly: quarantine anything that can't be valued honestly, with the reason shown.
+- **Repair gaps automatically when the app opens** (laptop off or asleep, dropped stream, missed session). Schwab
+  keeps price history for stocks and ETFs (daily for years, minute bars for recent days) but, per schwab-py's
+  documentation, not for option contracts — verify on the laptop. So, for each gap:
+  - backfill the **stock's** real path from Schwab price history (minute bars where still available, daily beyond);
+  - grade expirations that passed during the gap **exactly**, from the stock's close on the expiry day;
+  - fill the **option** marks inside the gap as **estimated**: Black-Scholes on the real stock path, with IV
+    interpolated between the last quote before the gap and the first quote after it. Store them as estimated and
+    never as quotes; earnings and other events inside a gap make the estimate unreliable, so flag them.
+  - Draw quoted marks as a solid line and estimated marks as a dashed line, and say so in the legend. Grades,
+    calibration and learning use quoted marks and exact settlements only, never estimates.
+  - Show a "repairing N plays" progress note in System and on the history view while this runs, within the request
+    budget.
+- Holidays and halts are not gaps to fill. Handle splits/adjusted contracts, early assignment risk on short legs
+  and delistings explicitly: quarantine anything that can't be valued honestly, with the reason shown.
 - Record when each play **first appeared** on the live board and its bid/ask then, so I can see "if bought when it
   was first shown" next to "if bought at the close". Label the two clearly.
 
@@ -65,8 +76,9 @@ and use them to learn and refine its picks, without ever rewriting what it showe
   yet (LEAPS a year or two out keep extending day by day). A 30-day contract picked a year ago shows its whole life
   ending at expiry with the settled result; nothing is drawn past expiry. Use intraday points where they are stored
   and daily closes beyond that, with range buttons (1D, 1W, 1M, All), a crosshair readout (time, value, P/L %,
-  stock price), markers for entry, peak, low and expiry, and visible gaps. Beside it: the greeks and IV then vs now
-  (computed and Schwab's), the reasons and chances it was picked with, and what actually happened.
+  stock price), markers for entry, peak, low and expiry, and estimated stretches drawn dashed. Beside it: the greeks
+  and IV then vs now (computed and Schwab's), the reasons and chances it was picked with, and what actually
+  happened.
 - Session summary: average and median % per category, hit rate, best and worst play, and "if you had put $100 into
   each play" totals.
 - A **Performance** view across all sessions: by category, by holding period (1 day, 1 week, 1 month, expiry), by
@@ -99,7 +111,9 @@ and use them to learn and refine its picks, without ever rewriting what it showe
   must not change an earlier mark or pick).
 - Bump the Stocks UI protocol with the server if the page needs new endpoints.
 - Tests: unit tests for valuation of every structure (long call/put, straddle, credit spreads, expiry, missing quotes,
-  splits), a fake Schwab stream and quote endpoint (drops, reconnects, token refresh, budget), integration tests
+  splits), gap repair (a laptop-off gap is backfilled from stock history, estimated marks are flagged and excluded
+  from learning, an expiry inside the gap is graded exactly), a fake Schwab stream and quote endpoint (drops,
+  reconnects, token refresh, budget), integration tests
   on the synthetic market in `tests/stocks_world.py` across several sessions, and a
   browser check at 1366 px and 375 px (`tests/browser/`). Run ruff, strict mypy, Prettier and the full suite.
 - Update `docs/STOCKS_PLAYS.md` and `PROGRESS.md`; commit and push in steps (live tracking → marks → history and
