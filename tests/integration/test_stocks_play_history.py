@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, date, datetime, time
+import math
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -35,21 +36,24 @@ def at(day: date, hour: int, minute: int = 0) -> datetime:
 
 
 class ChainQuotes:
-    """A Schwab stand-in that quotes whatever the stored chain of the day lists, with Schwab-style greeks."""
+    """A Schwab stand-in that quotes whatever the stored chain of the day lists, with Schwab-style greeks. Earlier in
+    the day prices swing a few percent around the close, so intraday paths have a shape; at 15:55 they are exact."""
 
     configured = True
 
     def __init__(self, market: StocksMarket) -> None:
-        self.market, self.day = market, ASOF
+        self.market, self.day, self.minute = market, ASOF, 955
         self.requests = 0
 
     async def option_quotes(self, occs: list[str]) -> list[OptionTick]:
         self.requests += 1
         chains = self.market.chains_on(self.day)
         by = {q.occ: (q, item["price"]) for item in chains.values() for qs in item["expirations"].values() for q in qs}
-        return [OptionTick(o, by[o][0].bid, by[o][0].ask, by[o][0].last, None, by[o][0].volume,
-                           by[o][0].open_interest, 0.4, 0.5, 0.01, -0.02, 0.1, by[o][1], at(self.day, 15, 55))
-                for o in occs if o in by]
+        swing = 1 + 0.04 * math.sin(2 * math.pi * (self.minute - 955) / 390)
+        stamp = at(self.day, self.minute // 60, self.minute % 60)
+        return [OptionTick(o, round((by[o][0].bid or 0) * swing, 2), round((by[o][0].ask or 0) * swing, 2),
+                           by[o][0].last, None, by[o][0].volume, by[o][0].open_interest, 0.4, 0.5, 0.01, -0.02, 0.1,
+                           by[o][1], stamp) for o in occs if o in by]
 
 
 def short_dated(w: StocksWorld, session: date) -> None:
@@ -73,9 +77,9 @@ def short_dated(w: StocksWorld, session: date) -> None:
          json.dumps(play), pl.method(), at(session, 16, 20).isoformat()))
 
 
-@pytest.fixture(scope="module")
-def history(tmp_path_factory: pytest.TempPathFactory) -> Any:
-    w = make_world(tmp_path_factory.mktemp("history"))
+def simulate(w: StocksWorld) -> dict[str, Any]:
+    """Six closed sessions of picks, tracked through the day and at the close, one of them with the laptop off; then
+    the next morning's repair. Also used by the browser fixture server (scenario ``plays-history``)."""
     sessions = w.days[-6:]
     add_chains(w, SYMBOLS, w.days[-16:-6])
     refresh(Analyzer(w.market, w.research, SETTINGS), load_panel(w.market, w.days[0], ASOF), ASOF, NOW)
@@ -90,8 +94,11 @@ def history(tmp_path_factory: pytest.TempPathFactory) -> Any:
         add_chains(w, SYMBOLS, [s])
         quotes.day = s
         if s != off:
-            asyncio.run(pt.run_pass(w.market.conn, w.research.conn, at(s, 15, 55), board=None, schwab=quotes,
-                                    chains=None, rate=rate, clock=partial(at, s, 15, 55)))
+            for minute in (600, 690, 780, 870, 955):                     # 10:00 … 15:55
+                quotes.minute = minute
+                asyncio.run(pt.run_pass(w.market.conn, w.research.conn, at(s, minute // 60, minute % 60), board=None,
+                                        schwab=quotes, chains=None, rate=rate,
+                                        clock=partial(at, s, minute // 60, minute % 60)))
         out = pl.build(w.market, w.research, at(s, 16, 20))
         assert out["asof"] == s.isoformat() and out["recorded"]
         if s == sessions[0]:
@@ -103,7 +110,14 @@ def history(tmp_path_factory: pytest.TempPathFactory) -> Any:
     # the morning after: the laptop wakes up and repairs whatever is left
     report = asyncio.run(pt.run_pass(w.market.conn, w.research.conn, at(cal.next_trading_day(sessions[-1]), 8),
                                      board=None, schwab=None, chains=None, rate=rate))
-    w.sessions, w.off, w.snapshots, w.report = sessions, off, snapshots, report  # type: ignore[attr-defined]
+    return {"sessions": sessions, "off": off, "snapshots": snapshots, "report": report}
+
+
+@pytest.fixture(scope="module")
+def history(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    w = make_world(tmp_path_factory.mktemp("history"))
+    result = simulate(w)
+    w.sessions, w.off, w.snapshots, w.report = (result[k] for k in ("sessions", "off", "snapshots", "report"))  # type: ignore[attr-defined]
     yield w
     w.close()
 
@@ -179,3 +193,45 @@ def test_tracking_status_reports_storage(history: Any, tmp_path: Path) -> None:
     assert status["storage"]["rows"]["stk_track_ticks"] == 0          # every session was folded
 
 
+
+
+def test_the_history_endpoints_serve_sessions_plays_and_charts(history: Any) -> None:
+    from fastapi.testclient import TestClient
+
+    from desk.stocks import web
+
+    sessions = history.sessions
+    with TestClient(web.create_app(history.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
+        listed = client.get("/api/stocks/plays/sessions").json()["sessions"]
+        assert [s["session"] for s in listed] == [d.isoformat() for d in reversed(sessions)]
+        view = client.get(f"/api/stocks/plays/history?when={sessions[0].isoformat()}").json()
+        assert view["session"] == sessions[0].isoformat() and view["categories"]
+        json.dumps(view, allow_nan=False)
+        rows = [r for c in view["categories"] for r in c["plays"]]
+        assert all(r["latest"] and r["spark"] and r["days_held"] >= 1 for r in rows if r["state"] != "quarantined")
+        assert view["summary"]["plays"] == len(rows) and view["summary"]["hundred_each"]["invested"] == 100 * len(rows)
+        settled = [r for r in rows if r["latest"]["status"] == "settled"]
+        assert settled and all(r["state"] in ("won", "lost", "worthless") for r in settled)
+        # the nearest earlier session answers a date with no picks, and quick buttons resolve
+        weekend = cal.next_trading_day(sessions[1]) - timedelta(days=1)
+        assert client.get(f"/api/stocks/plays/history?when={weekend.isoformat()}").json()["session"] <= weekend.isoformat()
+        assert client.get("/api/stocks/plays/history?when=latest").json()["session"] in {d.isoformat() for d in sessions}
+        assert client.get("/api/stocks/plays/history?when=2026-02-31").status_code == 400
+        assert client.get("/api/stocks/plays/history?when=drop table").status_code == 422
+        row = next(r for r in rows if r["latest"]["status"] == "settled")
+        play = client.get(f"/api/stocks/plays/play?session={sessions[0].isoformat()}&category={row['category']}"
+                          f"&rank={row['rank']}").json()
+        assert play["found"] and play["daily"][0]["t"] == sessions[0].isoformat()
+        assert play["daily"][-1]["status"] == "settled" and play["daily"][-1]["t"] <= play["settles"]
+        assert play["daily"][-1]["close"]["pct"] == row["latest"]["pct"] and play["expired"]
+        assert play["greeks"]["then"]["delta"] is not None and play["outcome"] is not None
+        long_lived = next(r for r in rows if r["state"] == "open")
+        open_play = client.get(f"/api/stocks/plays/play?session={sessions[0].isoformat()}&category="
+                               f"{long_lived['category']}&rank={long_lived['rank']}").json()
+        days = [p["t"] for p in open_play["daily"]]
+        assert days == sorted(days) and len(days) == len(sessions)
+        assert {p["status"] for p in open_play["daily"]} >= {"quoted", "estimated"}
+        assert open_play["intraday"] and all(p["status"] == "quoted" for p in open_play["intraday"])
+        assert client.get("/api/stocks/plays/play?session=2020-01-02&category=edge&rank=1").status_code == 404
+        assert client.get("/assets/plays_history.js").status_code == 200
+        assert client.get("/api/stocks/session").json()["ui_protocol"] == 6

@@ -22,7 +22,9 @@ try {
     await page.goto(`${base}/#plays`);
     await page.getByRole("heading", { name: "Plays", exact: true }).waitFor();
     assert.equal(
-      await page.locator('nav a[href="#plays"]').getAttribute("aria-current"),
+      await page
+        .locator('nav[aria-label="Main"] a[href="#plays"]')
+        .getAttribute("aria-current"),
       "page",
     );
     if (scenario === "empty") {

@@ -25,7 +25,7 @@ from desk.core.errors import DeskError
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import load_secrets
 from desk.core.worker_lock import WorkerLock
-from desk.stocks import play_tracking
+from desk.stocks import play_history, play_tracking
 from desk.stocks.backtest import position_view
 from desk.stocks.backtest_job import BacktestWorker
 from desk.stocks.calculator import ScenarioInput
@@ -361,6 +361,36 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             return {"version": 1, "asof": None, "categories": [],
                     "message": "Plays are built by the Stocks worker after each options pass. Collection starts with "
                                "PAPER (System), and needs an options connection (Settings)."}
+        return value
+
+    @app.get("/api/stocks/plays/sessions")
+    def plays_sessions() -> dict[str, Any]:
+        with reader(paths, RESEARCH_FILE) as conn:
+            return play_history.sessions(conn)
+
+    @app.get("/api/stocks/plays/history")
+    def plays_history(when: str = Query(default="latest",
+                                        pattern=r"^(latest|yesterday|week|month|quarter|year|\d{4}-\d{2}-\d{2})$")
+                      ) -> dict[str, Any]:
+        now = utc_now()
+        try:
+            with reader(paths, RESEARCH_FILE) as conn:
+                session = play_history.resolve(conn, when, now)
+                if session is None:
+                    return {"version": play_history.VERSION, "session": None, "categories": [], "summary": None,
+                            "message": "No sessions are recorded yet: a session's plays are recorded once, 15 minutes "
+                                       "after its close, and followed every session after that."}
+                return play_history.session_view(conn, session, now)
+        except ValueError as exc:
+            raise HTTPException(400, "Choose a valid date") from exc
+
+    @app.get("/api/stocks/plays/play")
+    def plays_play(session: date, category: str = Query(pattern=r"^[a-z_]{1,40}$"),
+                   rank: int = Query(ge=1, le=1000)) -> dict[str, Any]:
+        with reader(paths, RESEARCH_FILE) as conn:
+            value = play_history.play_view(conn, session, category, rank, utc_now())
+        if not value["found"]:
+            raise HTTPException(404, "That play is not in the record")
         return value
 
     @app.get("/api/stocks/plays/tracking")

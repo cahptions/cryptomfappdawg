@@ -866,7 +866,8 @@ async function render() {
       heading("Loading stock…");
       await stock(decodeURIComponent(route.slice(6)), ticket);
     } else if (route === "paper") await paperPage(ticket);
-    else if (route === "plays") await KestrelPlays.show(ticket);
+    else if (route === "plays" || route.startsWith("plays/"))
+      await KestrelPlays.show(ticket, route);
     else if (route === "learning") await KestrelLearning.show(ticket);
     else if (route === "proof") await KestrelEvidence.show(ticket);
     else if (route === "settings") await settingsPage();
@@ -903,6 +904,7 @@ async function refresh(initial = false) {
         location.hash !== "#settings" &&
         location.hash !== "#learning" &&
         location.hash !== "#paper" &&
+        !location.hash.startsWith("#plays/") &&
         !document.querySelector("dialog[open]"))
     )
       render();
@@ -927,7 +929,7 @@ window.addEventListener("hashchange", render);
   try {
     const session = await api("session");
     csrf = session.csrf_token;
-    serverCompatible = session.ui_protocol === 5;
+    serverCompatible = session.ui_protocol === 6;
     await refresh(true);
   } catch (error) {
     statusLine.textContent = error.message;

@@ -27,14 +27,22 @@ from tests.stocks_world import NOW, add_chains, make_world
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
-                                               "paper-workflows", "intraday-workflows", "learning-workflows"],
+                                               "paper-workflows", "intraday-workflows", "learning-workflows",
+                                               "plays-history"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
         root = Path(directory)
         paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
-        if args.scenario != "empty":
+        if args.scenario == "plays-history":
+            from tests.integration.test_stocks_play_history import simulate
+
+            # Six synthetic sessions of picks, tracked, marked, one laptop-off session repaired (no provider).
+            world = make_world(root, n=60)
+            simulate(world)
+            world.close()
+        elif args.scenario != "empty":
             through = NOW.date() - timedelta(days=7) if args.scenario == "paper-workflows" else NOW.date()
             world = make_world(root, n=60, through=through)
             # Synthetic chart coverage for visual checks; never market observations or forward evidence.

@@ -378,7 +378,12 @@ const KestrelPlays = (() => {
     return true;
   }
 
-  async function show(ticket) {
+  async function show(ticket, route = "plays") {
+    const parts = route.split("/");
+    if (parts[1] === "history")
+      return KestrelPlaysHistory.history(ticket, parts[2]);
+    if (parts[1] === "play" && parts.length === 5)
+      return KestrelPlaysHistory.detail(ticket, parts[2], parts[3], parts[4]);
     const data = await api("plays");
     if (ticket !== generation) return;
     app.className = "plays-page";
@@ -394,7 +399,7 @@ const KestrelPlays = (() => {
       ),
     );
     hero.append(titles);
-    app.append(hero);
+    app.append(hero, KestrelPlaysHistory.views("board"));
     const strip = el("p", undefined, "muted caption play-strip");
     strip.textContent = data.asof
       ? `Options session ${data.asof} · ${data.coverage.underlyings} underlyings · ${number(data.coverage.contracts_scored)} contracts scored · ${data.source || "stored chains"} · built ${when(data.generated_at)} · chance model: ${data.calibration.applied ? `calibrated on ${data.calibration.resolved} resolved plays` : `not yet calibrated (${data.calibration.resolved} of ${data.calibration.needed} resolved plays)`}${data.model.ic ? ` · committee tilt from IC ${data.model.ic.toFixed(3)} over ${data.model.ic_months} months` : " · no committee tilt yet (no positive measured IC)"}`
