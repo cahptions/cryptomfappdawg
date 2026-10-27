@@ -18,36 +18,55 @@ Plays already records each closed session's picks once (`stk_plays`) and grades 
 (`stk_play_outcomes`). I want to **watch every pick live after it was made**: tomorrow I open Plays, click
 "Yesterday" (or a week ago, a month ago, a year ago, or any date) and see exactly what that day's plays are doing
 now — for example "AAL $12 call, Lottos, picked Oct 27 at $0.18 → $0.31 today, +72%" — with green/red percentages,
-how each play's value moved day by day, and how the whole day and each category did. The app must see the same
-numbers and use them to learn and refine its picks, without ever rewriting what it showed.
+how each play's value moved, and how the whole day and each category did. Prices should update live through
+Schwab, so a week back is an accurate picture, and every play gets a P/L chart from the day it was suggested (as if
+I had bought it then) until it expires, or until today for long-dated contracts. The app must see the same numbers
+and use them to learn and refine its picks, without ever rewriting what it showed.
 
 ## Build this
 
-**1. Mark every recorded play every session until it closes.**
-- After each session closes, value every unexpired recorded play from that session's own quotes: what it could be
-  sold for now (bid for long legs, ask to buy back short legs — the honest "if I closed today" value) and the mid.
-- Store each mark in a new append-only table (e.g. `stk_play_marks`, one row per play per session): the quotes
-  used, quote time, source, underlying price, IV and greeks then, liquidation value, mid value, % return on the
-  money at risk after fees, and whether the value was **quoted**, **modelled** (no fresh quote: Black-Scholes at
-  the last IV, clearly flagged) or **settled** (expiration, intrinsic on the close).
-- Stored chains are deleted after 45 days and only a rotating batch of names is collected, so marks must keep their
-  own copy of the quotes. Add tracked plays to collection the way PAPER's `held_expirations` already is: every
-  unexpired play's (underlying, expiration) gets re-quoted once each session after the close, within the Schwab
-  budget (90 requests/min). Show the queue and its progress; never silently drop a play.
-- Gaps (no quote, halted stock, holiday, laptop off) stay visible as gaps and are filled at the next session; do not
-  invent prices. Handle splits/adjusted contracts, early assignment risk on short legs and delistings explicitly:
-  quarantine anything that can't be valued honestly, with the reason shown.
-- Also record when each play **first appeared** on the live board during the session and its ask/bid then, so I can
-  see "if bought when it was first shown" next to "if bought at the close". Label the two clearly.
+**1. Track every recorded play live through Schwab until it closes.**
+- The tracked set is every leg of every unexpired recorded play, plus the plays on today's live board. It does not
+  depend on the research collector's rotating batch: every tracked contract gets a price, every time.
+- During market hours, update tracked contracts live from Schwab: prefer the streaming API's level-one option quotes
+  (schwab-py documents `level_one_option_subs` with BID_PRICE, ASK_PRICE, LAST_PRICE, MARK, TOTAL_VOLUME,
+  OPEN_INTEREST, VOLATILITY, DELTA, GAMMA, THETA, VEGA, UNDERLYING_PRICE). Fall back to batched REST quotes for
+  option symbols, then to the per-expiry chain requests the collector already makes. Verify which of these the
+  operator's approved Schwab app actually allows on the laptop (`desk stocks doctor --online`) before relying on
+  it; the current parser fixtures are synthetic. Convert between Schwab's padded option symbols and the stored OCC
+  symbols with the identity checks `sources/schwab.py` already does. Stay within the request budget (90 requests a
+  minute today), share it fairly with research collection, reconnect streams after drops and token refresh, and show
+  in System what is being tracked, how fresh each quote is, and anything waiting.
+- Keep Schwab's own greeks and IV for tracked contracts alongside the ones KESTREL computes, so the two can be
+  compared.
+- Store prices in new append-only tables, independent of the chain archive (chains are deleted after 45 days):
+  - **Intraday**: a mark at least every 5 minutes per tracked play (bid, ask, mark/mid per leg, stock price, IV,
+    greeks, quote time, source), kept in full for at least 30 days so a week back is an accurate intraday view.
+  - **Daily close**: one official mark per play per session after the close, kept forever: liquidation value (bid
+    for long legs, ask to buy back short legs: the honest "if I closed now" value), mid value, % return on the money
+    at risk after fees, and whether it was **quoted**, **modelled** (no fresh quote: Black-Scholes at the last IV,
+    clearly flagged) or **settled** (expiration: intrinsic on the close).
+  - After 30 days, intraday detail may be compacted to a daily high/low/close of the play's value. Never delete
+    or change a daily close mark.
+- Gaps (no quote, halted stock, holiday, laptop off or asleep) stay visible as gaps and are filled from the next
+  quote; do not invent prices. Handle splits/adjusted contracts, early assignment risk on short legs and delistings
+  explicitly: quarantine anything that can't be valued honestly, with the reason shown.
+- Record when each play **first appeared** on the live board and its bid/ask then, so I can see "if bought when it
+  was first shown" next to "if bought at the close". Label the two clearly.
 
-**2. A history view in the Plays tab.**
+**2. A history view in the Plays tab, with a P/L chart for every play.**
 - Quick buttons: Today, Yesterday, 1 week, 1 month, 3 months, 1 year, and a date picker limited to recorded
   sessions.
-- For the chosen session: every category's plays with entry price, today's value, % gain/loss (green/red), peak
+- For the chosen session: every category's plays with entry price, latest value, % gain/loss (green/red), peak
   and worst % so far, days held, status (open / closed in the money / expired worthless / won / lost) and a small
-  value-path sparkline.
-- Click a play: a detail panel with its full value path chart (entry, every daily mark, peak, low, expiry), its
-  greeks and IV then vs now, the reasons and chances it was picked with, and what actually happened.
+  P/L sparkline.
+- Click a play: a **P/L chart** from the moment it was suggested — as if bought then (at the ask when first shown,
+  and at the close), in % and in dollars per contract — through to expiration, or through today if it hasn't expired
+  yet (LEAPS a year or two out keep extending day by day). A 30-day contract picked a year ago shows its whole life
+  ending at expiry with the settled result; nothing is drawn past expiry. Use intraday points where they are stored
+  and daily closes beyond that, with range buttons (1D, 1W, 1M, All), a crosshair readout (time, value, P/L %,
+  stock price), markers for entry, peak, low and expiry, and visible gaps. Beside it: the greeks and IV then vs now
+  (computed and Schwab's), the reasons and chances it was picked with, and what actually happened.
 - Session summary: average and median % per category, hit rate, best and worst play, and "if you had put $100 into
   each play" totals.
 - A **Performance** view across all sessions: by category, by holding period (1 day, 1 week, 1 month, expiry), by
@@ -74,13 +93,15 @@ numbers and use them to learn and refine its picks, without ever rewriting what 
 
 - Research and PAPER only: no brokerage orders, no LIVE changes, no paid APIs, no AI/LLM judging the trades.
 - Keys stay in `~/.config/desk/secrets.env`; nothing secret in the repo, logs or test fixtures.
-- Laptop budget: Ryzen 7 7730U, 16 GB RAM. Measure the marking pass time and storage growth for a year of plays.
+- Laptop budget: Ryzen 7 7730U, 16 GB RAM. Measure the live-tracking request rate, CPU and storage growth for a year
+  of plays (intraday and daily), and show storage use in System.
 - Append-only SQLite with triggers; numbered migrations; point-in-time correctness tests (a later quote or outcome
   must not change an earlier mark or pick).
 - Bump the Stocks UI protocol with the server if the page needs new endpoints.
 - Tests: unit tests for valuation of every structure (long call/put, straddle, credit spreads, expiry, missing quotes,
-  splits), integration tests on the synthetic market in `tests/stocks_world.py` across several sessions, and a
+  splits), a fake Schwab stream and quote endpoint (drops, reconnects, token refresh, budget), integration tests
+  on the synthetic market in `tests/stocks_world.py` across several sessions, and a
   browser check at 1366 px and 375 px (`tests/browser/`). Run ruff, strict mypy, Prettier and the full suite.
-- Update `docs/STOCKS_PLAYS.md` and `PROGRESS.md`; commit and push in steps (marks → collection → history view →
-  performance view → learning). Finish by telling me exactly what to run on the laptop, what I'll see tomorrow and
-  after a week, and what is still unproven.
+- Update `docs/STOCKS_PLAYS.md` and `PROGRESS.md`; commit and push in steps (live tracking → marks → history and
+  P/L charts → performance view → learning). Finish by telling me exactly what to run on the laptop, what I'll see
+  tomorrow and after a week, and what is still unproven.
