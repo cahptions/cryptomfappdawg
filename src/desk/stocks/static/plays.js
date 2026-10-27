@@ -473,5 +473,67 @@ const KestrelPlays = (() => {
       ),
     );
   }
-  return { show };
+  // System → Plays tracking: what is followed live, how fresh, what waits, and what it costs.
+  function tracking(t) {
+    const wrap = el("div", undefined, "plays-tracking");
+    if (!t || t.waiting) {
+      wrap.append(
+        panel("Plays tracking", t?.waiting || "Tracking has not run yet."),
+      );
+      return wrap;
+    }
+    const p = t.pass || {},
+      f = p.freshness || { buckets: {}, late: [] },
+      endpoint =
+        {
+          working:
+            "Schwab option quotes verified: 100 contracts a request, with Schwab's own IV and greeks.",
+          no_options:
+            "Schwab's quotes endpoint answered without option quotes; tracking uses per-expiry chains instead.",
+          refused:
+            "Schwab refused option symbols on its quotes endpoint; tracking uses per-expiry chains instead.",
+        }[t.endpoint?.state] ||
+        "Schwab option quotes not verified yet: run uv run desk stocks doctor --online.",
+      mb =
+        t.storage?.bytes === null || t.storage?.bytes === undefined
+          ? "size not measurable on this SQLite"
+          : `${(t.storage.bytes / 1e6).toFixed(1)} MB`,
+      rows = t.storage?.rows || {};
+    const lines = [
+      `${t.market_open ? "Market open" : "Market closed"} · last live pass ${when(p.at)} · ${number(p.tracked ?? 0)} contracts tracked · ${number(p.quoted ?? 0)} quoted that pass, ${number(p.from_collector ?? 0)} more from the research collector.`,
+      `${p.requests ?? 0} requests that pass, ${p.requests_last_hour ?? 0} in the last hour (at most ${t.budget.requests_per_pass} a pass; Schwab allows ${t.budget.schwab_limit_per_minute} a minute, shared with research).`,
+      endpoint,
+      `Today: ${number(t.today?.quotes ?? 0)} quotes of ${number(t.today?.contracts ?? 0)} contracts. Last close folded: ${t.last_close_folded || "none yet"}. Stored: ${number(rows.stk_track_days ?? 0)} daily closes, ${number(rows.stk_track_intraday ?? 0)} intraday days, ${number(rows.stk_play_marks ?? 0)} play marks · ${mb}.`,
+    ];
+    if (t.repair?.pending)
+      lines.push(
+        `Repairing ${number(t.repair.pending)} plays: filling a gap from Schwab's stock history (${t.repair.note || "within the request budget"}).`,
+      );
+    if (p.errors?.length) lines.push(`Last errors: ${p.errors.join(" · ")}`);
+    wrap.append(panel("Plays tracking", lines.join(" ")));
+    const order = ["≤ 5 min", "≤ 15 min", "≤ 60 min", "older", "never today"];
+    if (Object.keys(f.buckets || {}).length)
+      wrap.append(
+        table(
+          ["Quote age", "Contracts"],
+          order
+            .filter((k) => f.buckets[k])
+            .map((k) => [k, number(f.buckets[k])]),
+        ),
+      );
+    if (f.late?.length)
+      wrap.append(
+        table(
+          ["Waiting contract", "Stock", "Schedule", "Last quote"],
+          f.late.map((x) => [
+            x.occ,
+            x.symbol,
+            t.priorities?.[x.priority] || x.priority,
+            x.minutes === null ? "none today" : `${x.minutes} min ago`,
+          ]),
+        ),
+      );
+    return wrap;
+  }
+  return { show, tracking };
 })();

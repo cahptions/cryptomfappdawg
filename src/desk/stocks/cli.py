@@ -187,8 +187,15 @@ def run(args: argparse.Namespace) -> int:
                     suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), dbs.runtime)
                     try:
                         quotes = await suite.options.quotes(["SPY"])
-                        return {"provider": suite.option_source, "quote_received": bool(quotes),
-                                "timestamp": str(quotes[0].quoted_at) if quotes else None, "problems": suite.problems}
+                        online = {"provider": suite.option_source, "quote_received": bool(quotes),
+                                  "timestamp": str(quotes[0].quoted_at) if quotes else None, "problems": suite.problems}
+                        if suite.schwab is not None and suite.schwab.configured:
+                            from desk.core.clock import utc_now
+                            from desk.stocks.play_tracking import probe
+
+                            online["plays_option_quotes"] = await probe(suite.schwab, suite.options, dbs.market,
+                                                                        dbs.research, utc_now())
+                        return online
                     finally:
                         await suite.aclose()
 

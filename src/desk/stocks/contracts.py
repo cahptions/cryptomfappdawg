@@ -46,6 +46,31 @@ class IntradayBar:
 
 
 @dataclass(frozen=True)
+class OptionTick:
+    """One live quote of one option contract (Schwab ``/quotes``): prices, size and the provider's own greeks."""
+    occ: str
+    bid: float | None
+    ask: float | None
+    last: float | None
+    mark: float | None
+    volume: int | None
+    open_interest: int | None
+    iv: float | None            # annualized, as a fraction (Schwab reports percent)
+    delta: float | None
+    gamma: float | None
+    theta: float | None
+    vega: float | None
+    underlying_price: float | None
+    quoted_at: datetime | None
+
+    @property
+    def mid(self) -> float | None:
+        if self.bid is None or self.ask is None or self.ask <= 0 or self.bid > self.ask:
+            return None
+        return (self.bid + self.ask) / 2
+
+
+@dataclass(frozen=True)
 class Split:
     symbol: str
     execution_date: date
@@ -233,4 +258,4 @@ class StockQuote:
 
 
 __all__ = ["Bar", "Company", "Dividend", "Fact", "Fail", "Filing", "IndexEntry", "InsiderTrade", "Listing", "Mention",
-           "OptionQuote", "RatePoint", "ShortInterest", "ShortVolume", "Split", "StockQuote"]
+           "OptionQuote", "OptionTick", "RatePoint", "ShortInterest", "ShortVolume", "Split", "StockQuote"]

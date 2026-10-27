@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import mimetypes
 import secrets
 import sqlite3
@@ -18,11 +19,13 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from desk.core.clock import utc_now
 from desk.core.config import LoadedConfig, load_config
 from desk.core.errors import DeskError
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import load_secrets
 from desk.core.worker_lock import WorkerLock
+from desk.stocks import play_tracking
 from desk.stocks.backtest import position_view
 from desk.stocks.backtest_job import BacktestWorker
 from desk.stocks.calculator import ScenarioInput
@@ -43,6 +46,7 @@ from desk.storage.db import connect as open_database
 from desk.web.app import install_browser_boundary
 
 STATIC = Path(__file__).with_name("static")
+log = logging.getLogger(__name__)
 
 
 class BacktestInput(BaseModel):
@@ -88,6 +92,7 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
         lists = overlay(research_lists(research, preview), options_view)
         latest = research.latest_asof()
         computed = conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0]
+        tracking = play_tracking.status(conn, utc_now())
     with reader(paths, MARKET_FILE) as conn:
         market = StocksMarket(conn)
         jobs = market.jobs()
@@ -109,6 +114,7 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
                             ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")},
             "price_progress": price_progress,
             "options_research": options_view,
+            "plays_tracking": tracking,
             "progress": current_progress,
             "research_preview": {key: (preview or {}).get(key)
                                  for key in ('asof', 'expected_asof', 'awaiting_newer_close')},
@@ -257,6 +263,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 with suppress(TimeoutError):
                     await asyncio.wait_for(automation_stop.wait(), 5)
 
+        async def track_plays() -> None:
+            from desk.stocks import play_tracking
+
+            while not automation_stop.is_set():
+                if collector.status().get("enabled") and not paths.stop_file.exists():
+                    try:
+                        await asyncio.wait_for(play_tracking.cycle(paths, config), play_tracking.PASS_TIMEOUT)
+                    except Exception as exc:  # the next pass retries; quotes already saved are kept
+                        log.warning("plays tracking pass failed", extra={"error": type(exc).__name__})
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 30)
+
         async def maintain() -> None:
             while not automation_stop.is_set():
                 await asyncio.to_thread(collector.maintain)
@@ -274,6 +292,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         automation = asyncio.create_task(maintain()) if auto_start else None
         stock_automation = asyncio.create_task(stock_data()) if auto_start else None
         learning_automation = asyncio.create_task(learn_options()) if auto_start else None
+        tracking_automation = asyncio.create_task(track_plays()) if auto_start else None
         try:
             yield
         finally:
@@ -286,6 +305,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             if learning_automation is not None:
                 learning_automation.cancel()
                 await asyncio.gather(learning_automation, return_exceptions=True)
+            if tracking_automation is not None:
+                tracking_automation.cancel()
+                await asyncio.gather(tracking_automation, return_exceptions=True)
             await asyncio.to_thread(collector.stop, pause=False)
             await asyncio.to_thread(evidence.close)
             await asyncio.to_thread(backtests.close)
@@ -340,6 +362,11 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                     "message": "Plays are built by the Stocks worker after each options pass. Collection starts with "
                                "PAPER (System), and needs an options connection (Settings)."}
         return value
+
+    @app.get("/api/stocks/plays/tracking")
+    def plays_tracking() -> dict[str, Any]:
+        with reader(paths, RESEARCH_FILE) as conn:
+            return play_tracking.status(conn, utc_now())
 
     @app.get("/api/stocks/home")
     def research_home() -> dict[str, Any]:

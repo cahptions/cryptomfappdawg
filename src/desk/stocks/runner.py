@@ -108,6 +108,13 @@ def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None
                  "message": f"Plays could not be built this pass ({type(exc).__name__}); stored data is unchanged and the "
                             "next options pass retries. Evidence → Check data health shows source status."}
     _atomic_private(saved_path(paths, "plays"), json.dumps(value, allow_nan=False))
+    if value.get("categories"):
+        from desk.stocks.play_tracking import first_seen
+
+        try:
+            first_seen(dbs.research, value, now)   # when each play was first shown, for the "if bought then" basis
+        except Exception as exc:  # never blocks collection; the tracker records sightings too
+            log.warning("plays first sighting not recorded", extra={"error": type(exc).__name__})
 
 
 def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:

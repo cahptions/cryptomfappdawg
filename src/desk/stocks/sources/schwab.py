@@ -15,7 +15,7 @@ from typing import Any
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
 from desk.stocks import calendar as cal
-from desk.stocks.contracts import Bar, IntradayBar, OptionQuote, StockQuote
+from desk.stocks.contracts import Bar, IntradayBar, OptionQuote, OptionTick, StockQuote
 from desk.stocks.schwab_auth import SchwabTokens
 
 OCC = re.compile(r"^[A-Z0-9.]{1,6}\d{6}[CP]\d{8}$")
@@ -124,6 +124,70 @@ def parse_quotes(body: bytes) -> list[StockQuote]:
         raise SchemaError("schwab quotes: invalid quote map") from exc
 
 
+def schwab_option_symbol(occ: str) -> str:
+    """Stored OCC identifiers have no spaces; Schwab pads the root to six characters (``AAPL  261120C00250000``)."""
+    if not OCC.fullmatch(occ):
+        raise ValueError(f"not an OCC option symbol: {occ!r}")
+    return occ[:-15].ljust(6) + occ[-15:]
+
+
+def _signed(value: Any) -> float | None:
+    """Greeks can be negative; Schwab reports unavailable ones as -999 or NaN."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        out = float(value)
+    except (ValueError, TypeError):
+        return None
+    return out if math.isfinite(out) and abs(out) < 999 else None
+
+
+def parse_option_quotes(body: bytes, wanted: set[str]) -> list[OptionTick]:
+    """Option quotes for the requested contracts only. A row whose reference data disagrees with its symbol (strike,
+    call/put, expiration) is dropped rather than trusted."""
+    value = _body(body)
+    out: dict[str, OptionTick] = {}
+    try:
+        for key, row in value.items():
+            if not isinstance(row, dict):
+                continue
+            occ = str(row.get("symbol") or key).replace(" ", "")
+            q = row.get("quote")
+            if occ not in wanted or not OCC.fullmatch(occ) or not isinstance(q, dict):
+                continue
+            if row.get("assetMainType") not in (None, "OPTION"):
+                continue
+            raw_ref = row.get("reference")
+            ref: dict[str, Any] = raw_ref if isinstance(raw_ref, dict) else {}
+            strike = _f(ref.get("strikePrice"))
+            if strike is not None and int(occ[-8:]) != round(strike * 1000):
+                continue
+            kind = str(ref.get("contractType") or "")[:1].upper()
+            if kind in ("C", "P") and kind != occ[-9]:
+                continue
+            # an adjusted contract (split, merger) changes its multiplier or deliverable: not this contract any more
+            multiplier = _f(ref.get("multiplier", q.get("multiplier")))
+            if multiplier is not None and multiplier != 100:
+                continue
+            if ref.get("underlying") not in (None, occ[:-15]):
+                continue
+            if all(ref.get(k) for k in ("expirationYear", "expirationMonth", "expirationDay")):
+                expiry = date(int(ref["expirationYear"]), int(ref["expirationMonth"]), int(ref["expirationDay"]))
+                if expiry.strftime("%y%m%d") != occ[-15:-9]:
+                    continue
+            vol = _f(q.get("volatility"))
+            iv = None if vol is None or vol <= 0 or vol / 100 > 10 else vol / 100
+            out[occ] = OptionTick(occ, _f(q.get("bidPrice")), _f(q.get("askPrice")), _f(q.get("lastPrice")),
+                                  _f(q.get("mark")),
+                                  None if _f(q.get("totalVolume")) is None else int(_f(q.get("totalVolume")) or 0),
+                                  None if _f(q.get("openInterest")) is None else int(_f(q.get("openInterest")) or 0),
+                                  iv, _signed(q.get("delta")), _signed(q.get("gamma")), _signed(q.get("theta")),
+                                  _signed(q.get("vega")), _f(q.get("underlyingPrice")), _time(q.get("quoteTime")))
+        return list(out.values())
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise SchemaError("schwab option quotes: invalid quote map") from exc
+
+
 def parse_history(body: bytes, symbol: str) -> list[Bar]:
     """Keep Schwab's candles separate from unadjusted bulk bars; never adjust them twice."""
     value = _body(body)
@@ -215,6 +279,14 @@ class SchwabClient:
         if not 1 <= len(symbols) <= 100:
             raise ValueError("Schwab quote batches contain 1..100 symbols")
         return parse_quotes(await self._get("quotes", {"symbols": ",".join(symbols), "fields": "quote"}))
+
+    async def option_quotes(self, occs: list[str]) -> list[OptionTick]:
+        """Live quotes for up to 100 option contracts in one request (stored OCC symbols in, OCC symbols out)."""
+        if not 1 <= len(occs) <= 100:
+            raise ValueError("Schwab quote batches contain 1..100 symbols")
+        symbols = [schwab_option_symbol(o) for o in occs]
+        return parse_option_quotes(await self._get("quotes", {"symbols": ",".join(symbols), "fields": "quote,reference"}),
+                                   set(occs))
 
     async def price_history(self, symbol: str) -> list[Bar]:
         return parse_history(await self._get("pricehistory", {

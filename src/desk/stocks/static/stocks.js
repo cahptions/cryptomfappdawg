@@ -536,6 +536,8 @@ function systemPage() {
       ),
     );
   }
+  if (snapshot.plays_tracking)
+    app.append(KestrelPlays.tracking(snapshot.plays_tracking));
   if (
     snapshot.jobs.prices?.last_error?.includes("403") ||
     snapshot.jobs.prices?.detail?.deferred_403?.length
