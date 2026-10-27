@@ -266,3 +266,35 @@ def test_performance_grades_quoted_marks_and_settlements_against_twins_and_spy(h
     assert curve[-1]["picks"] == pytest.approx(sum(100 * x for x in settled), abs=0.05)
     assert out["calibration"]["itm_kestrel"]["resolved"] >= 1 and out["dte"] and out["price"]
     assert all(c["versions"][0]["current"] for c in out["categories"])         # the current rules come first
+
+
+def test_challengers_run_in_shadow_and_learning_reports_once_per_session(history: Any) -> None:
+    from desk.stocks import play_learning as lrn
+    from desk.stocks import play_performance as perf
+
+    conn = history.research.conn
+    recorded = {r[0]: r[1] for r in conn.execute("SELECT variant, COUNT(DISTINCT session) FROM stk_play_shadow_days "
+                                                  "GROUP BY variant")}
+    assert recorded == {v.id: len(history.sessions) for v in lrn.VARIANTS}  # every challenger, every session
+    hashes = {r[0]: r[1] for r in conn.execute("SELECT DISTINCT variant, variant_hash FROM stk_play_shadow")}
+    assert hashes and all(hashes[v] == lrn.BY_VARIANT[v].hash for v in hashes)
+    days = conn.execute("SELECT COUNT(*) FROM stk_play_shadow_days WHERE variant = 'no_results' AND category = "
+                        "'earnings'").fetchone()[0]
+    assert days == 0                                                       # it never applies to Earnings plays
+    # a challenger's picks come from the same candidates, filtered by its rule
+    liquid = [json.loads(r[0]) for r in conn.execute("SELECT play_json FROM stk_play_shadow WHERE variant = "
+                                                     "'liquid_only'")]
+    assert liquid and all(p["liquidity"] in ("A", "B") for p in liquid)
+    when = at(cal.next_trading_day(history.sessions[-1]), 18)
+    report = lrn.learn(history.market.conn, conn, when)
+    assert report is not None and lrn.learn(history.market.conn, conn, when) is None    # once per session
+    json.dumps(report, allow_nan=False)
+    assert {t["variant"] for t in report["challengers"]} == {v.id for v in lrn.VARIANTS}
+    assert all(t["status"].startswith("testing") for t in report["challengers"])     # far too early to promote
+    assert report["promotions"] == [] and report["promoted"] == {}
+    assert set(report["labels"]) == {c.id for c in pl.CATEGORIES}
+    assert all(label["state"] == "unproven" for label in report["labels"].values())
+    assert report["calibration"]["groups"]["itm"]["applied"] is False
+    assert {f["feature"] for f in report["features"]} >= {"edge", "iv", "spread_pct"}
+    out = perf.build(history.market.conn, conn, when, report["labels"])
+    assert all(c["label"]["state"] == "unproven" for c in out["categories"])

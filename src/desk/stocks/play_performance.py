@@ -172,7 +172,9 @@ def cumulative(rows: Sequence[PlayReturn], spy: dict[int, float]) -> list[dict[s
 def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetime,
           labels: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     rows = returns_table(research)
-    current = method()
+    from desk.stocks.play_learning import promoted
+
+    current = method(promoted(research))
     spy = spy_closes(market)
     categories = []
     for c in CATEGORIES:
@@ -209,6 +211,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
             "categories": categories, "overall": by_horizon(graded),
             "dte": buckets("dte", DTE_BUCKETS), "price": buckets("entry", PRICE_BUCKETS),
             "calibration": calibration(rows), "cumulative": curves,
+            "titles": {c.id: {"title": c.title, "emoji": c.emoji} for c in CATEGORIES},
             "note": "Returns are on the money at risk after fees, from quoted closing marks and exact settlements only. "
                     "Holding periods count sessions after the pick; a play that expired sooner counts its settlement."}
 
@@ -230,9 +233,10 @@ def refresh(paths: DeskPaths, market: sqlite3.Connection, research: sqlite3.Conn
     if not changed and not stale:
         return False
     learned = research.execute("SELECT report_json FROM stk_play_learning ORDER BY id DESC LIMIT 1").fetchone()
-    labels = json.loads(learned[0]).get("labels") if learned else None
-    _atomic_private(saved_path(paths, "plays-performance"),
-                    json.dumps(build(market, research, now, labels), allow_nan=False))
+    report = json.loads(learned[0]) if learned else None
+    out = build(market, research, now, (report or {}).get("labels"))
+    out["learning"] = report
+    _atomic_private(saved_path(paths, "plays-performance"), json.dumps(out, allow_nan=False))
     return True
 
 

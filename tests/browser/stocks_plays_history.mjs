@@ -165,6 +165,17 @@ try {
     await page
       .getByRole("heading", { name: "By days to expiry when picked" })
       .waitFor();
+    await page.getByRole("heading", { name: "What it has learned" }).waitFor();
+    await page
+      .getByRole("heading", { name: "Exit rules (walk-forward)" })
+      .waitFor();
+    await page
+      .getByRole("heading", { name: "Challengers in shadow" })
+      .waitFor();
+    assert.match(
+      await page.locator(".pf-label.unproven").first().innerText(),
+      /Not enough evidence yet/,
+    );
     assert.ok((await overflow()) <= 1, `no horizontal scroll at ${width}px`);
     await page.screenshot({
       path: `${out}/plays-performance-${width}.png`,

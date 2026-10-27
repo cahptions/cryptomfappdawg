@@ -333,8 +333,8 @@ def fold(research: sqlite3.Connection, session: date, now: datetime, rate: Calla
                 continue
             if r["bid"] is None or r["ask"] is None or r["ask"] <= 0 or r["bid"] > r["ask"]:
                 continue
-            points[min(minute, close_minute)] = [min(minute, close_minute), r["bid"], r["ask"], r["underlying"],
-                                                 r["schwab_iv"]]
+            points[min(minute, close_minute)] = [min(minute, close_minute), r["bid"], r["ask"],
+                                                 _round(r["underlying"], 2), _round(r["schwab_iv"], 4)]
             mids.append((r["bid"] + r["ask"]) / 2)
             if at <= close + timedelta(minutes=2):
                 closing = r
@@ -627,10 +627,15 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = N
                                 rate=lambda d: _rate(stocks_market, d))
         put_state(research, "cycle", {"slot": slot(now), "at": to_iso(now)}, now)
         if not market_open(now):
-            from desk.stocks import play_performance
+            from desk.stocks import play_learning, play_performance
 
-            report["performance"] = play_performance.refresh(paths, market, research, now,
-                                                             changed=bool((report.get("marks") or {}).get("marks")))
+            learned = play_learning.learn(market, research, now) if now >= cal.session_close(
+                cal.last_closed_session(now)) + timedelta(hours=1) else None
+            report["learning"] = None if learned is None else {"session": learned["session"],
+                                                               "promotions": learned["promotions"]}
+            report["performance"] = play_performance.refresh(
+                paths, market, research, now,
+                changed=bool((report.get("marks") or {}).get("marks")) or learned is not None)
         return report
     finally:
         if suite is not None:

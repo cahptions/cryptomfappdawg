@@ -3,6 +3,46 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-27 — Plays history: every pick tracked, marked, charted, graded and learned from
+
+Built from `research/plays/HISTORY_BUILD_PROMPT.md` in five pushed steps on `claude/funny-rubin-gq99vj`
+(operator request: "tomorrow I click Yesterday and see what yesterday's picks are doing", live via Schwab, gaps
+repopulated on open, P/L chart from the pick to expiry, and the app learning from it).
+
+- **Live tracking** (`play_tracking.py`, migration `0007`): every leg of unexpired recorded plays, today's board and
+  twins, quoted in five-minute passes via Schwab `/quotes` (100 option symbols a request, padded roots,
+  identity/multiplier/underlying checks, Schwab IV and greeks kept), chain fallback, free collector chains (only
+  ones observed by the pass time), ≤ 40 requests a pass with priorities and a closing pass from 15:50. Fold at close
+  into packed intraday (≥ 30 days, trigger-enforced) and permanent daily closes with KESTREL's and Schwab's greeks.
+  First sightings recorded during the session. System panel; `doctor --online` probes option quotes.
+- **Marks and repair** (`play_marks.py`, migration `0008`): one append-only mark per play and twin per session —
+  quoted, modelled, estimated (laptop-off gaps: real stock closes, IV interpolated between bracketing quotes, minute
+  paths where Schwab still has them, unreliable flags for results/4σ moves), settled exactly (matches the expiry
+  grade), or provisional until bracketed. Splits/halts quarantined; early-assignment warnings. Twins: seeded random
+  matched contracts on other stocks.
+- **History view and P/L charts** (`play_history.py`, `static/plays_history.js`): quick buttons and a date picker,
+  per-session rows with live P/L, peak/low, status and sparklines, summaries with "$100 each" and twins; per-play chart
+  (1D/1W intraday, 1M/All daily, %/$, close vs first-shown basis, crosshair, markers, dashed estimates), greeks then vs
+  now, reasons and marks. UI protocol 5 → 6.
+- **Performance** (`play_performance.py`): saved after the close; holding periods, categories by rule version, DTE and
+  price buckets vs twins, calibration chart, cumulative $100 curves vs twins and SPY. Validated chart palette.
+- **Learning** (`play_learning.py`, migration `0009`): calibration per category and DTE (current probability model
+  only), walk-forward exit rules, input ICs, five preregistered challengers recorded in shadow and graded at expiry,
+  promotion only after 20 later sessions with a session block bootstrap + Holm, failed challengers kept, proven/failing
+  labels on the board and in Performance.
+- Bugs found and fixed on the way: collector chains stamped after the pass time leaked into ticks (point-in-time);
+  one empty quote answer disabled the endpoint for the day; a finish cache keyed by `id()` reused ids across
+  categories.
+- Tests: tracking (14), marks and repair (11), learning (9), multi-session integration on `tests/stocks_world.py`
+  with a laptop-off session and an expiry (9), browser `tests/browser/stocks_plays_history.mjs` (fixture scenario
+  `plays-history`) at 1366/375 px, plus the existing Plays checks. Measured: fold of 2,000 contracts ≈ 2 s, marks pass
+  over 3,000 plays ≈ 1.7 s (0.1 s idle), ~0.7 KB per contract-session intraday, 136 B per daily close, 112 B per mark.
+
+Unproven until the laptop runs it: Schwab's quotes endpoint serving option symbols to the approved app (`doctor
+--online` → `plays_option_quotes`), real quote freshness under the shared budget, and every learning result (it needs
+weeks of settled plays: labels need 60 settled over 20 sessions, promotions 20 later sessions). Next: watch the first
+week on the laptop; consider a PAPER strategy that follows a category once it is proven.
+
 ## 2026-10-27 — Plays: the options of the day
 
 Branch `claude/funny-rubin-gq99vj` was fast-forwarded to `codex/arbitrage-v1` (`1398d8c`, 1,337 tests passing) and

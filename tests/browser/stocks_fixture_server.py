@@ -36,14 +36,15 @@ def main() -> None:
         root = Path(directory)
         paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
         if args.scenario == "plays-history":
-            from desk.stocks import play_performance
+            from desk.stocks import play_learning, play_performance
             from tests.integration.test_stocks_play_history import simulate
 
             # Six synthetic sessions of picks, tracked, marked, one laptop-off session repaired (no provider).
             world = make_world(root, n=60)
             simulate(world)
-            play_performance.refresh(world.paths, world.market.conn, world.research.conn,
-                                     cal.session_close(world.days[-1]) + timedelta(hours=2), changed=True)
+            evening = cal.session_close(world.days[-1]) + timedelta(hours=2)
+            play_learning.learn(world.market.conn, world.research.conn, evening)
+            play_performance.refresh(world.paths, world.market.conn, world.research.conn, evening, changed=True)
             world.close()
         elif args.scenario != "empty":
             through = NOW.date() - timedelta(days=7) if args.scenario == "paper-workflows" else NOW.date()

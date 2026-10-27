@@ -29,6 +29,14 @@ try {
     );
     if (scenario === "empty") {
       await page.getByRole("heading", { name: "No plays yet" }).waitFor();
+      await page.goto(`${base}/#plays/history`);
+      await page
+        .getByRole("heading", { name: "Nothing recorded yet" })
+        .waitFor();
+      await page.goto(`${base}/#plays/performance`);
+      await page.getByRole("heading", { name: "Nothing graded yet" }).waitFor();
+      await page.goto(`${base}/#plays`);
+      await page.getByRole("heading", { name: "No plays yet" }).waitFor();
       await page.screenshot({
         path: `${out}/plays-empty-${width}.png`,
         fullPage: true,

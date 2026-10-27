@@ -23,7 +23,7 @@ import random
 import sqlite3
 import statistics
 from collections import Counter, defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -141,10 +141,14 @@ CATEGORIES: tuple[Category, ...] = (
 BY_CATEGORY = {c.id: c for c in CATEGORIES}
 
 
-def method() -> str:
-    return sha256_hex(canonical_json({"version": VERSION, "categories": [c.content() for c in CATEGORIES],
-                                      "iv_weight": od.IV_WEIGHT, "ic_shrink": od.IC_SHRINK_MONTHS,
-                                      "calibration_prior": od.CALIBRATION_PRIOR}))[:16]
+def method(promoted: Mapping[str, str] | None = None) -> str:
+    """The rule version: categories, the probability model and any challenger promoted into the live rules."""
+    content: dict[str, Any] = {"version": VERSION, "categories": [c.content() for c in CATEGORIES],
+                               "iv_weight": od.IV_WEIGHT, "ic_shrink": od.IC_SHRINK_MONTHS,
+                               "calibration_prior": od.CALIBRATION_PRIOR}
+    if promoted:
+        content["promoted"] = dict(sorted(promoted.items()))
+    return sha256_hex(canonical_json(content))[:16]
 
 
 # ── vectorized pricing (Abramowitz–Stegun 7.1.26 erf: |error| < 1.5e-7) ─────────────────────────
@@ -780,6 +784,9 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
     else:
         entry = sum(float(tb.bid[i]) if side == "sell" else -float(tb.ask[i]) for i, side in c.legs)
     history = od.History.build(u.closes, _sessions_to(ctx.session, expiration))
+    days = int(tb.dte[i0])
+    itm_cal, itm_level = calibrator(ctx.calibration, "itm", c.category, days)
+    move_cal, move_level = calibrator(ctx.calibration, "move", c.category, days)
 
     def view(kind: str, buyer: bool, k: float, iv: float, premium: float, cal: od.Calibration | None = None) -> od.Odds:
         return od.odds(kind=kind, action="buy" if buyer else "sell", s=u.price, k=k, t=t, iv=iv, rv=u.rv, r=ctx.rate,
@@ -792,7 +799,7 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         chance = {"itm_market": up.itm_market + down.itm_market,
                   "itm_history": None if up.itm_history is None or down.itm_history is None
                   else up.itm_history + down.itm_history,
-                  "itm_kestrel_raw": raw, "itm_kestrel": ctx.calibration["move"].apply(raw),
+                  "itm_kestrel_raw": raw, "itm_kestrel": move_cal.apply(raw),
                   "touch_kestrel": min(1.0, od.touch(u.price, k + entry, t, up.sigma, up.drift)
                                        + od.touch(u.price, k - entry, t, up.sigma, up.drift))}
         chance["profit_kestrel"] = chance["itm_kestrel"]
@@ -806,7 +813,7 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         short_leg = c.structure.endswith("credit")
         ref = c.legs[0][0]                       # the long leg of a purchase; the short leg of a credit spread
         q = tb.quotes[ref]
-        o = view(q.kind, action == "BUY", q.strike, float(tb.iv[ref]), entry, ctx.calibration["itm"])
+        o = view(q.kind, action == "BUY", q.strike, float(tb.iv[ref]), entry, itm_cal)
         already = u.price > q.strike if q.kind == "call" else u.price < q.strike
         chance = {"itm_market": o.itm_market, "itm_history": o.itm_history, "itm_kestrel_raw": o.itm_kestrel_raw,
                   "itm_kestrel": o.itm_kestrel, "profit_kestrel": o.profit_kestrel,
@@ -861,19 +868,53 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         "in_the_money": c.structure != "long_straddle" and (
             u.price > event_strike if event_kind == "call" else u.price < event_strike),
         "earnings": earnings, "liquidity": grade, "score": round(c.score, 4), "reasons": c.reasons, "flags": flags,
-        "unusual": c.unusual, "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source}
+        "unusual": c.unusual, "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source,
+        "calibration": move_level if c.structure == "long_straddle" else itm_level, "odds_version": od.MODEL_VERSION}
     return play
 
 
 # ── the track record ─────────────────────────────────────────────────────────────────────────────
+CALIBRATION_DTE = ((0, 7, "≤ 7 days"), (8, 30, "8–30 days"), (31, 90, "31–90 days"), (91, 100_000, "over 90 days"))
+
+
+def dte_bucket(dte: int) -> str:
+    return next(label for lo, hi, label in CALIBRATION_DTE if lo <= dte <= hi)
+
+
 def calibration(research: StocksResearch) -> dict[str, od.Calibration]:
-    rows: dict[str, tuple[list[float], list[bool]]] = {"itm": ([], []), "move": ([], [])}
+    """Calibrations keyed ``event``, ``event|category`` and ``event|category|days to expiry``, learned from resolved
+    plays of the current probability model only (a group stays empty until it has enough resolved plays)."""
+    rows: dict[str, tuple[list[float], list[bool]]] = defaultdict(lambda: ([], []))
     for r in research.conn.execute(
-            "SELECT p.event, p.itm_kestrel_raw, o.hit FROM stk_plays p JOIN stk_play_outcomes o USING (session, category, rank)"
-            " WHERE p.itm_kestrel_raw IS NOT NULL"):
-        rows[r["event"]][0].append(float(r["itm_kestrel_raw"]))
-        rows[r["event"]][1].append(bool(r["hit"]))
-    return {event: od.Calibration.learn(p, h) for event, (p, h) in rows.items()}
+            "SELECT p.event, p.category, p.session, p.expiration, p.itm_kestrel_raw, o.hit FROM stk_plays p JOIN "
+            "stk_play_outcomes o USING (session, category, rank) WHERE p.itm_kestrel_raw IS NOT NULL AND "
+            "COALESCE(json_extract(p.play_json, '$.odds_version'), 1) = ?", (od.MODEL_VERSION,)):
+        bucket = dte_bucket(r["expiration"] - r["session"])
+        for key in (r["event"], f"{r['event']}|{r['category']}", f"{r['event']}|{r['category']}|{bucket}"):
+            rows[key][0].append(float(r["itm_kestrel_raw"]))
+            rows[key][1].append(bool(r["hit"]))
+    out = {event: od.Calibration() for event in ("itm", "move")}
+    out.update({key: od.Calibration.learn(p, h) for key, (p, h) in rows.items()})
+    return out
+
+
+def calibrator(calibrations: Mapping[str, od.Calibration], event: str, category: str,
+               dte: int) -> tuple[od.Calibration, str | None]:
+    """The most specific calibration with enough resolved plays, and which level it is."""
+    for key, level in ((f"{event}|{category}|{dte_bucket(dte)}", "this category at this expiry"),
+                       (f"{event}|{category}", "this category"), (event, "all plays")):
+        found = calibrations.get(key)
+        if found is not None and found.buckets:
+            return found, level
+    return calibrations.get(event, od.Calibration()), None
+
+
+def calibration_summary(research: StocksResearch | sqlite3.Connection) -> dict[str, Any]:
+    conn = research.conn if isinstance(research, StocksResearch) else research
+    groups = calibration(StocksResearch(conn))
+    return {"model_version": od.MODEL_VERSION, "needed": od.MIN_CALIBRATION,
+            "groups": {key: {"resolved": c.resolved, "applied": bool(c.buckets)} for key, c in sorted(groups.items())
+                       if c.resolved or key in ("itm", "move")}}
 
 
 def records(research: StocksResearch) -> dict[str, dict[str, Any]]:
@@ -894,10 +935,11 @@ def records(research: StocksResearch) -> dict[str, dict[str, Any]]:
 
 
 
-def record(research: StocksResearch, session: date, categories: dict[str, list[dict[str, Any]]], now: datetime) -> list[str]:
+def record(research: StocksResearch, session: date, categories: dict[str, list[dict[str, Any]]], now: datetime,
+           m: str | None = None) -> list[str]:
     """Append each category's plays for a closed session once (an empty category too). Returns the categories added."""
     added = []
-    m = method()
+    m = m or method()
     for category, plays in categories.items():
         with transaction(research.conn):
             cur = research.conn.execute("INSERT OR IGNORE INTO stk_play_days(session, category, size, method, recorded_at)"
@@ -1110,14 +1152,15 @@ def session_closed(session: date, now: datetime) -> bool:
     return now >= datetime.combine(session, time(16, 0), cal.NEW_YORK) + CLOSE_GRACE
 
 
-def signature(market: StocksMarket, research: StocksResearch, session: date, now: datetime) -> str:
+def signature(market: StocksMarket, research: StocksResearch, session: date, now: datetime, m: str | None = None) -> str:
     chains = market.conn.execute("SELECT COUNT(*), MAX(observed_at) FROM stk_option_chains WHERE day = ?",
                                  (day_of(session),)).fetchone()
-    parts = {"session": session.isoformat(), "chains": list(chains), "version": VERSION, "method": method(),
+    parts = {"session": session.isoformat(), "chains": list(chains), "version": VERSION, "method": m or method(),
              "closed": session_closed(session, now),
              "scores": research.conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0],
              "validation": research.conn.execute("SELECT MAX(id) FROM stk_validation").fetchone()[0],
              "outcomes": research.conn.execute("SELECT COUNT(*) FROM stk_play_outcomes").fetchone()[0],
+             "learning": research.conn.execute("SELECT MAX(id) FROM stk_play_learning").fetchone()[0],
              "watchlist": research.watchlist(),
              "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0]}
     return sha256_hex(canonical_json(parts))
@@ -1134,8 +1177,12 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         return {"version": VERSION, "asof": None, "generated_at": now.isoformat(), "categories": [],
                 "message": "No option chains are stored yet. Connect Schwab or Tradier in Settings; chains are collected "
                            "every 15 minutes while the market is open.", "graded": graded}
+    from desk.stocks import play_learning as lrn
+
     session = min(latest, expected)
-    key = signature(market, research, session, now)
+    live = lrn.promoted(research.conn)
+    m = method(live)
+    key = signature(market, research, session, now, m)
     if previous and previous.get("input_hash") == key and not graded:
         return previous
     ic, months, source = committee_ic(research)
@@ -1146,40 +1193,65 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     recorded: dict[str, list[dict[str, Any]]] = {}
     track = records(research)
     paper = paper_records(ledger)
+    learned = lrn.latest(research.conn) or {}
+    closed = session_closed(session, now)
+    unrecorded = closed and research.conn.execute("SELECT 1 FROM stk_play_days WHERE session = ?",
+                                                  (day_of(session),)).fetchone() is None
+    shadow: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(dict)
     for cat in CATEGORIES:
         found = [c for tb in tables for c in SELECTORS[cat.id](tb, ctx)]
         found.sort(key=lambda c: (-c.score, c.table.u.symbol))
+        finished: dict[int, dict[str, Any]] = {}       # per category: every candidate in ``found`` stays alive
+
+        def done(c: Candidate, finished: dict[int, dict[str, Any]] = finished) -> dict[str, Any]:
+            if id(c) not in finished:
+                finished[id(c)] = finish(c, ctx)
+            return finished[id(c)]
+
+        limit = 2 if cat.id == "unusual" else 1
         per_symbol: Counter[str] = Counter()
         plays: list[dict[str, Any]] = []
-        for c in found:
-            if per_symbol[c.table.u.symbol] >= (2 if cat.id == "unusual" else 1):
+        if cat.id in live:                                    # a promoted challenger runs this category
+            plays = lrn.select(lrn.BY_VARIANT[live[cat.id]], cat.id, found, done, limit)
+        for c in found if cat.id not in live else ():
+            if per_symbol[c.table.u.symbol] >= limit:
                 continue
             per_symbol[c.table.u.symbol] += 1
-            plays.append({**finish(c, ctx), "rank": len(plays) + 1})
+            plays.append({**done(c), "rank": len(plays) + 1})
             if len(plays) >= PER_CATEGORY:
                 break
+        if unrecorded:                                        # challengers in shadow, recorded with the session
+            for v in lrn.VARIANTS:
+                if v.applies(cat.id) and live.get(cat.id) != v.id:
+                    shadow[v.id][cat.id] = lrn.select(v, cat.id, found, done, limit)
         recorded[cat.id] = plays
+        exit_rule = (learned.get("exits") or {}).get(cat.id) or {}
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
-                 "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id)}
+                 "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
+                 "label": (learned.get("labels") or {}).get(cat.id), "live_rules": live.get(cat.id),
+                 "exit": exit_rule if exit_rule.get("suggested") else None}
         if cat.id == "unusual":
             entry["followups"] = followups(ctx.flagged, tables)
         out_categories.append(entry)
-    added = record(research, session, recorded, now) if session_closed(session, now) else []
+    added = record(research, session, recorded, now, m) if closed else []
     twins = record_twins(research, session, {c: recorded[c] for c in added}, tables, now) if added else 0
+    shadows = lrn.record_shadow(research.conn, session, shadow, now) if added and shadow else 0
     cal_itm = ctx.calibration["itm"]
+    groups = sum(1 for k, v in ctx.calibration.items() if "|" in k and v.buckets)
     sources = Counter(tb.u.source for tb in tables)
     return {
-        "version": VERSION, "method": method(), "input_hash": key, "asof": session.isoformat(),
+        "version": VERSION, "method": m, "promoted": live, "input_hash": key, "asof": session.isoformat(),
         "expected_asof": expected.isoformat(), "generated_at": now.isoformat(),
         "source": sources.most_common(1)[0][0] if sources else None,
         "coverage": {"underlyings": len(tables), "contracts_scored": int(sum(len(tb) for tb in tables)),
                      "with_analysis": sum(1 for tb in tables if tb.u.detail)},
         "calibration": {"applied": bool(cal_itm.buckets), "resolved": cal_itm.resolved, "needed": od.MIN_CALIBRATION,
+                        "specific_groups": groups,
                         "buckets": [{"predicted": round(p, 3), "resolved": n, "observed": round(o, 3)}
                                     for p, n, o in cal_itm.buckets]},
         "model": {"ic": ic, "ic_months": round(months, 1), "ic_source": source, "iv_weight": od.IV_WEIGHT,
                   "rate": round(ctx.rate, 4)},
-        "recorded": added, "twins": twins, "graded": graded, "session_closed": session_closed(session, now),
+        "recorded": added, "twins": twins, "shadow_picks": shadows, "graded": graded, "session_closed": closed,
         "categories": out_categories,
         "message": f"Plays from the {session.isoformat()} options session"
                    + ("" if session == expected else f"; waiting for {expected.isoformat()} chains"),
@@ -1187,6 +1259,6 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
 
 
 __all__ = ["BY_CATEGORY", "CATEGORIES", "Candidate", "Category", "Context", "Table", "Underlying", "build",
-           "calibration", "committee_ic", "finish", "flagged_before", "followups", "grade", "implied_vols", "load",
-           "method", "record", "record_twins", "records",
-           "session_closed", "settle_value", "signature", "table", "twin"]
+           "calibration", "calibration_summary", "calibrator", "committee_ic", "dte_bucket", "finish",
+           "flagged_before", "followups", "grade", "implied_vols", "load", "method", "record", "record_twins",
+           "records", "session_closed", "settle_value", "signature", "table", "twin"]

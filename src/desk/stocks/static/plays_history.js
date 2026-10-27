@@ -1159,6 +1159,101 @@ const KestrelPlaysHistory = (() => {
     return box;
   }
 
+  // What the nightly learning concluded: labels, exit rules, inputs, challengers. Failures stay listed.
+  function learningSection(report, titles) {
+    const box = el("section", undefined, "pf-section"),
+      title = (id) =>
+        titles[id] ? `${titles[id].emoji} ${titles[id].title}` : id,
+      graded = (report.challengers || []).filter((t) => t.sessions || t.live),
+      p = (x) =>
+        x === null || x === undefined
+          ? "—"
+          : x < 0.001
+            ? "< 0.001"
+            : x.toFixed(3);
+    box.append(
+      el("h2", "What it has learned"),
+      el(
+        "p",
+        `Report for the ${longDate(report.session)} close, rules ${report.method}. Grading uses quoted marks and exact settlements only; every test compares sessions with a stationary block bootstrap (nearby sessions are not independent) and is Holm-corrected across everything tested.`,
+        "muted",
+      ),
+      el("h3", "Categories"),
+      table(
+        ["Category", "Verdict"],
+        Object.entries(report.labels || {}).map(([id, l]) => [
+          title(id),
+          el("span", l.text, `pf-label ${l.state}`),
+        ]),
+      ),
+      el("h3", "Exit rules (walk-forward)"),
+      table(
+        [
+          "Category",
+          "Best rule so far",
+          "Unseen sessions",
+          "vs holding",
+          "Holm p",
+          "Use it?",
+        ],
+        Object.entries(report.exits || {}).map(([id, e]) => [
+          title(id),
+          e.best_in_sample?.rule || "not enough settled plays",
+          e.test_sessions,
+          e.mean_improvement === null ? "—" : pct(e.mean_improvement),
+          p(e.p_holm),
+          e.suggested ? "Suggested" : "Hold to expiry until proven",
+        ]),
+      ),
+      el("h3", "Which inputs predicted the return a week later"),
+      table(
+        ["Input", "Average rank correlation", "Sessions", "p"],
+        (report.features || []).map((f) => [
+          f.label,
+          f.ic === null ? "—" : f.ic.toFixed(3),
+          f.sessions,
+          p(f.p),
+        ]),
+      ),
+      el("h3", "Challengers in shadow"),
+      table(
+        [
+          "Challenger",
+          "Category",
+          "Sessions",
+          "vs live rules",
+          "Holm p",
+          "Status",
+        ],
+        graded.length
+          ? graded.map((t) => [
+              el("span", t.title, undefined),
+              title(t.category),
+              t.sessions,
+              t.mean_difference === null ? "—" : pct(t.mean_difference),
+              p(t.p_holm),
+              t.status,
+            ])
+          : [
+              [
+                "No challenger pick has expired yet",
+                "—",
+                0,
+                "—",
+                "—",
+                "testing",
+              ],
+            ],
+      ),
+      el(
+        "p",
+        `${(report.challengers || []).length} challenger tests in all (${[...new Set((report.challengers || []).map((t) => t.title))].join(", ")}); a challenger is promoted only after ${20} sessions of later results and a Holm-corrected p below 0.05, and is marked failed after 40 sessions without one.`,
+        "caption muted",
+      ),
+    );
+    return box;
+  }
+
   async function performance(ticket) {
     const data = await api("plays/performance");
     if (ticket !== generation) return;
@@ -1251,6 +1346,8 @@ const KestrelPlaysHistory = (() => {
       ),
     );
     app.append(cats, calibrationChart(data.calibration));
+    if (data.learning)
+      app.append(learningSection(data.learning, data.titles || {}));
     for (const [title, key, first] of [
       ["By days to expiry when picked", "dte", "Days to expiry"],
       ["By price per share when picked", "price", "Entry price"],

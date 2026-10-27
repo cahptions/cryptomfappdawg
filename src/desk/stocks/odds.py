@@ -23,6 +23,7 @@ from itertools import pairwise
 
 from desk.stocks.options import norm_cdf
 
+MODEL_VERSION = 1                # bump when the probability model changes: calibration restarts for it
 TRADING_YEAR = 252
 IV_WEIGHT = 0.7                  # forecast variance = 0.7 × implied² + 0.3 × realized²
 IC_HORIZON_YEARS = 21 / 252      # the committee's information coefficient is measured over one month

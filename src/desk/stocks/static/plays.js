@@ -447,6 +447,24 @@ const KestrelPlays = (() => {
         el("h2", `${cat.emoji} ${cat.title}`),
         el("p", cat.blurb, "muted"),
       );
+      if (cat.label && cat.label.state !== "unproven")
+        text.append(el("p", cat.label.text, `pf-label ${cat.label.state}`));
+      if (cat.exit)
+        text.append(
+          el(
+            "p",
+            `Suggested exit (chosen walk-forward over ${cat.exit.test_sessions} unseen sessions, +${pct(cat.exit.mean_improvement, 1)} a play better than holding): ${cat.exit.best_in_sample.rule}.`,
+            "caption",
+          ),
+        );
+      if (cat.live_rules)
+        text.append(
+          el(
+            "p",
+            `Running a promoted challenger rule (${cat.live_rules}); see Performance for the evidence.`,
+            "caption muted",
+          ),
+        );
       head.append(text);
       body.append(head, el("p", cat.basis, "muted caption"), record(cat));
       if (cat.followups?.length) body.append(followupTable(cat.followups));
