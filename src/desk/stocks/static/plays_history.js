@@ -2,6 +2,9 @@
 // Plays history: what each session's picks did afterwards, and a P/L chart for every play from the moment it was
 // suggested. Everything here is read from stored records: picks, closing marks, five-minute paths and live quotes.
 const KestrelPlaysHistory = (() => {
+  let historyScope = "all",
+    historySerial = 0,
+    historyTimer;
   const svg = (tag, attrs) => {
     const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [key, value] of Object.entries(attrs))
@@ -199,7 +202,12 @@ const KestrelPlaysHistory = (() => {
   }
 
   function playRow(session, row) {
-    const a = link("", `#plays/play/${session}/${row.category}/${row.rank}`);
+    const a = link(
+      "",
+      row.archive_id
+        ? `#plays/idea/${row.archive_id}`
+        : `#plays/play/${session}/${row.category}/${row.rank}`,
+    );
     a.className = "pl-row";
     a.setAttribute(
       "aria-label",
@@ -210,7 +218,7 @@ const KestrelPlaysHistory = (() => {
       el("strong", row.label),
       el(
         "span",
-        `${row.action === "SELL" ? "Sell" : "Buy"} · entry ${price(row.entry)}${row.first_seen ? ` · first shown ${price(row.first_seen.entry)}` : ""}`,
+        `${row.action === "SELL" ? "Sell" : "Buy"} · ${row.entry_basis || "closing entry"} ${price(row.entry)}${row.identified_at ? ` · ${clock(row.identified_at)} ET` : ""}${row.first_seen ? ` · first shown ${price(row.first_seen.entry)}` : ""}`,
         "muted",
       ),
     );
@@ -225,7 +233,7 @@ const KestrelPlaysHistory = (() => {
       el(
         "span",
         latest
-          ? `${latest.status === "live" ? `live ${clock(latest.at)}` : shortDate(latest.day)} · ${usd(latest.pnl)}${isDashed(latest.provisional ? "provisional" : latest.status) ? " · est." : ""}`
+          ? `${latest.status === "live" ? `live ${clock(latest.at)}` : row.archive_id && latest.at && latest.status === "quoted" ? `quote ${shortDate(latest.day)} ${clock(latest.at)} ET` : shortDate(latest.day)} · ${usd(latest.pnl)}${isDashed(latest.provisional ? "provisional" : latest.status) ? " · est." : ""}`
           : "waiting",
         "muted",
       ),
@@ -248,12 +256,17 @@ const KestrelPlaysHistory = (() => {
   }
 
   async function history(ticket, when) {
+    clearTimeout(historyTimer);
+    const serial = ++historySerial;
     when = when || "latest";
     const [list, data] = await Promise.all([
       api("plays/sessions"),
-      api(`plays/history?when=${encodeURIComponent(when)}`),
+      api(
+        `plays/history?when=${encodeURIComponent(when)}&scope=${historyScope}`,
+      ),
     ]);
-    if (ticket !== generation) return;
+    if (ticket !== generation || serial !== historySerial) return;
+    app.replaceChildren();
     app.className = "plays-page";
     const hero = el("div", undefined, "explorer-heading"),
       titles = el("div");
@@ -265,12 +278,60 @@ const KestrelPlaysHistory = (() => {
       ),
       el(
         "p",
-        "Every pick as if bought at that session's close (and when first shown), marked every session until it expires. Percentages are on the money at risk, after fees. Research, not financial advice.",
+        historyScope === "all"
+          ? "Every saved play the app identified, including ideas that later left the rankings. Tracking is automatic; you do not need to click or confirm them. P/L uses each play's saved reference price and includes fees."
+          : "The fixed closing snapshot used for evaluation. This can contain fewer plays than were identified during the day. Percentages are on the money at risk, after fees.",
         "muted",
       ),
     );
     hero.append(titles);
     app.append(hero, views("history"), quickBar(when, list, data));
+    const scopes = el("div", undefined, "research-tabs pl-scope");
+    scopes.setAttribute("role", "group");
+    scopes.setAttribute("aria-label", "History coverage");
+    for (const [value, title] of [
+      ["all", "All identified plays"],
+      ["closing", "Closing snapshot"],
+    ]) {
+      const b = el("button", title);
+      b.setAttribute("aria-pressed", String(value === historyScope));
+      b.onclick = () => {
+        historyScope = value;
+        history(ticket, when);
+      };
+      scopes.append(b);
+    }
+    app.append(scopes);
+    if (data.coverage) {
+      const c = data.coverage;
+      app.append(
+        el(
+          "p",
+          `${c.identified} saved plays · ${c.valued} with price observations · ${c.waiting} waiting for quotes · ${c.closing} in the closing snapshot. Your manually confirmed selections are in My tracked plays.${c.recovery_pending ? ` Recovering ${c.recovery_pending} older saved sightings automatically.` : ""}`,
+          "caption pl-history-coverage",
+        ),
+      );
+    }
+    const poll = () => {
+      if (ticket !== generation || serial !== historySerial) return;
+      if (
+        document.hidden ||
+        document.querySelector("dialog[open]") ||
+        document.activeElement?.tagName === "INPUT"
+      ) {
+        historyTimer = setTimeout(poll, 20000);
+        return;
+      }
+      const y = scrollY;
+      history(ticket, when)
+        .then(() => {
+          if (ticket === generation) scrollTo({ top: y, behavior: "instant" });
+        })
+        .catch(() => {
+          historyTimer = setTimeout(poll, 20000);
+        });
+    };
+    historyTimer = setTimeout(poll, 20000);
     if (data.repair?.pending || data.repair?.fetching)
       app.append(
         el(
@@ -328,7 +389,9 @@ const KestrelPlaysHistory = (() => {
     app.append(
       el(
         "p",
-        "At the close = bought at the ask of the session's last quotes. First shown = bought at the ask when the play first appeared on the live board. Values are what closing would bring: long legs at the bid, short legs bought back at the ask. Solid lines are real quotes or settlements; dashed are modelled or estimated (never used for grading or learning). Random twins are matched contracts on other stocks with the same expiry and delta.",
+        historyScope === "all"
+          ? "First identified uses the original saved entry reference. Older closing-only records show their closing entry instead. These are automatic research references, separate from your confirmed selections. Values show liquidation at the bid for long legs and ask for short legs, after fees. Missing quotes remain unavailable or explicitly estimated; no price path is invented."
+          : "At the close = bought at the ask of the session's last quotes. First shown = bought at the ask when the play first appeared on the live board. Values are what closing would bring: long legs at the bid, short legs bought back at the ask. Solid lines are real quotes or settlements; dashed are modelled or estimated (never used for grading or learning). Random twins are matched contracts on other stocks with the same expiry and delta.",
         "muted caption",
       ),
     );

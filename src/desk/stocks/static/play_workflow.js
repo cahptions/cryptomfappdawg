@@ -301,6 +301,11 @@ const KestrelPlayWorkflow = (() => {
       refresh = el("button", "Refresh P/L"),
       calc = el("button", "Open exact-leg payoff calculator", "primary"),
       note = el("p", "", "caption muted");
+    if (play.recovered_sighting && !play.underlying_price) {
+      calc.disabled = true;
+      note.textContent =
+        "The original stock price was not saved, so this snapshot cannot support IV scenarios. P/L still uses saved option quotes. Open the company profile for its current chain and calculator.";
+    }
     refresh.onclick = () => detail(ticket, id, personal);
     calc.onclick = async () => {
       calc.disabled = true;
@@ -366,7 +371,12 @@ const KestrelPlayWorkflow = (() => {
     const context = el("details", undefined, "play-context");
     context.append(
       el("summary", "Original play, probabilities & Greeks"),
-      KestrelPlays.card(play),
+      play.recovered_sighting
+        ? panel(
+            "Recovered original sighting",
+            "The original contracts, entry and first-seen time were saved. The original rank and model probabilities were not retained, so they are unavailable here.",
+          )
+        : KestrelPlays.card(play),
     );
     context.open = !personal;
     app.append(context);

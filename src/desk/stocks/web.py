@@ -242,6 +242,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             previous_board = saved_view(paths, "plays")
             if previous_board:
                 register(dbs.research, previous_board, utc_now())
+            from desk.stocks.play_archive import recover
+
+            recover(dbs.research,utc_now())
         finally:
             dbs.close()
         from desk.stocks import learning
@@ -445,22 +448,29 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
     @app.get("/api/stocks/plays/sessions")
     def plays_sessions() -> dict[str, Any]:
+        from desk.stocks import play_archive
+
         with reader(paths, RESEARCH_FILE) as conn:
-            return play_history.sessions(conn)
+            return play_archive.sessions(conn)
 
     @app.get("/api/stocks/plays/history")
     def plays_history(when: str = Query(default="latest",
-                                        pattern=r"^(latest|yesterday|week|month|quarter|year|\d{4}-\d{2}-\d{2})$")
+                                        pattern=r"^(latest|yesterday|week|month|quarter|year|\d{4}-\d{2}-\d{2})$"),
+                      scope: Literal["all","closing"] = "all"
                       ) -> dict[str, Any]:
+        from desk.stocks import play_archive
+
         now = utc_now()
         try:
             with reader(paths, RESEARCH_FILE) as conn:
-                session = play_history.resolve(conn, when, now)
+                session = (play_archive.resolve(conn, when, now) if scope == "all"
+                           else play_history.resolve(conn, when, now))
                 if session is None:
                     return {"version": play_history.VERSION, "session": None, "categories": [], "summary": None,
-                            "message": "No sessions are recorded yet: a session's plays are recorded once, 15 minutes "
-                                       "after its close, and followed every session after that."}
-                return play_history.session_view(conn, session, now)
+                            "message": "No saved plays yet. Every automatically identified play is archived; "
+                                       "manual confirmations are not required."}
+                return (play_archive.session_view(conn,session,now) if scope == "all" else
+                        {**play_history.session_view(conn,session,now),"scope":"closing"})
         except ValueError as exc:
             raise HTTPException(400, "Choose a valid date") from exc
 

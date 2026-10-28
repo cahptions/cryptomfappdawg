@@ -3,6 +3,40 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-28 — History retains every identified play, without user clicks
+
+Operator reported yesterday's History showing only two SPY/QQQ LEAPS rather than all recommendations. Root cause:
+the old page queried only `stk_plays`, the first immutable after-close evaluation cohort. Intraday picks could leave
+the closing ranks; categories frozen empty could not later acquire more rows. Clicking did not cause inclusion,
+but the page gave no distinction between all discoveries, the closing snapshot and personal selections.
+
+- History now defaults to **All identified plays**, combining the automatic idea archive and legacy closing picks,
+  deduplicating exact structures per category and identification day. **Closing snapshot** remains selectable;
+  coverage explains total saved, valued, waiting and closing counts. Personal confirmations remain separate.
+- Recover up to 500 original saved first sightings automatically at startup and per tracking pass. Preserve
+  original entry/legs/time, leave unavailable ranks/odds missing, and audit unreadable records once without blocking
+  other recovery. No rebuilding old predictions with current data. New York identification dates prevent a stale
+  quote session from backdating a newly saved idea.
+- Every unexpired archived leg remains in quote rotation after leaving the board, independently of manual clicks.
+  Reuse bounded daily repair/settlement and split quarantine under an archive mark namespace. Never turn intraday
+  first-sighting quotes into closing marks or value an archive before identification. Closing cohorts and grading
+  remain immutable and independent; unmatched twin subsets are not presented as an all-archive comparison.
+- Archived rows link to dedicated P/L pages. Original quote anchors and later actual observations show progress;
+  source gaps remain explicit. Recovered profiles disclose missing original model context and disable IV scenarios
+  if the original underlying price was not saved. History polls while visible and preserves scroll/input editing.
+- Corrected closing-history holding duration when the latest observation is an intraday quote on a later session.
+
+Validation: six new regression tests reproduce the two-closing-pick failure, disappearing/late picks, zero manual
+selections, quote rotation, automatic legacy recovery/idempotence, New York dates, expiry marking, no early closing
+marks and malformed-sighting isolation. Forty-one targeted regression tests pass; lint, strict mypy over 240 source
+files and desktop/375px archive and existing History/Performance browser checks pass. **1,427 offline tests passed,
+5 opt-in live tests deselected**. Final live-state/coverage wording corrections passed 26 targeted tests and the
+desktop/phone archive browser check again. The current-quote state says Open even without a first daily mark.
+
+Limits: recovery requires original saved sightings; never-saved recommendations, model odds or option paths cannot
+be recreated honestly. Live authenticated laptop state is not accessible here; the screenshot also lacked the
+previous release's My tracked plays tab, so the current build needs updating and restarting on the laptop.
+
 ## 2026-10-27 — Personal play tracking, exact calculators, profit targets and company context
 
 Continued from `d6c86d8` on the existing `claude/funny-rubin-gq99vj` release branch. All requested workflow additions

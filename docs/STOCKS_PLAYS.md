@@ -165,6 +165,37 @@ is recorded.
 
 ## History: what every pick did afterwards
 
+History defaults to **All identified plays**: the union of automatically saved discoveries and older closing picks,
+including ideas that disappeared from the rankings before the close or appeared after an incomplete closing
+snapshot was frozen. **No click, confirmation or personal PAPER selection is needed.** Each distinct contract
+structure is kept once per category per identification day, with its original saved reference. Identification dates
+use New York time; a stale board first viewed the following day cannot backdate a new discovery to yesterday.
+
+**Closing snapshot** switches back to the immutable evaluation cohort described below. Its entries, calibration,
+twins and learning results are not rewritten to make the new archive look better. A closing category frozen empty
+does not prevent the all-identified view from showing genuine discoveries. My tracked plays remains the separate
+list of explicit user confirmations. Coverage states how many plays were saved, have observations, await quotes,
+and belong to the closing snapshot. The archive does not compare its full set with an unmatched closing-only twin
+subset.
+
+Unexpired archived contracts stay in the shared quote rotation even after leaving today's board. Daily marking,
+gap estimates, expiry comparisons and split quarantine also cover them, under the existing provider budgets.
+Original intraday quote snapshots are not relabelled as closing quotes. An archive entry cannot receive marks
+before the time it was identified. Actual bid/ask liquidation values and fees drive progress; estimates stay labelled.
+History checks saved observations every twenty seconds while visible, preserving scroll and date input focus.
+
+On startup and tracking passes, the app automatically recovers up to 500 older first sightings per pass from their
+original stored contracts, entry and timestamp. This repairs the earlier two-LEAPS-only failure wherever those
+sightings were retained. Missing original ranks, odds and stock-price snapshots remain unavailable; today's model
+is not used to invent historical recommendations. Unreadable sightings are recorded as skipped rather than
+blocking other recovery. Picks or option quotes that were never stored cannot be recovered by this process.
+
+Archive implementation: `play_archive.py`; `0011_play_archive.sql` adds lookup indexes and the append-only recovery
+skip audit. `stk_play_ideas` preserves the original complete snapshots; the older `stk_play_first_seen` table is the
+recovery source. Archive daily marks use a separate category namespace and do not enter closing-cohort grading.
+
+### Closing snapshot
+
 Plays → **History** shows any recorded session (Today, Yesterday, 1 week, 1 month, 3 months, 1 year, or a date; a date
 without picks shows the nearest earlier session). Every play is listed with its entry, the price when it was first
 shown, its latest value and P/L (live from today's quotes while it is open), its peak and low, days held, whether it is

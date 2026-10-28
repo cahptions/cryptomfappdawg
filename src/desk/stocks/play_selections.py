@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import sqlite3
 import uuid
 from collections import defaultdict
@@ -323,7 +324,44 @@ def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: b
     expiry = settle_day(date.fromisoformat(play["expiration"]))
     closed = current["exit"] if current else None
     end = min(now, cal.session_close(expiry), datetime.fromisoformat(closed["at"]) if closed else now)
+    quarantine = None
+    if not personal:
+        from desk.stocks.play_archive import ARCHIVE_CATEGORY
+
+        row = research.execute("SELECT reason FROM stk_play_quarantine WHERE session=? AND category=? AND rank=1 "
+                               "AND twin=0", (found["session"],ARCHIVE_CATEGORY+found["id"])).fetchone()
+        if row:
+            quarantine = row[0]
+            split = re.search(r"Split on (\d{4}-\d{2}-\d{2})",quarantine)
+            if split:
+                end = min(end,cal.session_close(cal.previous_trading_day(date.fromisoformat(split[1]))))
     daily, intraday = raw_path(research, legs, start, end)
+    if not personal:
+        from desk.stocks.play_archive import ARCHIVE_CATEGORY
+
+        category = ARCHIVE_CATEGORY+found["id"]
+        extra = research.execute("SELECT day,status,value,underlying,note FROM stk_play_marks "
+                                 "WHERE session=? AND category=? AND rank=1 AND twin=0 ORDER BY day",
+                                 (found["session"],category)).fetchall()
+        extra += research.execute("SELECT day,'provisional' AS status,value,underlying,note "
+                                  "FROM stk_play_marks_provisional WHERE session=? AND category=? AND rank=1 AND twin=0",
+                                  (found["session"],category)).fetchall()
+        present = {p["t"] for p in daily}
+        for row in extra:
+            day = date.fromordinal(row["day"])
+            stamp = cal.session_close(day)
+            if start <= stamp <= end and day.isoformat() not in present:
+                daily.append({"t":day.isoformat(),"at":to_iso(stamp),"value":row["value"],"status":row["status"],
+                              "underlying":row["underlying"],"note":row["note"]})
+                present.add(day.isoformat())
+        daily.sort(key=lambda p:p["at"])
+        # Preserve the real saved starting quote even if later tracking was interrupted.
+        if (start <= end and all(isinstance(leg.get(k),(int,float)) and math.isfinite(leg[k])
+                                for leg in legs for k in ("bid","ask"))
+                and all(0 <= leg["bid"] <= leg["ask"] and leg["ask"] > 0 for leg in legs)):
+            initial = sum(leg["bid"] if leg["side"] == "buy" else -leg["ask"] for leg in legs)
+            intraday.insert(0,{"t":to_iso(start),"at":to_iso(start),"value":initial,"status":"quoted",
+                               "underlying":play.get("underlying_price"),"note":"Original saved identification quote"})
     if entry:
         initial = sum(q["bid"] if leg["side"] == "buy" else -q["ask"]
                       for leg, q in zip(legs, entry["quotes"], strict=True))
@@ -345,7 +383,7 @@ def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: b
              "basis_labels": {"close": "My PAPER entry" if personal else "Idea reference"}, "daily": daily,
              "intraday": intraday, "exits": exit_opportunities(daily, intraday, {"close": start}, end),
              "contract_quantity": current["quantity"] if current else 1, "expired": cal.session_close(expiry) <= now,
-             "expiration": play["expiration"], "settles": expiry.isoformat(), "twin": None,
+             "expiration": play["expiration"], "settles": expiry.isoformat(), "twin": None,"quarantine":quarantine,
              "greeks": {"then": {g: play.get(g) for g in ("iv", "delta", "gamma", "theta", "vega")},
                         "now": _net(legs, latest), "schwab_now": _net(legs, latest, "schwab_")},
              "intraday_note": "The quote path reflects stored observations; intraday detail is retained for 30+ days. "

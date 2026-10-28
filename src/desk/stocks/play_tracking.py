@@ -118,6 +118,13 @@ def tracked_set(research: sqlite3.Connection, today: date, board: dict[str, Any]
 
     for leg in active_legs(research, today):
         want(leg["occ"], 0)
+    # Every automatically archived idea stays in rotation, even after it leaves today's board.
+    for row in research.execute("SELECT session,play_json FROM stk_play_ideas "
+                                "WHERE json_extract(play_json,'$.expiration')>=?", (today.isoformat(),)):
+        play = json.loads(row["play_json"])
+        priority = 0 if row["session"] >= cutoff or play["expiration"] <= date.fromordinal(soon).isoformat() else 1
+        for leg in play["legs"]:
+            want(leg["occ"], priority)
     out = {}
     for occ, priority in wanted.items():
         symbol, kind, strike, expiration = parse_occ(occ)
@@ -545,11 +552,14 @@ async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now
                    clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
     """Fold closed sessions, compact old detail, mark and repair plays and, in market hours, quote what is due."""
     from desk.stocks import play_marks
+    from desk.stocks.play_archive import recover
 
     today = cal.new_york(now).date()
+    recovered = recover(research,now)
     folded = fold_due(research, now, rate)
     compacted = compact(research, today)
-    report: dict[str, Any] = {"at": to_iso(now), "folded": [d.isoformat() for d in folded], "compacted": compacted}
+    report: dict[str, Any] = {"at": to_iso(now), "folded": [d.isoformat() for d in folded], "compacted": compacted,
+                              "archive_recovery":recovered}
     from desk.stocks.play_selections import advance
 
     report["personal_updates"] = advance(market, research, now)

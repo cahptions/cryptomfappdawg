@@ -28,14 +28,32 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
-                                               "plays-history", "personal-workflows"],
+                                               "plays-history", "personal-workflows", "archive-history"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
         root = Path(directory)
         paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
-        if args.scenario == "plays-history":
+        if args.scenario == "archive-history":
+            from desk.stocks import play_selections, play_tracking, web
+            from desk.stocks.repo import StocksDatabases
+            from tests.integration.test_stocks_play_archive import IDENTIFIED, LATER, board, initial_two, pick
+
+            web.utc_now = lambda: LATER
+            dbs = StocksDatabases.open(paths)
+            initial_two(dbs)
+            for category,names in [("likely_itm",["AAPL","MSFT"]),("unusual",["NVDA"])]:
+                play_selections.register(dbs.research,board(IDENTIFIED,category,[pick(s) for s in names]),IDENTIFIED)
+            # Original older installation saved this sighting without putting it in the closing cohort.
+            play_tracking.first_seen(dbs.research,board(IDENTIFIED,"bear_puts",[pick("AMZN","put")]),IDENTIFIED)
+            for symbol in ["SPY","QQQ","AAPL","MSFT","NVDA","AMZN"]:
+                p=pick(symbol,"put" if symbol == "AMZN" else "call")
+                dbs.research.execute("INSERT INTO stk_track_ticks(occ,at,session,bid,ask,underlying,quoted_at,source) "
+                    "VALUES (?,?,?,?,?,?,?,?)",(p["legs"][0]["occ"],LATER.isoformat(),LATER.date().toordinal(),
+                                               4.,4.1,102.,LATER.isoformat(),"synthetic_archive_fixture"))
+            dbs.close()
+        elif args.scenario == "plays-history":
             from desk.stocks import play_learning, play_performance
             from tests.integration.test_stocks_play_history import simulate
 

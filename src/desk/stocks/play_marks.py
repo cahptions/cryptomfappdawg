@@ -80,6 +80,7 @@ class Position:
     max_loss: float             # per contract, fees included
     underlying: float | None = None
     earnings: date | None = None
+    identified_at: datetime | None = None
 
     @property
     def key(self) -> tuple[int, str, int, int]:
@@ -167,6 +168,14 @@ def positions(research: sqlite3.Connection, since: date | None = None) -> list[P
         out.append(Position(date.fromordinal(r["session"]), r["category"], r["rank"], 1, r["symbol"], r["action"],
                             r["structure"], date.fromordinal(r["expiration"]), legs, r["entry"], r["max_loss"],
                             legs[0].get("underlying") if legs else None))
+    from desk.stocks.play_archive import ARCHIVE_CATEGORY
+
+    for row in research.execute("SELECT * FROM stk_play_ideas WHERE session>=?", (floor,)):
+        play = json.loads(row["play_json"])
+        out.append(Position(date.fromordinal(row["session"]), ARCHIVE_CATEGORY+row["id"], 1, 0, play["symbol"],
+                            play["action"],play["structure"],date.fromisoformat(play["expiration"]),play["legs"],
+                            play["entry"],play["max_loss"],play.get("underlying_price"),
+                            identified_at=datetime.fromisoformat(row["identified_at"])))
     return out
 
 
@@ -505,7 +514,8 @@ def _open_positions(market: sqlite3.Connection, research: sqlite3.Connection, la
         "SELECT session, category, rank, twin, COUNT(*) FROM stk_play_marks GROUP BY session, category, rank, twin")}
     out, quarantined = [], 0
     for p in positions(research):
-        if p.session > last_closed:
+        beginning = max(p.session,cal.new_york(p.identified_at).date()) if p.identified_at else p.session
+        if beginning > last_closed:
             continue
         target = min(p.settles, last_closed)
         split = split_day(market, p.symbol, p.session, target)
@@ -514,7 +524,7 @@ def _open_positions(market: sqlite3.Connection, research: sqlite3.Connection, la
                                      "session before", now)
             quarantined += 1
             target = cal.previous_trading_day(split)
-        sessions = cal.trading_days(p.session, target)
+        sessions = cal.trading_days(beginning, target)
         if counts.get(p.key, 0) >= len(sessions):
             continue
         done = {r[0] for r in research.execute("SELECT day FROM stk_play_marks WHERE session = ? AND category = ? AND "
@@ -547,6 +557,8 @@ async def update(market: sqlite3.Connection, research: sqlite3.Connection, now: 
     rows = load_rows(research, occs, start)
     repair = Repair()
     for p, _ in open_positions:                    # real quotes first: they anchor every estimate
+        if p.identified_at is not None:
+            continue  # an intraday first-sighting quote is never relabelled as that day's closing quote
         for leg in p.legs:
             recorded_quote(leg["occ"], p.session, leg, p.underlying, rows[leg["occ"]], rate, now, repair)
     # stock closes still missing where a contract has no row, or for a settlement: Schwab history, within the budget

@@ -163,8 +163,9 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime) -> 
         pcts = [m["pnl_pct"] for m in permanent] + ([latest["pct"]] if latest and latest["status"] == "live" else [])
         seen = first.get((p["category"], legs_key(p["legs"])))
         twin_series = marks[(p["category"], p["rank"], 1)]
-        state, state_label = _state(p, permanent[-1] if permanent else None, quarantine.get((p["category"], p["rank"], 0)))
-        end = date.fromordinal(last["day"]) if last else session
+        state_mark = latest if latest and latest["status"] == "live" else permanent[-1] if permanent else None
+        state, state_label = _state(p, state_mark, quarantine.get((p["category"], p["rank"], 0)))
+        end = today if latest and latest["status"] == "live" else date.fromordinal(last["day"]) if last else session
         row = {"category": p["category"], "rank": p["rank"], "symbol": p["symbol"], "action": p["action"],
                "structure": p["structure"], "type": TYPES.get(p["structure"], ("", p["structure"]))[1],
                "label": label(p), "expiration": p["expiration"], "entry": p["entry"],

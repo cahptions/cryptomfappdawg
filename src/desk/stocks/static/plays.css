@@ -1,4 +1,26 @@
 /* Plays: today's option ideas. Builds on the research card styles (setup-card, research-badge, screen-filters). */
+.pl-scope {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.pl-scope button {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.pl-scope button[aria-pressed="true"] {
+  border-color: var(--green);
+  color: var(--green);
+}
+.pl-history-coverage {
+  line-height: 1.7;
+  margin: 16px 0;
+}
 .plays-page .play-strip {
   margin: 4px 0 18px;
 }
