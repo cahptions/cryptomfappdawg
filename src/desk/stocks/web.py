@@ -402,7 +402,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         from desk.stocks.play_selections import idea_id
 
         for category in value.get("categories", []):
-            for play in category.get("plays", []):
+            for play in [*category.get("plays", []), *category.get("budget_plays", [])]:
                 play["idea_id"] = idea_id(value["asof"], category["id"], str(value.get("method", "unknown")), play)
         return value
 

@@ -274,9 +274,10 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                      or options_job.get("detail", {}).get("parser_version") != OPTIONS_VERSION or requested)):
             held = PaperBook(dbs.ledger).held_expirations()
             # Rotate bounded batches, with held contracts always included. Never fetch the whole universe on a tick.
-            ranked = [r[0] for r in research.conn.execute(
-                "SELECT symbol FROM stk_scores_latest ORDER BY json_extract(detail_json, '$.price.dollar_volume_20d') DESC "
-                "LIMIT ?", (settings.options_focus_symbols,))]
+            from desk.stocks.universe import option_focus
+
+            ranked = option_focus(research.conn,settings.options_focus_symbols,float(settings.min_price_usd),
+                                  float(settings.min_median_dollar_volume_usd))
             candidates = list(dict.fromkeys([*research.watchlist(), *ranked])) or ["SPY", "QQQ"]
             job = market.jobs().get("options", {}).get("detail", {})
             offset = int(job.get("next_offset", 0)) % len(candidates)

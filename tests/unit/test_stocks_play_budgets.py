@@ -1,0 +1,142 @@
+"""Budget search precedes per-stock selection, without cheapening quality or rewriting closing cohorts."""
+
+import json
+import sqlite3
+from collections import Counter
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+
+import numpy as np
+import pytest
+
+from desk.stocks import odds, options
+from desk.stocks import plays as pl
+from desk.stocks.contracts import OptionQuote
+from desk.stocks.play_selections import register
+from desk.stocks.play_tracking import first_seen, tracked_set
+from desk.stocks.universe import option_focus
+from tests.stocks_world import make_world, occ
+
+AT = datetime(2026, 10, 28, 15, tzinfo=UTC)
+
+
+def context():
+    return pl.Context(AT.date(),AT,.04,None,0,None,{"itm":odds.Calibration(),"move":odds.Calibration()},[])
+
+
+def chain_table(spot=1000., symbol="TEST"):
+    chains = {}
+    for days in (7,30,60):
+        expiry = AT.date()+timedelta(days=days)
+        quotes = []
+        for kind in ("call","put"):
+            for multiple in (.95,.96,.97,.98,.99,1.,1.005,1.01,1.015,1.02,1.03,1.04,1.05):
+                strike = round(spot*multiple,3)
+                mid = options.bs_price(kind,spot,strike,days/365,.1,.04)
+                if mid<.08:
+                    continue
+                quotes.append(OptionQuote(occ(symbol,expiry,kind,strike),symbol,kind,strike,expiry,
+                    mid*.98,mid*1.02,mid,1000,5000,None,AT))
+        chains[expiry] = quotes
+    u = pl.Underlying(symbol,spot,AT.isoformat(),"synthetic_budget_fixture",chains,
+        detail={"committee":{"score":65,"label":"Bullish lean"},
+                "desks":{"momentum":{"score":80}},"price":{"above_sma200":.1}},
+        committee=65,rv=.1,iv30=.1)
+    tb = pl.table(u,context())
+    assert tb is not None
+    return tb
+
+
+def test_lower_cost_contract_is_found_before_one_per_stock_cut():
+    tb = chain_table()
+    top = pl.finish(pl.likely_itm(tb,context())[0],context())
+    assert top["cost"]>500
+    affordable = pl.budget_plays("likely_itm",[tb],context(),None)
+    low = [p for p in affordable if p["cost"]<=500]
+    assert low and all(p["legs"][0]["occ"]!=top["legs"][0]["occ"] for p in low)
+    assert all(.25<=abs(p["delta"])<=.55 and p["spread_pct"]<=.15 and p["open_interest"]>=100 for p in low)
+    assert pl.finish(pl.likely_itm(tb,context())[0],context())["legs"]==top["legs"]
+
+
+def test_bands_include_fees_and_have_independent_coverage_not_only_global_top_twelve():
+    tables = [chain_table(100.,f"S{i}") for i in range(15)]
+    candidates = pl.budget_plays("likely_itm",tables,context(),None)
+    counts = Counter(tuple(p["budget_band"]) for p in candidates)
+    assert counts[(0.,100.)]==12 and counts[(100.,250.)]==12
+    for p in candidates:
+        low,high=p["budget_band"]
+        assert low<p["cost"]<=high
+        assert p["cost"]==pytest.approx(p["legs"][0]["ask"]*100+.65,abs=.01)
+    tb=tables[0]
+    row=next(i for i in range(len(tb)) if 7<=tb.dte[i]<=60 and .25<=tb.delta[i]<=.55)
+    eligible=np.zeros(len(tb),dtype=bool)
+    eligible[row]=True
+    tb=replace(tb,oi=np.where(eligible,5000,0),ask=np.where(eligible,1.,tb.ask))
+    assert pl.likely_itm(tb,replace(context(),budget_range=(0.,100.)))==[]  # $100 premium + fee is over $100
+
+
+def test_low_budget_does_not_turn_a_trend_pick_into_a_deep_otm_lotto():
+    tb=chain_table()
+    tb=replace(tb,ask=np.where(np.abs(tb.delta)<.10,.2,tb.ask),
+               bid=np.where(np.abs(tb.delta)<.10,.195,tb.bid))
+    affordable=pl.budget_plays("trend_calls",[tb],context(),None)
+    assert all(abs(p["delta"])>=.35 for p in affordable)
+
+
+def test_budget_straddle_uses_both_leg_costs_and_can_choose_another_atm_expiry():
+    tb=chain_table(40.)
+    tb.u.iv_rank=10.
+    candidates=pl.budget_plays("cheap_vol",[tb],context(),None)
+    assert candidates and any(p["cost"]<=100 for p in candidates)
+    for p in candidates:
+        assert len(p["legs"])==2
+        assert p["legs"][0]["strike"]==p["legs"][1]["strike"]==40
+        assert p["cost"]==pytest.approx(sum(leg["ask"]*100+.65 for leg in p["legs"]),abs=.01)
+        assert p["budget_band"][0]<p["cost"]<=p["budget_band"][1]
+
+
+def test_selling_budget_means_maximum_loss_not_the_small_credit_received():
+    tb=chain_table(1000.)
+    tb.u.iv_rank=80.
+    picks=pl.budget_plays("sell_premium",[tb],context(),None)
+    assert picks
+    for p in picks:
+        assert p["action"]=="SELL" and p["cost"] is None
+        width=abs(p["legs"][0]["strike"]-p["legs"][1]["strike"])*100
+        assert p["max_loss"]==pytest.approx(width-p["credit"],abs=.02)
+        assert p["budget_band"][0]<p["max_loss"]<=p["budget_band"][1]
+
+
+def test_budget_picks_are_automatically_archived_and_tracked_without_entering_closing_cohorts(tmp_path):
+    w=make_world(tmp_path,n=12)
+    try:
+        tb=chain_table()
+        picks=pl.budget_plays("likely_itm",[tb],context(),None)
+        board={"asof":AT.date().isoformat(),"generated_at":AT.isoformat(),"method":"synthetic_budget_v1",
+               "categories":[{"id":"likely_itm","plays":[],"budget_plays":picks}]}
+        before=list(w.dbs.ledger.iterdump())
+        register(w.dbs.research,board,AT)
+        first_seen(w.dbs.research,board,AT)
+        register(w.dbs.research,board,AT+timedelta(minutes=1))
+        assert w.dbs.research.execute("SELECT COUNT(*) FROM stk_play_ideas").fetchone()[0]==len(picks)
+        assert w.dbs.research.execute("SELECT COUNT(*) FROM stk_play_first_seen").fetchone()[0]==len(picks)
+        assert not w.dbs.research.execute("SELECT 1 FROM stk_plays").fetchone()
+        assert not w.dbs.research.execute("SELECT 1 FROM stk_play_selections").fetchone()
+        tracked=tracked_set(w.dbs.research,AT.date(),None)
+        assert all(p["legs"][0]["occ"] in tracked and p["idea_id"] for p in picks)
+        assert list(w.dbs.ledger.iterdump())==before
+    finally:
+        w.close()
+
+
+def test_collection_mixes_liquid_lower_priced_stocks_without_raising_the_request_limit():
+    conn=sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE stk_scores_latest(symbol TEXT,detail_json TEXT)")
+    for symbol,price,volume in [("BIG",1000,1e10),("HUGE",800,9e9),("MID",500,8e9),
+                                ("RETAIL",25,8e7),("RETAIL2",50,7e7),("THIN",10,1e4),("PENNY",1,5e7)]:
+        conn.execute("INSERT INTO stk_scores_latest VALUES (?,?)",(symbol,json.dumps({"price":{
+            "close":price,"dollar_volume_20d":volume}})))
+    assert option_focus(conn,4,1,1e6)==["BIG","RETAIL","HUGE","RETAIL2"]
+    assert option_focus(conn,0,1,1e6)==[]
+    assert len(option_focus(conn,20,1,1e6))==7  # all leaders retained if the focus budget has room
+    conn.close()

@@ -59,6 +59,7 @@ try {
       .getByRole("button", { name: "Open exact-leg payoff calculator" })
       .click();
     await page.locator("dialog.options-calculator").waitFor();
+    await page.locator(".calc-leg").first().waitFor();
     assert.equal(await page.locator(".calc-leg").count(), 1);
     assert.equal(
       await page.getByLabel("Call or put", { exact: true }).inputValue(),

@@ -24,7 +24,7 @@ import sqlite3
 import statistics
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -48,6 +48,8 @@ from desk.storage.db import transaction
 Array = np.ndarray
 VERSION = 1
 PER_CATEGORY = 12
+BUDGET_VERSION = 1
+BUDGET_BANDS = ((0.0, 100.0), (100.0, 250.0), (250.0, 500.0), (500.0, 1000.0))
 HISTORY_SESSIONS = 756              # three years of closes for the history view
 PRIOR_SESSIONS = 10                 # earlier sessions read for each contract's own volume, open interest and IV
 DEFAULT_RATE = 0.04
@@ -244,6 +246,7 @@ class Context:
     calibration: dict[str, od.Calibration]
     watchlist: list[str]
     flagged: dict[str, dict[str, Any]] = field(default_factory=dict)   # occ → the last recorded unusual play of it
+    budget_range: tuple[float, float] | None = None  # whole-play entry cost / maximum loss; never per-share premium
 
 
 def _rate(market: StocksMarket, session: date) -> float:
@@ -448,12 +451,22 @@ def _liquid(tb: Table, spread: float, oi: int) -> Array:
     return out
 
 
+def _budget_long(tb: Table, ctx: Context) -> Array:
+    """Apply the whole-contract budget BEFORE a selector chooses its best strike/expiry."""
+    if ctx.budget_range is None:
+        return np.ones(len(tb), dtype=bool)
+    low, high = ctx.budget_range
+    cost = tb.ask * 100 + FEE
+    out: Array = (cost > low) & (cost <= high)
+    return out
+
+
 def likely_itm(tb: Table, ctx: Context) -> list[Candidate]:
     d = _direction(tb.u)
     if d is None:
         return []
-    m = (tb.call == (d == "call")) & _liquid(tb, 0.15, 100) & (tb.ask >= 0.10) & (tb.dte >= 7) & (tb.dte <= 60) & (
-        np.abs(tb.delta) >= 0.25) & (np.abs(tb.delta) <= 0.55)
+    m = ((tb.call == (d == "call")) & _budget_long(tb, ctx) & _liquid(tb, 0.15, 100) & (tb.ask >= 0.10)
+         & (tb.dte >= 7) & (tb.dte <= 60) & (np.abs(tb.delta) >= 0.25) & (np.abs(tb.delta) <= 0.55))
     rows = np.where(m)[0]
     if not len(rows):
         return []
@@ -464,8 +477,8 @@ def likely_itm(tb: Table, ctx: Context) -> list[Candidate]:
 
 
 def edge(tb: Table, ctx: Context) -> list[Candidate]:
-    m = _liquid(tb, 0.12, 100) & (tb.ask >= 0.10) & (tb.dte >= 7) & (tb.dte <= 60) & (np.abs(tb.delta) >= 0.15) & (
-        np.abs(tb.delta) <= 0.70)
+    m = (_budget_long(tb, ctx) & _liquid(tb, 0.12, 100) & (tb.ask >= 0.10) & (tb.dte >= 7) & (tb.dte <= 60)
+         & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.70))
     rows = np.where(m)[0]
     if not len(rows):
         return []
@@ -487,7 +500,7 @@ def unusual(tb: Table, ctx: Context) -> list[Candidate]:
     avg = np.array([u.average_volume.get(q.occ) or (q.average_volume or 0) for q in tb.quotes], dtype=float)
     vol_avg = np.where(avg > 0, tb.volume / np.maximum(avg, 1), np.nan)
     vol_oi = tb.volume / np.maximum(tb.oi, 1)
-    gate = (tb.volume >= 250) & (premium >= 25_000) & (tb.spread <= 0.35) & (
+    gate = _budget_long(tb, ctx) & (tb.volume >= 250) & (premium >= 25_000) & (tb.spread <= 0.35) & (
         (vol_oi >= 1.0) | (np.nan_to_num(vol_avg) >= 4))
     rows = np.where(gate)[0]
     if not len(rows):
@@ -559,13 +572,30 @@ def unusual(tb: Table, ctx: Context) -> list[Candidate]:
     return sorted(out, key=lambda c: -c.score)[:2]
 
 
-def _straddle(tb: Table, lo: int, hi: int, after: date | None = None) -> tuple[int, int] | None:
+def _straddle(tb: Table, lo: int, hi: int, after: date | None = None,
+              budget: tuple[float, float] | None = None) -> tuple[int, int] | None:
     rows = np.where(_liquid(tb, 0.15, 50) & (tb.dte >= lo) & (tb.dte <= hi))[0]
     if after is not None:
         rows = np.array([i for i in rows if tb.quotes[i].expiration > after], dtype=int)
     if not len(rows):
         return None
     centre = lo if after is not None else (lo + hi) / 2
+    if budget is not None:
+        # Keep the ATM pair for each expiry; a cheap far-away strike must not masquerade as an ATM straddle.
+        budget_pairs: dict[tuple[float,float],dict[bool,int]] = defaultdict(dict)
+        for i in rows:
+            budget_pairs[(float(tb.dte[i]),float(tb.k[i]))][bool(tb.call[i])] = int(i)
+        at_money: dict[float,tuple[float,dict[bool,int]]] = {}
+        for (dte,strike),legs in budget_pairs.items():
+            if True in legs and False in legs and (dte not in at_money or
+                    abs(strike-tb.u.price)<abs(at_money[dte][0]-tb.u.price)):
+                at_money[dte] = (strike,legs)
+        affordable = [(dte,legs) for dte,(_strike,legs) in at_money.items()
+                      if budget[0] < (tb.ask[legs[True]]+tb.ask[legs[False]])*100+2*FEE <= budget[1]]
+        if not affordable:
+            return None
+        _dte,legs = min(affordable,key=lambda item:abs(item[0]-centre) if after is None else item[0])
+        return legs[True],legs[False]
     expiry = min({float(tb.dte[i]) for i in rows}, key=lambda d: abs(d - centre) if after is None else d)
     by_strike: dict[float, dict[bool, int]] = defaultdict(dict)
     for i in rows:
@@ -583,7 +613,7 @@ def cheap_vol(tb: Table, ctx: Context) -> list[Candidate]:
     ratio = None if not (u.iv30 and u.rv) else u.iv30 / u.rv
     if not ((ratio is not None and ratio <= 0.9) or (u.iv_rank is not None and u.iv_rank <= 20)):
         return []
-    legs = _straddle(tb, 14, 60)
+    legs = _straddle(tb, 14, 60, budget=ctx.budget_range)
     if legs is None:
         return []
     why = [f"IV30 {u.iv30:.0%} vs realized {u.rv:.0%} ({ratio:.2f}×)" if ratio else "IV rank low",
@@ -596,7 +626,7 @@ def earnings(tb: Table, ctx: Context) -> list[Candidate]:
     u = tb.u
     if u.earnings is None or len(u.past_moves) < 4 or not 1 <= (u.earnings[0] - ctx.session).days <= 21:
         return []
-    legs = _straddle(tb, 1, 45, after=u.earnings[1])
+    legs = _straddle(tb, 1, 45, after=u.earnings[1], budget=ctx.budget_range)
     if legs is None:
         return []
     priced = (tb.ask[legs[0]] + tb.ask[legs[1]]) / u.price
@@ -614,7 +644,10 @@ def trend_calls(tb: Table, ctx: Context) -> list[Candidate]:
     m, above = u.desk("momentum"), u.feature("above_sma200")
     if m is None or m < 75 or above is None or above <= 0:
         return []
-    i = _nearest(tb, tb.call & _liquid(tb, 0.15, 100), 0.60, 30, 75)
+    mask = tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.15, 100)
+    if ctx.budget_range is not None:
+        mask &= (np.abs(tb.delta)>=.35) & (np.abs(tb.delta)<=.75)
+    i = _nearest(tb, mask, 0.60, 30, 75)
     if i is None:
         return []
     return [Candidate("trend_calls", tb, "long_call", [(i, "buy")], float(m),
@@ -629,7 +662,10 @@ def bear_puts(tb: Table, ctx: Context) -> list[Candidate]:
     flagged = bool(flags) and (m is None or m <= 50)
     if not (weak or flagged):
         return []
-    i = _nearest(tb, ~tb.call & _liquid(tb, 0.15, 100), 0.45, 30, 75)
+    mask = ~tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.15, 100)
+    if ctx.budget_range is not None:
+        mask &= (np.abs(tb.delta)>=.25) & (np.abs(tb.delta)<=.65)
+    i = _nearest(tb, mask, 0.45, 30, 75)
     if i is None:
         return []
     why = [f"Valuation {v:.0f}, momentum {m:.0f}, {above:.0%} vs its 200-day" if weak else
@@ -644,7 +680,10 @@ def squeeze(tb: Table, ctx: Context) -> list[Candidate]:
     sq = facts.get("squeeze")
     if sq is None or sq < 60:
         return []
-    i = _nearest(tb, tb.call & _liquid(tb, 0.20, 50), 0.30, 14, 45)
+    mask = tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.20, 50)
+    if ctx.budget_range is not None:
+        mask &= (np.abs(tb.delta)>=.20) & (np.abs(tb.delta)<=.45)
+    i = _nearest(tb, mask, 0.30, 14, 45)
     if i is None:
         return []
     shorts = u.detail.get("shorts") or {}
@@ -663,15 +702,34 @@ def sell_premium(tb: Table, ctx: Context) -> list[Candidate]:
     if kind is None:
         return []
     is_call = kind == "call"
-    short = _nearest(tb, (tb.call == is_call) & _liquid(tb, 0.15, 100), 0.25, 21, 60)
-    if short is None:
-        return []
-    target = tb.k[short] * (1.05 if is_call else 0.95)
-    same = [i for i in range(len(tb)) if tb.dte[i] == tb.dte[short] and bool(tb.call[i]) == is_call
-            and (tb.k[i] > tb.k[short] if is_call else tb.k[i] < tb.k[short]) and tb.spread[i] <= 0.25]
-    if not same:
-        return []
-    long = min(same, key=lambda i: abs(tb.k[i] - target))
+    if ctx.budget_range is not None:
+        pairs = []
+        shorts = np.where((tb.call==is_call) & _liquid(tb,.15,100) & (tb.dte>=21) & (tb.dte<=60)
+                          & (np.abs(tb.delta)>=.15) & (np.abs(tb.delta)<=.35))[0]
+        for s in shorts:
+            longs = np.where((tb.dte==tb.dte[s]) & (tb.call==is_call) & _liquid(tb,.15,100)
+                             & (tb.k>tb.k[s] if is_call else tb.k<tb.k[s]))[0]
+            for long_index in longs:
+                premium = tb.bid[s]-tb.ask[long_index]
+                distance = abs(tb.k[long_index]-tb.k[s])
+                risk = (distance-premium)*100+2*FEE
+                if (premium>=.10*distance and premium*100>2*FEE and
+                        ctx.budget_range[0] < risk <= ctx.budget_range[1]):
+                    pairs.append((abs(abs(tb.delta[s])-.25),abs(distance-.05*u.price),int(s),int(long_index)))
+        if not pairs:
+            return []
+        _delta,_width,short,long = min(pairs)
+    else:
+        short_candidate = _nearest(tb, (tb.call == is_call) & _liquid(tb, 0.15, 100), 0.25, 21, 60)
+        if short_candidate is None:
+            return []
+        short = short_candidate
+        target = tb.k[short] * (1.05 if is_call else 0.95)
+        same = [i for i in range(len(tb)) if tb.dte[i] == tb.dte[short] and bool(tb.call[i]) == is_call
+                and (tb.k[i] > tb.k[short] if is_call else tb.k[i] < tb.k[short]) and tb.spread[i] <= 0.25]
+        if not same:
+            return []
+        long = min(same, key=lambda i: abs(tb.k[i] - target))
     credit = tb.bid[short] - tb.ask[long]
     width = abs(tb.k[long] - tb.k[short])
     if credit < 0.10 * width:
@@ -690,8 +748,8 @@ def sell_premium(tb: Table, ctx: Context) -> list[Candidate]:
 def lottos(tb: Table, ctx: Context) -> list[Candidate]:
     u = tb.u
     otm = np.where(tb.call, tb.k / u.price - 1, 1 - tb.k / u.price)
-    m = (tb.ask >= 0.05) & (tb.ask <= 0.50) & (tb.dte >= 1) & (tb.dte <= 14) & (otm >= 0.03) & (tb.oi >= 50) & (
-        tb.volume >= 50) & (tb.spread <= 0.35)
+    m = (_budget_long(tb, ctx) & (tb.ask >= 0.05) & (tb.ask <= 0.50) & (tb.dte >= 1) & (tb.dte <= 14)
+         & (otm >= 0.03) & (tb.oi >= 50) & (tb.volume >= 50) & (tb.spread <= 0.35))
     rows = np.where(m)[0]
     if not len(rows):
         return []
@@ -714,7 +772,7 @@ def leaps(tb: Table, ctx: Context) -> list[Candidate]:
     conviction = u.committee if u.committee is not None else (60.0 if u.symbol in ETFS else None)
     if conviction is None or conviction < 60:
         return []
-    i = _nearest(tb, tb.call & _liquid(tb, 0.10, 20), 0.75, 180, 800)
+    i = _nearest(tb, tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.10, 20), 0.75, 180, 800)
     if i is None or abs(tb.delta[i]) < 0.6:
         return []
     extrinsic = (tb.ask[i] - max(0.0, u.price - tb.k[i])) / u.price
@@ -728,7 +786,7 @@ def watchlist(tb: Table, ctx: Context) -> list[Candidate]:
     if u.symbol not in ctx.watchlist:
         return []
     d = "call" if u.committee is None or u.committee >= 50 else "put"
-    m = (tb.call == (d == "call")) & _liquid(tb, 0.15, 50) & (tb.dte >= 14) & (tb.dte <= 60) & (
+    m = (tb.call == (d == "call")) & _budget_long(tb, ctx) & _liquid(tb, 0.15, 50) & (tb.dte >= 14) & (tb.dte <= 60) & (
         np.abs(tb.delta) >= 0.35) & (np.abs(tb.delta) <= 0.60)
     rows = np.where(m)[0]
     if not len(rows):
@@ -1159,6 +1217,7 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
     chains = market.conn.execute("SELECT COUNT(*), MAX(observed_at) FROM stk_option_chains WHERE day = ?",
                                  (day_of(session),)).fetchone()
     parts = {"session": session.isoformat(), "chains": list(chains), "version": VERSION, "method": m or method(),
+             "budget_version": BUDGET_VERSION,
              "closed": session_closed(session, now),
              "scores": research.conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0],
              "validation": research.conn.execute("SELECT MAX(id) FROM stk_validation").fetchone()[0],
@@ -1167,6 +1226,49 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
              "watchlist": research.watchlist(),
              "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0]}
     return sha256_hex(canonical_json(parts))
+
+
+def budget_plays(category: str, tables: list[Table], ctx: Context, promoted: str | None) -> list[dict[str,Any]]:
+    """Rank within each affordable band BEFORE one-per-stock and top-twelve cuts; keep closing cohorts untouched."""
+    from desk.stocks import play_learning as lrn
+
+    variant = lrn.BY_VARIANT[promoted] if promoted else None
+    limit = 2 if category=="unusual" else 1
+    out = []
+    seen = set()
+    for low,high in BUDGET_BANDS:
+        budget_ctx = replace(ctx,budget_range=(low,high))
+        found = [c for tb in tables for c in SELECTORS[category](tb,budget_ctx)]
+        found.sort(key=lambda c:(-c.score,c.table.u.symbol))
+        finished: dict[int,dict[str,Any]] = {}
+
+        def done(c: Candidate, finished: dict[int,dict[str,Any]] = finished,
+                 budget_ctx: Context = budget_ctx) -> dict[str,Any]:
+            if id(c) not in finished:
+                p = finish(c,budget_ctx)
+                p["selection_score"] = float(variant.rank(p) if variant and variant.rank else c.score)
+                finished[id(c)] = p
+            return finished[id(c)]
+
+        if variant:
+            picks = lrn.select(variant,category,found,done,limit)
+        else:
+            picks = []
+            counts: Counter[str] = Counter()
+            for c in found:
+                if counts[c.table.u.symbol]>=limit:
+                    continue
+                counts[c.table.u.symbol] += 1
+                picks.append({**done(c),"rank":len(picks)+1})
+                if len(picks)>=PER_CATEGORY:
+                    break
+        for p in picks:
+            key = canonical_json(p["legs"])
+            risk = p["max_loss"] if p["action"]=="SELL" else p["cost"]
+            if key not in seen and low < risk <= high:
+                seen.add(key)
+                out.append({**p,"budget_band":[low,high],"budget_version":BUDGET_VERSION,"discovery":"budget"})
+    return out
 
 
 def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledger: PaperBook | None = None,
@@ -1206,9 +1308,13 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         found.sort(key=lambda c: (-c.score, c.table.u.symbol))
         finished: dict[int, dict[str, Any]] = {}       # per category: every candidate in ``found`` stays alive
 
-        def done(c: Candidate, finished: dict[int, dict[str, Any]] = finished) -> dict[str, Any]:
+        def done(c: Candidate, finished: dict[int, dict[str, Any]] = finished,
+                 category: str = cat.id) -> dict[str, Any]:
             if id(c) not in finished:
-                finished[id(c)] = finish(c, ctx)
+                p = finish(c, ctx)
+                variant = lrn.BY_VARIANT[live[category]] if category in live else None
+                p["selection_score"] = float(variant.rank(p) if variant and variant.rank else c.score)
+                finished[id(c)] = p
             return finished[id(c)]
 
         limit = 2 if cat.id == "unusual" else 1
@@ -1231,6 +1337,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         exit_rule = (learned.get("exits") or {}).get(cat.id) or {}
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
                  "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
+                 "budget_plays": budget_plays(cat.id,tables,ctx,live.get(cat.id)),
                  "label": (learned.get("labels") or {}).get(cat.id), "live_rules": live.get(cat.id),
                  "exit": exit_rule if exit_rule.get("suggested") else None}
         if cat.id == "unusual":
@@ -1256,6 +1363,9 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                   "rate": round(ctx.rate, 4)},
         "recorded": added, "twins": twins, "shadow_picks": shadows, "graded": graded, "session_closed": closed,
         "categories": out_categories,
+        "budget_search": {"version":BUDGET_VERSION,"bands":[list(b) for b in BUDGET_BANDS],
+                          "max_risk":1000.0,"entry_fees_included":True,
+                          "before_ranking":True,"per_band_limit":PER_CATEGORY},
         "message": f"Plays from the {session.isoformat()} options session"
                    + ("" if session == expected else f"; waiting for {expected.isoformat()} chains"),
     }

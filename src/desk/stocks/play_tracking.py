@@ -111,7 +111,7 @@ def tracked_set(research: sqlite3.Connection, today: date, board: dict[str, Any]
         for leg in json.loads(r["legs_json"]):
             want(leg["occ"], 2)
     for category in (board or {}).get("categories") or []:
-        for play in category.get("plays") or []:
+        for play in [*(category.get("plays") or []), *(category.get("budget_plays") or [])]:
             for leg in play.get("legs") or []:
                 want(str(leg.get("occ", "")), 0)
     from desk.stocks.play_selections import active_legs
@@ -403,7 +403,7 @@ def first_seen(research: sqlite3.Connection, board: dict[str, Any], now: datetim
         return 0
     rows = []
     for category in board.get("categories") or []:
-        for p in category.get("plays") or []:
+        for p in [*(category.get("plays") or []), *(category.get("budget_plays") or [])]:
             legs = p.get("legs") or []
             if not legs or p.get("entry") is None:
                 continue

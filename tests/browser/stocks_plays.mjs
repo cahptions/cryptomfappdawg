@@ -45,6 +45,23 @@ try {
     }
     const tabs = page.getByRole("tab");
     assert.equal(await tabs.count(), 12, "one tab per category");
+    const data = await (
+      await page.request.get(`${base}/api/stocks/plays`)
+    ).json();
+    const rankedCategory = data.categories.find((c) => c.id === "likely_itm");
+    rankedCategory.label = {
+      state: "proven",
+      text: "Synthetic unrestricted-only performance label",
+    };
+    rankedCategory.exit = {
+      test_sessions: 20,
+      mean_improvement: 0.1,
+      best_in_sample: { rule: "Synthetic unrestricted-only exit" },
+    };
+    await page.route(`${base}/api/stocks/plays`, (route) =>
+      route.fulfill({ json: data }),
+    );
+    await page.reload();
     await page.getByRole("tab", { name: /Most likely to finish ITM/ }).click();
     await page
       .getByRole("heading", { name: /Most likely to finish ITM/ })
@@ -52,6 +69,112 @@ try {
     const cards = page.locator("article.play-card");
     assert.ok((await cards.count()) > 0, "likely-ITM plays render as cards");
     const first = cards.first();
+    assert.equal(
+      await page
+        .getByText("Synthetic unrestricted-only performance label", {
+          exact: true,
+        })
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page.getByText(/Synthetic unrestricted-only exit/).count(),
+      0,
+    );
+    assert.equal(
+      await page.getByLabel("Maximum cost per contract").inputValue(),
+      "500",
+    );
+    assert.ok(
+      (await page.locator(".play-filters").innerText()).includes(
+        "Max cost / risk ($)",
+      ),
+    );
+    assert.match(
+      await page.locator(".play-filter-summary").innerText(),
+      /Maximum cost \/ risk \$500\.00/,
+    );
+    await page.getByRole("button", { name: "Up to $100", exact: true }).click();
+    const affordable = page.locator("article.play-card");
+    assert.ok(
+      (await affordable.count()) > 0,
+      "under-$100 candidates are searched before expensive picks win",
+    );
+    await page.screenshot({
+      path: `${out}/plays-budget-100-${width}.png`,
+      fullPage: true,
+    });
+    const selected = data.categories.find((c) => c.id === "likely_itm");
+    const cheapIds = new Set(
+      [...(selected.budget_plays || []), ...selected.plays]
+        .filter((p) => p.cost <= 100)
+        .map((p) => p.idea_id),
+    );
+    for (const url of await affordable
+      .locator('a[href^="#plays/idea/"]')
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("href"))))
+      assert.ok(
+        cheapIds.has(url.split("/").at(-1)),
+        "visible exact idea respects whole-contract budget",
+      );
+    await page.getByRole("button", { name: "$100–$250", exact: true }).click();
+    assert.match(
+      await page.locator(".play-filter-summary").innerText(),
+      /Cost \/ risk above \$100\.00/,
+    );
+    assert.ok((await affordable.count()) > 0);
+    await page.getByLabel("Maximum cost per contract").fill("0.01");
+    await page.reload();
+    await page
+      .getByRole("heading", {
+        name: /No plays in this category match these filters/,
+      })
+      .waitFor();
+    assert.equal(
+      await page.getByLabel("Maximum cost per contract").inputValue(),
+      "0.01",
+    );
+    assert.match(
+      await page.locator(".play-filter-empty").innerText(),
+      /Loading is complete/,
+    );
+    assert.match(
+      await page.locator(".play-filter-empty").innerText(),
+      /Maximum cost \/ risk \$0\.01 excludes/,
+    );
+    assert.match(
+      await page.locator(".play-filter-empty").innerText(),
+      /lowest cost \/ risk/,
+    );
+    assert.match(
+      await page
+        .getByRole("tab", { name: /Most likely to finish ITM/ })
+        .innerText(),
+      /\(0 of \d+\)/,
+    );
+    await page
+      .getByRole("button", {
+        name: "Clear filters and show the full ranking",
+        exact: true,
+      })
+      .click();
+    assert.equal(await cards.count(), selected.plays.length);
+    await page
+      .getByText("Synthetic unrestricted-only performance label", {
+        exact: true,
+      })
+      .waitFor();
+    await page.getByText(/Synthetic unrestricted-only exit/).waitFor();
+    assert.equal(
+      await page.getByLabel("Maximum cost per contract").inputValue(),
+      "",
+    );
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Clear filters", exact: true })
+        .isDisabled(),
+      true,
+    );
     assert.match(
       await first.locator(".research-badge").first().innerText(),
       /^BUY (CALL|PUT)$/,
@@ -85,11 +208,11 @@ try {
     await page.getByRole("tab", { name: /Most likely to finish ITM/ }).click();
     await page.getByLabel("Layout").selectOption("table");
     await page.getByRole("columnheader", { name: "Chance ITM" }).waitFor();
-    await page.getByLabel("Minimum chance in the money, percent").fill("99");
+    await page.getByLabel("Minimum chance at expiry, percent").fill("99");
     await page
       .getByText(/No plays in this category match these filters/)
       .waitFor();
-    await page.getByLabel("Minimum chance in the money, percent").fill("");
+    await page.getByLabel("Minimum chance at expiry, percent").fill("");
     await page.getByLabel("Layout").selectOption("cards");
     const overflow = await page.evaluate(
       () => document.scrollingElement.scrollWidth - window.innerWidth,

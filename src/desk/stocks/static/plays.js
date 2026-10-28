@@ -24,7 +24,8 @@ const KestrelPlays = (() => {
     category: null,
     kind: "all",
     action: "all",
-    maxCost: "",
+    maxCost: "500",
+    minCost: "",
     minItm: "",
     view: "cards",
   };
@@ -342,14 +343,14 @@ const KestrelPlays = (() => {
     maxCost.type = minItm.type = "number";
     maxCost.min = minItm.min = "0";
     minItm.max = "100";
-    maxCost.placeholder = "Max cost per contract ($)";
-    minItm.placeholder = "Min chance ITM (%)";
+    maxCost.step = "0.01";
+    maxCost.placeholder = "No limit";
+    minItm.placeholder = "Any chance";
     maxCost.setAttribute("aria-label", "Maximum cost per contract");
-    minItm.setAttribute("aria-label", "Minimum chance in the money, percent");
-    maxCost.value = state.maxCost;
-    minItm.value = state.minItm;
+    minItm.setAttribute("aria-label", "Minimum chance at expiry, percent");
     maxCost.oninput = () => {
       state.maxCost = maxCost.value;
+      state.minCost = "";
       remember();
       onchange();
     };
@@ -358,29 +359,143 @@ const KestrelPlays = (() => {
       remember();
       onchange();
     };
-    bar.append(kind, action, maxCost, minItm, view);
-    return bar;
+    for (const [input, title] of [
+      [kind, "Option type"],
+      [action, "Buy or sell"],
+      [maxCost, "Max cost / risk ($)"],
+      [minItm, "Minimum chance at expiry (%)"],
+      [view, "Layout"],
+    ]) {
+      const label = el("label", undefined, "play-filter-field");
+      label.append(el("span", title), input);
+      bar.append(label);
+    }
+    const clear = el("button", "Clear filters");
+    function reset() {
+      Object.assign(state, {
+        kind: "all",
+        action: "all",
+        maxCost: "",
+        minCost: "",
+        minItm: "",
+      });
+      remember();
+      onchange();
+    }
+    clear.onclick = reset;
+    bar.append(clear);
+    const budgets = el("div", undefined, "play-budget-presets"),
+      presets = [];
+    budgets.setAttribute("role", "group");
+    budgets.setAttribute("aria-label", "Trade budget");
+    budgets.append(el("span", "Find affordable plays:"));
+    for (const [title, low, high] of [
+      ["Up to $100", "", "100"],
+      ["$100–$250", "100", "250"],
+      ["$250–$500", "250", "500"],
+      ["Up to $500", "", "500"],
+      ["All prices", "", ""],
+    ]) {
+      const button = el("button", title);
+      button.onclick = () => {
+        state.minCost = low;
+        state.maxCost = high;
+        remember();
+        onchange();
+      };
+      presets.push([button, low, high]);
+      budgets.append(button);
+    }
+    function sync() {
+      kind.value = state.kind;
+      action.value = state.action;
+      maxCost.value = state.maxCost;
+      minItm.value = state.minItm;
+      view.value = state.view;
+      clear.disabled = !filterRules().length;
+      for (const [button, low, high] of presets)
+        button.setAttribute(
+          "aria-pressed",
+          String(state.minCost === low && state.maxCost === high),
+        );
+    }
+    sync();
+    return { element: bar, budgets, sync, reset };
   }
 
-  function keep(play) {
-    const kind =
-      play.legs?.[0]?.kind || (play.type.includes("CALL") ? "call" : "put");
-    if (state.kind !== "all" && kind !== state.kind) return false;
-    if (state.action !== "all" && play.action !== state.action) return false;
-    if (
-      state.maxCost &&
-      (play.action === "SELL" ? play.max_loss : play.cost) >
-        Number(state.maxCost)
-    )
-      return false;
-    if (state.minItm) {
-      const chance =
-        play.action === "SELL"
-          ? 1 - (play.itm_kestrel ?? 0)
-          : (play.itm_kestrel ?? 0);
-      if (100 * chance < Number(state.minItm)) return false;
+  const playRisk = (play) =>
+    play.action === "SELL" ? play.max_loss : play.cost;
+  function filterRules() {
+    const rules = [];
+    if (state.kind !== "all")
+      rules.push({
+        label: state.kind === "call" ? "Calls only" : "Puts only",
+        accepts: (p) =>
+          (p.legs?.[0]?.kind || (p.type.includes("CALL") ? "call" : "put")) ===
+          state.kind,
+      });
+    if (state.action !== "all")
+      rules.push({
+        label: state.action === "BUY" ? "Buying only" : "Selling only",
+        accepts: (p) => p.action === state.action,
+      });
+    if (state.maxCost !== "")
+      rules.push({
+        label: `Maximum cost / risk ${money(Number(state.maxCost))}`,
+        accepts: (p) =>
+          Number.isFinite(playRisk(p)) && playRisk(p) <= Number(state.maxCost),
+      });
+    if (state.minCost !== "")
+      rules.push({
+        label: `Cost / risk above ${money(Number(state.minCost))}`,
+        accepts: (p) =>
+          Number.isFinite(playRisk(p)) && playRisk(p) > Number(state.minCost),
+      });
+    if (state.minItm !== "")
+      rules.push({
+        label: `Minimum chance at expiry ${state.minItm}%`,
+        accepts: (p) => {
+          const itm = p.itm_kestrel ?? p.itm_market;
+          return (
+            Number.isFinite(itm) &&
+            100 * (p.action === "SELL" ? 1 - itm : itm) >= Number(state.minItm)
+          );
+        },
+      });
+    return rules;
+  }
+
+  function selection(cat, rules) {
+    const budget = state.maxCost !== "" || state.minCost !== "",
+      pool =
+        budget && cat.budget_plays
+          ? [
+              ...cat.budget_plays,
+              ...cat.plays.filter((p) => playRisk(p) > 1000),
+            ]
+          : cat.plays,
+      unique = new Map();
+    for (const play of pool) {
+      const key =
+        play.idea_id || JSON.stringify(play.legs?.map((l) => [l.occ, l.side]));
+      if (!unique.has(key)) unique.set(key, play);
     }
-    return true;
+    const candidates = [...unique.values()].sort(
+      (a, b) =>
+        (b.selection_score ?? -b.rank) - (a.selection_score ?? -a.rank) ||
+        a.rank - b.rank,
+    );
+    const matches = candidates.filter((p) => rules.every((r) => r.accepts(p))),
+      counts = new Map(),
+      shown = [];
+    for (const play of matches) {
+      const used = counts.get(play.symbol) || 0;
+      if (used >= (cat.id === "unusual" ? 2 : 1)) continue;
+      counts.set(play.symbol, used + 1);
+      shown.push({ ...play, rank: shown.length + 1 });
+      if (shown.length >= 12) break;
+    }
+    return { candidates, matches, shown, budget };
   }
 
   async function show(ticket, route = "plays") {
@@ -415,7 +530,7 @@ const KestrelPlays = (() => {
     app.append(hero, KestrelPlaysHistory.views("board"));
     const strip = el("p", undefined, "muted caption play-strip");
     strip.textContent = data.asof
-      ? `Options session ${data.asof} · ${data.coverage.underlyings} underlyings · ${number(data.coverage.contracts_scored)} contracts scored · ${data.source || "stored chains"} · built ${when(data.generated_at)} · chance model: ${data.calibration.applied ? `calibrated on ${data.calibration.resolved} resolved plays` : `not yet calibrated (${data.calibration.resolved} of ${data.calibration.needed} resolved plays)`}${data.model.ic ? ` · committee tilt from IC ${data.model.ic.toFixed(3)} over ${data.model.ic_months} months` : " · no committee tilt yet (no positive measured IC)"}`
+      ? `Loaded options session ${data.asof} · ${data.coverage.underlyings} underlyings · ${number(data.coverage.contracts_scored)} contracts scored · ${data.source || "stored chains"} · built ${when(data.generated_at)} · chance model: ${data.calibration.applied ? `calibrated on ${data.calibration.resolved} resolved plays` : `not yet calibrated (${data.calibration.resolved} of ${data.calibration.needed} resolved plays)`}${data.model.ic ? ` · committee tilt from IC ${data.model.ic.toFixed(3)} over ${data.model.ic_months} months` : " · no committee tilt yet (no positive measured IC)"}`
       : data.message;
     app.append(strip);
     if (!data.categories?.length) {
@@ -431,14 +546,21 @@ const KestrelPlays = (() => {
     tabs.setAttribute("role", "tablist");
     tabs.setAttribute("aria-label", "Play categories");
     const body = el("section", undefined, "play-body");
+    const controls = filters(draw),
+      summary = el("p", undefined, "play-filter-summary");
+    summary.setAttribute("role", "status");
+    summary.setAttribute("aria-atomic", "true");
     const ids = data.categories.map((c) => c.id);
     if (!ids.includes(state.category)) state.category = ids[0];
     function draw() {
+      controls.sync();
+      const rules = filterRules();
       tabs.replaceChildren();
       for (const cat of data.categories) {
+        const picked = selection(cat, rules);
         const b = el(
           "button",
-          `${cat.emoji} ${cat.title} (${cat.plays.length})`,
+          `${cat.emoji} ${cat.title} (${rules.length ? `${picked.shown.length} of ` : ""}${picked.candidates.length})`,
           "play-tab",
         );
         b.setAttribute("role", "tab");
@@ -450,7 +572,8 @@ const KestrelPlays = (() => {
         };
         tabs.append(b);
       }
-      const cat = data.categories.find((c) => c.id === state.category);
+      const cat = data.categories.find((c) => c.id === state.category),
+        { candidates, matches, shown, budget } = selection(cat, rules);
       body.replaceChildren();
       const head = el("div", undefined, "section-heading");
       const text = el("div");
@@ -458,9 +581,9 @@ const KestrelPlays = (() => {
         el("h2", `${cat.emoji} ${cat.title}`),
         el("p", cat.blurb, "muted"),
       );
-      if (cat.label && cat.label.state !== "unproven")
+      if (!budget && cat.label && cat.label.state !== "unproven")
         text.append(el("p", cat.label.text, `pf-label ${cat.label.state}`));
-      if (cat.exit)
+      if (!budget && cat.exit)
         text.append(
           el(
             "p",
@@ -477,19 +600,78 @@ const KestrelPlays = (() => {
           ),
         );
       head.append(text);
-      body.append(head, el("p", cat.basis, "muted caption"), record(cat));
-      if (cat.followups?.length) body.append(followupTable(cat.followups));
-      const shown = cat.plays.filter(keep);
-      if (!shown.length) {
-        body.append(
-          el(
-            "p",
-            cat.plays.length
-              ? "No plays in this category match these filters."
-              : cat.empty || "Nothing qualifies in this category today.",
-            "screen-empty",
-          ),
+      body.append(head, el("p", cat.basis, "muted caption"));
+      if (budget) {
+        const note = el(
+          "p",
+          data.budget_search
+            ? "Budget search considers affordable strikes and expirations before ranking. Category quality gates still apply; budget trades are followed automatically in History. The original category's performance record is separate."
+            : "This saved board predates budget search. The next collection pass rebuilds it from saved chains; current results only filter the original shortlist.",
+          "caption muted",
         );
+        body.append(note);
+      } else body.append(record(cat));
+      if (cat.followups?.length) body.append(followupTable(cat.followups));
+      summary.textContent = `Showing ${shown.length} ranked plays in ${cat.title}: ${matches.length} of ${candidates.length} candidates match. ${rules.length ? `${rules.map((r) => r.label).join(" · ")}. Filters are remembered in this browser.` : "No filters applied."} At most 12 shown, ${cat.id === "unusual" ? "two" : "one"} per stock.`;
+      if (!shown.length) {
+        const empty = el("div", undefined, "screen-empty play-filter-empty");
+        if (candidates.length) {
+          empty.append(
+            el("h3", "No plays in this category match these filters."),
+            el(
+              "p",
+              `Loading is complete. ${candidates.length} candidates are hidden by your filters.`,
+            ),
+          );
+          const reasons = el("ul");
+          for (const rule of rules) {
+            const excluded = candidates.filter((p) => !rule.accepts(p)).length;
+            if (excluded)
+              reasons.append(
+                el(
+                  "li",
+                  `${rule.label} excludes ${excluded} of ${candidates.length} candidates.`,
+                ),
+              );
+          }
+          empty.append(reasons);
+          if (rules.length > 1)
+            empty.append(
+              el(
+                "p",
+                "A play can be excluded by more than one filter.",
+                "caption",
+              ),
+            );
+          if (state.maxCost !== "") {
+            const priced = candidates.map(playRisk).filter(Number.isFinite);
+            if (priced.length && Math.min(...priced) > Number(state.maxCost))
+              empty.append(
+                el(
+                  "p",
+                  `The lowest cost / risk in this category is ${money(Math.min(...priced))} for one contract per leg, including entry fees.`,
+                ),
+              );
+          }
+          const reset = el("button", "Clear filters and show the full ranking");
+          reset.onclick = controls.reset;
+          empty.append(reset);
+        } else {
+          empty.append(
+            el(
+              "p",
+              budget && cat.plays.length
+                ? "No qualifying alternatives were found in the searched price bands for this category. Try another category or view all prices."
+                : cat.empty || "Nothing qualifies in this category today.",
+            ),
+          );
+          if (budget && cat.plays.length) {
+            const all = el("button", "View all prices");
+            all.onclick = controls.reset;
+            empty.append(all);
+          }
+        }
+        body.append(empty);
         return;
       }
       if (state.view === "table") body.append(rowsTable(shown));
@@ -499,7 +681,23 @@ const KestrelPlays = (() => {
         body.append(grid);
       }
     }
-    app.append(filters(draw), tabs, body);
+    app.append(
+      controls.element,
+      controls.budgets,
+      el(
+        "p",
+        `Searching ${number(data.coverage.underlyings)} collected underlyings. Coverage grows as collection rotates; watchlist stocks are prioritized.`,
+        "caption muted",
+      ),
+      el(
+        "p",
+        "Cost / risk is for one contract per leg, including entry fees: purchase cost for buys; maximum loss for sells. Chance follows the card's expiry event: ITM, a break-even move, or a short option expiring worthless.",
+        "caption muted play-filter-help",
+      ),
+      summary,
+      tabs,
+      body,
+    );
     draw();
     app.append(
       el(

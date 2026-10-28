@@ -12,6 +12,44 @@ Code: `src/desk/stocks/plays.py` (categories, unusual activity, recording and gr
 (the probabilities), `src/desk/stocks/static/plays.js` (the page); history, performance and learning are described
 below.
 
+## Affordable plays and filters
+
+New browser profiles start with **Up to $500**. Existing saved preferences, including a custom maximum, are retained.
+Use **Up to $100**, **$100–$250**, **$250–$500**, **Up to $500** or **All prices**. Dollar amounts mean one whole
+contract per leg, including opening fees: total purchase cost for buys and maximum loss for credit spreads. A
+$4 option quote is roughly a $400 contract, not a $4 trade. The controls stay labeled when a value is entered,
+and **Clear filters** resets eligibility filters while preserving the category and layout.
+
+The worker searches four disjoint price bands through $1,000 **before** selecting one contract per stock and the
+top twelve in each category. This replaces the old behavior where a single expensive contract could win for its
+stock and the UI only hid it afterward, missing that stock's affordable alternatives. The standard unrestricted
+shortlists and immutable closing evaluation cohorts keep their original rules and results. Band-specific nominees
+are separate discoveries; custom limits filter the retained band nominees, not every possible market contract.
+
+The budget pass reuses the category's underlying, liquidity, spread, horizon and direction rules. Trend calls,
+bearish puts and squeeze calls also have explicit delta ranges so a budget constraint cannot silently substitute
+a very remote lotto. ATM straddles use the combined cost of both legs and can choose another qualifying expiry;
+credit spreads consider narrower supported pairs within the maximum-loss budget. Price alone is not evidence of
+quality, positive expected return or a profitable trading edge. Lottos remain a separately labeled speculative
+category, and all probabilities and expected-value estimates remain visible.
+
+Every nominated budget idea receives its own stable identity and first-seen quote archive automatically. It stays
+in quote rotation and **History → All identified plays** without requiring a click. Its exact-leg calculator and
+personal PAPER confirmation work like other ideas. Budget discoveries do not enter or rewrite the original
+closing-cohort calibration and performance record; the page distinguishes that record from budget results.
+
+Badges and the result summary show filtered counts, considered candidates and the twelve-play/per-stock display
+limits. When filters hide all results, the page says loading is complete, lists exclusion counts, gives the lowest
+retained cost when relevant, and offers a reset. Filter failures and a category with no qualifying ideas have
+different messages. Chance filtering follows the card's displayed event and its market fallback when the KESTREL
+estimate is absent, including the short option's chance of expiring worthless.
+
+Coverage is limited to collected chains. The existing bounded rotation now interleaves dollar-volume leaders with
+stocks priced $5–$100 trading at least $25 million daily (or stricter operator research thresholds), while retaining
+requested names, watchlists and core SPY/QQQ handling. This uses the same request budget. Lower stock price is a
+coverage heuristic, not an assertion that its options are affordable or liquid; actual option quotes must qualify.
+No new provider credentials are required. A saved board from an earlier build is labeled until the worker rebuilds it.
+
 ## Personal selections and exact-play details
 
 Click a **BUY/SELL badge** to open an adjacent confirmation window and choose a whole-contract quantity. Confirming

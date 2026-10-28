@@ -3,6 +3,43 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-28 — Affordable Plays search before ranking, with visible budget controls
+
+Operator's screenshot was loaded (20,492 scored contracts, 12 ranked picks) but a remembered $475 cap hid the
+shortlist. Review found a second issue: category selectors chose one expensive contract per underlying and only
+then ranked twelve; the browser's later budget filter could not discover affordable alternatives in those chains.
+
+- Add independent $0–100/$100–250/$250–500/$500–1,000 candidate searches before per-stock/top-twelve selection.
+  Reuse priced tables, category gates and promoted rules. Include opening fees and full multi-leg cost, and use
+  maximum loss for selling. Straddles retain ATM pairing and can change expiry; credit spreads can select narrower
+  qualifying pairs. Add delta guards to budget trend/bear/squeeze variants to avoid accidental deep-OTM lottos.
+- Preserve the unrestricted closing cohorts, immutable recorded results and their calibration. Budget nominees
+  have separate archived first sightings and exact identities; quote tracking and History follow them without
+  user clicks. They work with the existing exact-leg calculator and personal PAPER confirmation. Their original
+  category performance is not passed off as a record for the budget-specific selection policy.
+- New browser profiles default to a $500 maximum; existing saved custom values remain. Add visible input labels,
+  price-band buttons, Clear filters, filtered tab counts, explicit candidate/display limits and exclusion reasons.
+  An empty filtered list says loading is complete and can reset immediately. Explain whole-contract units and
+  cost/risk semantics. Chance filtering follows the displayed event and market fallback. Preserve category/layout
+  and exclude speculative lottos from normal categories unless their original category gates actually qualify.
+- Within the same bounded collection count, interleave dollar-volume leaders with liquid $5–$100 stocks (at least
+  $25M daily dollar volume, or stricter research settings). Requested/watchlist/core ETF behavior remains. Stock
+  price is only a source-coverage heuristic; actual option liquidity and premium still determine eligibility.
+
+Validation: seven new regressions cover hidden cheaper strikes, per-band diversity and fees, delta guards, full
+straddle/spread costs, automatic archive/tracking without closing-cohort or personal writes, and collection bounds.
+Thirteen existing Plays/archive/personal integration cases pass. Ruff, strict mypy (241 files), JS syntax and
+formatting pass. Desktop/375px browser checks pass for budget bands, saved restrictive filters, explanations/reset,
+cards/tables/category persistence and empty data. Existing personal put/multi-leg calculator, opening/closing quote,
+reload and company-profile workflows also pass at both widths; calculator tests now await loaded leg rows.
+The complete regression suite passed **1,442 offline tests, 5 opt-in live tests deselected** (one upstream Starlette
+deprecation warning). Budget views suppress unrestricted-cohort evidence labels and learned exit suggestions.
+
+Limits: custom thresholds filter retained price-band nominees rather than the entire exchange universe. The pool
+depends on collected chains; no minimum number of affordable or positive-EV ideas is promised. Source data and
+probabilities remain dated and provisional. All validation is synthetic/offline; no authenticated laptop/provider
+acceptance or profitable edge is claimed. See docs/STOCKS_PLAYS.md for the complete behavior and limitations.
+
 ## 2026-10-28 — $1,000 and $5,000 accounts test research transfer
 
 Added independent finite-capital accounts to the Learning workspace alongside uncapped research and the existing

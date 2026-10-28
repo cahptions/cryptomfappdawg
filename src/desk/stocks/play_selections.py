@@ -43,7 +43,7 @@ def register(research: sqlite3.Connection, board: dict[str, Any], now: datetime)
     stamp = min(now, datetime.fromisoformat(board.get("generated_at") or to_iso(now)))
     with transaction(research):
         for category in board.get("categories") or []:
-            for play in category.get("plays") or []:
+            for play in [*(category.get("plays") or []), *(category.get("budget_plays") or [])]:
                 ident = idea_id(session, category["id"], method, play)
                 play["idea_id"] = ident
                 research.execute("INSERT OR IGNORE INTO stk_play_ideas VALUES (?,?,?,?,?,?,?)",

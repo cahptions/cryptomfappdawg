@@ -181,6 +181,8 @@ def main() -> None:
                                      "expiration":expiration.isoformat(),"bid":quote.bid,"ask":quote.ask}])
                 sample.pop("probability_targets",None)
                 board["categories"][0]["plays"].append(sample)
+                board["categories"][0]["budget_plays"].append({**deepcopy(sample),
+                    "discovery":"budget","budget_band":[250.,500.]})
                 play_selections.register(world.dbs.research,board,NOW)
                 saved_path(paths,"plays").write_text(json.dumps(board))
 
