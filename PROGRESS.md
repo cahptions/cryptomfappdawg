@@ -3,6 +3,40 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-28 — $1,000 and $5,000 accounts test research transfer
+
+Added independent finite-capital accounts to the Learning workspace alongside uncapped research and the existing
+$500,000 mirrored reference. They start with one virtual deposit when this version initializes, retain all losses
+and history across restarts, and never receive automatic top-ups. Existing strategy PAPER and historical replay
+ledgers are unchanged. Every operation remains virtual PAPER; no brokerage order methods were added.
+
+- `learning_retail.py` selects structure/holding/cadence families from prior uncapped outcomes only. Group repeated
+  fills and sizing variants into underlying/day blocks, shrink mean net returns, prioritize a previously recorded
+  promoted structure among positive families, and freeze evidence/version/hash in each decision. Future labels,
+  future model check-ins and small-account results cannot select the policy. Starter and provisional modes are
+  explicit; all nonpositive research families leave finite accounts in cash while uncapped experiments continue.
+- Choose affordable eligible strikes/expiries independently, with whole-contract quantities and a 25% equity sizing
+  target. An explicitly disclosed single-contract fallback may exceed the target but never available cash. Actual
+  later quotes, fees, spreads, impact and estimated capacity determine each account's own fills and P/L. Recheck
+  cash using ledger rounding at execution; price jumps can shrink or cancel entries without overdrafts.
+- Give finite pending entries and marks separate scheduling time so a large research queue cannot starve them.
+  Keep the uncapped account uncapped. All books obey existing Learning/PAPER pause and STOP controls. New indexes
+  support account-specific queue scans and matured research lookup without rewriting existing migrations.
+- The page always shows both small comparison cards, with equity, net P/L, return, cash and trade counts. Account
+  tabs expose own chart, open/closed trades, orders/fills, funding and original decision details. Show start time,
+  policy mode, research cutoff and independent block counts. A single initial NAV is visibly one point. Polling
+  also refreshes policy changes when P/L is unchanged. No retroactive scaled research profits are presented.
+
+Validation: eight new unit/integration cases and the existing ten Learning cases pass. Ruff, strict mypy over 241
+source files, JavaScript syntax and formatting pass. Desktop/375px browser checks pass for new comparison cards,
+account-specific P/L/orders/trade evidence, no top-ups, reload persistence and no horizontal overflow. Existing
+Learning pause/resume, chart navigation, custom experiments and downloads also pass at both widths. The full suite
+passed **1,435 offline tests, with 5 opt-in live tests deselected** (one upstream Starlette deprecation warning).
+
+Limits: forward results require the running collector and fresh provider quotes. Starter/provisional policies are
+research hypotheses, not a proven trading edge. Existing estimated depth and unresolved-expiry limitations remain
+visible. All checks use synthetic fixtures; authenticated laptop/provider state is unavailable here.
+
 ## 2026-10-28 — History retains every identified play, without user clicks
 
 Operator reported yesterday's History showing only two SPY/QQQ LEAPS rather than all recommendations. Root cause:

@@ -28,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
-                                               "plays-history", "personal-workflows", "archive-history"],
+                                               "plays-history", "personal-workflows", "archive-history", "learning-retail"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
@@ -140,12 +140,18 @@ def main() -> None:
                         Bar(symbol, world.days[-2], 99, 100, 98, 99.5, 100000),
                         Bar(symbol, session, 100, 103, 99, minutes[-1].close, 100000),
                     ], NOW)
-            if args.scenario == "learning-workflows":
+            if args.scenario in {"learning-workflows","learning-retail"}:
                 from desk.stocks import learning
                 from tests.unit.test_stocks_learning import AT, chain
 
                 lab = learning.open_book(paths)
                 try:
+                    if args.scenario == "learning-retail":
+                        from tests.unit.test_stocks_learning_retail import outcome
+
+                        learning.initialize(lab,AT-timedelta(days=30))
+                        outcome(lab,"long_call",-.1,AT-timedelta(days=2))
+                        outcome(lab,"long_put",.2,AT-timedelta(days=2))
                     for at, bid, ask in [(AT,4.8,5.0),(AT+timedelta(minutes=1),4.8,5.0),
                                          (AT+timedelta(minutes=122),5.8,6.0)]:
                         chain(world,at,bid,ask,source="synthetic_browser_fixture")

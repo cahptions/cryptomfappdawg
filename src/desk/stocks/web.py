@@ -47,6 +47,7 @@ from desk.web.app import install_browser_boundary
 
 STATIC = Path(__file__).with_name("static")
 log = logging.getLogger(__name__)
+LearningAccount = Literal["uncapped_research", "reference_500k", "reference_1k", "reference_5k"]
 
 
 class BacktestInput(BaseModel):
@@ -697,7 +698,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             conn.close()
 
     @app.get("/api/stocks/learning/trades")
-    def learning_trades(account: Literal["uncapped_research", "reference_500k"] = "uncapped_research",
+    def learning_trades(account: LearningAccount = "uncapped_research",
                         state: Literal["OPEN", "CLOSED"] = "OPEN", offset: int = Query(default=0, ge=0),
                         limit: int = Query(default=12, ge=1, le=100)) -> dict[str, Any]:
         from desk.stocks import learning
@@ -714,7 +715,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 "decisions": book.decisions(account, limit=100)}
 
     @app.get("/api/stocks/learning/orders")
-    def learning_orders(account: Literal["uncapped_research", "reference_500k"] = "uncapped_research",
+    def learning_orders(account: LearningAccount = "uncapped_research",
                         offset: int = Query(default=0, ge=0), limit: int = Query(default=12, ge=1, le=100)) -> dict[str, Any]:
         from desk.stocks import learning
 

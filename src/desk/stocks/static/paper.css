@@ -206,6 +206,51 @@
 .learning-findings {
   margin-bottom: 30px;
 }
+.learning-small-accounts {
+  margin: 28px 0;
+}
+.learning-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
+  gap: 16px;
+}
+.learning-account-card {
+  min-width: 0;
+  border: 1px solid #344257;
+  border-radius: 12px;
+  background: #101a28;
+  padding: 20px;
+}
+.learning-account-card h3 {
+  margin: 0 0 12px;
+}
+.learning-account-equity {
+  display: block;
+  font-size: 30px;
+  color: #c5d9ff;
+}
+.learning-account-card dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  font-size: 13px;
+}
+.learning-account-card dt {
+  color: #b5c3d6;
+}
+.learning-account-card dd {
+  margin: 0;
+  text-align: right;
+}
+.learning-account-card button {
+  margin-top: 8px;
+}
+.learning-transfer-policy p {
+  line-height: 1.6;
+}
+.learning-account-heading {
+  margin: 24px 0;
+}
 .paper-trades {
   margin: 32px 0;
   border-top: 1px solid #344257;

@@ -13,7 +13,8 @@ replay; its date slider and first/previous/next/play controls review archived da
 closed trades as they existed on the selected date. Playback is a review of an actual chronological computation, not a
 claim that an animation trains a model. The complete run has its own retained ledger under `stocks-replays/`.
 
-The separate **Learning** workspace has its own uncapped research book and finite $500,000 comparison book.
+The separate **Learning** workspace has its own uncapped research book, finite $500,000 comparison book, and independent
+$1,000/$5,000 forward accounts that test affordable trades selected from prior research findings.
 Its virtual-funding override and intraday experiments are documented in [STOCKS_LEARNING.md](STOCKS_LEARNING.md).
 The strategy accounts described below retain their existing limits and history.
 

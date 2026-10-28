@@ -28,6 +28,9 @@ FILE = "stocks-learning-paper.db"
 RESEARCH = "uncapped_research"
 REFERENCE = "reference_500k"
 CAPITAL = 500_000.0
+SMALL_ACCOUNTS = ("reference_1k", "reference_5k")
+ACCOUNTS = ((RESEARCH, "Uncapped research", CAPITAL), (REFERENCE, "$500,000 reference", CAPITAL),
+            (SMALL_ACCOUNTS[0], "$1,000 account", 1_000.0), (SMALL_ACCOUNTS[1], "$5,000 account", 5_000.0))
 STRUCTURES = ("long_call", "long_put", "long_straddle")
 
 
@@ -98,8 +101,11 @@ def add_experiment(
 def initialize(conn: sqlite3.Connection, now: datetime) -> None:
     book = PaperBook(conn)
     with book.atomic():
-        for account in (RESEARCH, REFERENCE):
-            book.open_account(account, CAPITAL, now, cal.new_york(now).date())
+        for account, _title, capital in ACCOUNTS:
+            created = book.open_account(account, capital, now, cal.new_york(now).date())
+            if created and account in SMALL_ACCOUNTS:
+                conn.execute("INSERT OR IGNORE INTO stk_learning_nav VALUES (?,?,?,?,?)",
+                             (to_iso(now),account,capital,capital,0.0))
         for structure in STRUCTURES:
             for hold in (30, 120):
                 for budget in (5_000, 50_000, 500_000, 1_000_000):
@@ -180,6 +186,10 @@ def pending_page(conn: sqlite3.Connection, limit: int = 200) -> list[Order]:
     if not rows and cursor:
         rows = conn.execute("SELECT * FROM stk_pending WHERE state='PENDING' ORDER BY id LIMIT ?", (limit,)).fetchall()
     set_state(conn, "pending_cursor", rows[-1]["id"] if rows else 0)
+    # A large uncapped queue cannot starve the small independent accounts of their next fresh quote.
+    priority = conn.execute("SELECT * FROM stk_pending WHERE state='PENDING' AND account IN (?,?) "
+                            "ORDER BY id LIMIT 50", SMALL_ACCOUNTS).fetchall()
+    rows = list({row["id"]:row for row in [*priority,*rows]}.values())
     return [
         Order(
             r["id"],
@@ -213,12 +223,13 @@ def fill_orders(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: d
         units = min(remaining, capacity(conn, order.account, actual))
         if units <= 0:
             continue
-        if order.account == REFERENCE:
+        if order.account != RESEARCH:
             low, high = 0, units
             while low < high:
                 middle = (low + high + 1) // 2
                 candidate = impact(legs, quotes, middle, True)
-                if candidate.debit + candidate.fees <= book.cash(order.account):
+                needed = to_micros(candidate.debit,cost=True)+to_micros(candidate.fees,cost=True)
+                if needed <= to_micros(book.cash(order.account),cost=False):
                     low = middle
                 else:
                     high = middle - 1
@@ -227,7 +238,8 @@ def fill_orders(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: d
             book.resolve(order.id, "CANCELLED", now, "Capital-constrained reference has insufficient cash")
             continue
         fill = impact(legs, quotes, units, True)
-        if not fund(book, order.account, fill.debit + fill.fees, now):
+        required = (to_micros(fill.debit,cost=True)+to_micros(fill.fees,cost=True))/MICRO
+        if not fund(book, order.account, required, now):
             book.resolve(order.id, "CANCELLED", now, "Reference buying power cannot cover modeled execution impact")
             continue
         pid = book.open_position(
@@ -281,6 +293,13 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
     offset = state(conn, "mark_offset", 0)
     positions = book.positions(limit=200, offset=offset)
     set_state(conn, "mark_offset", offset + len(positions) if len(positions) == 200 else 0)
+    positions = [p for p in positions if p.account not in SMALL_ACCOUNTS]
+    for account in SMALL_ACCOUNTS:
+        key = "mark_offset:"+account
+        at_offset = state(conn,key,0)
+        current = book.positions(account,limit=100,offset=at_offset)
+        set_state(conn,key,at_offset+len(current) if len(current)==100 else 0)
+        positions.extend(current)
     for position in positions:
         qs = [quotes.get(leg["occ"]) for leg in position.legs]
         if any(
@@ -527,7 +546,8 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
         "model": training,
         "next": "Continue timestamped forward experiments; compare capital sizes on matched sources",
         "funding_excluded_from_profit": True,
-        "baseline": "Uninvested cash: 0% trading return; separate $500,000 reference ledger uses the same order intents",
+        "baseline": "Uninvested cash: 0% trading return; the $500,000 reference mirrors research intents. "
+                    "Separate $1,000/$5,000 accounts test affordable transfers of prior research findings.",
         "attribution": "Return comparisons average underlying/day blocks rather than dollars or fill count. "
         "Size, cadence and holding time remain separate registered variables; market edge is not established.",
     }
@@ -584,8 +604,11 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
         closed = manage(conn, quotes, now)
         filled = fill_orders(conn, quotes, now)
         orders = propose(conn, market, now, quotes, snapshots)
+        from desk.stocks.learning_retail import propose as propose_retail
+
+        orders += propose_retail(conn,now,quotes,snapshots)
         book = PaperBook(conn)
-        for account in (RESEARCH, REFERENCE):
+        for account, _title, _capital in ACCOUNTS:
             marked = (
                 conn.execute(
                     "SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions WHERE state='OPEN' AND account=?", (account,)
@@ -615,7 +638,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
 def report(conn: sqlite3.Connection) -> dict[str, Any]:
     book = PaperBook(conn)
     accounts = []
-    for account, title in ((RESEARCH, "Uncapped research"), (REFERENCE, "$500,000 reference")):
+    for account, title, capital in ACCOUNTS:
         marked = conn.execute(
             "SELECT COALESCE(SUM(last_value_micros),0),COUNT(*) FROM stk_positions WHERE state='OPEN' AND account=?", (account,)
         ).fetchone()
@@ -648,9 +671,19 @@ def report(conn: sqlite3.Connection) -> dict[str, Any]:
             {
                 "id": account,
                 "title": title,
-                "starting_capital": CAPITAL,
+                "starting_capital": capital,
                 "contributed": contributed,
-                "additional_funding": contributed - CAPITAL if contributed else 0,
+                "additional_funding": contributed - capital if contributed else 0,
+                "funding_allowed": account == RESEARCH,
+                "small_account": account in SMALL_ACCOUNTS,
+                "started_at": conn.execute("SELECT MIN(at) FROM stk_cash WHERE account=? AND reason='DEPOSIT'",
+                                           (account,)).fetchone()[0],
+                "return_on_start": (equity-contributed)/capital,
+                "pending_orders": conn.execute("SELECT COUNT(*) FROM stk_pending WHERE account=? AND state='PENDING'",
+                                               (account,)).fetchone()[0],
+                "policy": state(conn,"retail:"+account,{"phase":"Waiting for a fresh quote and a policy decision",
+                    "mode":"starter", "note":"Starts forward from account creation; no earlier profit is fabricated."})
+                    if account in SMALL_ACCOUNTS else None,
                 "cash": book.cash(account),
                 "equity": equity,
                 "trading_pnl": equity - contributed,

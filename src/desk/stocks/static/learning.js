@@ -16,6 +16,50 @@ const KestrelLearning = (() => {
     n.append(el("small", label), el("strong", value));
     return n;
   }
+  const policyName = (mode) =>
+    ({
+      starter: "Starter policy · research still gathering outcomes",
+      provisional: "Provisional research findings · still being tested",
+      research_champion: "Promoted research structure · small-account test",
+      waiting: "Holding cash · waiting for supported findings",
+    })[mode] || "Waiting for a policy decision";
+  function comparisons(accounts, select) {
+    const section = el("section", undefined, "learning-small-accounts"),
+      grid = el("div", undefined, "learning-comparison-grid");
+    section.append(
+      el("h2", "Small-account tests"),
+      el(
+        "p",
+        "These accounts choose affordable trades from the research available at each decision. Each keeps its own cash and results, with no automatic top-ups. They start when this update first runs.",
+        "muted",
+      ),
+    );
+    for (const a of accounts.filter((a) => a.small_account)) {
+      const card = el("article", undefined, "learning-account-card"),
+        stats = el("dl"),
+        open = el("button", `View ${a.title}`);
+      open.onclick = () => select(a.id);
+      card.append(
+        el("h3", a.title),
+        el("strong", money(a.equity), "learning-account-equity"),
+      );
+      for (const [title, value] of [
+        ["Net trading P/L", signed(a.trading_pnl)],
+        ["Return on starting balance", percent(a.return_on_start)],
+        ["Cash available", money(a.cash)],
+        ["Trades", `${a.open_positions} open · ${a.closed_trades} closed`],
+      ])
+        stats.append(el("dt", title), el("dd", value));
+      card.append(
+        stats,
+        el("p", policyName(a.policy?.mode), "caption muted"),
+        open,
+      );
+      grid.append(card);
+    }
+    section.append(grid);
+    return section;
+  }
   function profitChart(curve) {
     const box = el("section", undefined, "paper-equity"),
       readout = el("p", "", "caption");
@@ -50,6 +94,24 @@ const KestrelLearning = (() => {
     );
     path.setAttribute("class", "paper-equity-line");
     svg.append(path);
+    if (curve.length === 1) {
+      const dot = document.createElementNS(svg.namespaceURI, "circle");
+      for (const [key, value] of Object.entries({
+        cx: x(0),
+        cy: y(curve[0].pnl),
+        r: 4,
+        fill: "#abc6ff",
+      }))
+        dot.setAttribute(key, value);
+      svg.append(dot);
+      box.append(
+        el(
+          "p",
+          "One recorded starting point; the path grows as fresh quotes and trades are observed.",
+          "caption muted",
+        ),
+      );
+    }
     let selected = curve.length - 1;
     const inspect = (i) => {
       selected = Math.max(0, Math.min(curve.length - 1, i));
@@ -99,7 +161,7 @@ const KestrelLearning = (() => {
         el("h1", "PAPER Learning"),
         el(
           "p",
-          "Test sizing, structures and holding periods. Inspect the evidence and every dollar of virtual funding.",
+          "Research tests sizing, structures and holding periods. The $1,000 and $5,000 accounts test whether its findings work with smaller balances.",
           "muted",
         ),
       );
@@ -163,6 +225,13 @@ const KestrelLearning = (() => {
       for (const error of data.collection.errors || [])
         status.append(el("p", error, "error"));
       app.append(status);
+      app.append(
+        comparisons(data.accounts, (id) => {
+          account = id;
+          offset = 0;
+          draw();
+        }),
+      );
       const tabs = el("div", undefined, "research-tabs");
       for (const a of data.accounts) {
         const b = el("button", a.title);
@@ -177,6 +246,48 @@ const KestrelLearning = (() => {
       app.append(tabs);
       const a = data.accounts.find((x) => x.id === account) || data.accounts[0];
       if (!a) return;
+      const selected = el("div", undefined, "learning-account-heading");
+      selected.append(
+        el("h2", a.title),
+        el(
+          "p",
+          `Started ${stamp(a.started_at)} · Last recorded observation ${stamp(a.curve.at(-1)?.at)}`,
+          "caption muted",
+        ),
+      );
+      if (a.small_account) {
+        const policy = el(
+            "section",
+            undefined,
+            "paper-status learning-transfer-policy",
+          ),
+          e = a.policy?.forecast;
+        policy.append(
+          el("h3", policyName(a.policy?.mode)),
+          el("p", a.policy?.phase || "Waiting for fresh quotes"),
+          el(
+            "p",
+            a.policy?.note ||
+              "Orders wait for a later fresh quote. Fees, spreads and execution capacity apply.",
+            "muted",
+          ),
+          el(
+            "p",
+            "Sizing targets 25% of current equity. A single whole contract may exceed that target if affordable; total spending never exceeds available cash. The account can hold cash when research is unfavorable or no suitable contract fits.",
+            "caption muted",
+          ),
+        );
+        if (e)
+          policy.append(
+            el(
+              "p",
+              `${e.blocks} prior underlying/day blocks across ${e.days} days. Research outcomes through ${stamp(e.matured_through)}. Decision ${stamp(a.policy.decision_at)}.`,
+              "caption muted",
+            ),
+          );
+        selected.append(policy);
+      }
+      app.append(selected);
       const metrics = el("div", undefined, "paper-metrics");
       metrics.append(
         metric("Starting virtual capital", money(a.starting_capital)),
@@ -194,6 +305,10 @@ const KestrelLearning = (() => {
         metric("Trading fees", money(a.fees)),
         metric("Trading P/L drawdown", money(a.trading_pnl_drawdown)),
       );
+      if (a.small_account)
+        metrics.append(
+          metric("Return on starting balance", percent(a.return_on_start)),
+        );
       if (a.unresolved_expiries)
         app.append(
           el(
@@ -206,7 +321,7 @@ const KestrelLearning = (() => {
         metrics,
         el(
           "p",
-          `${a.open_positions} open positions · ${a.closed_trades} closed trades · ${data.pending} pending experiment orders across both independent books. P/L / contributed capital: ${percent(a.pnl_per_contributed_dollar)}.`,
+          `${a.open_positions} open positions · ${a.closed_trades} closed trades · ${a.pending_orders} pending orders in this account. P/L / contributed capital: ${percent(a.pnl_per_contributed_dollar)}.`,
           "muted",
         ),
         profitChart(a.curve),
@@ -251,10 +366,7 @@ const KestrelLearning = (() => {
       app.append(views, content);
       if (view === "open" || view === "closed") {
         content.append(
-          el(
-            "h2",
-            view === "open" ? "Research positions" : "Completed experiments",
-          ),
+          el("h2", view === "open" ? "Account positions" : "Completed trades"),
         );
         api(
           `learning/trades?account=${account}&state=${view === "open" ? "OPEN" : "CLOSED"}&offset=${offset}&limit=12`,
@@ -279,6 +391,8 @@ const KestrelLearning = (() => {
                   `Entry ${money(p.entry_cost + p.entry_fees)} · ${p.plan.hold_minutes}-minute hypothesis`,
                 ),
               );
+              if (p.plan.transfer_policy)
+                b.append(el("small", policyName(p.plan.transfer_policy.mode)));
               b.onclick = () =>
                 KestrelPaper.tradeDialog(
                   p,
@@ -389,7 +503,15 @@ const KestrelLearning = (() => {
             "muted",
           ),
         );
-        for (const e of data.funding.filter(
+        if (!a.funding_allowed)
+          content.append(
+            el(
+              "p",
+              "This finite account receives its starting balance once. Losses are retained and no automatic funding is added.",
+              "notice",
+            ),
+          );
+        for (const e of (a.funding_allowed ? data.funding : []).filter(
           (e) => e.kind === "VIRTUAL_FUNDING",
         )) {
           const n = el("article", undefined, "paper-pending");
@@ -580,6 +702,11 @@ const KestrelLearning = (() => {
                   a.contributed,
                   a.open_positions,
                   a.closed_trades,
+                  a.pending_orders,
+                  a.policy?.mode,
+                  a.policy?.phase,
+                  a.policy?.decision_at,
+                  a.policy?.forecast?.policy_hash,
                 ]),
                 d.model.version,
                 d.progress.phase,
