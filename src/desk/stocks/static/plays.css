@@ -280,6 +280,42 @@
   line-height: 1.6;
   color: #c5d9ff;
 }
+.play-price-ranges {
+  margin: 24px 0 32px;
+}
+.play-price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 14px;
+}
+.play-price-band {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #111820;
+  min-width: 0;
+}
+.play-price-band h4,
+.play-price-band p {
+  margin: 0;
+}
+.play-price-band > button {
+  margin-top: auto;
+}
+.play-price-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.play-price-candidate small {
+  color: var(--muted);
+}
 .play-filter-empty {
   border: 1px solid var(--line);
   border-radius: 10px;

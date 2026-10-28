@@ -19,6 +19,16 @@ try {
     });
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+    if (scenario !== "empty")
+      await page.addInitScript(() => {
+        if (!sessionStorage.getItem("legacySeeded")) {
+          localStorage.setItem(
+            "kestrel-plays",
+            JSON.stringify({ maxCost: "475", category: "likely_itm" }),
+          );
+          sessionStorage.setItem("legacySeeded", "1");
+        }
+      });
     await page.goto(`${base}/#plays`);
     await page.getByRole("heading", { name: "Plays", exact: true }).waitFor();
     assert.equal(
@@ -49,6 +59,17 @@ try {
       await page.request.get(`${base}/api/stocks/plays`)
     ).json();
     const rankedCategory = data.categories.find((c) => c.id === "likely_itm");
+    // A render-only synthetic expensive play verifies All prices has no ceiling; actual pricing has Python coverage.
+    const expensive = structuredClone(rankedCategory.plays[0]);
+    Object.assign(expensive, {
+      symbol: "HIGH",
+      idea_id: "f".repeat(32),
+      cost: 4000.65,
+      max_loss: 4000.65,
+      entry: 40,
+      rank: 3,
+    });
+    rankedCategory.plays.push(expensive);
     rankedCategory.label = {
       state: "proven",
       text: "Synthetic unrestricted-only performance label",
@@ -75,26 +96,56 @@ try {
           exact: true,
         })
         .count(),
-      0,
+      1,
     );
     assert.equal(
       await page.getByText(/Synthetic unrestricted-only exit/).count(),
-      0,
+      1,
     );
     assert.equal(
       await page.getByLabel("Maximum cost per contract").inputValue(),
-      "500",
+      "",
     );
     assert.ok(
       (await page.locator(".play-filters").innerText()).includes(
         "Max cost / risk ($)",
       ),
     );
-    assert.match(
-      await page.locator(".play-filter-summary").innerText(),
-      /Maximum cost \/ risk \$500\.00/,
+    assert.equal(
+      await page
+        .getByRole("button", { name: "All prices", exact: true })
+        .getAttribute("aria-pressed"),
+      "true",
     );
+    assert.equal(
+      await cards.filter({ hasText: "$4,000.65" }).count(),
+      1,
+      "expensive picks remain visible",
+    );
+    const cheapBand = page.locator(".play-price-band").filter({
+      has: page.getByRole("heading", { name: "Up to $100", exact: true }),
+    });
+    assert.ok(
+      (await cheapBand.locator(".play-price-candidate").count()) > 0,
+      "cheap alternatives appear alongside expensive picks without a price filter",
+    );
+    await page.screenshot({
+      path: `${out}/plays-all-prices-${width}.png`,
+      fullPage: true,
+    });
     await page.getByRole("button", { name: "Up to $100", exact: true }).click();
+    assert.equal(
+      await page
+        .getByText("Synthetic unrestricted-only performance label", {
+          exact: true,
+        })
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page.getByText(/Synthetic unrestricted-only exit/).count(),
+      0,
+    );
     const affordable = page.locator("article.play-card");
     assert.ok(
       (await affordable.count()) > 0,
@@ -229,6 +280,28 @@ try {
     await page.getByRole("tab", { name: /Unusual activity/ }).click();
     await page.reload();
     await page.getByRole("heading", { name: /Unusual activity/ }).waitFor();
+    await page.evaluate(() => localStorage.removeItem("kestrel-plays"));
+    await page.reload();
+    await page
+      .getByRole("heading", { name: /Most likely to finish ITM/ })
+      .waitFor();
+    assert.equal(
+      await page.getByLabel("Maximum cost per contract").inputValue(),
+      "",
+      "fresh profiles also start with no price ceiling",
+    );
+    rankedCategory.plays = [];
+    await page.reload();
+    await page
+      .getByText(
+        "No picks in the overall ranking match these filters. Qualifying alternatives remain in the price ranges above.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.ok(
+      (await page.locator(".play-price-candidate").count()) > 0,
+      "budget alternatives stay available even when the original shortlist is empty",
+    );
     await page.close();
   }
   assert.deepEqual(errors, []);

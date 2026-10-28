@@ -14,8 +14,11 @@ below.
 
 ## Affordable plays and filters
 
-New browser profiles start with **Up to $500**. Existing saved preferences, including a custom maximum, are retained.
-Use **Up to $100**, **$100–$250**, **$250–$500**, **Up to $500** or **All prices**. Dollar amounts mean one whole
+**All prices** is the default, with no automatic price ceiling. Lower-priced candidates appear in visible price-range
+rows alongside the overall ranking, including links to their exact contracts. The overall ranking continues to admit
+expensive contracts. Optional filters are **Up to $100**, **$100–$250**, **$250–$500**, **Up to $500** or **All prices**.
+The earlier automatic ceiling and legacy saved price fields are cleared once by the price-filter preference migration;
+subsequent explicit user choices persist. Category, layout and non-price filters remain intact. Dollar amounts mean one whole
 contract per leg, including opening fees: total purchase cost for buys and maximum loss for credit spreads. A
 $4 option quote is roughly a $400 contract, not a $4 trade. The controls stay labeled when a value is entered,
 and **Clear filters** resets eligibility filters while preserving the category and layout.

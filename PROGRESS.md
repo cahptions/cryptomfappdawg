@@ -3,6 +3,25 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-28 — Correction: all prices by default; cheaper alternatives stay visible
+
+The operator clarified there was no requested $475/$500 spending ceiling: they wanted affordable contracts included
+alongside expensive ones. The prior release incorrectly defaulted new browsers to $500 and hid budget alternatives
+when All prices was selected. Corrected that interpretation without changing pricing, gates, cohorts or PAPER accounts.
+
+- Default to All prices. Clear the old automatic/legacy saved price fields once using priceFilterVersion 2; then
+  remember only subsequent explicit price choices. Preserve category/layout/non-price preferences.
+- Show visible price-range candidate rows alongside the unrestricted overall ranking, with costs, exact-play links,
+  expiry, modeled profit chance and liquidity. The overall list retains expensive plays. Optional buttons can narrow
+  results; there is no automatic price ceiling or cheapness bonus in the overall score.
+- Scope original performance labels, records and exit suggestions to the overall ranking; the supplemental nominees
+  keep their separate evidence context and existing automatic History tracking.
+
+Validation: desktop/375px browser regressions pass with both an expensive $4,000.65 render-only example and real engine-
+generated sub-$100 candidates on the same unfiltered page. Fresh-profile defaults, removal of the old remembered
+$475 cap, explicit filter persistence/reset and scoped evidence pass; JS syntax and formatting pass. Backend and ledger behavior
+are unchanged; the preceding release's 1,442-test offline suite remains the latest full backend regression run.
+
 ## 2026-10-28 — Affordable Plays search before ranking, with visible budget controls
 
 Operator's screenshot was loaded (20,492 scored contracts, 12 ranked picks) but a remembered $475 cap hid the

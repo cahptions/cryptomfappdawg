@@ -24,16 +24,21 @@ const KestrelPlays = (() => {
     category: null,
     kind: "all",
     action: "all",
-    maxCost: "500",
+    maxCost: "",
     minCost: "",
+    priceFilterVersion: 2,
     minItm: "",
     view: "cards",
   };
   try {
+    const saved = JSON.parse(localStorage.getItem("kestrel-plays") || "{}");
     state = {
       ...state,
-      ...JSON.parse(localStorage.getItem("kestrel-plays") || "{}"),
+      ...saved,
     };
+    // Remove the old automatic ceiling and legacy unlabeled price fields once. Subsequent explicit choices persist.
+    if (saved.priceFilterVersion !== 2)
+      Object.assign(state, { maxCost: "", minCost: "", priceFilterVersion: 2 });
   } catch {
     /* private window or blocked storage: defaults are fine */
   }
@@ -388,7 +393,7 @@ const KestrelPlays = (() => {
       presets = [];
     budgets.setAttribute("role", "group");
     budgets.setAttribute("aria-label", "Trade budget");
-    budgets.append(el("span", "Find affordable plays:"));
+    budgets.append(el("span", "Optional price filters:"));
     for (const [title, low, high] of [
       ["Up to $100", "", "100"],
       ["$100–$250", "100", "250"],
@@ -498,6 +503,80 @@ const KestrelPlays = (() => {
     return { candidates, matches, shown, budget };
   }
 
+  function priceRanges(cat, rules, select) {
+    const section = el("section", undefined, "play-price-ranges"),
+      grid = el("div", undefined, "play-price-grid");
+    section.append(
+      el("h3", "Candidates across price ranges"),
+      el(
+        "p",
+        "Lower-priced alternatives appear alongside the overall ranking. All prices remain eligible; price alone does not improve a play's score.",
+        "muted caption",
+      ),
+    );
+    for (const [title, low, high] of [
+      ["Up to $100", 0, 100],
+      ["$100–$250", 100, 250],
+      ["$250–$500", 250, 500],
+      ["$500–$1,000", 500, 1000],
+    ]) {
+      const group = el("article", undefined, "play-price-band"),
+        pool = (cat.budget_plays || [])
+          .filter(
+            (p) =>
+              playRisk(p) > low &&
+              playRisk(p) <= high &&
+              rules.every((r) => r.accepts(p)),
+          )
+          .sort(
+            (a, b) =>
+              (b.selection_score ?? -b.rank) - (a.selection_score ?? -a.rank),
+          );
+      group.append(el("h4", title));
+      for (const p of pool.slice(0, 2)) {
+        const item = el("div", undefined, "play-price-candidate"),
+          detail = p.idea_id
+            ? `#plays/idea/${p.idea_id}`
+            : `#stock/${encodeURIComponent(p.symbol)}`;
+        item.append(
+          link(`${p.symbol} · ${p.action} ${p.type}`, detail),
+          el(
+            "strong",
+            `${money(playRisk(p))} ${p.action === "SELL" ? "max risk" : "cost"}`,
+          ),
+          el("small", `${money(p.strike)} strike · ${p.expiration}`),
+          el(
+            "small",
+            `Profit at expiry ${pct(p.profit_kestrel)} · liquidity ${p.liquidity}`,
+          ),
+        );
+        group.append(item);
+      }
+      if (!pool.length)
+        group.append(
+          el(
+            "p",
+            "No qualifying candidates in this range for the current filters.",
+            "caption muted",
+          ),
+        );
+      const view = el("button", `View ${title}`);
+      view.disabled = !pool.length;
+      view.onclick = () => select(low, high);
+      group.append(view);
+      grid.append(group);
+    }
+    section.append(
+      grid,
+      el(
+        "p",
+        "These alternatives are tracked automatically in History. Their results are separate from the original category's performance record.",
+        "caption muted",
+      ),
+    );
+    return section;
+  }
+
   async function show(ticket, route = "plays") {
     const parts = route.split("/");
     if (parts[1] === "idea")
@@ -576,15 +655,16 @@ const KestrelPlays = (() => {
         { candidates, matches, shown, budget } = selection(cat, rules);
       body.replaceChildren();
       const head = el("div", undefined, "section-heading");
-      const text = el("div");
+      const text = el("div"),
+        evidence = el("div", undefined, "play-overall-evidence");
       text.append(
         el("h2", `${cat.emoji} ${cat.title}`),
         el("p", cat.blurb, "muted"),
       );
       if (!budget && cat.label && cat.label.state !== "unproven")
-        text.append(el("p", cat.label.text, `pf-label ${cat.label.state}`));
+        evidence.append(el("p", cat.label.text, `pf-label ${cat.label.state}`));
       if (!budget && cat.exit)
-        text.append(
+        evidence.append(
           el(
             "p",
             `Suggested exit (chosen walk-forward over ${cat.exit.test_sessions} unseen sessions, +${pct(cat.exit.mean_improvement, 1)} a play better than holding): ${cat.exit.best_in_sample.rule}.`,
@@ -610,10 +690,35 @@ const KestrelPlays = (() => {
           "caption muted",
         );
         body.append(note);
-      } else body.append(record(cat));
+      }
       if (cat.followups?.length) body.append(followupTable(cat.followups));
       summary.textContent = `Showing ${shown.length} ranked plays in ${cat.title}: ${matches.length} of ${candidates.length} candidates match. ${rules.length ? `${rules.map((r) => r.label).join(" · ")}. Filters are remembered in this browser.` : "No filters applied."} At most 12 shown, ${cat.id === "unusual" ? "two" : "one"} per stock.`;
+      if (!budget && cat.budget_plays) {
+        body.append(
+          priceRanges(cat, rules, (low, high) => {
+            state.minCost = low ? String(low) : "";
+            state.maxCost = String(high);
+            remember();
+            draw();
+          }),
+        );
+        body.append(el("h3", "Overall ranking · all prices"));
+      }
+      if (!budget) body.append(evidence, record(cat));
       if (!shown.length) {
+        if (
+          !budget &&
+          (cat.budget_plays || []).some((p) => rules.every((r) => r.accepts(p)))
+        ) {
+          body.append(
+            el(
+              "p",
+              "No picks in the overall ranking match these filters. Qualifying alternatives remain in the price ranges above.",
+              "screen-empty",
+            ),
+          );
+          return;
+        }
         const empty = el("div", undefined, "screen-empty play-filter-empty");
         if (candidates.length) {
           empty.append(
