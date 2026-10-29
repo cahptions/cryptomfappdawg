@@ -134,7 +134,8 @@ def tracked_set(research: sqlite3.Connection, today: date, board: dict[str, Any]
 
 def market_open(now: datetime) -> bool:
     local = cal.new_york(now)
-    return cal.is_trading_day(local.date()) and OPEN <= local.time() <= time(16, 1)
+    return (cal.is_trading_day(local.date()) and local.time() >= OPEN
+            and now <= cal.session_close(local.date()) + timedelta(minutes=1))
 
 
 def due(tracked: dict[str, Tracked], last: dict[str, datetime], now: datetime) -> list[Tracked]:
@@ -207,7 +208,7 @@ async def quote_pass(due_now: Sequence[Tracked], save: Save, *, schwab: QuoteCli
                 result.errors.append(f"Schwab option quotes: {exc}"[:200])
                 result.endpoint = result.endpoint or "no_options"
                 break
-            usable = [t for t in ticks if t.bid is not None and t.ask is not None and t.ask > 0]
+            usable = [t for t in ticks if t.bid is not None and t.ask is not None and 0 <= t.bid <= t.ask and t.ask > 0]
             if usable:                     # an empty answer proves nothing (the contracts may not be listed)
                 save(usable, "schwab_quotes")
                 got.update(t.occ for t in usable)
@@ -289,8 +290,25 @@ def archive_ticks(market: sqlite3.Connection, tracked: dict[str, Tracked], sessi
 
 
 def last_ticks(research: sqlite3.Connection, session: date) -> dict[str, datetime]:
-    return {r["occ"]: datetime.fromisoformat(r["at"]) for r in research.execute(
-        "SELECT occ, MAX(at) AS at FROM stk_track_ticks WHERE session = ? GROUP BY occ", (day_of(session),))}
+    latest: dict[str, datetime] = {}
+    for row in research.execute("SELECT occ,at,session,quoted_at,bid,ask FROM stk_track_ticks WHERE session=?",
+                                (day_of(session),)):
+        at = tick_time(row)
+        if at is not None and (row["occ"] not in latest or at > latest[row["occ"]]):
+            latest[row["occ"]] = at
+    return latest
+
+
+def tick_time(row: sqlite3.Row | dict[str, Any]) -> datetime | None:
+    """Provider quote time when available; never promote an old-session quote by its retrieval time."""
+    received = datetime.fromisoformat(row["at"])
+    at = datetime.fromisoformat(row["quoted_at"]) if row["quoted_at"] else received
+    if row["bid"] is None or row["ask"] is None or not 0 <= row["bid"] <= row["ask"] or row["ask"] <= 0:
+        return None
+    if (at.tzinfo is None or at > received + timedelta(minutes=1)
+            or cal.new_york(at).date().toordinal() != row["session"]):
+        return None
+    return at
 
 
 # ── the fold at the close ────────────────────────────────────────────────────────────────────────
@@ -337,7 +355,9 @@ def fold(research: sqlite3.Connection, session: date, now: datetime, rate: Calla
         mids: list[float] = []
         closing = None
         for r in rows:
-            at = datetime.fromisoformat(r["at"])
+            at = tick_time(r)
+            if at is None:
+                continue
             local = cal.new_york(at)
             minute = local.hour * 60 + local.minute
             if local.date() != session or not open_minute <= minute <= close_minute + 2:
@@ -347,12 +367,12 @@ def fold(research: sqlite3.Connection, session: date, now: datetime, rate: Calla
             points[min(minute, close_minute)] = [min(minute, close_minute), r["bid"], r["ask"],
                                                  _round(r["underlying"], 2), _round(r["schwab_iv"], 4)]
             mids.append((r["bid"] + r["ask"]) / 2)
-            if at <= close + timedelta(minutes=2):
+            if at <= close + timedelta(minutes=2) and (closing is None or at >= (tick_time(closing) or at)):
                 closing = r
         if points:
             ordered = [points[m] for m in sorted(points)]
             intraday.append((occ, day_of(session), "quoted", len(ordered), pack(ordered), to_iso(now)))
-        if closing is None or datetime.fromisoformat(closing["at"]) < close - FRESH_CLOSE:
+        if closing is None or (tick_time(closing) or close-timedelta(days=1)) < close - FRESH_CLOSE:
             continue                       # no quote in the last hour: the marks step models this day instead
         mid = (closing["bid"] + closing["ask"]) / 2
         g = computed_greeks(kind, mid, closing["underlying"], strike, expiration, session, r_session)
@@ -567,12 +587,19 @@ async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now
         report["first_seen"] = first_seen(research, board, now)
     marked = get_state(research, "marks").get("at")
     trading = market_open(now)
-    if folded or not trading or not marked or now - datetime.fromisoformat(marked) >= MARKS_EVERY:
-        budget = play_marks.REPAIR_BUDGET_OPEN if trading else play_marks.REPAIR_BUDGET_CLOSED
-        report["marks"] = await play_marks.update(market, research, now, history=history, rate=rate, budget=budget)
-        put_state(research, "marks", {"at": to_iso(now), **{k: v for k, v in report["marks"].items() if k != "errors"}},
-                  now)
+    async def maintain() -> None:
+        if folded or not trading or not marked or now - datetime.fromisoformat(marked) >= MARKS_EVERY:
+            budget = play_marks.REPAIR_BUDGET_OPEN if trading else play_marks.REPAIR_BUDGET_CLOSED
+            try:
+                report["marks"] = await play_marks.update(market, research, now, history=history, rate=rate, budget=budget)
+                put_state(research, "marks", {"at": to_iso(now), **{k: v for k, v in report["marks"].items() if k != "errors"}},
+                          now)
+            except (DeskError, sqlite3.Error):
+                report["maintenance_error"] = "Historical mark repair failed; saved current quotes are retained."
+                log.warning("play mark repair failed; live quote collection is unaffected")
+
     if not trading:
+        await maintain()
         report["market"] = "closed"
         put_state(research, "idle", report, now)
         return report
@@ -600,10 +627,14 @@ async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now
                    "quoted": result.quoted, "from_collector": len(archived), "requests": result.requests,
                    "sources": dict(result.sources or {}), "errors": (result.errors or [])[:5],
                    "missing": len(result.missing or []), "freshness": freshness(tracked, last, clock())})
-    history = [h for h in state.get("history", []) if datetime.fromisoformat(h["at"]) > now - timedelta(hours=1)]
-    history.append({"at": to_iso(now), "requests": result.requests})
-    report["requests_last_hour"] = sum(h["requests"] for h in history)
-    put_state(research, "pass", {**report, "archive_after": newest, "history": history}, now)
+    requests_history = [h for h in state.get("history", []) if datetime.fromisoformat(h["at"]) > now - timedelta(hours=1)]
+    requests_history.append({"at": to_iso(now), "requests": result.requests})
+    report["requests_last_hour"] = sum(h["requests"] for h in requests_history)
+    # Persist current-quote status before potentially slow historical downloads. A repair timeout must not
+    # prevent current quotes from being collected or make the UI depend on yesterday's estimates.
+    put_state(research, "pass", {**report, "archive_after": newest, "history": requests_history}, now)
+    await maintain()
+    put_state(research, "pass", {**report, "archive_after": newest, "history": requests_history}, now)
     return report
 
 

@@ -224,6 +224,11 @@ gap estimates, expiry comparisons and split quarantine also cover them, under th
 Original intraday quote snapshots are not relabelled as closing quotes. An archive entry cannot receive marks
 before the time it was identified. Actual bid/ask liquidation values and fees drive progress; estimates stay labelled.
 History checks saved observations every twenty seconds while visible, preserving scroll and date input focus.
+The individual closing-cohort detail page checks every fifteen seconds, updating its chart, exit cards, Greeks and
+daily marks without resetting the chart range, basis, quantity or inspected point. **Refresh saved values** retries
+immediately. Automatically archived/personal play details use the same freshness indicator with their existing
+fifteen-second refresh. A failed page refresh preserves the last values and retries; checking the server does not
+claim a fresh provider quote.
 
 On startup and tracking passes, the app automatically recovers up to 500 older first sightings per pass from their
 original stored contracts, entry and timestamp. This repairs the earlier two-LEAPS-only failure wherever those
@@ -290,6 +295,15 @@ sessions and anything expiring within a week every pass; older plays every 15 mi
 contract once more for its close. A pass spends at most 40 requests (under a tenth of the 90-a-minute Schwab budget,
 which is shared with research collection). Streaming quotes are not used: the streamer needs Schwab's account-scoped
 user preferences, and this integration requests market data only.
+
+During market hours, current quotes are collected and their pass status is saved **before** historical gap repair.
+Slow or failed historical downloads cannot block that pass's current quote capture. A quote's provider timestamp,
+when available, sets its intraday chart time; yesterday's quote retrieved today cannot become today's quote or close.
+Freshness requires usable quotes for every leg, source times within five minutes of one another and no older than
+seven minutes. Missing source times are unverified. During trading, a detail page still showing an older value says
+**Waiting for today's option quotes** or **Option quotes are stale**, keeps its actual date, and labels it **Last saved
+estimate/quote**. It never manufactures a current value from an old estimate. Quote collection remains subject to the
+cadence above, provider access and Pause/STOP.
 
 Five minutes after the close the session folds into one packed intraday row per contract (kept at least 30 days —
 the database refuses an earlier delete — then compacted after 35) and a permanent daily close with the closing

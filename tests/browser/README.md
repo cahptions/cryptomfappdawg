@@ -32,3 +32,8 @@ disposable private ledger; the browser checks desktop/mobile controls, accountin
 the `paper-workflows` fixture. `stocks_paper_sparse.mjs` uses the same disposable server with synthetic three-observation
 responses to verify honest ranges and automatic forward-record polling without navigation. It also checks the separate
 Options discovery lanes and source-capability guides in Settings. Neither fixture contacts a provider.
+
+`stocks_play_freshness.mjs` uses `stocks_fixture_server --scenario plays-history` and synthetic intercepted responses
+to check an Oct 28 estimate becoming an Oct 29 quote without reload, preserving quantity/range, retaining values on
+refresh errors and stopping polling after navigation. Run it with `KESTREL_STOCKS_URL` set to that disposable server.
+The Python quote-freshness regressions separately test real saved-tick selection and live-before-repair ordering.

@@ -456,6 +456,8 @@ const KestrelPlaysHistory = (() => {
       inspectedTime = null,
       seekPeak = false;
     const summary = el("div", undefined, "pl-exit-summary");
+    const freshness = el("p", "", "caption pl-freshness");
+    freshness.setAttribute("role", "status");
     const metric = (title, cls) => {
       const node = el("section", undefined, `pl-exit-metric ${cls}`),
         label = el("h3", title),
@@ -588,7 +590,7 @@ const KestrelPlaysHistory = (() => {
       el("summary", "How this P/L and peak are calculated"),
       methodBody,
     );
-    box.append(summary, controls, plot, readout, legend, method);
+    box.append(freshness, summary, controls, plot, readout, legend, method);
 
     function draw() {
       const available = series(data, range).filter((p) => p[basis]);
@@ -602,6 +604,14 @@ const KestrelPlaysHistory = (() => {
       const exits = data.exits?.[basis] || {},
         best = exits.best,
         latest = exits.latest;
+      const stale = ["stale", "waiting", "unverified"].includes(
+        data.freshness?.state,
+      );
+      freshness.textContent = data.freshness
+        ? `${data.freshness.message}${data.freshness.quote_at ? ` Provider quote: ${longDate(data.freshness.quote_at)} · ${clock(data.freshness.quote_at)} ET.` : ""}`
+        : "";
+      freshness.classList.toggle("pl-stale", stale);
+      freshness.hidden = !data.freshness;
       showMetric(peakCard, best);
       jump.disabled = !best;
       showMetric(endCard, latest);
@@ -609,8 +619,12 @@ const KestrelPlaysHistory = (() => {
         latest?.status === "settled"
           ? "Expiry outcome — for comparison"
           : latest && isDashed(latest.status)
-            ? "Latest estimated value"
-            : "Latest recorded value";
+            ? stale
+              ? "Last saved estimate"
+              : "Latest estimated value"
+            : stale
+              ? "Last saved quote"
+              : "Latest recorded value";
       if (latest && exits.giveback > 0)
         endCard.meta.append(
           document.createTextNode(
@@ -973,15 +987,13 @@ const KestrelPlaysHistory = (() => {
   }
 
   async function detail(ticket, session, category, rank) {
-    const data = await api(
-      `plays/play?session=${encodeURIComponent(session)}&category=${encodeURIComponent(category)}&rank=${encodeURIComponent(rank)}`,
-    );
-    if (ticket !== generation) return;
+    clearTimeout(historyTimer);
+    const serial = ++historySerial;
+    const path = `plays/play?session=${encodeURIComponent(session)}&category=${encodeURIComponent(category)}&rank=${encodeURIComponent(rank)}`;
+    const data = await api(path);
+    if (ticket !== generation || serial !== historySerial) return;
     app.className = "plays-page";
-    const p = data.play,
-      last = (data.daily || []).at(-1),
-      live = (data.intraday || []).filter((x) => x.status === "live").at(-1),
-      latest = live && (!last || live.t.slice(0, 10) > last.t) ? live : last;
+    const p = data.play;
     const hero = el("div", undefined, "explorer-heading"),
       titles = el("div");
     titles.append(
@@ -1009,7 +1021,17 @@ const KestrelPlaysHistory = (() => {
       ),
     );
     if (data.quarantine) app.append(panel("Quarantined", data.quarantine));
-    app.append(plChart(data));
+    const chart = plChart(data),
+      actions = el("div", undefined, "play-actions"),
+      refresh = el("button", "Refresh saved values"),
+      refreshState = el(
+        "p",
+        "Checks saved values every 15 seconds. The option tracker collects quotes separately during market hours.",
+        "caption muted pl-refresh-state",
+      );
+    refreshState.setAttribute("role", "status");
+    actions.append(refresh, link("Market-data connection →", "#settings"));
+    app.append(actions, refreshState, chart);
     const grid = el("div", undefined, "pl-detail-grid");
     const why = el("section", undefined, "panel");
     why.append(el("h3", "Why it was picked"));
@@ -1046,69 +1068,79 @@ const KestrelPlaysHistory = (() => {
         ),
       );
     const greeks = el("section", undefined, "panel");
-    greeks.append(el("h3", "Greeks then and now"), greeksTable(data.greeks));
-    greeks.append(
-      el(
-        "p",
-        `Net for the position as held (short legs count negative). Now = KESTREL's own, solved from the ${data.greeks.as_of || "latest"} closing mid; Schwab's come with Schwab's quotes when it sends them.`,
-        "caption muted",
-      ),
-    );
-    const happened = el("section", undefined, "panel");
-    happened.append(el("h3", "Earlier exits and expiry comparison"));
-    const bestExit =
-      data.exits?.[data.bases.first !== undefined ? "first" : "close"]?.best;
-    if (bestExit)
-      happened.append(
+    const paintGreeks = (value) =>
+      greeks.replaceChildren(
+        el("h3", "Greeks then and now"),
+        greeksTable(value.greeks),
         el(
           "p",
-          `Best observed earlier exit: ${usd(bestExit.pnl)} (${pct(bestExit.pct)}) per contract, ${pointWhen(bestExit)}. This uses the recorded closing bid/ask and fees; it was not a prediction of the peak.`,
-        ),
-      );
-    if (data.outcome)
-      happened.append(
-        el(
-          "p",
-          `Holding until expiry: the stock closed at ${price(data.outcome.underlying_close)}; the position's intrinsic value was ${price(data.outcome.payoff)} a share, ${pct(data.outcome.net_return)} after fees. This expiry comparison is separate from the earlier sale opportunities; no exercise or assignment was performed.`,
-        ),
-      );
-    else if (latest)
-      happened.append(
-        el(
-          "p",
-          `Still open. Latest: ${pct(latest.close.pct)} at the close basis${latest.first ? `, ${pct(latest.first.pct)} if bought when first shown` : ""}.`,
-        ),
-      );
-    if (data.twin) {
-      const tl = data.twin.marks.at(-1);
-      happened.append(
-        el(
-          "p",
-          `Random twin: ${data.twin.symbol} ${data.twin.legs.map((l) => `$${l.strike} ${l.kind}`).join("/")} expiring ${data.twin.expiration} — ${tl ? pct(tl.pct) : "no mark yet"}.`,
+          `Net for the position as held (short legs count negative). Now = KESTREL's own, solved from the ${value.greeks.as_of || "latest"} closing mid; Schwab's come with Schwab's quotes when it sends them.`,
           "caption muted",
         ),
       );
-    }
+    const happened = el("section", undefined, "panel");
+    const paintHappened = (data) => {
+      const latest = data.exits?.close?.latest;
+      happened.replaceChildren();
+      happened.append(el("h3", "Earlier exits and expiry comparison"));
+      const bestExit =
+        data.exits?.[data.bases.first !== undefined ? "first" : "close"]?.best;
+      if (bestExit)
+        happened.append(
+          el(
+            "p",
+            `Best observed earlier exit: ${usd(bestExit.pnl)} (${pct(bestExit.pct)}) per contract, ${pointWhen(bestExit)}. This uses the recorded closing bid/ask and fees; it was not a prediction of the peak.`,
+          ),
+        );
+      if (data.outcome)
+        happened.append(
+          el(
+            "p",
+            `Holding until expiry: the stock closed at ${price(data.outcome.underlying_close)}; the position's intrinsic value was ${price(data.outcome.payoff)} a share, ${pct(data.outcome.net_return)} after fees. This expiry comparison is separate from the earlier sale opportunities; no exercise or assignment was performed.`,
+          ),
+        );
+      else if (latest)
+        happened.append(
+          el(
+            "p",
+            `Still open. Last saved value: ${pct(latest.pct)} at the close basis${data.exits?.first?.latest ? `, ${pct(data.exits.first.latest.pct)} if bought when first shown` : ""}.`,
+          ),
+        );
+      if (data.twin) {
+        const tl = data.twin.marks.at(-1);
+        happened.append(
+          el(
+            "p",
+            `Random twin: ${data.twin.symbol} ${data.twin.legs.map((l) => `$${l.strike} ${l.kind}`).join("/")} expiring ${data.twin.expiration} — ${tl ? pct(tl.pct) : "no mark yet"}.`,
+            "caption muted",
+          ),
+        );
+      }
+    };
+    paintGreeks(data);
+    paintHappened(data);
     grid.append(why, greeks, happened);
     app.append(grid);
     const marks = el("details", undefined, "pl-marks");
-    marks.append(el("summary", `Every daily mark (${data.daily.length})`));
-    marks.append(
-      table(
-        ["Session", "Status", "Worth", "P/L", "P/L %", "Stock", "Note"],
-        [...data.daily]
-          .reverse()
-          .map((m) => [
-            m.t,
-            STATUS[m.status] || m.status,
-            price(m.value),
-            usd(m.close.pnl),
-            pct(m.close.pct),
-            price(m.underlying),
-            m.note || "",
-          ]),
-      ),
-    );
+    const paintMarks = (data) =>
+      marks.replaceChildren(
+        el("summary", `Every daily mark (${data.daily.length})`),
+        table(
+          ["Session", "Status", "Worth", "P/L", "P/L %", "Stock", "Note"],
+          [...data.daily]
+            .reverse()
+            .map((m) => [
+              m.t,
+              STATUS[m.status] || m.status,
+              price(m.value),
+              usd(m.close.pnl),
+              pct(m.close.pct),
+              price(m.underlying),
+              m.note || "",
+            ]),
+        ),
+      );
+    paintMarks(data);
     app.append(marks);
     app.append(
       el(
@@ -1117,6 +1149,37 @@ const KestrelPlaysHistory = (() => {
         "caption muted",
       ),
     );
+    let polling = false;
+    const poll = async () => {
+      clearTimeout(historyTimer);
+      if (ticket !== generation || serial !== historySerial) return;
+      if (polling) return;
+      if (document.hidden || document.querySelector("dialog[open]")) {
+        historyTimer = setTimeout(poll, 15000);
+        return;
+      }
+      polling = true;
+      refresh.disabled = true;
+      try {
+        const updated = await api(path);
+        if (ticket !== generation || serial !== historySerial) return;
+        chart.updateData(updated);
+        paintGreeks(updated);
+        paintHappened(updated);
+        paintMarks(updated);
+        refreshState.textContent = `Saved values checked ${clock(new Date().toISOString())} ET. New quotes update this chart automatically; quote time is shown separately.`;
+      } catch (e) {
+        if (ticket === generation && serial === historySerial)
+          refreshState.textContent = `${e.message} Refresh failed; the last saved values are preserved. Retrying automatically.`;
+      } finally {
+        polling = false;
+        refresh.disabled = false;
+        if (ticket === generation && serial === historySerial)
+          historyTimer = setTimeout(poll, 15000);
+      }
+    };
+    refresh.onclick = poll;
+    historyTimer = setTimeout(poll, 15000);
   }
 
   // ── performance across sessions ─────────────────────────────────────────────────────────────

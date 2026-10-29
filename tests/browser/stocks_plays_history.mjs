@@ -106,6 +106,7 @@ try {
     );
     // the crosshair readout follows the pointer
     const chart = page.locator(".pl-plot svg");
+    await chart.scrollIntoViewIfNeeded();
     const box = await chart.boundingBox();
     const before = await page.locator(".pl-readout").innerText();
     await page.mouse.move(box.x + box.width * 0.15, box.y + box.height / 2);

@@ -22,7 +22,7 @@ from desk.core.errors import DeskError
 from desk.stocks import calendar as cal
 from desk.stocks.play_history import _combine, _net, basis_loss, exit_opportunities, label, pnl
 from desk.stocks.play_marks import settle_day, settlement
-from desk.stocks.play_tracking import get_state, legs_key, put_state, unpack
+from desk.stocks.play_tracking import get_state, legs_key, put_state, tick_time, unpack
 from desk.stocks.repo import day_of
 from desk.storage.db import transaction
 
@@ -284,8 +284,9 @@ def raw_path(research: sqlite3.Connection, legs: list[dict[str, Any]], start: da
                                          cal.NEW_YORK)
                 intraday_by[row["session"]][leg["occ"]].append((stamp, bid, ask, underlying))
         for row in research.execute("SELECT * FROM stk_track_ticks WHERE occ=? ORDER BY at", (leg["occ"],)):
-            if row["bid"] is not None and row["ask"] is not None:
-                intraday_by[row["session"]][leg["occ"]].append((datetime.fromisoformat(row["at"]), row["bid"],
+            quote_at = tick_time(row)
+            if quote_at is not None and row["bid"] is not None and row["ask"] is not None:
+                intraday_by[row["session"]][leg["occ"]].append((quote_at, row["bid"],
                                                               row["ask"], row["underlying"]))
                 states[row["session"]].setdefault(leg["occ"], "live")
     daily, intraday = [], []
@@ -388,6 +389,9 @@ def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: b
                         "now": _net(legs, latest), "schwab_now": _net(legs, latest, "schwab_")},
              "intraday_note": "The quote path reflects stored observations; intraday detail is retained for 30+ days. "
                               "Personal references are separate from automatic Plays grading and Learning."}
+    from desk.stocks.play_history import valuation_status
+
+    chart["freshness"] = valuation_status(research,legs,now,chart["exits"],finished=closed is not None)
     return {"idea": found, "tracking": current, "plan": prepared, "chart": chart}
 
 

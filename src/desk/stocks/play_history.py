@@ -18,7 +18,7 @@ from typing import Any
 from desk.stocks import calendar as cal
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.play_marks import profit, settle_day
-from desk.stocks.play_tracking import get_state, legs_key, unpack
+from desk.stocks.play_tracking import get_state, legs_key, tick_time, unpack
 from desk.stocks.plays import BY_CATEGORY, CATEGORIES, TYPES
 from desk.stocks.repo import day_of
 
@@ -57,12 +57,16 @@ def live_values(research: sqlite3.Connection, plays: list[dict[str, Any]], today
     """Today's latest quotes of each play's legs (before the close folds them): legs key → value and time."""
     occs = sorted({leg["occ"] for p in plays for leg in p["legs"]})
     latest: dict[str, sqlite3.Row] = {}
+    latest_times: dict[str, datetime] = {}
     for i in range(0, len(occs), 400):
         chunk = occs[i:i + 400]
         marks = ",".join("?" * len(chunk))
-        for r in research.execute(f"SELECT occ, at, bid, ask, underlying FROM stk_track_ticks WHERE session = ? AND "  # noqa: S608
+        for r in research.execute(f"SELECT * FROM stk_track_ticks WHERE session = ? AND "  # noqa: S608
                                   f"occ IN ({marks}) ORDER BY at", (day_of(today), *chunk)):
-            latest[r["occ"]] = r
+            at = tick_time(r)
+            if at is not None and (r["occ"] not in latest_times or at > latest_times[r["occ"]]):
+                latest[r["occ"]] = r
+                latest_times[r["occ"]] = at
     out = {}
     for p in plays:
         rows = [latest.get(leg["occ"]) for leg in p["legs"]]
@@ -70,8 +74,12 @@ def live_values(research: sqlite3.Connection, plays: list[dict[str, Any]], today
             continue
         value = sum(r["bid"] if leg["side"] == "buy" else -r["ask"] for leg, r in zip(p["legs"], rows, strict=True)
                     if r is not None)
-        at = min(r["at"] for r in rows if r is not None)
-        out[legs_key(p["legs"])] = {"value": round(value, 4), "at": at,
+        stamps = [tick_time(r) for r in rows if r is not None]
+        valid = [t for t in stamps if t is not None]
+        if not valid or max(valid)-min(valid) > timedelta(minutes=5):
+            continue
+        timestamp = min(valid).isoformat()
+        out[legs_key(p["legs"])] = {"value": round(value, 4), "at": timestamp,
                                     "underlying": next((r["underlying"] for r in rows if r and r["underlying"]), None)}
     return out
 
@@ -210,6 +218,7 @@ def _net(legs: list[dict[str, Any]], rows: dict[str, dict[str, Any]], prefix: st
 def _combine(legs: list[dict[str, Any]], by_leg: dict[str, list[tuple[datetime, float, float, float | None]]],
              status: dict[str, str]) -> list[tuple[datetime, float, float | None, str]]:
     """Merge legs' quote paths: a point wherever every leg has a quote so far (each carried forward)."""
+    by_leg = {occ:sorted(points,key=lambda p:p[0]) for occ,points in by_leg.items()}
     times = sorted({t for occ in by_leg for t, *_ in by_leg[occ]})
     cursor = {occ: 0 for occ in by_leg}
     current: dict[str, tuple[float, float, float | None, datetime]] = {}
@@ -278,6 +287,44 @@ def exit_opportunities(daily: list[dict[str, Any]], intraday: list[dict[str, Any
     return result
 
 
+def valuation_status(research: sqlite3.Connection, legs: list[dict[str, Any]], now: datetime,
+                     exits: dict[str, Any], *, finished: bool = False) -> dict[str, Any]:
+    """Freshness belongs to the valuation, not the HTTP response or the day an old quote was downloaded."""
+    latest = max((e["latest"] for e in exits.values() if e.get("latest")), key=point_time, default=None)
+    today = cal.new_york(now).date()
+    trading = (cal.is_trading_day(today) and cal.new_york(now).time() >= time(9,30)
+               and now < cal.session_close(today))
+    tracking = get_state(research,"pass")
+    value: dict[str, Any] = {"checked_at":now.isoformat(),"market_open":trading,
+        "latest_value_at":latest["at"] if latest else None,"last_pass_at":tracking.get("at"),
+        "quote_at":None,"state":"waiting"}
+    if finished or (latest and latest["status"] == "settled"):
+        value.update(state="final",message="This reference is finished; its recorded result is preserved.")
+    elif not trading:
+        value.update(state="market_closed",message="Options market is closed. Showing the last saved value.")
+    else:
+        quotes = [research.execute("SELECT * FROM stk_track_ticks WHERE occ=? AND session=? ORDER BY at DESC LIMIT 1",
+                                   (leg["occ"],day_of(today))).fetchone() for leg in legs]
+        stamps = [tick_time(q) for q in quotes if q is not None and q["quoted_at"]]
+        valid = [t for t in stamps if t is not None and t <= now]
+        if len(valid) == len(legs) and valid:
+            value["quote_at"] = min(valid).isoformat()
+        if (latest and latest["status"] in {"quoted","live"} and len(valid) == len(legs) and valid
+                and now-min(valid) <= timedelta(minutes=7) and max(valid)-min(valid) <= timedelta(minutes=5)
+                and now-point_time(latest) <= timedelta(minutes=7)):
+            value.update(state="current",message="Updated from timestamped option quotes during this session.")
+        elif latest is None or cal.new_york(point_time(latest)).date() < today:
+            value.update(state="stale" if latest else "waiting",
+                message="Waiting for today's option quotes. The last saved value is not a current market price.")
+        elif any(q is not None and not q["quoted_at"] for q in quotes):
+            value.update(state="unverified",message="Provider quote time is unavailable; this value is not verified current.")
+        else:
+            value.update(state="stale",message="Option quotes are stale. Showing the last saved value while collection retries.")
+        if value["state"] != "current" and tracking.get("errors"):
+            value["message"] += " The latest quote pass reported a source error. Check the market-data connection in Settings."
+    return value
+
+
 def play_view(research: sqlite3.Connection, session: date, category: str, rank: int, now: datetime) -> dict[str, Any]:
     n = day_of(session)
     row = research.execute("SELECT * FROM stk_plays WHERE session = ? AND category = ? AND rank = ?",
@@ -331,10 +378,11 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
                                   cal.NEW_YORK)
             paths[r["session"]][r["occ"]].append((at, float(bid), float(ask), s))
     today = cal.new_york(now).date()
-    for r in research.execute(f"SELECT occ, at, bid, ask, underlying FROM stk_track_ticks WHERE occ IN ({marks}) AND "  # noqa: S608
+    for r in research.execute(f"SELECT * FROM stk_track_ticks WHERE occ IN ({marks}) AND "  # noqa: S608
                               "session = ? ORDER BY at", (*occs, day_of(today))):
-        if r["bid"] is not None and r["ask"] is not None:
-            paths[day_of(today)][r["occ"]].append((datetime.fromisoformat(r["at"]), r["bid"], r["ask"], r["underlying"]))
+        quote_at = tick_time(r)
+        if quote_at is not None and r["bid"] is not None and r["ask"] is not None and quote_at <= now:
+            paths[day_of(today)][r["occ"]].append((quote_at, r["bid"], r["ask"], r["underlying"]))
             status[day_of(today)].setdefault(r["occ"], "live")
     intraday = []
     for day in sorted(paths):
@@ -368,6 +416,7 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
     then = {g: play.get(g) if play.get(g) is not None else from_legs.get(g)
             for g in ("iv", "delta", "gamma", "theta", "vega")}
     cat = BY_CATEGORY.get(category)
+    exits = exit_opportunities(daily, intraday, entries, end)
     return {"version": VERSION, "found": True, "session": session.isoformat(), "category": category, "rank": rank,
             "category_title": cat.title if cat else category, "emoji": cat.emoji if cat else "",
             "label": label({**dict(row), "legs": legs, "expiration": play["expiration"]}), "play": play,
@@ -377,7 +426,7 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
                                                      "legs": json.loads(seen["legs_json"])},
             "daily": daily, "intraday": intraday, "expiration": play["expiration"], "settles": settles.isoformat(),
             "entry_times": {b: t.isoformat() for b, t in entries.items()},
-            "exits": exit_opportunities(daily, intraday, entries, end),
+            "exits": exits, "freshness": valuation_status(research, legs, now, exits),
             "expired": settles < today or any(p["status"] == "settled" for p in daily),
             "greeks": {"then": then, "now": _net(legs, latest), "schwab_now": _net(legs, latest, "schwab_"),
                        "as_of": None if as_of is None else _iso(as_of)},

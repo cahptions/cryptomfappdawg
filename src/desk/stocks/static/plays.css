@@ -805,3 +805,12 @@
 .pf-chart select {
   max-width: 100%;
 }
+.pl-freshness {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.pl-freshness.pl-stale {
+  border-color: var(--muted);
+  color: var(--text);
+}

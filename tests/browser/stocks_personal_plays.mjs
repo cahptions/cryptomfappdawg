@@ -176,14 +176,9 @@ try {
     await page.getByRole("button", { name: "Close", exact: true }).click();
 
     await page.goto(`${base}/#stock/CHEAP`);
-    await page
-      .getByRole("heading", { name: "About the company", exact: true })
-      .waitFor();
+    await page.getByRole("heading", { name: "About", exact: true }).waitFor();
     await page.getByText(/Synthetic company: designs and sells/).waitFor();
-    assert.match(
-      await page.locator(".company-profile").innerText(),
-      /Pittsburgh, PA/,
-    );
+    assert.match(await page.locator("#sp-about").innerText(), /Pittsburgh, PA/);
     assert.ok((await overflow()) <= 1, `company page no overflow ${width}`);
     await page.screenshot({
       path: `${out}/stock-company-${width}.png`,

@@ -3,6 +3,36 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-29 — Plays History: current intraday values instead of a frozen yesterday estimate
+
+Operator saw an Oct 28 estimated close during the Oct 29 trading session. Confirmed that the individual closing-
+cohort History detail made one request and never refreshed, although the History list and archived/personal detail
+already polled. Also found historical gap repair awaited before current quote collection on a tracking pass.
+
+- Add 15-second detail polling and a **Refresh saved values** button. Update the shared P/L chart, exit cards,
+  Greeks and daily marks in place, preserving quantity, range, basis, inspection and opened details. Stop the old
+  poll after navigation; preserve values and retry on failed requests. Polling reads saved observations, not a broker.
+- Collect live option quotes and persist their pass status before historical repair. A repair error leaves quotes
+  available and records the maintenance failure; a repair timeout cannot prevent that pass's quote capture.
+- Use provider quote time when supplied for intraday paths, freshness and closing folds. Re-fetching a prior-session
+  quote cannot relabel it as today's quote/close. Sort multi-leg paths by actual quote time and require nearby leg
+  timestamps. Historical marks remain append-only; no older record is rewritten or fabricated.
+- Shared chart/API freshness distinguishes current, stale/waiting, missing source time, closed market and final
+  references. A stale intraday page says **Last saved estimate/quote** and explains that it is not a current market
+  price; provider quote time is separate from page-refresh time. Freshness requires all legs, source age ≤ 7 minutes
+  and inter-leg skew ≤ 5 minutes. Existing 5/15/60-minute collection priorities and Pause/STOP remain in force.
+
+Verification: seven new offline regressions reproduce Oct 28→29 updates, original mark preservation, shared archive/
+API views, old or unknown provider times, multi-leg skew and live-before-failed-repair ordering. Desktop/375px browser
+regression checks an automatic day change without reload, preserved controls, failed refresh and navigation cleanup.
+Full suite: **1,482 offline tests passed, 5 opt-in live tests deselected** (one existing Starlette/httpx warning).
+Ruff, strict mypy (246 source files), JS syntax and pinned Prettier 3.3.3 pass. Existing History and personal workflows
+pass at both widths as well; their
+test selectors now follow the current About section and scroll the chart into view before testing pointer movement.
+
+Next: update/restart Stocks on the laptop and confirm current-session source quotes arrive. Cloud has no access to
+the operator's authenticated Schwab session; successful synthetic/offline checks do not verify that connection.
+
 ## 2026-10-28 ET / 2026-10-29 UTC — Claude handoff verified; market Trending, WSB and replay grades
 
 Continued from `89a2c40` on `claude/funny-rubin-gq99vj`. Confirmed the pushed design system (`d0c9055`), company-page
