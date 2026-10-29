@@ -136,3 +136,20 @@ Fix: Settings → **Start browser authorization** → **Open Schwab authorizatio
 access**. The app key and secret are kept. Other refusals are named too: `invalid_client` means the key or secret
 does not match an app that is Ready For Use; a refused login code means it was used twice, took longer than about 30
 seconds, or the callback URL does not match the app exactly.
+
+## Logging in from another computer over SSH
+
+The dashboard (8767) and the OAuth callback listener (8182) run on the laptop and listen on 127.0.0.1 only. After
+login Schwab redirects *your browser* to `https://127.0.0.1:8182/oauth/callback?...`; on another computer that
+address means that computer, so the page cannot load and the login is not saved. Forward both ports in one SSH
+session (Windows PowerShell, macOS and Linux all accept this):
+
+```bash
+ssh -N -L 8767:127.0.0.1:8767 -L 8182:127.0.0.1:8182 you@laptop
+```
+
+Keep that window open, browse to http://127.0.0.1:8767, choose **Cancel pending authorization** if one is still
+waiting, then **Start browser authorization → Open Schwab authorization**, accept the self-signed certificate for
+`127.0.0.1:8182` only, log in, and finish within about 30 seconds of Schwab's redirect. Alternative without the
+second forward: stop the dashboard, run `uv run desk stocks connect --manual` in the SSH terminal, open the printed
+URL on the other computer, and paste the final (failed-to-load) redirect address into the hidden prompt.
