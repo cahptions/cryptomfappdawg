@@ -120,3 +120,19 @@ The extra section field names and units remain unverified against an authenticat
 assume whether `divYield` is a percentage or a fraction, or what units `htbRate` uses. Missing/ambiguous values stay
 unavailable. The documentation-shaped fixtures test parser behavior and are not live broker acceptance evidence.
 The request adds market-data context only; no account/trading endpoint is used.
+
+## When Test market-data access says the sign-in expired
+
+Schwab's access token lasts about 30 minutes and is refreshed automatically, but the refresh authorization stops
+working 7 days after the browser login and only a new login renews it. When that happens Schwab answers the refresh
+request with HTTP 400 (or 401). The app then:
+
+- says so in Settings → Authorization status ("Schwab sign-in expired"), with the OAuth error code only (never the
+  response text), and highlights **Start browser authorization**;
+- stops asking Schwab again until the new login (a `schwab-token.state.json` marker beside the token file);
+- counts down the days left in the 7-day window while the login is still valid.
+
+Fix: Settings → **Start browser authorization** → **Open Schwab authorization** → log in, then **Test market-data
+access**. The app key and secret are kept. Other refusals are named too: `invalid_client` means the key or secret
+does not match an app that is Ready For Use; a refused login code means it was used twice, took longer than about 30
+seconds, or the callback URL does not match the app exactly.

@@ -12,6 +12,7 @@ import fcntl
 import json
 import math
 import os
+import re
 import secrets
 import stat
 import tempfile
@@ -31,8 +32,20 @@ AUTHORIZE_URL = "https://api.schwabapi.com/v1/oauth/authorize"
 TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"  # noqa: S105 -- public endpoint, not a credential
 
 
+# Schwab issues 30-minute access tokens and a refresh token that stops working 7 days after the browser login;
+# only a new interactive login renews it.
+LOGIN_LIFETIME_DAYS = 7
+_ERROR_CODE = re.compile(r"^[A-Za-z_]{1,64}$")
+RELOGIN = ("Schwab sign-in has expired: Schwab requires a fresh browser login every 7 days. In Settings choose "
+           "Start browser authorization and log in again; your app key and secret are kept.")
+
+
 class SchwabAuthError(DeskError):
     pass
+
+
+class SchwabLoginExpired(SchwabAuthError):
+    """The saved refresh authorization no longer works; only a new browser login fixes it."""
 
 
 def token_path(paths: DeskPaths) -> Path:
@@ -161,6 +174,44 @@ class SchwabTokens:
             if name is not None:
                 Path(name).unlink(missing_ok=True)
 
+    @property
+    def state_path(self) -> Path:
+        return self.path.with_name(self.path.stem + ".state.json")
+
+    def _mark_relogin(self, code: str | None) -> None:
+        self.state_path.write_text(json.dumps({"relogin_required_at": time.time(), "error": code}), encoding="utf-8")
+        os.chmod(self.state_path, 0o600)
+
+    def _clear_relogin(self) -> None:
+        self.state_path.unlink(missing_ok=True)
+
+    def relogin_required(self) -> bool:
+        return self.state_path.is_file()
+
+    @staticmethod
+    def _error_code(response: httpx.Response) -> str | None:
+        """Only Schwab's OAuth error identifier (e.g. ``invalid_grant``), never its description or the body."""
+        try:
+            value = response.json()
+        except ValueError:
+            return None
+        code = value.get("error") if isinstance(value, dict) else None
+        return code if isinstance(code, str) and _ERROR_CODE.match(code) else None
+
+    def _refused(self, grant: str, status: int, code: str | None) -> SchwabAuthError:
+        detail = f"HTTP {status}{f', {code}' if code else ''}"
+        if code in ("invalid_client", "unauthorized_client") or (status == 401 and grant != "refresh_token"):
+            return SchwabAuthError(f"Schwab rejected the app key or secret ({detail}). In the developer portal check "
+                                   "the app is Ready For Use, then copy its App Key and Secret into Settings again.")
+        if grant == "refresh_token" and status in (400, 401):
+            self._mark_relogin(code)
+            return SchwabLoginExpired(f"{RELOGIN} ({detail})")
+        if grant == "authorization_code":
+            return SchwabAuthError(f"Schwab refused the login code ({detail}). A code works once and only for about "
+                                   "30 seconds, and the callback URL must match the app exactly; start browser "
+                                   "authorization again and finish promptly.")
+        return SchwabAuthError(f"Schwab token request was refused ({detail}); stored credentials were retained")
+
     def _post(self, fields: dict[str, str]) -> dict[str, Any]:
         key, secret = self.credentials.get("SCHWAB_APP_KEY"), self.credentials.get("SCHWAB_APP_SECRET")
         if not self.has_credentials or not key or not secret:
@@ -169,9 +220,8 @@ class SchwabTokens:
             with httpx.Client(transport=self.transport, trust_env=True, follow_redirects=False, timeout=15) as client:
                 response = client.post(TOKEN_URL, data=fields, auth=httpx.BasicAuth(key, secret))
             if response.status_code != 200:
-                # Provider descriptions can echo credentials. Never include body, headers or exception URL.
-                raise SchwabAuthError(f"Schwab token request returned HTTP {response.status_code}; "
-                                      "check the app approval/credentials or reconnect if authorization expired")
+                # Provider descriptions can echo credentials: only the OAuth error identifier is kept.
+                raise self._refused(fields["grant_type"], response.status_code, self._error_code(response))
             value = response.json()
             if not isinstance(value, dict):
                 raise ValueError
@@ -201,11 +251,14 @@ class SchwabTokens:
         with private_lock(self.path.with_suffix(".lock")):
             self.save(self._normalize(self._post({"grant_type": "authorization_code", "code": code,
                                                  "redirect_uri": validate_callback(callback)})))
+            self._clear_relogin()
 
     def _headers(self) -> dict[str, str]:
         with private_lock(self.path.with_suffix(".lock")):
             current = self.read()
             if float(current["expires_at"]) <= time.time() + 60:
+                if self.relogin_required():
+                    raise SchwabLoginExpired(RELOGIN)  # asking again cannot succeed; avoid hammering the endpoint
                 current = self._normalize(self._post({"grant_type": "refresh_token",
                                                       "refresh_token": current["refresh_token"]}), current)
                 self.save(current)
@@ -219,9 +272,16 @@ class SchwabTokens:
             return {"connected": False, "reason": "Run desk stocks connect", "credentials_set": self.has_credentials}
         try:
             value = self.read()
-            return {"connected": self.has_credentials, "credentials_set": self.has_credentials,
-                    "access_expires_in_seconds": round(float(value["expires_at"]) - time.time()),
-                    "authorization_age_days": round((time.time() - float(value["authorized_at"])) / 86400, 2),
-                    "note": "Refresh is automatic; Schwab may require a fresh login when refresh authorization expires"}
+            age = (time.time() - float(value["authorized_at"])) / 86400
+            left = LOGIN_LIFETIME_DAYS - age
+            out = {"connected": self.has_credentials, "credentials_set": self.has_credentials,
+                   "access_expires_in_seconds": round(float(value["expires_at"]) - time.time()),
+                   "authorization_age_days": round(age, 2), "login_days_left": round(max(0.0, left), 2),
+                   "relogin_required": False,
+                   "note": (f"Signed in {age:.1f} days ago. Quotes refresh automatically; Schwab needs a fresh "
+                            f"browser login every {LOGIN_LIFETIME_DAYS} days ({max(0.0, left):.1f} days left).")}
+            if self.relogin_required() or left <= 0:
+                out.update(connected=False, relogin_required=True, reason=RELOGIN)
+            return out
         except SchwabAuthError as exc:
             return {"connected": False, "reason": str(exc), "credentials_set": self.has_credentials}

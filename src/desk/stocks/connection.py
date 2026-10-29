@@ -95,6 +95,7 @@ def save_connection(paths: DeskPaths, *, app_key: str, app_secret: str, callback
             with private_lock(token.with_suffix(".lock")):
                 # Invalidate before replacing credentials: a crash cannot pair old tokens with a changed app.
                 token.unlink(missing_ok=True)
+                token.with_name(token.stem + ".state.json").unlink(missing_ok=True)
                 _atomic_private(paths.secrets_file, "\n".join(lines) + "\n")
                 _atomic_private(preference_path(paths), local_json)
         else:

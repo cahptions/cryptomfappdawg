@@ -17,7 +17,14 @@ from desk.core.config import StocksSection
 from desk.core.paths import DeskPaths
 from desk.core.secrets import Secrets, load_secrets
 from desk.stocks.connection import LoginAttempt, local_tls, preferences, save_connection
-from desk.stocks.schwab_auth import SchwabAuthError, SchwabTokens, authorization_url, callback_code, token_path
+from desk.stocks.schwab_auth import (
+    SchwabAuthError,
+    SchwabLoginExpired,
+    SchwabTokens,
+    authorization_url,
+    callback_code,
+    token_path,
+)
 from tests.conftest import REPO
 
 CALLBACK = "https://127.0.0.1:8182/oauth/callback"
@@ -196,3 +203,52 @@ async def test_async_refresh_does_not_block_event_loop(tmp_path: Path) -> None:
     assert not task.done()
     assert await task == {"Authorization": "Bearer new"}
     assert tokens.read()["refresh_token"] == "old-refresh"
+
+
+def test_expired_seven_day_login_is_named_once_and_not_retried_until_a_new_login(tmp_path: Path) -> None:
+    calls = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(parse_qs(request.content.decode())["grant_type"][0])
+        if calls[-1] == "refresh_token":
+            return httpx.Response(400, json={"error": "invalid_grant", "error_description": "echo old-refresh"})
+        return httpx.Response(200, json={"access_token": "fresh", "refresh_token": "r2", "expires_in": 1800})
+
+    tokens = SchwabTokens(tmp_path / "tokens.json", CREDS, transport=httpx.MockTransport(respond))
+    previous = stored(tokens, lifetime=-1)
+    with pytest.raises(SchwabLoginExpired) as error:
+        tokens._headers()
+    assert "7 days" in str(error.value) and "invalid_grant" in str(error.value) and "echo" not in str(error.value)
+    assert tokens.read() == previous
+    status = tokens.status()
+    assert status["relogin_required"] and not status["connected"] and "Start browser authorization" in status["reason"]
+    with pytest.raises(SchwabLoginExpired):
+        tokens._headers()
+    assert calls == ["refresh_token"]  # no repeated refusals while waiting for the operator
+    tokens.exchange("code", CALLBACK)
+    assert not tokens.relogin_required() and tokens.status()["connected"]
+    assert tokens._headers() == {"Authorization": "Bearer fresh"}
+
+
+def test_status_counts_down_the_seven_day_login_window(tmp_path: Path) -> None:
+    tokens = SchwabTokens(tmp_path / "tokens.json", CREDS)
+    value = stored(tokens)
+    tokens.save({**value, "authorized_at": time.time() - 6.5 * 86400})
+    status = tokens.status()
+    assert status["connected"] and 0.4 < status["login_days_left"] < 0.6 and "days left" in status["note"]
+    tokens.save({**value, "authorized_at": time.time() - 7.1 * 86400})
+    status = tokens.status()
+    assert status["relogin_required"] and not status["connected"] and status["login_days_left"] == 0
+
+
+@pytest.mark.parametrize("grant,response,expected", [
+    ("refresh_token", httpx.Response(401, json={"error": "invalid_client"}), "app key or secret"),
+    ("authorization_code", httpx.Response(400, json={"error": "invalid_request"}), "login code"),
+])
+def test_refusals_say_what_to_fix_without_marking_a_relogin(tmp_path: Path, grant: str, response: httpx.Response,
+                                                            expected: str) -> None:
+    tokens = SchwabTokens(tmp_path / "tokens.json", CREDS, transport=httpx.MockTransport(lambda _: response))
+    stored(tokens, lifetime=-1)
+    with pytest.raises(SchwabAuthError) as error:
+        tokens._headers() if grant == "refresh_token" else tokens.exchange("code", CALLBACK)
+    assert expected in str(error.value) and not tokens.relogin_required()

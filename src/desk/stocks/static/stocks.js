@@ -918,15 +918,19 @@ async function settingsPage() {
       const data = await api("connection");
       if (location.hash === "#settings") {
         cancel.disabled = !data.login?.pending;
+        connect.classList.toggle("primary", !!data.schwab.relogin_required);
         if (data.login?.pending) connect.dataset.pending = "true";
         else delete connect.dataset.pending;
         updateConnectionControls();
         output.replaceChildren(
           el(
             "p",
-            data.schwab.connected
-              ? "Authorization saved on this laptop."
-              : "Not authorized yet.",
+            data.schwab.relogin_required
+              ? "Schwab sign-in expired. Log in again with Start browser authorization above."
+              : data.schwab.connected
+                ? "Authorization saved on this laptop."
+                : "Not authorized yet.",
+            data.schwab.relogin_required ? "error" : "",
           ),
           el(
             "p",
@@ -940,8 +944,8 @@ async function settingsPage() {
             data.login?.pending
               ? "Browser login pending · expires after five minutes."
               : data.login?.error ||
-                  data.schwab.reason ||
                   data.schwab.note ||
+                  data.schwab.reason ||
                   "",
             "muted",
           ),
