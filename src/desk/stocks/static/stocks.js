@@ -379,23 +379,26 @@ function sourceSetup() {
   return box;
 }
 function discover(selected) {
-  heading(
-    "Find the evidence.",
-    "Daily research lists from eleven deterministic desks. No data is invented to fill missing observations.",
+  // One research list at a time: each stock with its company, moves, a three-month chart, KESTREL's score and
+  // every desk's, and in words what lifts the score and what holds it back.
+  const F = KestrelStockPage.fmt,
+    tone = (x) => (x == null || x === 0 ? "" : x > 0 ? "up" : "down");
+  app.className = "lists-page";
+  const head = el("div", undefined, "lists-head"),
+    titles = el("div");
+  titles.append(
+    el("div", "Research lists", "eyebrow"),
+    el("h1", "Find the evidence."),
+    el(
+      "p",
+      "Daily lists from eleven deterministic desks. Each stock shows why it is here, how it has moved, and which desks lift or hold back KESTREL's score. Nothing is invented to fill a gap.",
+      "muted",
+    ),
   );
-  const search = el("form", undefined, "row"),
+  const controls = el("div", undefined, "lists-controls"),
+    select = el("select"),
+    search = el("form", undefined, "lists-search"),
     input = el("input");
-  input.placeholder = "Look up a stored stock · e.g. AAPL";
-  input.setAttribute("aria-label", "Stock symbol");
-  input.maxLength = 12;
-  const button = el("button", "Open stock");
-  search.append(input, button);
-  search.onsubmit = (e) => {
-    e.preventDefault();
-    location.hash = `stock/${encodeURIComponent(input.value.trim().toUpperCase())}`;
-  };
-  app.append(search);
-  const select = el("select");
   select.setAttribute("aria-label", "Research list");
   for (const list of snapshot.lists) {
     const option = el("option", list.title);
@@ -404,39 +407,156 @@ function discover(selected) {
   }
   if (selected && snapshot.lists.some((l) => l.id === selected))
     select.value = selected;
+  input.placeholder = "Open a stock · e.g. AAPL";
+  input.setAttribute("aria-label", "Stock symbol");
+  input.maxLength = 12;
+  search.append(input, el("button", "Open"));
+  search.onsubmit = (e) => {
+    e.preventDefault();
+    if (input.value.trim())
+      location.hash = `stock/${encodeURIComponent(input.value.trim().toUpperCase())}`;
+  };
+  controls.append(select, search);
+  head.append(titles, controls);
+  app.append(head);
   const content = el("div");
-  function draw() {
-    const list = snapshot.lists.find((l) => l.id === select.value);
-    content.replaceChildren();
-    if (!list) return;
-    const box = panel(list.title, list.blurb);
-    box.append(
-      el(
-        "small",
-        list.asof
-          ? `${list.options_clock ? "Options snapshot · mutable research" : list.preview ? "Current research preview · not a frozen forward record" : "Recorded list"} · session: ${list.asof}`
-          : "Waiting for the first eligible daily analysis",
+  app.append(content);
+  const labelTone = (label) =>
+    /bullish/i.test(label || "")
+      ? "up"
+      : /bearish/i.test(label || "")
+        ? "down"
+        : "neutral";
+  const deskTone = (d) =>
+    d.score == null
+      ? "unavailable"
+      : d.score >= 58
+        ? "favorable"
+        : d.score < 42
+          ? "unfavorable"
+          : "mixed";
+  function row(r, optionsClock) {
+    const item = el("li", undefined, "list-row"),
+      who = el("div", undefined, "list-who"),
+      name = link("", `#stock/${encodeURIComponent(r.symbol)}`);
+    name.className = "list-name";
+    name.append(el("strong", r.symbol), el("span", r.name || ""));
+    who.append(el("span", String(r.rank).padStart(2, "0"), "list-rank"), name);
+    if (r.sector) who.append(el("small", r.sector));
+    const price = el("div", undefined, "list-price");
+    price.append(
+      el("strong", money(r.close ?? r.price)),
+      el("span", F.signedPct(r.change_1d), tone(r.change_1d)),
+    );
+    if (optionsClock) price.append(el("small", "Underlying at snapshot"));
+    const moves = el("dl", undefined, "list-moves");
+    for (const [label, value] of [
+      ["1M", r.ret_1m],
+      ["1Y", r.ret_1y],
+    ]) {
+      const box = el("div");
+      box.append(el("dt", label), el("dd", F.signedPct(value, 1), tone(value)));
+      moves.append(box);
+    }
+    const chart = el("div", undefined, "list-chart"),
+      spark = r.spark || [];
+    chart.append(
+      KestrelStockPage.spark(
+        spark,
+        spark.length > 1 ? (spark.at(-1) >= spark[0] ? "up" : "down") : "",
       ),
     );
-    if (list.rows.length)
-      box.append(
-        table(
-          [
-            "Rank",
-            "Stock",
-            list.options_clock ? "Underlying at snapshot" : "Reference close",
-            "Why it appears",
-          ],
-          list.rows.map((r) => [
-            r.rank,
-            link(r.symbol, `#stock/${encodeURIComponent(r.symbol)}`),
-            money(r.price),
-            r.reason,
-          ]),
+    chart.title = "Three months of stored daily closes";
+    const verdict = el("div", undefined, "list-verdict"),
+      score = el("div", undefined, "list-score");
+    score.append(
+      el(
+        "strong",
+        r.committee?.score == null ? "—" : F.num(r.committee.score, 0),
+      ),
+      el(
+        "span",
+        r.committee?.label || "No score yet",
+        labelTone(r.committee?.label),
+      ),
+    );
+    const strip = el("div", undefined, "list-strip");
+    for (const d of r.desks || []) {
+      const cell = el(
+        "span",
+        undefined,
+        `${deskTone(d)}${d.voting ? "" : " silent"}`,
+      );
+      cell.title = `${d.label}: ${d.score ?? "no data"}${d.voting ? "" : " (does not vote)"}`;
+      strip.append(cell);
+    }
+    strip.setAttribute(
+      "aria-label",
+      (r.desks || [])
+        .map((d) => `${d.label} ${d.score ?? "no data"}`)
+        .join(", "),
+    );
+    verdict.append(score, strip);
+    const why = el("div", undefined, "list-why");
+    why.append(el("p", r.reason, "list-reason"));
+    const forces = el("p", undefined, "list-forces");
+    if (r.lifts?.length) {
+      forces.append(el("span", "Lifts ", "muted"));
+      forces.append(
+        el(
+          "span",
+          r.lifts.map((d) => `${d.label} ${d.score}`).join(" · "),
+          "up",
         ),
       );
-    else
-      box.append(
+    }
+    if (r.drags?.length) {
+      if (r.lifts?.length) forces.append(el("span", "   ", "muted"));
+      forces.append(el("span", "Holds back ", "muted"));
+      forces.append(
+        el(
+          "span",
+          r.drags.map((d) => `${d.label} ${d.score}`).join(" · "),
+          "down",
+        ),
+      );
+    }
+    if (forces.children.length) why.append(forces);
+    const evidence = [...(r.bull || []), ...(r.bear || [])];
+    if (evidence.length) {
+      const facts = el("ul", undefined, "list-facts");
+      for (const text of r.bull || []) facts.append(el("li", text, "bull"));
+      for (const text of r.bear || []) facts.append(el("li", text, "bear"));
+      why.append(facts);
+    }
+    item.append(who, chart, price, moves, verdict, why);
+    return item;
+  }
+  async function draw() {
+    const id = select.value,
+      list = snapshot.lists.find((l) => l.id === id);
+    if (location.hash !== `#lists/${id}`)
+      history.replaceState(null, "", `#lists/${id}`);
+    content.replaceChildren();
+    if (!list) return;
+    const card = el("section", undefined, "list-card"),
+      top = el("div", undefined, "list-card-head");
+    const heading = el("div");
+    heading.append(el("h2", list.title), el("p", list.blurb, "muted"));
+    const meta = el("div", undefined, "list-meta");
+    meta.append(
+      el("strong", `${list.rows.length}`),
+      el("span", list.rows.length === 1 ? "stock" : "stocks"),
+    );
+    top.append(heading, meta);
+    const how = el("p", undefined, "list-how");
+    how.textContent = list.asof
+      ? `${list.options_clock ? "Options snapshot · mutable research" : list.preview ? "Current research preview · not a frozen forward record" : "Recorded list"} · session ${list.asof}`
+      : "Waiting for the first eligible daily analysis";
+    card.append(top, how);
+    const rows = el("ol", undefined, "list-rows");
+    if (!list.rows.length) {
+      card.append(
         el(
           "p",
           list.empty_reason ||
@@ -444,10 +564,26 @@ function discover(selected) {
           "notice",
         ),
       );
-    content.append(box);
+      content.append(card);
+      return;
+    }
+    // Draw the stored rows at once, then enrich them with company, moves and desks.
+    for (const r of list.rows) rows.append(row(r, list.options_clock));
+    card.append(rows);
+    content.append(card);
+    try {
+      const detail = await api(`lists/${encodeURIComponent(id)}`);
+      if (select.value !== id) return;
+      if (detail.rule)
+        how.textContent += ` · Rule: ${detail.rule}${detail.claim ? ` · tested for: ${detail.claim}` : ""}`;
+      rows.replaceChildren(
+        ...detail.rows.map((r) => row(r, list.options_clock)),
+      );
+    } catch (error) {
+      card.append(el("p", error.message, "error"));
+    }
   }
   select.onchange = draw;
-  app.append(select, content);
   draw();
 }
 async function stock(symbol, ticket) {

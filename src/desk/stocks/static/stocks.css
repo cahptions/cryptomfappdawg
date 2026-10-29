@@ -124,16 +124,14 @@ a:hover {
   color: var(--accent);
 }
 p a,
-.caption a,
-li a {
+.caption a {
   color: var(--text-strong);
   text-decoration: underline;
   text-decoration-color: var(--line-strong);
   text-underline-offset: 3px;
 }
 p a:hover,
-.caption a:hover,
-li a:hover {
+.caption a:hover {
   color: var(--accent);
   text-decoration-color: currentColor;
 }
@@ -369,6 +367,12 @@ small {
 }
 .neutral {
   color: var(--text-2);
+}
+:is(span, strong, dd, small, b).up {
+  color: var(--up);
+}
+:is(span, strong, dd, small, b).down {
+  color: var(--down);
 }
 .big {
   margin: 8px 0;

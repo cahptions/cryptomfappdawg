@@ -469,14 +469,6 @@
 .stock-research {
   --axis: 64px;
 }
-.stock-research span.up,
-.stock-research strong.up {
-  color: var(--up);
-}
-.stock-research span.down,
-.stock-research strong.down {
-  color: var(--down);
-}
 .viz {
   position: relative;
   margin: 24px 0 6px;
@@ -1133,5 +1125,316 @@
   .sp-section,
   .stock-research .detail-section {
     padding: 26px 0;
+  }
+}
+
+/* ── research list page ("Find the evidence.") ─────────────────────── */
+.lists-page .lists-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px 32px;
+  margin-bottom: 28px;
+}
+.lists-page .lists-head p {
+  margin: 0;
+}
+.lists-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.lists-controls select {
+  margin: 0;
+  min-width: 240px;
+  border-radius: var(--radius-pill);
+}
+.lists-search {
+  display: flex;
+  gap: 8px;
+}
+.lists-search input {
+  width: 200px;
+  border-radius: var(--radius-pill);
+}
+.list-card {
+  padding: 8px 0 0;
+}
+.list-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.list-card-head h2 {
+  margin-bottom: 4px;
+  font-size: var(--text-2xl);
+}
+.list-card-head p {
+  margin: 0;
+}
+.list-meta {
+  text-align: right;
+  white-space: nowrap;
+}
+.list-meta strong {
+  display: block;
+  font-size: var(--text-2xl);
+  font-weight: 650;
+  line-height: 1;
+  color: var(--text-strong);
+}
+.list-meta span {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.list-how {
+  margin: 12px 0 20px;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  max-width: none;
+}
+.list-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+.list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) 120px 110px 120px minmax(0, 1.6fr);
+  grid-template-areas:
+    "who chart price moves verdict"
+    "why why why why why";
+  gap: 10px 24px;
+  align-items: center;
+  margin: 0;
+  padding: 18px 8px;
+  border-bottom: 1px solid var(--line);
+  transition: background 0.12s var(--ease);
+}
+.list-row:hover {
+  background: color-mix(in srgb, var(--surface-1) 80%, transparent);
+}
+.list-who {
+  grid-area: who;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 0 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+.list-rank {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.list-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.list-name strong {
+  font-size: var(--text-md);
+  color: var(--text-strong);
+}
+.list-name span {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list-name:hover strong {
+  color: var(--accent);
+}
+.list-who small {
+  grid-column: 2;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+.list-chart {
+  grid-area: chart;
+}
+.list-chart .sp-spark {
+  width: 100%;
+  height: 36px;
+}
+.list-price {
+  grid-area: price;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.list-price strong {
+  font-size: var(--text-md);
+  color: var(--text-strong);
+}
+.list-price span {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.list-price small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.list-moves {
+  grid-area: moves;
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin: 0;
+}
+.list-moves dt {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.list-moves dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.list-verdict {
+  grid-area: verdict;
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+.list-score {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.list-score strong {
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+.list-score span {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.list-score span.neutral {
+  color: var(--text-2);
+}
+.list-strip {
+  display: grid;
+  grid-template-columns: repeat(11, 12px);
+  gap: 3px;
+}
+.list-strip span {
+  height: 12px;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+.list-strip .favorable {
+  background: var(--up);
+}
+.list-strip .unfavorable {
+  background: var(--down);
+}
+.list-strip .mixed {
+  background: var(--series-ref);
+  opacity: 0.55;
+}
+.list-strip .silent {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  opacity: 1;
+}
+.list-strip .silent.favorable {
+  box-shadow: inset 0 0 0 1.5px var(--up-line);
+}
+.list-strip .silent.unfavorable {
+  box-shadow: inset 0 0 0 1.5px var(--down-line);
+}
+.list-why {
+  grid-area: why;
+  padding-left: 38px;
+}
+.list-reason {
+  margin: 0;
+  max-width: none;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+.list-forces {
+  margin: 4px 0 0;
+  max-width: none;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.list-forces .muted {
+  font-weight: 450;
+}
+.list-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+.list-facts li {
+  margin: 0;
+}
+.list-facts li::before {
+  content: "+ ";
+  font-weight: 700;
+  color: var(--up);
+}
+.list-facts li.bear::before {
+  content: "− ";
+  color: var(--down);
+}
+@media (max-width: 1000px) {
+  .list-row {
+    grid-template-columns: minmax(0, 1fr) 96px 110px;
+    grid-template-areas:
+      "who chart price"
+      "moves moves verdict"
+      "why why why";
+  }
+  .list-moves {
+    justify-content: flex-start;
+    padding-left: 38px;
+  }
+}
+@media (max-width: 650px) {
+  .lists-controls,
+  .lists-controls select,
+  .lists-search,
+  .lists-search input {
+    width: 100%;
+    min-width: 0;
+  }
+  .list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "who price"
+      "chart chart"
+      "moves verdict"
+      "why why";
+    padding: 16px 0;
+  }
+  .list-moves,
+  .list-why {
+    padding-left: 0;
+  }
+  .list-who {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+  .list-strip {
+    grid-template-columns: repeat(11, 10px);
+  }
+  .list-strip span {
+    height: 10px;
   }
 }
