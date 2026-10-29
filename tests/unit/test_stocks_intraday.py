@@ -110,7 +110,7 @@ def test_weekend_and_before_open_keep_latest_real_session_and_correct_previous_c
 async def test_minute_refresh_is_bounded_paced_and_independent_of_other_source_failures(tmp_path, monkeypatch):
     world = make_world(tmp_path, n=12)
     clock = [NOW]
-    client = SimpleNamespace(configured=True, quotes=AsyncMock(side_effect=DeskError("quote unavailable")),
+    client = SimpleNamespace(configured=True, quote_details=AsyncMock(side_effect=DeskError("quote unavailable")),
         price_history=AsyncMock(side_effect=DeskError("daily unavailable")), intraday_history=AsyncMock(side_effect=parsed))
     suite = SimpleNamespace(schwab=client, aclose=AsyncMock())
     monkeypatch.setattr("desk.stocks.stock_views.build_stocks_suite", lambda *_: suite)

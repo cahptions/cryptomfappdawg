@@ -307,14 +307,26 @@ def new_lows(day: Day) -> list[dict[str, Any]]:
             out.append((r, s, f"Closed at a 52-week low; {pct(r, 0)} in a year"))
     return _top(day, out, reverse=False)
 
+def committee_reason(day: Day, s: str, score: float) -> str:
+    """Which voting desks lift the committee score and which hold it back (desks with no weight are left out, so the
+    reason always agrees with the score it explains)."""
+    voting = [(name, sc) for name in day.weights if day.weights[name] > 0 and (sc := _score(day, name, s)) is not None]
+    lifts = sorted((x for x in voting if x[1] >= 55), key=lambda x: -x[1])
+    drags = sorted((x for x in voting if x[1] <= 45), key=lambda x: x[1])
+    text = f"Score {score:.0f}: "
+    text += (", ".join(f"{n} {v:.0f}" for n, v in lifts[:3]) + " lift it") if lifts else "no desk lifts it"
+    text += ("; " + ", ".join(f"{n} {v:.0f}" for n, v in drags[:2]) + " hold it back") if drags else "; nothing holds it back"
+    neutral = len(voting) - len(lifts) - len(drags)
+    return text + (f"; {neutral} neutral" if neutral else "")
+
+
 def committee_top(day: Day) -> list[dict[str, Any]]:
     out = []
     for s in day.ctx.symbols:
         c = day.committee.get(s) or {}
         if c.get("score") is None or c.get("desks_counted", 0) < 6:
             continue
-        out.append((c["score"], s, f"{c['label']}: {len(c['positive'])} of {c['desks_counted']} desks positive"
-                                   + (f"; {', '.join(c['dissent'][:2])} dissent" if c.get("dissent") else "")))
+        out.append((c["score"], s, committee_reason(day, s, c["score"])))
     return _top(day, out)
 
 

@@ -102,10 +102,11 @@ def save_connection(paths: DeskPaths, *, app_key: str, app_secret: str, callback
             _atomic_private(preference_path(paths), local_json)
 
 
-def save_sources(paths: DeskPaths, *, massive_key: str = "", sec_contact: str = "", tradier_token: str = "") -> None:
+def save_sources(paths: DeskPaths, *, massive_key: str = "", sec_contact: str = "", tradier_token: str = "",
+                 finnhub_key: str = "") -> None:
     """Update only auxiliary sources, preserving other desks and Schwab authorization. Blanks mean keep."""
     updates = {"MASSIVE_API_KEY": massive_key.strip(), "SEC_CONTACT_EMAIL": sec_contact.strip(),
-               "TRADIER_TOKEN": tradier_token.strip()}
+               "TRADIER_TOKEN": tradier_token.strip(), "FINNHUB_API_KEY": finnhub_key.strip()}
     if any(len(v) > 2000 or any(c in v for c in "\r\n\x00") for v in updates.values()):
         raise SchwabAuthError("Source settings must be single-line values")
     if updates["SEC_CONTACT_EMAIL"] and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", updates["SEC_CONTACT_EMAIL"]):

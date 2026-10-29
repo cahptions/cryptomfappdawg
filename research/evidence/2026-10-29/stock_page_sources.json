@@ -1,0 +1,47 @@
+{
+  "kind": "STOCK PAGE SOURCE VERIFICATION (build container, 2026-10-29)",
+  "note": "Display-only company context for the stock page. Live probes ran without any key; keyed responses (Massive, Finnhub, Schwab) are documented examples until the operator's laptop records real ones.",
+  "requests": {
+    "https://query.wikidata.org/sparql (company facts by SEC CIK, P5531 = \"0000320193\")": {"status": 200, "bytes": 6924, "content_type": "application/sparql-results+json"},
+    "https://en.wikipedia.org/api/rest_v1/page/summary/Apple_Inc.": {"status": 200, "bytes": 2642, "content_type": "application/json"},
+    "https://finnhub.io/static/swagger.json": {"status": 200, "bytes": 587813, "content_type": "application/json"},
+    "https://finnhub.io/api/v1/stock/recommendation?symbol=AAPL (no key)": {"status": 401},
+    "https://api.massive.com/v3/reference/tickers/AAPL (no key)": {"status": 401}
+  },
+  "results": {
+    "wikidata": {
+      "fields": ["founded (P571)", "employees (P1128 with point-in-time P585)", "headquarters (P159)", "chief executive (P169 without end time P582)", "official website (P856, host only)", "English Wikipedia article"],
+      "aapl": {"founded": "1976-04-01", "employees": "164000 as of 2022-01-01", "headquarters": "Cupertino", "ceo": "an entity without an English label (Q106028933, from 2026-09-01): unlabelled values are dropped", "article": "https://en.wikipedia.org/wiki/Apple_Inc."},
+      "decision": "fallback only: SEC filings and Massive come first; a chief executive is taken from the issuer's own Form 4 officer titles before Wikidata",
+      "policy": "keyless; a descriptive User-Agent is sent (Wikimedia User-Agent policy)"
+    },
+    "wikipedia_summary": {"fields": ["title", "description", "extract", "content_urls.desktop.page"], "use": "description fallback when Massive is not configured, linked to the article (CC BY-SA)"},
+    "massive_ticker_details": {
+      "endpoint": "GET /v3/reference/tickers/{ticker}",
+      "plans": "included in all Stocks plans including Basic ($0); updated daily (massive.com/docs/rest/stocks/tickers/ticker-overview, read 2026-10-29)",
+      "fields": ["results.{name,description,homepage_url,total_employees,list_date,market_cap,address.{address1,city,state,postal_code},phone_number,sic_description,primary_exchange,share_class_shares_outstanding,weighted_shares_outstanding,branding.{icon_url,logo_url}}"],
+      "branding": "icon_url is a PNG on api.massive.com and needs the key: the desk fetches it server-side, accepts PNG/JPEG only (never SVG) and serves it from its own origin"
+    },
+    "massive_news": {
+      "endpoint": "GET /v2/reference/news?ticker=&order=desc&sort=published_utc&limit=",
+      "plans": "included in all Stocks plans including Basic; updated hourly; Basic has 2 years (massive.com/docs/rest/stocks/news, read 2026-10-29)",
+      "fields": ["results[].{id,title,description,article_url,published_utc,author,tickers,publisher.name,insights[].{ticker,sentiment,sentiment_reasoning}}"]
+    },
+    "finnhub": {
+      "auth": "token query parameter or X-Finnhub-Token header (swagger.json Authentication); the desk sends the header",
+      "limits": "429 when a plan limit is exceeded; an extra 30 calls/second ceiling (swagger.json Rate Limits)",
+      "endpoints": {
+        "/stock/recommendation": "free (no premium flag); [{period,strongBuy,buy,hold,sell,strongSell,symbol}]",
+        "/stock/earnings": "freeTier: Last 4 quarters; [{period,year,quarter,actual,estimate,surprise,surprisePercent,symbol}]",
+        "/calendar/earnings": "freeTier: 1 month of historical earnings and new updates; {earningsCalendar:[{date,hour,year,quarter,epsEstimate,epsActual,revenueEstimate,revenueActual,symbol}]}",
+        "/stock/price-target": "premium: Premium required -> NOT USED"
+      },
+      "estimates": "EPS and revenue in /calendar/earnings are non-GAAP (swagger description); the page labels them as analyst estimates, separate from SEC-reported EPS"
+    },
+    "schwab_quote_sections": {
+      "request": "GET /quotes?fields=quote,fundamental,reference,extended,regular",
+      "status": "field names in the fundamental/reference/extended/regular sections are not confirmed by a recorded response; each is parsed only if present and the page lists the sections that arrived",
+      "fallback": "HTTP 400 for the extra sections -> the plain quote request"
+    }
+  }
+}

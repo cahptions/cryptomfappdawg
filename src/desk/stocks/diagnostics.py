@@ -17,7 +17,7 @@ from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.stocks.analysis import MIN_BARS
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE
 
-KEYS = ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "SCHWAB_APP_KEY", "SCHWAB_APP_SECRET")
+KEYS = ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "FINNHUB_API_KEY", "SCHWAB_APP_KEY", "SCHWAB_APP_SECRET")
 
 
 def error_category(message: str) -> str:

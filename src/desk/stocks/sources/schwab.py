@@ -124,6 +124,86 @@ def parse_quotes(body: bytes) -> list[StockQuote]:
         raise SchemaError("schwab quotes: invalid quote map") from exc
 
 
+# Display-only extras from a ``quote,fundamental,reference,extended,regular`` request: (Schwab field, our key, kind).
+# Names follow Schwab's market-data schema; until an operator's response confirms one, a missing or malformed field
+# is simply left out and the page lists the sections that actually arrived.
+QUOTE_DETAIL_FIELDS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "quote": (("openPrice", "open", "price"), ("highPrice", "high", "price"), ("lowPrice", "low", "price"),
+              ("closePrice", "prev_close", "price"), ("lastPrice", "last", "price"), ("mark", "mark", "price"),
+              ("bidPrice", "bid", "price"), ("askPrice", "ask", "price"), ("bidSize", "bid_size", "count"),
+              ("askSize", "ask_size", "count"), ("totalVolume", "volume", "count"),
+              ("52WeekHigh", "high_52w", "price"), ("52WeekLow", "low_52w", "price"),
+              ("netChange", "net_change", "signed"), ("netPercentChange", "net_percent", "signed"),
+              ("postMarketChange", "post_change", "signed"), ("postMarketPercentChange", "post_percent", "signed"),
+              ("quoteTime", "quote_time", "time"), ("tradeTime", "trade_time", "time"),
+              ("securityStatus", "status", "text")),
+    "fundamental": (("avg10DaysVolume", "avg_volume_10d", "count"), ("avg1YearVolume", "avg_volume_1y", "count"),
+                    ("peRatio", "pe", "signed"), ("eps", "eps", "signed"), ("divAmount", "dividend_amount", "price"),
+                    ("divYield", "dividend_yield", "price"), ("divFreq", "dividend_frequency", "count"),
+                    ("divExDate", "ex_dividend_date", "date"), ("divPayDate", "dividend_pay_date", "date"),
+                    ("nextDivExDate", "next_ex_dividend_date", "date"),
+                    ("nextDivPayDate", "next_dividend_pay_date", "date"),
+                    ("declarationDate", "dividend_declared", "date"), ("lastEarningsDate", "last_earnings_date", "date")),
+    "reference": (("description", "description", "text"), ("exchangeName", "exchange", "text"),
+                  ("isHardToBorrow", "hard_to_borrow", "bool"), ("isShortable", "shortable", "bool"),
+                  ("htbRate", "borrow_rate", "signed"), ("htbQuantity", "borrow_quantity", "count")),
+    "extended": (("lastPrice", "ext_last", "price"), ("bidPrice", "ext_bid", "price"), ("askPrice", "ext_ask", "price"),
+                 ("totalVolume", "ext_volume", "count"), ("tradeTime", "ext_trade_time", "time"),
+                 ("quoteTime", "ext_quote_time", "time")),
+    "regular": (("regularMarketLastPrice", "regular_last", "price"),
+                ("regularMarketNetChange", "regular_change", "signed"),
+                ("regularMarketPercentChange", "regular_percent", "signed"),
+                ("regularMarketTradeTime", "regular_trade_time", "time")),
+}
+DETAIL_SECTIONS = ",".join(QUOTE_DETAIL_FIELDS)
+_DAY = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+
+
+def _detail(value: Any, kind: str) -> Any:
+    if kind == "price":
+        return _f(value)
+    if kind == "signed":
+        return _signed(value)
+    if kind == "count":
+        n = _f(value)
+        return None if n is None else int(n) if n.is_integer() else n
+    if kind == "bool":
+        return value if isinstance(value, bool) else None
+    if kind == "time":
+        stamp = _time(value)
+        return stamp.isoformat() if stamp else None
+    if kind == "date":
+        match = _DAY.match(str(value or ""))
+        try:
+            return date.fromisoformat(match.group(1)).isoformat() if match else None
+        except ValueError:
+            return None
+    text = str(value).strip() if isinstance(value, str) else ""
+    return text[:120] or None
+
+
+def parse_quote_details(body: bytes) -> dict[str, dict[str, Any]]:
+    """Symbol → the recognised extras, plus ``sections``: which Schwab sections arrived (for the operator's check)."""
+    value = _body(body)
+    out: dict[str, dict[str, Any]] = {}
+    for key, row in value.items():
+        if not isinstance(row, dict) or not isinstance(row.get("quote"), dict):
+            continue
+        symbol = str(row.get("symbol") or key)
+        found: dict[str, Any] = {"sections": []}
+        for section, fields in QUOTE_DETAIL_FIELDS.items():
+            raw = row.get(section)
+            if not isinstance(raw, dict):
+                continue
+            found["sections"].append(section)
+            for name, ours, kind in fields:
+                parsed = _detail(raw.get(name), kind)
+                if parsed is not None:
+                    found[ours] = parsed
+        out[symbol] = found
+    return out
+
+
 def schwab_option_symbol(occ: str) -> str:
     """Stored OCC identifiers have no spaces; Schwab pads the root to six characters (``AAPL  261120C00250000``)."""
     if not OCC.fullmatch(occ):
@@ -279,6 +359,20 @@ class SchwabClient:
         if not 1 <= len(symbols) <= 100:
             raise ValueError("Schwab quote batches contain 1..100 symbols")
         return parse_quotes(await self._get("quotes", {"symbols": ",".join(symbols), "fields": "quote"}))
+
+    async def quote_details(self, symbols: list[str]) -> tuple[list[StockQuote], dict[str, dict[str, Any]]]:
+        """Quotes plus the stock page's statistics in one request. If Schwab refuses the extra sections the plain
+        quote is used, so a viewed stock never loses its price over a statistic."""
+        if not 1 <= len(symbols) <= 100:
+            raise ValueError("Schwab quote batches contain 1..100 symbols")
+        params = {"symbols": ",".join(symbols), "fields": DETAIL_SECTIONS}
+        try:
+            body = await self._get("quotes", params)
+        except ProviderError as exc:
+            if exc.status_code != 400:
+                raise
+            body = await self._get("quotes", {**params, "fields": "quote"})
+        return parse_quotes(body), parse_quote_details(body)
 
     async def option_quotes(self, occs: list[str]) -> list[OptionTick]:
         """Live quotes for up to 100 option contracts in one request (stored OCC symbols in, OCC symbols out)."""

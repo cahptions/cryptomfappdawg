@@ -69,7 +69,7 @@ async def test_view_collection_is_independent_of_massive_and_failures_preserve_c
     w = make_world(tmp_path, n=12)
     client = SimpleNamespace(configured=True,
         intraday_history=AsyncMock(return_value=[]),
-        quotes=AsyncMock(return_value=[StockQuote("SPY", 111, 110, 112, 108, 123, NOW)]),
+        quote_details=AsyncMock(return_value=([StockQuote("SPY", 111, 110, 112, 108, 123, NOW)], {})),
         price_history=AsyncMock(return_value=[Bar("SPY", date(2010, 1, 4), 10, 12, 9, 11, 1000)]))
     suite = SimpleNamespace(schwab=client, aclose=AsyncMock())
     monkeypatch.setattr("desk.stocks.stock_views.build_stocks_suite", lambda *args: suite)
@@ -79,7 +79,7 @@ async def test_view_collection_is_independent_of_massive_and_failures_preserve_c
         await refresh(w.paths, load_config(REPO / "config"))
         assert read(w.dbs.market, "SPY", NOW)["bars"]
         await refresh(w.paths, load_config(REPO / "config"))
-        assert client.price_history.await_count == 1 and client.quotes.await_count == 1
+        assert client.price_history.await_count == 1 and client.quote_details.await_count == 1
         later = NOW + timedelta(minutes=16)
         monkeypatch.setattr("desk.stocks.stock_views.utc_now", lambda: later)
         request(w.dbs.market, "SPY", later)

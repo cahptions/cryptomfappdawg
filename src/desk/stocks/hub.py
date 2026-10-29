@@ -75,6 +75,51 @@ def research_lists(research: StocksResearch, preview: dict[str, Any] | None = No
     return output
 
 
+DESK_ORDER = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "risk", "macro", "options",
+              "crowd")
+
+
+def list_detail(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, lists: list[dict[str, Any]],
+                list_id: str) -> dict[str, Any] | None:
+    """One research list with what a reader needs beside each stock: the company, price moves, a three-month chart,
+    the committee's score and every desk's, what lifts and what holds the score back, and the strongest signals."""
+    from desk.stocks.desks import DESK_LABELS
+    from desk.stocks.lists import BY_ID
+
+    item = next((x for x in lists if x["id"] == list_id), None)
+    spec = BY_ID.get(list_id)
+    if item is None or spec is None:
+        return None
+    rows = []
+    for r in item.get("rows", [])[:25]:
+        symbol = r["symbol"]
+        found = research_conn.execute("SELECT detail_json FROM stk_scores_latest WHERE symbol=?", (symbol,)).fetchone()
+        detail = json.loads(found[0]) if found else {}
+        weights = detail.get("weights") or {}
+        desks: list[dict[str, Any]] = []
+        for name in DESK_ORDER:
+            score = ((detail.get("desks") or {}).get(name) or {}).get("score")
+            desks.append({"id": name, "label": DESK_LABELS.get(name, name),
+                          "score": None if score is None else round(float(score)),
+                          "voting": float(weights.get(name) or 0) > 0})
+        voting = [d for d in desks if d["voting"] and d["score"] is not None]
+        listing = market_conn.execute("SELECT name FROM stk_listings WHERE symbol=?", (symbol,)).fetchone()
+        card = price_card(market_conn, symbol, detail.get("name") or (listing[0] if listing else symbol), bars=64)
+        price = detail.get("price") or {}
+        committee = detail.get("committee") or {}
+        rows.append({**r, "name": card["name"], "sector": detail.get("sector"), "close": card["price"],
+                     "close_day": card["asof"], "change_1d": card["change"], "ret_1m": price.get("ret_21d"),
+                     "ret_1y": price.get("ret_252d"), "spark": [h["close"] for h in card["history"]],
+                     "committee": {"score": committee.get("score"), "label": committee.get("label")},
+                     "desks": desks,
+                     "lifts": [d for d in sorted(voting, key=lambda d: -d["score"]) if d["score"] >= 55][:3],
+                     "drags": [d for d in sorted(voting, key=lambda d: d["score"]) if d["score"] <= 45][:2],
+                     "bull": (detail.get("bull") or [])[:2], "bear": (detail.get("bear") or [])[:2],
+                     "analysis_asof": detail.get("asof")})
+    return {**item, "rows": rows, "rule": spec.rule, "claim": spec.claim,
+            "lists": [{"id": x["id"], "title": x["title"]} for x in lists]}
+
+
 def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
          preview: dict[str, Any] | None = None, options_view: dict[str, Any] | None = None) -> dict[str, Any]:
     from desk.stocks.options_view import overlay

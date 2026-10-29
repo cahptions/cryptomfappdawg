@@ -537,6 +537,107 @@ path = "/stocks/v1/dividends"
 status = "to_verify"
 verified_fields = ["results[].{ticker,ex_dividend_date,cash_amount,split_adjusted_cash_amount,pay_date,frequency}", "next_url"]
 
+[providers.massive.endpoints.ticker_details]
+path = "/v3/reference/tickers/{ticker}"
+status = "to_verify"
+notes = "stock page only: company description, employees, address, listing date; all Stocks plans (docs 2026-10-29)"
+verified_fields = ["results.{name,description,homepage_url,total_employees,list_date,market_cap,address,phone_number,sic_description,share_class_shares_outstanding,branding.icon_url}"]
+
+[providers.massive.endpoints.news]
+path = "/v2/reference/news"
+status = "to_verify"
+notes = "stock page only: latest headlines with publisher and per-ticker sentiment insights; all Stocks plans"
+verified_fields = ["results[].{id,title,description,article_url,published_utc,author,tickers,publisher.name,insights}"]
+
+[providers.massive.endpoints.branding]
+path = "/v1/reference/company-branding/{id}/images/{file}"
+status = "to_verify"
+notes = "the PNG icon named by ticker details; fetched server-side (the key never reaches the browser), PNG/JPEG only"
+verified_fields = []
+
+# ── Wikidata (company facts by SEC CIK; keyless, display only) ─────────────────
+[providers.wikidata]
+display_name = "Wikidata Query Service"
+base_url = "https://query.wikidata.org"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "public SPARQL endpoint: 60 seconds of query time per minute per client; descriptive User-Agent required"
+measured_limit = "one query per company, 0.6 s, 6.9 KB (2026-10-29)"
+freshness_seconds = 2592000
+failure_handling = "keep the previous facts; 429 -> shared backoff (WDQS throttled to 1 request a minute during an outage, 2026-10-29); retry after ten minutes"
+fallback = "SEC filings and Massive details come first; Wikidata fills founded year and gaps"
+allowed_usage = "CC0 data; private local use"
+evidence = ["research/evidence/2026-10-29/stock_page_sources.json", "tests/fixtures/stocks/wikidata_company_facts_aapl.json"]
+default_headers = { "User-Agent" = "KESTREL-desk/1.0 (private local stock research)", "Accept" = "application/sparql-results+json" }
+
+[providers.wikidata.buckets.default]
+windows = [[1, 15], [3, 60]]
+
+[providers.wikidata.endpoints.sparql]
+path = "/sparql"
+status = "verified"
+verified_fields = ["results.bindings[].{kind,value,valueLabel,when}"]
+
+# ── Wikipedia page summaries (keyless, display only) ──────────────────────────
+[providers.wikipedia]
+display_name = "Wikipedia REST page summary"
+base_url = "https://en.wikipedia.org"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "Wikimedia REST API: descriptive User-Agent; well under 200 requests a second"
+measured_limit = "one request per company, 2.6 KB (2026-10-29)"
+freshness_seconds = 2592000
+failure_handling = "keep the previous summary; retry after ten minutes"
+fallback = "Massive description first; the SEC annual-filing excerpt remains"
+allowed_usage = "CC BY-SA text shown with a link to the article; private local use"
+evidence = ["research/evidence/2026-10-29/stock_page_sources.json", "tests/fixtures/stocks/wikipedia_summary_apple_inc.json"]
+default_headers = { "User-Agent" = "KESTREL-desk/1.0 (private local stock research)" }
+
+[providers.wikipedia.buckets.default]
+windows = [[1, 1], [30, 60]]
+
+[providers.wikipedia.endpoints.summary]
+path = "/api/rest_v1/page/summary/{title}"
+status = "verified"
+verified_fields = ["type", "title", "description", "extract", "content_urls.desktop.page"]
+
+# ── Finnhub, free key (analyst ratings, EPS estimates, earnings dates; optional) ──
+[providers.finnhub]
+display_name = "Finnhub free plan (optional)"
+base_url = "https://finnhub.io/api/v1"
+auth = "header"
+key_env = "FINNHUB_API_KEY"
+key_header = "X-Finnhub-Token"
+cost_usd_month = 0
+documented_limit = "free plan per-minute limit (finnhub.io/pricing); 429 when exceeded; 30 calls/second ceiling (swagger.json)"
+measured_limit = "not measured: needs the operator's free key"
+freshness_seconds = 86400
+failure_handling = "401/403 -> key or plan problem shown on the stock page; 429 -> shared backoff; other sections unaffected"
+fallback = "none: analyst ratings and estimates are not shown without a key; SEC-reported EPS still is"
+allowed_usage = "free plan; private local use"
+evidence = ["research/evidence/2026-10-29/stock_page_sources.json", "tests/fixtures/stocks/finnhub_recommendation_spec_example.json", "tests/fixtures/stocks/finnhub_earnings_spec_example.json", "tests/fixtures/stocks/finnhub_earnings_calendar_spec_example.json"]
+
+[providers.finnhub.buckets.default]
+windows = [[1, 1], [20, 60]]
+
+[providers.finnhub.endpoints.recommendation]
+path = "/stock/recommendation"
+status = "to_verify"
+notes = "free; monthly counts of analyst ratings"
+verified_fields = ["[].{period,strongBuy,buy,hold,sell,strongSell,symbol}"]
+
+[providers.finnhub.endpoints.earnings]
+path = "/stock/earnings"
+status = "to_verify"
+notes = "free tier: last 4 quarters of EPS actual vs estimate"
+verified_fields = ["[].{period,year,quarter,actual,estimate,surprise,surprisePercent,symbol}"]
+
+[providers.finnhub.endpoints.earnings_calendar]
+path = "/calendar/earnings"
+status = "to_verify"
+notes = "free tier: one month of history plus upcoming releases; non-GAAP estimates"
+verified_fields = ["earningsCalendar[].{date,hour,year,quarter,epsEstimate,epsActual,revenueEstimate,revenueActual,symbol}"]
+
 # ── Tradier market data (options chains) ─────────────────────────────────────
 [providers.tradier]
 display_name = "Tradier Brokerage API (market data)"

@@ -98,3 +98,32 @@ def test_the_methodology_is_versioned() -> None:
     assert len({spec.spec_sha256 for spec in LISTS}) == len(LISTS)
     content = dk.method_content()
     assert content["default_weights"]["crowd"] == 0 and content["version"] == dk.METHOD_VERSION
+
+
+def test_committee_reasons_name_only_desks_that_vote_and_agree_with_the_score(world: StocksWorld) -> None:
+    day = analyse(world)
+    rows = build_lists(day)["committee"]
+    silent = [name for name, weight in day.weights.items() if weight <= 0]
+    assert rows and silent
+    for row in rows:
+        assert row["reason"].startswith(f"Score {row['value']:.0f}: ")
+        assert not any(f"{name} " in row["reason"] for name in silent)
+        assert "positive" not in row["reason"]
+
+
+def test_list_page_rows_carry_company_moves_desks_and_what_lifts_or_drags(world: StocksWorld) -> None:
+    from fastapi.testclient import TestClient
+
+    from desk.stocks.runner import process
+    from desk.stocks.web import create_app
+
+    process(world.paths, load_config(world.paths.config_dir), world.dbs, NOW)
+    with TestClient(create_app(world.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
+        page = client.get("/api/stocks/lists/committee").json()
+        assert client.get("/api/stocks/lists/nope").status_code == 404
+    assert page["rows"] and page["rule"] and {"id": "committee", "title": page["title"]} in page["lists"]
+    row = page["rows"][0]
+    assert row["name"] and row["close"] and len(row["spark"]) > 20 and row["committee"]["label"]
+    assert [d["id"] for d in row["desks"]][:2] == ["valuation", "quality"]
+    assert all(d["voting"] and d["score"] >= 55 for d in row["lifts"])
+    assert all(d["voting"] and d["score"] <= 45 for d in row["drags"])

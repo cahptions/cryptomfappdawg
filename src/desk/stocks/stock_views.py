@@ -45,10 +45,11 @@ def save_history(conn: sqlite3.Connection, symbol: str, bars: list[Bar], now: da
                  (payload, to_iso(now), symbol))
 
 
-def save_quote(conn: sqlite3.Connection, quote: StockQuote, now: datetime) -> None:
+def save_quote(conn: sqlite3.Connection, quote: StockQuote, now: datetime,
+               details: dict[str, Any] | None = None) -> None:
     if quote.last is None or quote.last <= 0 or quote.quoted_at is None or quote.quoted_at > now + timedelta(minutes=5):
         raise DeskError("Schwab returned no timestamped stock price; previous quote was preserved")
-    value = {**asdict(quote), "quoted_at": to_iso(quote.quoted_at)}
+    value = {**asdict(quote), "quoted_at": to_iso(quote.quoted_at), "details": details or {}}
     conn.execute("UPDATE stk_stock_views SET quote_json=?,quote_at=?,quote_error=NULL WHERE symbol=?",
                  (json.dumps(value, allow_nan=False), to_iso(now), quote.symbol))
 
@@ -68,8 +69,31 @@ def save_intraday(conn: sqlite3.Connection, symbol: str, bars: list[IntradayBar]
              "volume": b.volume, "gap_before": bool(i and b.at - selected[i-1].at > timedelta(minutes=1))}
             for i, b in enumerate(selected)]
     payload = zlib.compress(json.dumps(rows, allow_nan=False, separators=(",", ":")).encode())
-    conn.execute("UPDATE stk_stock_views SET intraday_zlib=?,intraday_at=?,intraday_error=NULL WHERE symbol=?",
-                 (payload, to_iso(now), symbol))
+    week = zlib.compress(json.dumps(week_candles(bars), allow_nan=False, separators=(",", ":")).encode())
+    conn.execute("UPDATE stk_stock_views SET intraday_zlib=?,week_zlib=?,intraday_at=?,intraday_error=NULL "
+                 "WHERE symbol=?", (payload, week, to_iso(now), symbol))
+
+
+def week_candles(bars: list[IntradayBar], minutes: int = 10) -> list[dict[str, Any]]:
+    """The fetched sessions as 10-minute candles (a one-week chart needs ~200 points, not ~2,000). A candle is stamped
+    with its first minute; ``session_start`` marks each new trading day so the chart never joins two sessions."""
+    out: list[dict[str, Any]] = []
+    previous_day = None
+    for b in sorted(bars, key=lambda b: b.at):
+        local = cal.new_york(b.at)
+        bucket = local.replace(minute=local.minute - local.minute % minutes, second=0, microsecond=0)
+        if out and out[-1]["_bucket"] == bucket:
+            row = out[-1]
+            row["high"], row["low"] = max(row["high"], b.high), min(row["low"], b.low)
+            row["close"] = b.close
+            row["volume"] += b.volume
+            continue
+        out.append({"_bucket": bucket, "at": to_iso(b.at), "open": b.open, "high": b.high, "low": b.low,
+                    "close": b.close, "volume": b.volume, "session_start": local.date() != previous_day})
+        previous_day = local.date()
+    for row in out:
+        del row["_bucket"]
+    return out
 
 
 def read(conn: sqlite3.Connection, symbol: str, now: datetime) -> dict[str, Any]:
@@ -102,6 +126,14 @@ def read(conn: sqlite3.Connection, symbol: str, now: datetime) -> dict[str, Any]
     except (ValueError, TypeError, KeyError, zlib.error):
         minute_bars = []
         intraday_error = "Saved minute candles are unreadable; the next refresh will retry"
+    week: list[dict[str, Any]] = []
+    try:
+        if row["week_zlib"]:
+            week = json.loads(zlib.decompress(row["week_zlib"]))
+            if not isinstance(week, list):
+                week = []
+    except (ValueError, TypeError, zlib.error):
+        week = []
     previous_close = None
     if session:
         if quote and cal.new_york(datetime.fromisoformat(quote["quoted_at"])).date() == session:
@@ -112,7 +144,7 @@ def read(conn: sqlite3.Connection, symbol: str, now: datetime) -> dict[str, Any]
     intraday = {"bars": minute_bars, "source": "Schwab", "interval_minutes": 1, "regular_hours": True,
                 "session": session.isoformat() if session else None, "updated_at": row["intraday_at"],
                 "last_at": minute_bars[-1]["at"] if minute_bars else None,
-                "previous_close": previous_close, "error": intraday_error}
+                "previous_close": previous_close, "error": intraday_error, "week": week}
     return {"bars": bars, "quote": quote, "requested": True, "updated_at": row["history_at"], "intraday": intraday,
             "history_error": history_error, "quote_error": row["quote_error"], "source": "Schwab",
             "basis": BASIS, "max_note": "Max shows available Schwab history from a request for up to 20 years; "
@@ -147,12 +179,13 @@ async def refresh(paths: DeskPaths, loaded: LoadedConfig) -> None:
                 conn.executemany("UPDATE stk_stock_views SET quote_attempt_at=? WHERE symbol=?",
                                  [(to_iso(now), s) for s in symbols])
             try:
-                received = {q.symbol: q for q in await client.quotes(symbols)}
+                quotes, details = await client.quote_details(symbols)
+                received = {q.symbol: q for q in quotes}
                 for symbol in symbols:
                     try:
                         if symbol not in received:
                             raise DeskError("Schwab did not return this symbol's quote")
-                        save_quote(conn, received[symbol], utc_now())
+                        save_quote(conn, received[symbol], utc_now(), details.get(symbol))
                     except DeskError as exc:
                         conn.execute("UPDATE stk_stock_views SET quote_error=? WHERE symbol=?", (str(exc)[:300], symbol))
             except DeskError as exc:

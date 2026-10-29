@@ -22,10 +22,12 @@ from desk.stocks.connection import preferences
 from desk.stocks.contracts import OptionQuote, StockQuote
 from desk.stocks.schwab_auth import SchwabAuthError, SchwabTokens, token_path
 from desk.stocks.sources.feeds import FeedsClient
+from desk.stocks.sources.finnhub import FinnhubClient
 from desk.stocks.sources.massive import MassiveClient
 from desk.stocks.sources.schwab import SchwabClient
 from desk.stocks.sources.sec import SecClient, sec_user_agent
 from desk.stocks.sources.tradier import TradierClient
+from desk.stocks.sources.wikimedia import WikimediaClient
 
 
 class OptionData(Protocol):
@@ -61,6 +63,8 @@ class StocksSuite:
     problems: dict[str, str] = field(default_factory=dict)   # source → what the operator must do
     option_source: str = "tradier_sandbox"
     schwab: SchwabClient | None = None
+    wikimedia: WikimediaClient | None = None   # stock page company context (keyless)
+    finnhub: FinnhubClient | None = None       # optional free key: analyst ratings and EPS estimates
 
     @property
     def options(self) -> OptionData:
@@ -96,6 +100,8 @@ def build_stocks_suite(paths: DeskPaths, loaded: LoadedConfig, secrets: Secrets,
                         MassiveClient(http("massive")), TradierClient(tradier), limiter, health, http_client)
     suite.option_source = tradier.name
     suite.schwab = SchwabClient(http("schwab"), SchwabTokens(token_path(paths), secrets))
+    suite.wikimedia = WikimediaClient(http("wikidata"), http("wikipedia"))
+    suite.finnhub = FinnhubClient(http("finnhub"))
     try:
         provider = preferences(paths, settings.stocks)["options_provider"]
     except SchwabAuthError:

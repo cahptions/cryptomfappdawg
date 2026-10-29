@@ -1,4 +1,5 @@
-"""Massive (formerly Polygon.io) Stocks Basic, free: end-of-day bars for every US stock, splits and dividends.
+"""Massive (formerly Polygon.io) Stocks Basic, free: end-of-day bars for every US stock, splits and dividends, plus
+company details, news and icons for the stock page (display only, never research inputs).
 
 The free plan (verified 2026-10-21 on massive.com/pricing): $0, personal licence, 5 requests a minute, 2 years of
 history, end-of-day data. One "grouped daily" request returns the day's bar for every US stock, so the daily refresh
@@ -13,12 +14,17 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from desk.core.errors import ProviderError, ProviderErrorKind, SchemaError
 from desk.providers.http import ProviderHttp
 from desk.stocks.contracts import Bar, Dividend, Split
-from desk.stocks.sources.validation import json_object, number, schema_boundary
+from desk.stocks.sources.validation import clean_text, iso_day, json_object, number, schema_boundary, web_url
+
+ICON_HOSTS = {"api.massive.com", "api.polygon.io"}
+ICON_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/jpeg"}
+ICON_MAX_BYTES = 300_000
+SENTIMENTS = {"positive", "negative", "neutral"}
 
 
 def _market_day(epoch_ms: int) -> date:
@@ -81,6 +87,95 @@ def parse_dividends(body: bytes) -> tuple[list[Dividend], str | None]:
         raise SchemaError("massive dividends: invalid action response") from exc
 
 
+def _count(value: Any) -> int | None:
+    try:
+        n = number(value, nonnegative=True)
+    except (ValueError, TypeError):
+        return None
+    return int(n)
+
+
+def _amount(value: Any) -> float | None:
+    try:
+        return number(value, positive=True)
+    except (ValueError, TypeError):
+        return None
+
+
+def icon_path(url: Any) -> str | None:
+    """The request path for a branding icon named by ticker details, only on Massive's own API host."""
+    if web_url(url) is None:
+        return None
+    parts = urlparse(url)
+    if parts.scheme != "https" or parts.hostname not in ICON_HOSTS or parts.query or parts.fragment:
+        return None
+    return parts.path if parts.path.startswith("/v1/reference/company-branding/") and ".." not in parts.path else None
+
+
+@schema_boundary("massive ticker details")
+def parse_ticker_details(body: bytes) -> dict[str, Any]:
+    d = json_object(body)
+    if d.get("status") not in ("OK", "DELAYED") or not isinstance(d.get("results"), dict):
+        raise ValueError("unavailable response")
+    r = d["results"]
+    raw_address = r.get("address")
+    address = raw_address if isinstance(raw_address, dict) else {}
+    city, state = clean_text(address.get("city"), 80), clean_text(address.get("state"), 40)
+    raw_branding = r.get("branding")
+    branding: dict[str, Any] = raw_branding if isinstance(raw_branding, dict) else {}
+    return {"ticker": clean_text(r.get("ticker"), 12), "name": clean_text(r.get("name"), 200),
+            "description": clean_text(r.get("description"), 4000), "homepage_url": web_url(r.get("homepage_url")),
+            "employees": _count(r.get("total_employees")), "list_date": iso_day(r.get("list_date")),
+            "market_cap": _amount(r.get("market_cap")), "phone": clean_text(r.get("phone_number"), 40),
+            "industry": clean_text(r.get("sic_description"), 120), "exchange": clean_text(r.get("primary_exchange"), 20),
+            "shares_outstanding": _amount(r.get("share_class_shares_outstanding"))
+            or _amount(r.get("weighted_shares_outstanding")),
+            "headquarters": ", ".join(x.title() if x.isupper() and len(x) > 3 else x for x in (city, state) if x) or None,
+            "street": clean_text(address.get("address1"), 120), "postal_code": clean_text(address.get("postal_code"), 20),
+            "icon_path": icon_path(branding.get("icon_url"))}
+
+
+@schema_boundary("massive news")
+def parse_news(body: bytes, limit: int = 20) -> list[dict[str, Any]]:
+    d = json_object(body)
+    if d.get("status", "OK") != "OK" or not isinstance(d.get("results", []), list):
+        raise ValueError("unavailable response")
+    out = []
+    for r in d.get("results") or []:
+        if not isinstance(r, dict):
+            continue
+        url, title, published = web_url(r.get("article_url")), clean_text(r.get("title"), 300), r.get("published_utc")
+        try:
+            when = datetime.fromisoformat(str(published).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if url is None or title is None or when.tzinfo is None:
+            continue
+        raw_publisher = r.get("publisher")
+        publisher: dict[str, Any] = raw_publisher if isinstance(raw_publisher, dict) else {}
+        insights = [{"ticker": clean_text(i.get("ticker"), 12), "sentiment": i.get("sentiment"),
+                     "reasoning": clean_text(i.get("sentiment_reasoning"), 400)}
+                    for i in (r.get("insights") or []) if isinstance(i, dict) and i.get("sentiment") in SENTIMENTS]
+        out.append({"id": clean_text(r.get("id"), 80) or url, "title": title, "url": url,
+                    "summary": clean_text(r.get("description"), 600), "published": when.astimezone(UTC).isoformat(),
+                    "source": clean_text(publisher.get("name"), 80), "author": clean_text(r.get("author"), 80),
+                    "tickers": [t for t in (clean_text(x, 12) for x in (r.get("tickers") or [])[:12]) if t],
+                    "insights": insights[:6]})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def icon_type(body: bytes) -> str:
+    """PNG or JPEG only: an SVG or HTML answer is never served from the desk's origin."""
+    if len(body) > ICON_MAX_BYTES:
+        raise SchemaError("massive icon: larger than the accepted size")
+    for magic, kind in ICON_TYPES.items():
+        if body.startswith(magic):
+            return kind
+    raise SchemaError("massive icon: not a PNG or JPEG image")
+
+
 def _cursor(next_url: str | None) -> str | None:
     """The next page's cursor (the next_url itself is never requested: it would carry the key back to us)."""
     if not next_url:
@@ -117,6 +212,17 @@ class MassiveClient:
     async def dividends(self, since: date) -> list[Dividend]:
         return await self._paged("dividends", parse_dividends, {"ex_dividend_date.gte": since.isoformat(), "limit": 1000})
 
+    async def ticker_details(self, symbol: str) -> dict[str, Any]:
+        return parse_ticker_details(await self._get("ticker_details", path=f"/v3/reference/tickers/{quote(symbol, safe='')}"))
+
+    async def news(self, symbol: str, limit: int = 20) -> list[dict[str, Any]]:
+        return parse_news(await self._get("news", params={"ticker": symbol, "order": "desc", "sort": "published_utc",
+                                                           "limit": limit}), limit)
+
+    async def icon(self, path: str) -> tuple[str, bytes]:
+        body = await self._get("branding", path=path)
+        return icon_type(body), body
+
     async def _paged(self, endpoint: str, parse: Any, params: dict[str, Any]) -> list[Any]:
         out: list[Any] = []
         cursor: str | None = None
@@ -132,4 +238,5 @@ class MassiveClient:
         raise SchemaError(f"massive {endpoint}: page limit reached; history remains incomplete")
 
 
-__all__ = ["MassiveClient", "parse_dividends", "parse_grouped", "parse_splits"]
+__all__ = ["MassiveClient", "icon_path", "icon_type", "parse_dividends", "parse_grouped", "parse_news", "parse_splits",
+           "parse_ticker_details"]

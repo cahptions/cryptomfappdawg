@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
 import secrets
 import sqlite3
 from collections.abc import AsyncIterator, Iterator
@@ -34,7 +35,7 @@ from desk.stocks.connection import LoginAttempt, connection_status, save_connect
 from desk.stocks.desks import DESK_LABELS
 from desk.stocks.evidence_job import EvidenceWorker
 from desk.stocks.evidence_job import document as evidence_document
-from desk.stocks.hub import adjusted_bars, option_table, research_lists
+from desk.stocks.hub import adjusted_bars, list_detail, option_table, research_lists
 from desk.stocks.hub import home as hub_home
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE, StocksDatabases, StocksMarket, StocksResearch
@@ -122,7 +123,7 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
             "worker_running": WorkerLock(paths, "stocks-worker").held(), "stop": paths.stop_file.exists(),
             "connection": connection_status(paths, loaded.settings.stocks, credentials),
             "source_keys": {name: credentials.configured(name) for name in
-                            ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")},
+                            ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "FINNHUB_API_KEY")},
             "price_progress": price_progress,
             "options_research": options_view,
             "plays_tracking": tracking,
@@ -309,6 +310,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 with suppress(TimeoutError):
                     await asyncio.wait_for(automation_stop.wait(), 10)
 
+        async def symbol_data() -> None:
+            from desk.stocks.symbol_feeds import refresh
+
+            while not automation_stop.is_set():
+                if collector.status().get("enabled") and not paths.stop_file.exists():
+                    try:
+                        await asyncio.wait_for(refresh(paths, config), 45)
+                    except Exception as exc:  # the next pass retries; saved values are kept
+                        log.warning("company feed refresh will retry", extra={"error": type(exc).__name__})
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 8)
+
         async def maintain() -> None:
             while not automation_stop.is_set():
                 await asyncio.to_thread(collector.maintain)
@@ -328,6 +341,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         learning_automation = asyncio.create_task(learn_options()) if auto_start else None
         tracking_automation = asyncio.create_task(track_plays()) if auto_start else None
         company_automation = asyncio.create_task(company_data()) if auto_start else None
+        feeds_automation = asyncio.create_task(symbol_data()) if auto_start else None
         try:
             yield
         finally:
@@ -346,6 +360,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             if company_automation is not None:
                 company_automation.cancel()
                 await asyncio.gather(company_automation, return_exceptions=True)
+            if feeds_automation is not None:
+                feeds_automation.cancel()
+                await asyncio.gather(feeds_automation, return_exceptions=True)
             await asyncio.to_thread(collector.stop, pause=False)
             await asyncio.to_thread(evidence.close)
             await asyncio.to_thread(backtests.close)
@@ -503,6 +520,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
             return hub_home(market, research, preview=saved_view(paths, "research"), options_view=saved_view(paths, "options"))
 
+    @app.get("/api/stocks/lists/{list_id}")
+    def research_list(list_id: str) -> dict[str, Any]:
+        from desk.stocks.options_view import overlay
+
+        preview, options_view = saved_view(paths, "research"), saved_view(paths, "options")
+        with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
+            lists = overlay(research_lists(StocksResearch(research), preview), options_view)
+            value = list_detail(market, research, lists, list_id)
+        if value is None:
+            raise HTTPException(404, "No such research list")
+        return value
+
     @app.get("/api/stocks/explore")
     def explore() -> dict[str, Any]:
         from desk.core.clock import utc_now
@@ -528,7 +557,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 raise HTTPException(413, "Settings request too large")
         try:
             data = json.loads(raw)
-            if (not isinstance(data, dict) or set(data) - {"massive_key", "sec_contact", "tradier_token"}
+            if (not isinstance(data, dict) or set(data) - {"massive_key", "sec_contact", "tradier_token", "finnhub_key"}
                     or any(not isinstance(v, str) for v in data.values())):
                 raise ValueError
         except (ValueError, TypeError) as exc:
@@ -536,7 +565,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         await asyncio.to_thread(save_sources, paths, **data)
         credentials = load_secrets(paths.secrets_file)
         return {"saved": True, "source_keys": {name: credentials.configured(name) for name in
-                                               ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN")}}
+                                               ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "FINNHUB_API_KEY")}}
 
     @app.get("/api/stocks/stock/{symbol}")
     def stock(symbol: str) -> dict[str, Any]:
@@ -607,12 +636,50 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         try:
             request_view(conn, symbol, utc_now())
             from desk.stocks.company_profiles import request as request_profile
+            from desk.stocks.symbol_feeds import request as request_feeds
 
             request_profile(conn, symbol, utc_now())
+            request_feeds(conn, symbol, utc_now())
         finally:
             conn.close()
         return {"queued": True, "enabled": collector.status().get("enabled", False),
                 "note": "Schwab quotes, 1-minute intraday candles and up to 20 years of daily history; cached data is preserved."}
+
+    @app.get("/api/stocks/stock/{symbol}/profile")
+    def stock_profile(symbol: str) -> dict[str, Any]:
+        """Everything beside the chart: company facts, statistics, financials, short interest, insiders, dividends,
+        earnings, news, lists and peers. Each section names its source; missing data stays missing."""
+        from desk.stocks import stock_page, symbol_feeds
+        from desk.stocks.company_profiles import read as company_profile
+        from desk.stocks.lists import LISTS
+        from desk.stocks.stock_views import read as stock_view
+
+        symbol = symbol.upper()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", symbol):
+            raise HTTPException(404, "No such symbol")
+        now = utc_now()
+        configured = load_secrets(paths.secrets_file).configured("FINNHUB_API_KEY")
+        with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
+            if market.execute("SELECT 1 FROM stk_listings WHERE symbol=?", (symbol,)).fetchone() is None:
+                raise HTTPException(404, "No listing for this symbol")
+            return stock_page.build(market, research, symbol, now, detail=StocksResearch(research).latest(symbol),
+                                    quote=stock_view(market, symbol, now).get("quote"),
+                                    profile=company_profile(market, symbol), feeds=symbol_feeds.read(market, symbol),
+                                    list_titles={spec.id: spec.title for spec in LISTS},
+                                    finnhub_configured=configured,
+                                    has_logo=symbol_feeds.logo(market, symbol) is not None)
+
+    @app.get("/api/stocks/stock/{symbol}/logo")
+    def stock_logo(symbol: str) -> Response:
+        from desk.stocks.symbol_feeds import logo
+
+        with reader(paths, MARKET_FILE) as market:
+            found = logo(market, symbol.upper())
+        if found is None:
+            raise HTTPException(404, "No company icon saved")
+        return Response(found[1], media_type=found[0], headers={
+            "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'"})
 
     @app.post("/api/stocks/stock/{symbol}/profile/request")
     def request_profile(symbol: str) -> dict[str, Any]:
