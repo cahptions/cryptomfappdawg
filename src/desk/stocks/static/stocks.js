@@ -287,6 +287,15 @@ function sourceSetup() {
       "https://developer.tradier.com/",
       "Tradier developer information ↗",
     ],
+    [
+      "finnhub-key",
+      "FINNHUB_API_KEY",
+      "4. Analyst ratings and earnings estimates · Finnhub · optional",
+      "Free: sign up at finnhub.io, then copy the API key from your dashboard. Stock pages then show analyst buy/hold/sell counts, the last four quarters of earnings per share against the estimate, and the next report date. Without it those sections simply stay empty; nothing else depends on it.",
+      "password",
+      "https://finnhub.io/register",
+      "Open Finnhub signup ↗",
+    ],
   ]) {
     const section = el("div", undefined, "source-step"),
       input = el("input"),
@@ -333,6 +342,7 @@ function sourceSetup() {
         massive_key: fields["massive-key"].value,
         sec_contact: fields["sec-contact"].value,
         tradier_token: fields["tradier-token"].value,
+        finnhub_key: fields["finnhub-key"].value,
       });
       snapshot.source_keys = result.source_keys;
       for (const input of Object.values(fields)) input.value = "";
@@ -340,6 +350,7 @@ function sourceSetup() {
         ["massive-key", "MASSIVE_API_KEY"],
         ["sec-contact", "SEC_CONTACT_EMAIL"],
         ["tradier-token", "TRADIER_TOKEN"],
+        ["finnhub-key", "FINNHUB_API_KEY"],
       ]) {
         fields[id].placeholder = result.source_keys[name]
           ? "Saved · leave blank to keep"
@@ -929,7 +940,7 @@ window.addEventListener("hashchange", render);
   try {
     const session = await api("session");
     csrf = session.csrf_token;
-    serverCompatible = session.ui_protocol === 6;
+    serverCompatible = session.ui_protocol === 7;
     await refresh(true);
   } catch (error) {
     statusLine.textContent = error.message;

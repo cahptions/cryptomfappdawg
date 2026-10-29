@@ -21,14 +21,85 @@ from desk.stocks.hub import INDEX_NAMES, SECTOR_NAMES
 from desk.stocks.runner import process
 from desk.stocks.web import create_app
 from tests.conftest import REPO
-from tests.stocks_world import NOW, add_chains, make_world
+from tests.stocks_world import NOW, StocksWorld, add_chains, make_world
+
+
+def stock_page_fixture(world: StocksWorld) -> None:
+    """Synthetic company context for S10: every value is invented and labelled as a fixture, never issuer data."""
+    import json
+    import math
+
+    from desk.stocks.contracts import Dividend, IntradayBar, StockQuote
+    from desk.stocks.stock_views import request, save_history, save_intraday, save_quote
+    from desk.stocks.symbol_feeds import request as request_feeds
+
+    market = world.dbs.market
+    request(market, "S10", NOW)
+    request_feeds(market, "S10", NOW)
+    session = world.days[-1]
+    opening = cal.session_close(session) - timedelta(hours=6, minutes=30)
+    minutes = []
+    for day_index, day in enumerate(world.days[-5:]):
+        start = cal.session_close(day) - timedelta(hours=6, minutes=30)
+        for minute in range(390):
+            op = 49 + day_index * .3 + minute * .002 + .15 * math.sin(minute / 37)
+            close = op + .03 * math.cos(minute)
+            minutes.append(IntradayBar("S10", start + timedelta(minutes=minute), op, max(op, close) + .03,
+                                       min(op, close) - .03, close, 2000 + minute))
+    save_intraday(market, "S10", minutes, NOW)
+    save_history(market, "S10", [Bar("S10", b.day, b.open, b.high, b.low, b.close, b.volume)
+                                 for b in world.market.bars("S10")], NOW)
+    save_quote(market, StockQuote("S10", 50.18, 50.17, 50.19, 49.07, 2.1e6, opening + timedelta(hours=6, minutes=29)), NOW,
+               {"sections": ["quote", "fundamental", "reference", "extended"], "open": 49.2, "high": 50.4, "low": 49.1,
+                "bid_size": 300, "ask_size": 200, "avg_volume_10d": 2400000, "high_52w": 50.38, "low_52w": 34.51,
+                "hard_to_borrow": False, "shortable": True, "ext_last": 50.31, "regular_last": 50.18})
+    world.market.save_dividends([Dividend("S10", session - timedelta(days=d), .21, session - timedelta(days=d - 14), 4,
+                                          "CD") for d in (35, 126, 217, 308)]
+                                + [Dividend("S10", session + timedelta(days=56), .22, None, 4, "CD")], NOW)
+    news = [{"id": f"fixture-{i}", "title": title, "url": f"https://example.test/news/{i}", "summary": summary,
+             "published": (NOW - timedelta(hours=hours)).isoformat(), "source": source, "author": None,
+             "tickers": ["S10"], "insights": [{"ticker": "S10", "sentiment": mood, "reasoning": "Fixture sentiment."}]}
+            for i, (title, summary, source, hours, mood) in enumerate([
+                ("S10 Corp raises its full-year outlook after a strong quarter",
+                 "Synthetic browser fixture headline used to check layout; not a real article.", "Fixture Wire", 3,
+                 "positive"),
+                ("Analysts debate S10's margins as costs rise",
+                 "Synthetic browser fixture headline used to check layout; not a real article.", "Example Markets", 27,
+                 "neutral"),
+                ("S10 insider files a planned share sale",
+                 "Synthetic browser fixture headline used to check layout; not a real article.", "Fixture Wire", 75,
+                 "negative")])]
+    feeds = {
+        "details": {"name": "S10 Corp", "description": "S10 Corp is a synthetic company used by KESTREL's browser tests. "
+                    "It designs, builds and services equipment for regional banks and payment networks, and licenses "
+                    "the software that runs on it. Every figure on this page comes from fixture data and none of it "
+                    "describes a real issuer. The paragraph is long enough to exercise the show-more control on the "
+                    "page, which keeps the about section short until a reader asks for the rest of the text.",
+                    "employees": 12400, "headquarters": "Pittsburgh, PA", "list_date": "1998-05-14",
+                    "homepage_url": "https://example.test", "industry": "SERVICES-COMPUTER PROGRAMMING"},
+        "wikidata": {"founded": "1987", "ceo": "Fixture Person"},
+        "news": news,
+        "ratings": [{"period": session.replace(day=1).isoformat(), "strong_buy": 6, "buy": 11, "hold": 7, "sell": 2,
+                     "strong_sell": 0}],
+        "earnings": [{"period": q, "year": None, "quarter": None, "actual": a, "estimate": e,
+                      "surprise": a - e, "surprise_pct": 100 * (a - e) / e}
+                     for q, a, e in [("2025-12-31", .61, .58), ("2026-03-31", .55, .57), ("2026-06-30", .66, .63),
+                                     ("2026-09-30", .71, .69)]],
+        "calendar": [{"date": (session + timedelta(days=9)).isoformat(), "when": "after the close", "year": None,
+                      "quarter": None, "eps_estimate": .74, "eps_actual": None, "revenue_estimate": None,
+                      "revenue_actual": None}],
+    }
+    for feed, value in feeds.items():
+        market.execute("UPDATE stk_symbol_feeds SET payload_json=?,updated_at=?,attempted_at=?,error=NULL "
+                       "WHERE symbol='S10' AND feed=?", (json.dumps(value), NOW.isoformat(), NOW.isoformat(), feed))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
-                                               "plays-history", "personal-workflows", "archive-history", "learning-retail"],
+                                               "plays-history", "personal-workflows", "archive-history", "learning-retail",
+                                               "stock-page"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
@@ -193,6 +264,8 @@ def main() -> None:
                         ("Synthetic company: designs and sells consumer products. This is a browser fixture, not issuer data.",
                          json.dumps({"headquarters":"Pittsburgh, PA", "website":"https://example.test", "phone":"555-0100"}),
                          "https://www.sec.gov/", NOW.isoformat(),symbol))
+            if args.scenario == "stock-page":
+                stock_page_fixture(world)
             world.close()
         app = create_app(paths, auto_start=False)
         if args.scenario == "personal-workflows":

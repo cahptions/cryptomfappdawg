@@ -19,6 +19,7 @@ from desk.stocks import calendar as cal
 from desk.stocks import play_marks as pm
 from desk.stocks import play_tracking as pt
 from desk.stocks import plays as pl
+from desk.stocks import runtime
 from desk.stocks.analysis import Analyzer
 from desk.stocks.contracts import OptionTick
 from desk.stocks.daily import refresh
@@ -251,7 +252,7 @@ def test_the_history_endpoints_serve_sessions_plays_and_charts(history: Any) -> 
         assert open_play["intraday"] and all(p["status"] == "quoted" for p in open_play["intraday"])
         assert client.get("/api/stocks/plays/play?session=2020-01-02&category=edge&rank=1").status_code == 404
         assert client.get("/assets/plays_history.js").status_code == 200
-        assert client.get("/api/stocks/session").json()["ui_protocol"] == 6
+        assert client.get("/api/stocks/session").json()["ui_protocol"] == runtime.UI_PROTOCOL
 
 
 def test_performance_grades_quoted_marks_and_settlements_against_twins_and_spy(history: Any) -> None:

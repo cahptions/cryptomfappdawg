@@ -685,30 +685,37 @@ const KestrelResearch = (() => {
       tooltip = el("div", undefined, "chart-tooltip"),
       readout = el("div", undefined, "chart-readout"),
       axis = el("div", undefined, "chart-axis");
-    let { range = "3M", kind = "Line" } = chartChoices.get(symbol) || {};
+    let { range = intraday.bars?.length ? "1D" : "3M", kind = "Line" } =
+      chartChoices.get(symbol) || {};
     tooltip.hidden = true;
     tooltip.id = `candle-tooltip-${++chartId}`;
     tooltip.setAttribute("role", "tooltip");
     tooltip.dataset.testid = "candle-tooltip";
     const periods = {
       "1D": 0,
+      "1W": 0,
       "1M": 30,
-      "3M": 90,
-      "6M": 180,
+      "3M": 91,
+      YTD: "ytd",
       "1Y": 365,
       "5Y": 1826,
       Max: Infinity,
     };
+    // Robinhood-style ranges: 1D is the latest session's 1-minute candles, 1W five sessions of 10-minute candles.
+    const asMinutes = (rows) =>
+      rows.map((b, index) => ({
+        ...b,
+        day: Date.parse(b.at) / 86400000 + 719163,
+        gap_before: b.gap_before || (index > 0 && b.session_start),
+      }));
     function draw() {
       plot.replaceChildren();
       axis.replaceChildren();
       tooltip.hidden = true;
-      const minuteMode = range === "1D",
+      const weekMode = range === "1W",
+        minuteMode = range === "1D" || weekMode,
         bars = minuteMode
-          ? (intraday.bars || []).map((b) => ({
-              ...b,
-              day: Date.parse(b.at) / 86400000 + 719163,
-            }))
+          ? asMinutes((weekMode ? intraday.week : intraday.bars) || [])
           : dailyBars;
       for (const button of ranges.children)
         button.setAttribute(
@@ -720,10 +727,12 @@ const KestrelResearch = (() => {
           "aria-pressed",
           String(button.textContent === kind),
         );
-      onInspect(null, null, minuteMode ? intraday : null);
-      readout.textContent = minuteMode
-        ? "Schwab 1-minute candles · regular trading session · latest minute may still be forming"
-        : basis;
+      onInspect(null, null, range === "1D" ? intraday : null, range);
+      readout.textContent = weekMode
+        ? "Schwab 10-minute candles · last five regular sessions"
+        : minuteMode
+          ? "Schwab 1-minute candles · regular trading session · latest minute may still be forming"
+          : basis;
       if (bars.length < 2) {
         plot.append(
           empty(
@@ -743,9 +752,17 @@ const KestrelResearch = (() => {
         return;
       }
       const end = bars.at(-1).day;
+      const yearStart =
+        Date.UTC(new Date(dateOf(end) + "T12:00:00Z").getUTCFullYear(), 0, 1) /
+          86400000 +
+        719163;
       let rows = minuteMode
         ? bars
-        : bars.filter((b) => b.day >= end - periods[range]);
+        : bars.filter((b) =>
+            periods[range] === "ytd"
+              ? b.day >= yearStart
+              : b.day >= end - periods[range],
+          );
       // Long candle views use real calendar OHLC aggregation, rather than thousands of overlapping bodies.
       if (kind === "Candles" && rows.length > 520) {
         const monthly = rows.length > 2000,
@@ -773,30 +790,52 @@ const KestrelResearch = (() => {
         }
         rows = [...grouped.values()];
       }
-      const observationLabel = minuteMode
-        ? `Schwab 1-minute candles · regular session ${intraday.session || ""} · latest minute may still be forming`
-        : rows[0]?.interval
-          ? `${rows[0].interval} candles · aggregated from daily OHLC`
-          : basis;
+      const observationLabel = weekMode
+        ? "Schwab 10-minute candles · last five regular sessions"
+        : minuteMode
+          ? `Schwab 1-minute candles · regular session ${intraday.session || ""} · latest minute may still be forming`
+          : rows[0]?.interval
+            ? `${rows[0].interval} candles · aggregated from daily OHLC`
+            : basis;
       const axisDate = (value) =>
-        minuteMode
-          ? intradayTime(Math.round((value - 719163) * 86400000))
-          : new Date(dateOf(value) + "T12:00:00Z").toLocaleDateString("en-US", {
-              month: "short",
-              ...(end - rows[0]?.day > 365
-                ? { year: "numeric" }
-                : { day: "numeric" }),
-              timeZone: "UTC",
-            });
+        weekMode
+          ? new Date(Math.round((value - 719163) * 86400000)).toLocaleString(
+              "en-US",
+              {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                timeZone: "America/New_York",
+              },
+            )
+          : minuteMode
+            ? intradayTime(Math.round((value - 719163) * 86400000))
+            : new Date(dateOf(value) + "T12:00:00Z").toLocaleDateString(
+                "en-US",
+                {
+                  month: "short",
+                  ...(end - rows[0]?.day > 365
+                    ? { year: "numeric" }
+                    : { day: "numeric" }),
+                  timeZone: "UTC",
+                },
+              );
       if (rows.length < 2) {
         plot.append(el("p", "Not enough observations in this range.", "muted"));
         return;
       }
+      // The previous close is the 1D reference line; the range's direction tints the line like the change.
+      const reference = range === "1D" ? intraday.previous_close : null,
+        base = reference || rows[0].open || rows[0].close,
+        direction = rows.at(-1).close >= base ? "up" : "down";
+      wrapper.dataset.direction = direction;
       const lo = Math.min(
           ...rows.map((r) => (kind === "Candles" ? r.low : r.close)),
+          ...(reference ? [reference] : []),
         ),
         hi = Math.max(
           ...rows.map((r) => (kind === "Candles" ? r.high : r.close)),
+          ...(reference ? [reference] : []),
         ),
         padding = (hi - lo) * 0.09 || Math.abs(hi) * 0.01 || 1,
         min = lo - padding,
@@ -810,9 +849,9 @@ const KestrelResearch = (() => {
       const svg = svgElement("svg", {
         viewBox: `0 0 ${width} ${height}`,
         preserveAspectRatio: "none",
-        class: "price-chart",
+        class: `price-chart ${direction}`,
         role: "img",
-        "aria-label": `${kind} chart of observed ${minuteMode ? "1-minute intraday" : "daily"} stock prices. Use left and right arrows to inspect closes; Escape returns to latest.`,
+        "aria-label": `${kind} chart of observed ${weekMode ? "10-minute" : minuteMode ? "1-minute intraday" : "daily"} stock prices. Use left and right arrows to inspect closes; Escape returns to latest.`,
         tabindex: "0",
         "aria-describedby": tooltip.id,
       });
@@ -828,6 +867,16 @@ const KestrelResearch = (() => {
           }),
         );
       }
+      if (reference)
+        svg.append(
+          svgElement("line", {
+            x1: 0,
+            x2: width,
+            y1: y(reference),
+            y2: y(reference),
+            class: "chart-reference",
+          }),
+        );
       if (kind === "Line") {
         let d = "";
         rows.forEach((r, i) => {
@@ -904,9 +953,11 @@ const KestrelResearch = (() => {
               ? "Since last observed close"
               : nearest.interval
                 ? "Period change"
-                : minuteMode
-                  ? "Minute change"
-                  : "Day change",
+                : weekMode
+                  ? "10-minute change"
+                  : minuteMode
+                    ? "Minute change"
+                    : "Day change",
             previousClose
               ? change(nearest.close / previousClose - 1)
               : "Not available",
@@ -940,7 +991,7 @@ const KestrelResearch = (() => {
             : []),
           el(
             "small",
-            `${minuteMode ? "Schwab 1-minute OHLC · regular session" : basis} · USD`,
+            `${weekMode ? "Schwab 10-minute OHLC · regular sessions" : minuteMode ? "Schwab 1-minute OHLC · regular session" : basis} · USD`,
           ),
         );
         tooltip.hidden = false;
@@ -956,14 +1007,14 @@ const KestrelResearch = (() => {
           th = tooltip.offsetHeight;
         tooltip.style.left = `${Math.max(8, Math.min(box.width - tw - 8, px + tw + 20 > box.width ? px - tw - 14 : px + 16))}px`;
         tooltip.style.top = `${Math.max(8, Math.min(box.height - th - 8, py + th + 16 > box.height ? py - th - 14 : py + 16))}px`;
-        onInspect(nearest, rows[0], minuteMode ? intraday : null);
+        onInspect(nearest, rows[0], range === "1D" ? intraday : null, range);
       };
       const reset = () => {
         selectedIndex = rows.length - 1;
         cursor.setAttribute("visibility", "hidden");
         tooltip.hidden = true;
         readout.textContent = `${observationLabel} · volume below`;
-        onInspect(null, null, minuteMode ? intraday : null);
+        onInspect(null, rows[0], range === "1D" ? intraday : null, range);
       };
       svg.onpointermove = (event) => {
         const bounds = svg.getBoundingClientRect(),
@@ -1003,6 +1054,7 @@ const KestrelResearch = (() => {
         }
       };
       plot.append(svg, tooltip);
+      onInspect(null, rows[0], range === "1D" ? intraday : null, range);
       readout.textContent = `${observationLabel} · volume below`;
       axis.replaceChildren(
         el("span", axisDate(from)),
@@ -1037,18 +1089,6 @@ const KestrelResearch = (() => {
     wrapper.append(plot, axis, tools, readout);
     draw();
     return wrapper;
-  }
-  function metrics(title, entries) {
-    const section = el("section", undefined, "detail-section");
-    section.append(sectionTitle(title));
-    const grid = el("dl", undefined, "metrics-grid");
-    for (const [label, value] of entries) {
-      const item = el("div");
-      item.append(el("dt", label), el("dd", value));
-      grid.append(item);
-    }
-    section.append(grid);
-    return section;
   }
   async function optionChain(symbol, container, ticket, expiration) {
     const query = expiration
@@ -1178,140 +1218,59 @@ const KestrelResearch = (() => {
         container.replaceChildren(el("p", error.message, "error"));
     }
   }
-  function companyProfile(data, symbol) {
-    const profile = data.company_profile || {},
-      section = el("section", undefined, "detail-section company-profile");
-    section.append(
-      sectionTitle(
-        data.listing?.etf ? "About this fund" : "About the company",
-        profile.name || data.listing?.name || symbol,
-      ),
-    );
-    if (data.listing?.etf) {
-      section.append(
-        el(
-          "p",
-          "This is an exchange-traded fund. Company earnings, employee counts and corporate business scores do not apply directly to the fund. Its market and options data appear in this profile.",
-        ),
-      );
-      return section;
-    }
-    const metadata = profile.metadata || {};
-    if (profile.about)
-      section.append(el("p", profile.about, "company-description"));
-    else
-      section.append(
-        el(
-          "p",
-          profile.updated_at
-            ? "The business description is unavailable from the supported annual filing. Available company details appear below."
-            : "Company details load automatically while you use this profile. The business description comes from the issuer's annual SEC filing.",
-          "muted",
-        ),
-      );
-    const facts = el("dl", undefined, "company-facts");
-    for (const [name, value] of [
-      ["Sector", profile.sector],
-      ["Industry", profile.sic_description],
-      ["Headquarters", metadata.headquarters],
-      ["Phone", metadata.phone],
-      [
-        "Fiscal year end",
-        profile.fiscal_year_end?.length === 4
-          ? `${profile.fiscal_year_end.slice(0, 2)}/${profile.fiscal_year_end.slice(2)}`
-          : null,
-      ],
-      ["Filer category", profile.category],
-    ]) {
-      if (value) facts.append(el("dt", name), el("dd", value));
-    }
-    if (metadata.website) {
-      try {
-        const url = new URL(
-          /^https?:\/\//i.test(metadata.website)
-            ? metadata.website
-            : `https://${metadata.website}`,
-        );
-        if (["https:", "http:"].includes(url.protocol)) {
-          const a = link(url.hostname, url.href);
-          a.target = "_blank";
-          a.rel = "noopener noreferrer";
-          facts.append(el("dt", "Website"), a);
-        }
-      } catch {
-        /* malformed issuer URL is omitted */
-      }
-    }
-    section.append(facts);
-    if (profile.source_url) {
-      const source = link(
-        `Read annual filing · ${profile.filing_date || "SEC"} ↗`,
-        profile.source_url,
-      );
-      source.target = "_blank";
-      source.rel = "noopener noreferrer";
-      section.append(source);
-    }
-    if (profile.submissions_at)
-      section.append(
-        el(
-          "p",
-          `SEC company metadata updated ${new Date(profile.submissions_at).toLocaleDateString()}. Business text is an excerpt, not a forecast.`,
-          "caption muted",
-        ),
-      );
-    const state = el("p", profile.error || "", "caption muted"),
-      refresh = el("button", "Refresh company information");
-    refresh.onclick = async () => {
-      refresh.disabled = true;
-      try {
-        const result = await api(
-          `stock/${encodeURIComponent(symbol)}/profile/request`,
-          {},
-        );
-        state.textContent = result.note;
-      } catch (e) {
-        state.textContent = e.message;
-      } finally {
-        refresh.disabled = false;
-      }
-    };
-    section.append(state, refresh, link("Data-source settings →", "#settings"));
-    return section;
-  }
 
   async function stock(symbol, ticket) {
     let data = await api(`stock/${encodeURIComponent(symbol)}`);
     if (ticket !== generation) return;
     app.replaceChildren();
     app.className = "stock-research";
-    const d = data.analysis,
+    const page = KestrelStockPage,
+      F = page.fmt,
+      d = data.analysis,
       p = d?.price || {},
-      f = d?.fundamentals || {},
+      etf = !!data.listing?.etf,
       chartHost = el("div"),
       historyStatus = el("p", "", "muted caption"),
-      coverageDetails = el("details"),
-      coverageInfo = el("p", "", "muted caption");
+      coverageDetails = el("details", undefined, "chart-coverage"),
+      coverageInfo = el("p", "", "muted caption"),
+      view = { financials: "quarterly", aboutOpen: false };
     coverageDetails.append(
       el("summary", "Chart history and quote coverage"),
       coverageInfo,
+      historyStatus,
     );
     let latest = data.bars.at(-1),
       previous = data.bars.at(-2),
       inspected = false,
       intradayMode = false,
       renderedDailyAt = null,
-      renderedMinuteAt = null;
-    function currentChange() {
-      return data.quote && !data.quote.stale && data.quote.prev_close
-        ? data.quote.last / data.quote.prev_close - 1
-        : latest && previous?.close
-          ? latest.close / previous.close - 1
-          : null;
+      renderedMinuteAt = null,
+      profile = null,
+      renderedProfile = "";
+    const RANGE_LABEL = {
+      "1W": "Past week",
+      "1M": "Past month",
+      "3M": "Past 3 months",
+      YTD: "Year to date",
+      "1Y": "Past year",
+      "5Y": "Past 5 years",
+      Max: "All time",
+    };
+    function liveQuote() {
+      return data.quote && !data.quote.stale ? data.quote : null;
+    }
+    function todayChange() {
+      const q = liveQuote();
+      if (q?.prev_close) return [q.last - q.prev_close, q.prev_close];
+      return latest && previous?.close
+        ? [latest.close - previous.close, previous.close]
+        : [null, null];
     }
     const breadcrumb = el("div", undefined, "breadcrumbs");
+    breadcrumb.setAttribute("role", "navigation");
+    breadcrumb.setAttribute("aria-label", "Breadcrumb");
     breadcrumb.append(
-      link("Markets", "#dashboard"),
+      link("Stocks", "#stocks"),
       el("span", "/"),
       el("span", d?.sector || data.listing?.exchange || "US equities"),
       el("span", "/"),
@@ -1321,58 +1280,84 @@ const KestrelResearch = (() => {
     const layout = el("div", undefined, "stock-layout"),
       main = el("div", undefined, "stock-main"),
       aside = el("aside", undefined, "stock-aside"),
-      top = el("div", undefined, "stock-title");
-    top.append(
-      el("div", symbol, "eyebrow"),
-      el("h1", d?.name || data.listing?.name || symbol),
-    );
-    const chips = el("div", undefined, "stock-chips");
-    chips.append(
-      badge(data.listing?.etf ? "ETF" : "US EQUITY"),
-      badge(
-        data.listing?.etf
-          ? "ETF market/options profile"
-          : d?.sector || "Research coverage pending",
-        "quiet",
-      ),
-    );
-    top.append(chips);
-    const pricing = el("div", undefined, "stock-pricing"),
-      headlinePrice = el("div", money(latest?.close ?? p.close), "big"),
-      headlineChange = el(
-        "span",
-        change(currentChange()),
-        tone(currentChange()),
-      ),
+      hero = el("section", undefined, "stock-hero"),
+      identity = el("div", undefined, "stock-identity"),
+      mark = el("div", symbol.slice(0, 1), "stock-mark"),
+      names = el("div");
+    mark.setAttribute("aria-hidden", "true");
+    const ticker = el("div", undefined, "stock-ticker");
+    for (const part of [
+      symbol,
+      data.listing?.exchange,
+      etf ? "ETF market/options profile" : d?.sector,
+    ].filter(Boolean))
+      ticker.append(el("span", part));
+    names.append(ticker, el("h1", d?.name || data.listing?.name || symbol));
+    identity.append(mark, names);
+    const headlinePrice = el("div", money(latest?.close ?? p.close), "big"),
+      changeLine = el("div", undefined, "stock-change"),
+      changeAmount = el("span"),
+      changeLabel = el("span", "Today", "muted"),
+      afterLine = el("div", undefined, "stock-change after"),
       priceCaption = el("p", "", "muted caption");
     headlinePrice.dataset.testid = "headline-price";
     priceCaption.dataset.testid = "price-caption";
-    pricing.append(headlinePrice, headlineChange);
-    const inspectPrice = (row, baseline, session = null) => {
+    changeLine.append(changeAmount, changeLabel);
+    function setChange(delta, base, label) {
+      const pct = delta != null && base ? delta / base : null;
+      changeAmount.textContent =
+        delta == null ? "—" : `${F.signedUsd(delta)} (${F.signedPct(pct)})`;
+      changeAmount.className = tone(delta);
+      changeLabel.textContent = label;
+      hero.dataset.direction = delta == null || delta >= 0 ? "up" : "down";
+    }
+    function afterHours() {
+      const q = liveQuote(),
+        x = profile?.quote_details || {};
+      const ext = x.ext_last,
+        close = x.regular_last ?? q?.last;
+      afterLine.hidden = !(ext && close && Math.abs(ext - close) > 1e-9);
+      if (afterLine.hidden) return;
+      const delta = ext - close;
+      afterLine.replaceChildren(
+        el(
+          "span",
+          `${F.signedUsd(delta)} (${F.signedPct(delta / close)})`,
+          tone(delta),
+        ),
+        el("span", "After hours", "muted"),
+      );
+    }
+    const inspectPrice = (row, baseline, session = null, range = null) => {
       inspected = !!row;
       intradayMode = session !== null;
-      const quote = data.quote && !data.quote.stale ? data.quote : null;
+      const quote = liveQuote();
       const minuteLast = session?.bars?.at(-1),
         minuteBase = session?.previous_close || session?.bars?.[0]?.open;
-      const delta =
-        row && session && minuteBase
-          ? row.close / minuteBase - 1
-          : row && baseline?.close
-            ? row.close / baseline.close - 1
-            : !quote && minuteLast && minuteBase
-              ? minuteLast.close / minuteBase - 1
-              : currentChange();
-      headlinePrice.textContent = money(
+      const price =
         row?.close ??
-          quote?.last ??
-          minuteLast?.close ??
-          latest?.close ??
-          p.close,
-      );
-      headlineChange.textContent = change(delta);
-      headlineChange.className = tone(delta);
+        quote?.last ??
+        minuteLast?.close ??
+        latest?.close ??
+        p.close;
+      headlinePrice.textContent = money(price);
+      if (row) {
+        const base = session && minuteBase ? minuteBase : baseline?.close;
+        setChange(
+          base ? row.close - base : null,
+          base,
+          row.at ? intradayTime(row.at) : F.date(dateOf(row.day)),
+        );
+      } else if (range && RANGE_LABEL[range] && baseline?.close) {
+        setChange(price - baseline.close, baseline.close, RANGE_LABEL[range]);
+      } else if (!quote && minuteLast && minuteBase) {
+        setChange(minuteLast.close - minuteBase, minuteBase, "Today");
+      } else {
+        const [delta, base] = todayChange();
+        setChange(delta, base, "Today");
+      }
       priceCaption.textContent = row?.at
-        ? `${intradayTime(row.at, true)} · 1-minute close · USD · ${session?.previous_close ? "Change vs previous close" : "Change since session open"}`
+        ? `${intradayTime(row.at, true)} · ${range === "1W" ? "10-minute" : "1-minute"} close · USD · ${session?.previous_close ? "Change vs previous close" : "Change since session open"}`
         : row
           ? `${new Date(dateOf(row.day) + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · Stored close · USD · Change since ${dateOf(baseline.day)}`
           : quote
@@ -1382,17 +1367,20 @@ const KestrelResearch = (() => {
               : latest
                 ? `Stored close · ${shortDate(dateOf(latest.day))} · USD · Change vs previous observed close`
                 : "No stored price history";
+      afterHours();
       updateHistoryStatus();
     };
+    const quoteBox = el("div", undefined, "stock-quote");
+    quoteBox.append(headlinePrice, changeLine, afterLine, priceCaption);
+    hero.append(identity, quoteBox);
     inspectPrice(null);
-    top.append(pricing, priceCaption);
     function updateHistoryStatus() {
       const c = data.coverage;
       const minute = data.stock_data?.intraday || {};
       historyStatus.textContent = intradayMode
         ? `Schwab · 1-minute candles · regular trading session${minute.session ? ` ${minute.session}` : " pending"} · ${minute.bars?.length || 0} observations${minute.last_at ? ` · latest ${intradayTime(minute.last_at)}` : ""}${minute.error ? ` · ${minute.error}` : ""}`
         : `${data.chart_source} · ${c?.sessions || 0} daily observations${c?.first ? ` · ${c.first} through ${c.last}` : ""}${data.stock_data?.history_error ? ` · ${data.stock_data.history_error}` : ""}`;
-      coverageInfo.textContent = `1D uses actual Schwab 1-minute candles for the latest available regular trading session; it excludes extended hours. The latest minute may still be forming. ${data.stock_data?.max_note || "Max shows all downloaded history. Connect Schwab in Settings for longer chart history."} ${data.chart_basis}. Daily candles may include an unfinished session. Research statistics below use separately dated bulk history. ${data.quote?.stale ? `The last Schwab quote is from ${new Date(data.quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET; current quotes are not being inferred from candles.` : ""} ${data.stock_data?.quote_error || ""}`;
+      coverageInfo.textContent = `1D uses actual Schwab 1-minute candles for the latest available regular trading session and 1W five sessions of 10-minute candles; both exclude extended hours. The latest minute may still be forming. ${data.stock_data?.max_note || "Max shows all downloaded history. Connect Schwab in Settings for longer chart history."} ${data.chart_basis}. Daily candles may include an unfinished session. Research statistics below use separately dated bulk history. ${data.quote?.stale ? `The last Schwab quote is from ${new Date(data.quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET; current quotes are not being inferred from candles.` : ""} ${data.stock_data?.quote_error || ""}`;
     }
     function drawHistory() {
       chartHost.replaceChildren(
@@ -1411,7 +1399,72 @@ const KestrelResearch = (() => {
       updateHistoryStatus();
     }
     drawHistory();
-    main.append(top, chartHost, historyStatus, coverageDetails);
+    main.append(hero, chartHost, coverageDetails);
+
+    // Company sections arrive from the profile endpoint and refresh as background sources fill in.
+    const sectionsHost = el("div", undefined, "stock-sections");
+    const caseHost = el("div"),
+      chains = el("section", undefined, "detail-section option-chain"),
+      desks = el("section", undefined, "detail-section");
+    chains.id = "sp-chain";
+    chains.append(
+      sectionTitle("Options chain", "Loading stored observations…"),
+    );
+    function renderProfile() {
+      const sig = JSON.stringify(profile);
+      if (!profile || sig === renderedProfile) return;
+      renderedProfile = sig;
+      if (profile.logo && !mark.querySelector("img")) {
+        const img = el("img");
+        img.src = `/api/stocks/stock/${encodeURIComponent(symbol)}/logo`;
+        img.alt = "";
+        img.onload = () => mark.classList.add("has-logo");
+        mark.replaceChildren(img);
+      }
+      afterHours();
+      const parts = [
+        page.about(profile, data, view),
+        page.keyStats(profile, data),
+        page.relatedLists(profile),
+        caseHost,
+        page.news(profile, symbol),
+        ...(etf
+          ? []
+          : [
+              page.ratings(profile),
+              page.earnings(profile),
+              page.financials(profile, view),
+            ]),
+        page.shortInterest(profile),
+        ...(etf ? [] : [page.insiders(profile), page.dividends(profile)]),
+      ].filter(Boolean);
+      sectionsHost.replaceChildren(...parts);
+      const peerHost = page.peers(profile);
+      peersHost.replaceChildren(...(peerHost ? [peerHost] : []));
+      sourcesHost.replaceChildren(page.sources(profile));
+      const history = page.scoreHistory(profile);
+      historyHost.replaceChildren(...(history ? [history] : []));
+    }
+    const peersHost = el("div"),
+      sourcesHost = el("div"),
+      historyHost = el("div");
+    let profilePolls = 0;
+    async function pollProfile() {
+      if (ticket !== generation) return;
+      try {
+        if (document.visibilityState === "visible") {
+          profile = await api(`stock/${encodeURIComponent(symbol)}/profile`);
+          if (ticket !== generation) return;
+          renderProfile();
+        }
+      } catch (error) {
+        if (ticket === generation && !profile)
+          sectionsHost.replaceChildren(el("p", error.message, "error"));
+      }
+      profilePolls += 1;
+      if (ticket === generation)
+        setTimeout(pollProfile, profilePolls < 12 ? 15000 : 60000);
+    }
     async function pollStock() {
       if (ticket !== generation) return;
       try {
@@ -1423,11 +1476,6 @@ const KestrelResearch = (() => {
             next.stock_data?.updated_at !== renderedDailyAt ||
             next.stock_data?.intraday?.updated_at !== renderedMinuteAt;
           data = next;
-          const nextProfile = JSON.stringify(data.company_profile);
-          if (nextProfile !== renderedProfile) {
-            about.replaceChildren(companyProfile(data, symbol));
-            renderedProfile = nextProfile;
-          }
           latest = data.bars.at(-1);
           previous = data.bars.at(-2);
           if (changed && !inspected) drawHistory();
@@ -1450,90 +1498,31 @@ const KestrelResearch = (() => {
       if (ticket === generation)
         setTimeout(pollStock, data.stock_data?.updated_at ? 30000 : 5000);
     }
-    pollStock();
-    main.append(
-      metrics(
-        data.listing?.etf ? "ETF price & risk statistics" : "Key statistics",
-        data.listing?.etf
-          ? [
-              ["1-session return", percent(p.ret_1d)],
-              ["5-session return", percent(p.ret_5d)],
-              ["21-session return", percent(p.ret_21d)],
-              ["63-session return", percent(p.ret_63d)],
-              ["20-session annualized volatility", percent(p.vol_20d)],
-              [
-                "Median 20-session dollar volume",
-                p.dollar_volume_20d == null
-                  ? "—"
-                  : "$" + compact(p.dollar_volume_20d),
-              ],
-              ["50-session average", money(p.sma50)],
-              ["200-session average", money(p.sma200)],
-              ["52-week high", money(p.high_52w)],
-              ["52-week low", money(p.low_52w)],
-              [
-                "Relative volume",
-                p.rel_volume == null ? "—" : number(p.rel_volume) + "×",
-              ],
-              ["Stored sessions", compact(d?.coverage?.stored_sessions)],
-            ]
-          : [
-              [
-                "Market cap",
-                f.market_cap == null ? "—" : "$" + compact(f.market_cap),
-              ],
-              ["P/E", number(f.pe)],
-              ["FCF yield", percent(f.fcf_yield)],
-              [
-                "20D dollar volume",
-                p.dollar_volume_20d == null
-                  ? "—"
-                  : "$" + compact(p.dollar_volume_20d),
-              ],
-              ["52-week high", money(p.high_52w)],
-              ["52-week low", money(p.low_52w)],
-              [
-                "Relative volume",
-                p.rel_volume == null ? "—" : number(p.rel_volume) + "×",
-              ],
-              ["1Y beta", number(p.beta_1y)],
-            ],
-      ),
-    );
+    pollStock().then(pollProfile);
     if (d) {
-      const rationale = el("section", undefined, "detail-section");
+      const rationale = el("section", undefined, "sp-section");
       rationale.append(
         sectionTitle(
-          data.listing?.etf
-            ? "Trend and risk observations"
-            : "The investment case",
-          data.listing?.etf
+          etf ? "Trend and risk observations" : "The investment case",
+          etf
             ? "Calculated from stored prices; these are observations, not a forecast."
-            : "What supports the view—and what challenges it",
+            : "What supports KESTREL's view, and what challenges it",
         ),
       );
       const cases = el("div", undefined, "case-grid");
       for (const [title, items, color] of [
-        [
-          data.listing?.etf ? "Positive trend observations" : "Bull case",
-          d.bull,
-          "positive",
-        ],
-        [
-          data.listing?.etf ? "Risk and limitations" : "Bear case",
-          d.bear,
-          "negative",
-        ],
+        [etf ? "Positive trend observations" : "Bull case", d.bull, "up"],
+        [etf ? "Risk and limitations" : "Bear case", d.bear, "down"],
       ]) {
-        const card = el("div", undefined, "case-card");
-        card.append(el("h3", title, color));
+        const card = el("div", undefined, `case-card ${color}`);
+        card.append(el("h3", title));
         const list = el("ul");
         for (const text of items || []) list.append(el("li", text));
         if (!items?.length)
           list.append(
             el(
               "li",
-              data.listing?.etf
+              etf
                 ? "No positive trend observations in the measured windows."
                 : "Insufficient evidence for a case.",
             ),
@@ -1542,22 +1531,12 @@ const KestrelResearch = (() => {
         cases.append(card);
       }
       rationale.append(cases);
-      main.append(rationale);
+      caseHost.append(rationale);
     }
-    const about = el("div");
-    let renderedProfile = JSON.stringify(data.company_profile);
-    about.append(companyProfile(data, symbol));
-    main.append(about);
-    const chains = el("section", undefined, "detail-section option-chain");
-    chains.append(
-      sectionTitle("Options chain", "Loading stored observations…"),
-    );
-    main.append(chains);
-    const desks = el("section", undefined, "detail-section");
     desks.id = "desks";
     desks.append(
       sectionTitle(
-        data.listing?.etf
+        etf
           ? "ETF market evidence"
           : "Eleven perspectives. One research record.",
         "Scores reflect the stored evidence. Coverage is not a probability of profit.",
@@ -1571,36 +1550,47 @@ const KestrelResearch = (() => {
           : d?.options && Object.keys(d.options).length
             ? "Stored sample"
             : "No sample";
-    const grid = el("div", undefined, "grid desk-grid");
+    const deskTone = (score) =>
+      score == null
+        ? "unavailable"
+        : score >= 58
+          ? "favorable"
+          : score < 42
+            ? "unfavorable"
+            : "mixed";
+    const grid = el("div", undefined, "desk-grid");
     for (const [id, label] of Object.entries(snapshot.desks)) {
-      if (data.listing?.etf && !d?.desks?.[id]) continue;
+      if (etf && !d?.desks?.[id]) continue;
       const desk = d?.desks?.[id],
-        card = el("article", undefined, "desk-card");
+        card = el("article", undefined, `desk-card ${deskTone(desk?.score)}`);
       card.id = `desk-${id}`;
-      card.append(
+      const top = el("div", undefined, "desk-top");
+      top.append(
         el("div", label, "desk-label"),
-        el(
-          "strong",
-          data.listing?.etf ? etfValue(id) : number(desk?.score),
-          "desk-score",
-        ),
-        el("p", desk?.verdict || "Awaiting data", "muted caption"),
+        el("strong", etf ? etfValue(id) : number(desk?.score), "desk-score"),
       );
-      const bar = el("progress");
-      bar.max = 1;
-      bar.value = desk?.confidence || 0;
-      bar.setAttribute("aria-label", `${label} data coverage`);
+      const meter = el("div", undefined, "desk-meter"),
+        fill = el("span");
+      fill.style.width = `${Math.max(0, Math.min(100, desk?.score ?? 0))}%`;
+      meter.append(fill);
       card.append(
-        bar,
-        el("small", `${percent(desk?.confidence)} data coverage`),
+        top,
+        meter,
+        el("p", desk?.verdict || "Awaiting data", "desk-verdict"),
       );
       const list = el("ul");
       for (const text of desk?.reasons || []) list.append(el("li", text));
-      card.append(list);
+      card.append(
+        list,
+        el(
+          "small",
+          `${desk?.confidence == null ? "—" : `${Math.round(100 * desk.confidence)}%`} data coverage${d?.weights && !etf ? ` · weight ${number(d.weights[id] ?? 0)}` : ""}`,
+        ),
+      );
       grid.append(card);
     }
     desks.append(grid);
-    main.append(desks);
+    main.append(sectionsHost, chains, desks, peersHost);
     if (d)
       main.append(
         details("Research inputs and methodology", {
@@ -1612,54 +1602,47 @@ const KestrelResearch = (() => {
           macro: d.macro,
         }),
       );
+    main.append(sourcesHost);
+
+    // The KESTREL card: the committee's view beside the chart, like an order panel.
     const committee = el("section", undefined, "committee-card");
     committee.append(
-      el(
-        "div",
-        data.listing?.etf ? "ETF PROFILE" : "COMMITTEE VIEW",
-        "eyebrow",
-      ),
+      el("div", etf ? "ETF PROFILE" : "COMMITTEE VIEW", "eyebrow"),
     );
     const score = el("div", undefined, "committee-number");
     score.append(
-      el("strong", data.listing?.etf ? "ETF" : number(d?.committee?.score)),
-      el("span", data.listing?.etf ? "" : "/ 100", "muted"),
+      el("strong", etf ? "ETF" : number(d?.committee?.score)),
+      el("span", etf ? "" : "/ 100", "muted"),
     );
-    committee.append(
-      score,
-      el(
-        "h2",
-        data.listing?.etf
-          ? "Market & options evidence"
-          : d?.committee?.label || "Awaiting evidence",
-      ),
-    );
+    const verdict = etf
+      ? "Market & options evidence"
+      : d?.committee?.label || "Awaiting evidence";
+    committee.append(score, el("h2", verdict));
+    committee.dataset.tone = /bullish/i.test(verdict)
+      ? "up"
+      : /bearish/i.test(verdict)
+        ? "down"
+        : "neutral";
     committee.append(
       el(
         "p",
-        data.listing?.etf
+        etf
           ? "Company valuation, earnings and insider models do not apply to funds. This profile shows observed price, risk and options data without a company committee score."
-          : "A synthesis of the desks below, weighted by the recorded methodology.",
+          : "A weighted synthesis of the eleven desks below. Desks with no weight are shown but do not vote.",
         "muted caption",
       ),
     );
     const strip = el("div", undefined, "desk-strip");
     for (const [id, label] of Object.entries(snapshot.desks)) {
-      if (data.listing?.etf && !d?.desks?.[id]) continue;
-      const score = d?.desks?.[id]?.score,
+      if (etf && !d?.desks?.[id]) continue;
+      const deskScore = d?.desks?.[id]?.score,
         a = link("", `#desk-${id}`);
-      a.className = data.listing?.etf
+      a.className = etf
         ? d?.desks?.[id]?.confidence
           ? "mixed"
           : "unavailable"
-        : score == null
-          ? "unavailable"
-          : score >= 60
-            ? "favorable"
-            : score <= 40
-              ? "unfavorable"
-              : "mixed";
-      a.title = `${label}: ${data.listing?.etf ? etfValue(id) : number(score)}`;
+        : deskTone(deskScore);
+      a.title = `${label}: ${etf ? etfValue(id) : number(deskScore)}`;
       a.setAttribute("aria-label", a.title);
       a.onclick = (e) => {
         e.preventDefault();
@@ -1674,7 +1657,7 @@ const KestrelResearch = (() => {
       el(
         "p",
         d
-          ? data.listing?.etf
+          ? etf
             ? `ETF profile · ${d.asof}`
             : `${d.committee?.desks_counted || 0} scored desks · ${d.asof}`
           : "No eligible analysis stored",
@@ -1703,18 +1686,26 @@ const KestrelResearch = (() => {
         watch.disabled = false;
       }
     };
-    committee.append(watch);
+    const actions = el("div", undefined, "committee-actions");
+    actions.append(watch, link("Options chain", "#sp-chain"));
+    actions.lastChild.onclick = (e) => {
+      e.preventDefault();
+      chains.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    committee.append(actions, historyHost);
     aside.append(committee);
     const overview = el("section", undefined, "sidebar-section");
     overview.append(sectionTitle("Desk breakdown"));
     for (const [id, label] of Object.entries(snapshot.desks)) {
-      if (data.listing?.etf && !d?.desks?.[id]) continue;
-      const row = el("div", undefined, "sector-row");
+      if (etf && !d?.desks?.[id]) continue;
+      const row = el("div", undefined, "sector-row"),
+        value = d?.desks?.[id]?.score;
       row.append(
         el("span", label),
         el(
           "strong",
-          data.listing?.etf ? etfValue(id) : number(d?.desks?.[id]?.score),
+          etf ? etfValue(id) : number(value),
+          etf ? "" : deskTone(value),
         ),
       );
       overview.append(row);
@@ -1733,17 +1724,6 @@ const KestrelResearch = (() => {
         ),
       );
     aside.append(changeView);
-    const context = el("section", undefined, "sidebar-section");
-    context.append(
-      sectionTitle("Keep the context"),
-      el(
-        "p",
-        "This is stock and options research. Quotes, liquidity and your account constraints still determine whether an opportunity is executable.",
-        "muted caption",
-      ),
-      link("Review evidence ↗", "#proof"),
-    );
-    aside.append(context);
     layout.append(main, aside);
     app.append(layout);
     await optionChain(symbol, chains, ticket);

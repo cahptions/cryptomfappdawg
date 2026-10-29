@@ -230,6 +230,7 @@ def test_profile_and_logo_endpoints(world, monkeypatch):
         page = client.get("/api/stocks/stock/s10/profile").json()
         assert page["symbol"] == "S10" and page["logo"] is True and page["financials"]
         assert client.get("/api/stocks/stock/NOPE/profile").status_code == 404
+        assert client.get("/api/stocks/stock/QQQ/profile").json()["financials"] is None  # index fund without a listing
         assert client.get("/api/stocks/stock/..%2F/profile").status_code == 404
         icon = client.get("/api/stocks/stock/S10/logo")
         assert icon.headers["content-type"] == "image/png" and icon.headers["x-content-type-options"] == "nosniff"

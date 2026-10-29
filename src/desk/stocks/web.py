@@ -660,7 +660,10 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         now = utc_now()
         configured = load_secrets(paths.secrets_file).configured("FINNHUB_API_KEY")
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
-            if market.execute("SELECT 1 FROM stk_listings WHERE symbol=?", (symbol,)).fetchone() is None:
+            from desk.stocks.hub import INDEX_NAMES, SECTOR_NAMES
+
+            if (symbol not in INDEX_NAMES and symbol not in SECTOR_NAMES and
+                    market.execute("SELECT 1 FROM stk_listings WHERE symbol=?", (symbol,)).fetchone() is None):
                 raise HTTPException(404, "No listing for this symbol")
             return stock_page.build(market, research, symbol, now, detail=StocksResearch(research).latest(symbol),
                                     quote=stock_view(market, symbol, now).get("quote"),
