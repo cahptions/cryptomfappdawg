@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from desk.core.hashing import canonical_json, sha256_hex
-from desk.stocks.activity import market_activity, options_activity
+from desk.stocks.activity import activity_failure, market_activity, options_activity
 from desk.stocks.analysis import Day
 from desk.stocks.desks import DeskResult, pct, usd
 
@@ -53,7 +53,7 @@ def _reason(day: Day, desk: str, s: str, n: int = 1) -> str:
 
 
 def _px(day: Day, s: str, key: str) -> float | None:
-    return day.ctx.price.get(s, {}).get(key)
+    return day.ctx.price.get(s, day.market_price.get(s, {})).get(key)
 
 
 def _verdict(day: Day, desk: str, s: str) -> str:
@@ -83,24 +83,70 @@ def _no_red_flags(day: Day, s: str) -> bool:
 
 # ── selections ───────────────────────────────────────────────────────────────────────────────────
 def trending(day: Day) -> list[dict[str, Any]]:
+    """Market attention only. Missing options do not require a social score or manufacture a zero observation."""
+    prices = day.market_price or day.ctx.price
+    observed = {}
+    for s in prices:
+        o = day.ctx.options.get(s, {})
+        a = o.get("activity") or {}
+        if o.get("day") == day.asof.isoformat() and activity_failure(a, day.asof) is None:
+            observed[s] = a
+    premiums = [float(a["premium_proxy"]) for a in observed.values()]
     out = []
-    for s in day.ctx.symbols:
-        crowd = _score(day, "crowd", s) or 0
-        rv, r1 = _px(day, s, "rel_volume"), _px(day, s, "ret_1d")
-        if crowd < 30 and (rv or 0) < 2.5:
+    for s, price in prices.items():
+        rv, r1, vol = (price.get(k) for k in ("rel_volume", "ret_1d", "vol_20d"))
+        rv = float(rv) if rv is not None and math.isfinite(rv) and rv >= 0 else None
+        r1 = float(r1) if r1 is not None and math.isfinite(r1) else None
+        z = abs(r1)/(float(vol)/math.sqrt(252)) if r1 is not None and vol and math.isfinite(vol) and vol>0 else None
+        if (rv is None or rv < 1.5) and (z is None or z < 2):
             continue
-        value = crowd / 100 * 0.5 + min((rv or 1) / 5, 1) * 0.3 + min(abs(r1 or 0) / 0.1, 1) * 0.2
+        components = []
         bits = []
-        c = (day.ctx.crowd.get(s) or {})
-        src = c.get("wsb") or c.get("all")
-        if src:
-            bits.append(f"{src['mentions']} mentions{' on r/wallstreetbets' if c.get('wsb') else ''}")
-        if rv and rv >= 1.5:
+        if rv is not None:
+            components.append((.45,min(rv/5,1)))
             bits.append(f"volume {rv:.1f}× normal")
+        if z is not None:
+            components.append((.35,min(z/4,1)))
         if r1 is not None:
-            bits.append(f"{pct(r1, 1)} today")
-        out.append((value, s, "; ".join(bits)))
+            bits.append(f"{pct(r1, 1)} today"+(f" ({z:.1f}σ)" if z is not None else ""))
+        if s in observed:
+            a = observed[s]
+            premium = float(a["premium_proxy"])
+            percentile = (sum(p<premium for p in premiums)+.5*sum(p==premium for p in premiums))/len(premiums)
+            components.append((.20,percentile))
+            bits.append(f"{a['volume']:,} sampled option contracts; {usd(premium)} midpoint premium proxy")
+        else:
+            bits.append("qualified same-session options unavailable; ranked on stock data")
+        value = 100*sum(weight*signal for weight,signal in components)/sum(weight for weight,_ in components)
+        out.append((value,s,"; ".join([*bits,"Market activity, not direction; no social input"])))
     return _top(day, out)
+
+
+def wsb(day: Day) -> list[dict[str, Any]]:
+    """The source's observed rolling-24h WSB counts, separate from market ranking and sentiment forecasts."""
+    out = []
+    for s in day.market_price or day.ctx.price:
+        source = (day.ctx.crowd.get(s) or {}).get("wsb") or {}
+        mentions = source.get("mentions")
+        if mentions is None or not math.isfinite(mentions) or mentions <= 0:
+            continue
+        before = source.get("mentions_24h_ago")
+        change = mentions/before-1 if before and before>0 else None
+        bits = [f"{mentions:,} mentions on r/wallstreetbets in 24 hours"]
+        if source.get("rank") is not None:
+            bits.append(f"source rank #{source['rank']}")
+        if change is not None:
+            bits.append(f"{pct(change,0)} vs prior 24 hours")
+        elif before == 0:
+            bits.append("previously zero mentions")
+        if source.get("upvotes") is not None:
+            bits.append(f"{source['upvotes']:,} reported upvotes")
+        row = _row(day,s,float(mentions),"; ".join(bits))
+        row.update(mentions=mentions,mention_change=change,source_rank=source.get("rank"),
+                   upvotes=source.get("upvotes"),observed_hour=source.get("observed_hour"))
+        out.append(row)
+    return sorted(out,key=lambda r:(-r["mentions"],r["source_rank"] if r["source_rank"] is not None else math.inf,
+                                   r["symbol"]))[:LIST_SIZE]
 
 
 def gainers(day: Day) -> list[dict[str, Any]]:
@@ -342,9 +388,16 @@ LISTS: tuple[ListSpec, ...] = (
              "market_activity v1 quality gates; rank all qualified covered names by sum(volume*mid*100), descending; "
              "sampled expiries only, no directional or opening-trade inference", 1, "zap", False,
              options_activity, history=False),
-    ListSpec("trending", "Trending today", "What retail is talking about and trading", "crowd attention 50%, volume vs normal "
-             "30%, size of today's move 20%; crowd score >= 30 or volume >= 2.5x normal", 1, "rocket", True, trending,
+    ListSpec("trending", "Trending today", "Unusual volume and moves today, from market data only",
+             "relative volume>=1.5 or absolute daily move>=2 times 20-day annualized volatility/sqrt(252); "
+             "weights relative volume/5 (capped at 1) .45, standardized move/4 (capped at 1) .35, qualified "
+             "same-session midpoint options premium proxy percentile .20; normalize over available components; "
+             "options use market-activity quote/liquidity gates; no social or committee inputs", 2, "rocket", True, trending,
              history=False),
+    ListSpec("wsb", "WallStreetBets", "Most-mentioned covered tickers on r/wallstreetbets in the source's last 24 hours",
+             "positive observed WSB 24-hour mentions among covered tickers, descending; ties source rank then symbol; "
+             "show mention change and reported upvotes without treating attention as sentiment or a direction forecast",
+             1, "people", True, wsb, history=False),
     ListSpec("gainers", "Top gainers", "Biggest gains today", "1-day return, highest", 1, "up", True, gainers),
     ListSpec("losers", "Top losers", "Biggest drops today", "1-day return, lowest", 1, "down", True, losers),
     ListSpec("undervalued", "Undervalued", "Cheap by these measures, and not junk", "valuation >= 70, quality >= 40, no red "

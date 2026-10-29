@@ -147,7 +147,8 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k != "prices"}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
-                                         "config": loaded.snapshot_hash, "preview_version": 4}))
+                                         "config": loaded.snapshot_hash, "preview_version": 5,
+                                         "list_methods": {s.id:s.spec_sha256 for s in LISTS}}))
     try:
         previous = saved(paths, "research")
     except DeskError:
@@ -167,6 +168,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
              "universe": day.universe_size, "basis": "Latest published research preview, not a frozen forward record",
              "expected_asof": expected.isoformat(), "awaiting_newer_close": target < expected,
              "lists": [{"id": spec.id, "title": spec.title, "blurb": spec.blurb, "asof": target.isoformat(),
+                        "spec_sha256": spec.spec_sha256,
                         "rows": [{**row, "rank": rank} for rank, row in enumerate(selected[spec.id][:25], 1)],
                         "preview": True, "coverage": option_coverage if spec.id in
                         ("market_activity", "options_activity", "unusual_options") else None} for spec in LISTS]}

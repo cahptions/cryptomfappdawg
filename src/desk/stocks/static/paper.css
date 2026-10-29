@@ -57,6 +57,34 @@
 .paper-account-title p {
   margin-top: 0;
 }
+.paper-evidence {
+  margin: 24px 0;
+}
+.paper-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+.paper-evidence-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  min-width: 0;
+}
+.paper-evidence-card h3 {
+  margin-top: 0;
+}
+.paper-evidence-card p {
+  line-height: 1.6;
+}
+.paper-evidence-card > strong {
+  display: block;
+  color: var(--text);
+}
+.paper-evidence-card > button {
+  margin-top: 12px;
+}
 .paper-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -378,10 +378,11 @@ const KestrelResearch = (() => {
         : [
             ["market_activity", "Market & options"],
             ["options_activity", "Options activity"],
-            ["trending", "Social attention"],
+            ["trending", "Trending"],
             ["momentum", "Rising trends"],
             ["gainers", "Top gainers"],
             ["losers", "Top losers"],
+            ["wsb", "WallStreetBets"],
           ];
     let selected = choices[0][0];
     const composite = snapshot.lists.find((l) => l.id === "market_activity"),
@@ -398,7 +399,8 @@ const KestrelResearch = (() => {
       const names = {
         market_activity: "Market & options top 10",
         options_activity: "Options activity",
-        trending: "Social attention top 10",
+        trending: "Trending top 10 · market data",
+        wsb: "WallStreetBets · most mentioned",
         momentum: "Rising trends",
         gainers: "Top 10 gainers",
         losers: "Top 10 losers",
@@ -413,8 +415,50 @@ const KestrelResearch = (() => {
           `#lists/${selected}`,
         ),
       );
+      if (["trending", "wsb"].includes(selected))
+        content.append(
+          el(
+            "p",
+            selected === "wsb"
+              ? "Social attention, not direction. WSB mentions and reported upvotes do not influence Trending."
+              : "Market activity, not direction. Ranked from stock volume, volatility-scaled moves and qualified options observations; no social input.",
+            "caption muted",
+          ),
+        );
       if (list?.rows.length) {
-        if (focus === "options" || selected === "options_activity") {
+        if (selected === "wsb") {
+          content.append(
+            table(
+              [
+                "#",
+                "Stock",
+                "Mentions · 24h",
+                "Change · 24h",
+                "Reported upvotes",
+              ],
+              list.rows
+                .slice(0, 10)
+                .map((row, index) => [
+                  String(index + 1).padStart(2, "0"),
+                  symbolCell(row, hub.stocks[row.symbol]),
+                  number(row.mentions),
+                  percent(row.mention_change),
+                  number(row.upvotes),
+                ]),
+            ),
+          );
+          const hours = list.rows
+            .map((r) => r.observed_hour)
+            .filter(Number.isFinite);
+          if (hours.length)
+            content.append(
+              el(
+                "p",
+                `Latest source observation: ${new Date(Math.max(...hours) * 3600000).toLocaleString("en-US", { timeZone: "America/New_York" })} ET. Counts describe the source's rolling 24-hour window.`,
+                "caption muted",
+              ),
+            );
+        } else if (focus === "options" || selected === "options_activity") {
           const researchRows = list.rows
             .slice(0, 10)
             .map((row, index) => [
@@ -431,10 +475,10 @@ const KestrelResearch = (() => {
               list.rows,
               hub.stocks,
               10,
-              selected === "market_activity",
+              ["market_activity", "trending"].includes(selected),
             ),
           );
-          if (selected === "market_activity") {
+          if (["market_activity", "trending"].includes(selected)) {
             for (const row of list.rows.slice(0, 10))
               content.append(
                 el("p", `${row.symbol}: ${row.reason}`, "muted caption"),
@@ -464,23 +508,25 @@ const KestrelResearch = (() => {
             "No qualifying names yet",
             list.empty_reason ||
               (selected === "trending"
-                ? "Trending combines observed attention and trading activity. Missing coverage stays missing."
-                : [
-                      "market_activity",
-                      "options_activity",
-                      "unusual_options",
-                    ].includes(selected)
-                  ? `Options coverage: ${list.coverage?.same_session_options ?? "unknown"} same-session summaries; ${list.coverage?.sampled_contracts ?? "unknown"} sampled contracts; ${list.coverage?.quality_pass ?? "unknown"} underlyings pass quote/liquidity gates. ${Object.entries(
-                      list.coverage?.excluded || {},
-                    )
-                      .map(
-                        ([reason, count]) =>
-                          `${count} ${reason.replaceAll("_", " ")}`,
+                ? "No covered stock has volume at least 1.5× normal or a move of at least two daily standard deviations. Social activity cannot qualify a stock here."
+                : selected === "wsb"
+                  ? "No WSB mention counts are saved for covered tickers. Public mention collection runs independently of market-data credentials; see System for its source status."
+                  : [
+                        "market_activity",
+                        "options_activity",
+                        "unusual_options",
+                      ].includes(selected)
+                    ? `Options coverage: ${list.coverage?.same_session_options ?? "unknown"} same-session summaries; ${list.coverage?.sampled_contracts ?? "unknown"} sampled contracts; ${list.coverage?.quality_pass ?? "unknown"} underlyings pass quote/liquidity gates. ${Object.entries(
+                        list.coverage?.excluded || {},
                       )
-                      .join(
-                        "; ",
-                      )}. Open a stock to prioritize its chain, or see System for per-symbol details.`
-                  : "The saved research list has no qualifying stocks for this session."),
+                        .map(
+                          ([reason, count]) =>
+                            `${count} ${reason.replaceAll("_", " ")}`,
+                        )
+                        .join(
+                          "; ",
+                        )}. Open a stock to prioritize its chain, or see System for per-symbol details.`
+                    : "The saved research list has no qualifying stocks for this session."),
             "#lists",
             "Explore other lists",
           ),

@@ -6,6 +6,28 @@ brokerage orders, no LIVE changes), no paid APIs, no AI/LLM judging trades, keys
 `~/.config/desk/secrets.env` (never in the repo, logs, fixtures or the browser), Python 3.12 + uv, Ruff + strict mypy,
 Prettier 3.3.3 for `src/desk/stocks/static/*` and `tests/browser/*.mjs`.
 
+## Codex continuation — steps 0–3 completed
+
+The original handoff below is retained as the work specification. Starting revision `89a2c40` passed the full
+**1,466-test offline suite** before implementation (5 opt-in live tests deselected), Ruff and strict mypy.
+The two pre-existing browser smoke formatting failures were corrected with pinned Prettier 3.3.3.
+
+- **Step 1:** market-only Trending v2, independent WSB Home tab, visible counts/change/reported upvotes/source time,
+  immutable supplemental list facts (`stocks_research/0012_list_details.sql`), and no relabeling of the old Trending
+  specification. Qualified options use the existing sampled midpoint-premium activity measure, not invented trade
+  prints or a false volume-versus-normal ratio.
+- **Step 2:** stock replay statistical grades use the same forward reporter and tested-family correction, saved with
+  each run's specification, full session count and date range, including in its retained archive. Forward and historical
+  grades have separate UI cards/strategy summaries. Old specifications are stale; unsupported histories are explicit;
+  replay version 3 refreshes old automatic runs when enabled. Forward counters, ledgers and promotion remain separate.
+- **Step 3:** source/setup/method/PAPER docs and PROGRESS updated. Removed the stock page's unverified borrow-rate `%`.
+- **Final checks:** **1,475 offline tests passed, 5 opt-in live tests deselected**, with the existing upstream
+  Starlette/httpx deprecation warning. Ruff, strict mypy (246 files), JS syntax and pinned Prettier 3.3.3 pass.
+  Required desktop/375px browser workflows pass, with PAPER replay run alone.
+
+**Step 4 still needs the laptop's real credentials.** No authenticated provider responses were available here.
+Do not mark synthetic/documented response fields verified. Preserve the original acceptance instructions below.
+
 ## What was finished in this session (all pushed)
 
 | Commit | What |
@@ -19,7 +41,7 @@ Tests run and passing at handoff: `tests/unit/test_stocks_stock_page.py` (22), s
 `tests/integration/test_stocks_analysis.py`, `test_stocks_play_history.py`, browser `stocks_smoke`, `stocks_gui_workflows`,
 `stocks_intraday_workflows`, `stocks_options_stale`, `stocks_plays`, `stocks_plays_history`, `stocks_stock_page`,
 `stocks_paper_workflows` (this one is timing-sensitive under CPU load: 3 of 4 runs passed; rerun alone).
-**The full test suite has NOT been run since these commits — run it first (step 0).**
+At the original handoff, the full suite had not been run; Codex completed it as recorded above.
 
 ## Step 0 — verify the tree
 

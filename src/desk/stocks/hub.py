@@ -63,15 +63,25 @@ def research_lists(research: StocksResearch, preview: dict[str, Any] | None = No
     output = []
     for spec in LISTS:
         day, rows = research.list_on(spec.id)
-        latest = research.conn.execute("SELECT created_at FROM stk_list_days WHERE list_id=? ORDER BY asof DESC LIMIT 1",
+        latest = research.conn.execute("SELECT created_at,spec_sha256 FROM stk_list_days WHERE list_id=? "
+                                       "ORDER BY asof DESC LIMIT 1",
                                        (spec.id,)).fetchone()
         value = current.get(spec.id)
+        if spec.id == "trending" and value and value.get("spec_sha256") != spec.spec_sha256:
+            value = None  # Do not relabel an old crowd-weighted preview as market-only.
         if (value and (day is None or value["asof"] >= day.isoformat()) and
                 (latest is None or (preview or {}).get("computed_at", "") > latest[0])):
             output.append(value)
         else:
+            if latest and latest["spec_sha256"] != spec.spec_sha256:
+                day,rows = None,[]  # Frozen old records remain in the DB; current discovery waits for its own rules.
+            stored = []
+            for row in rows[:25]:
+                base = dict(row)
+                details = json.loads(base.pop("detail_json", "{}"))
+                stored.append({**details, **base})
             output.append({"id": spec.id, "title": spec.title, "blurb": spec.blurb,
-                           "asof": str(day) if day else None, "rows": [dict(r) for r in rows[:25]], "preview": False})
+                           "asof": str(day) if day else None, "rows": stored, "preview": False})
     return output
 
 
@@ -125,7 +135,7 @@ def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
     from desk.stocks.options_view import overlay
 
     research = StocksResearch(research_conn)
-    priority = ["market_activity", "options_activity", "trending", "gainers", "losers", "momentum", "committee",
+    priority = ["market_activity", "options_activity", "trending", "wsb", "gainers", "losers", "momentum", "committee",
                 "undervalued", "squeeze", "unusual_options",
                 "cheap_iv", "big_moves", "earnings_week", "insider_buying", "quality_fair", "new_highs"]
     wanted = research.watchlist()[:25]

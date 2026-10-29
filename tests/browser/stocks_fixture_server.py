@@ -52,7 +52,8 @@ def stock_page_fixture(world: StocksWorld) -> None:
     save_quote(market, StockQuote("S10", 50.18, 50.17, 50.19, 49.07, 2.1e6, opening + timedelta(hours=6, minutes=29)), NOW,
                {"sections": ["quote", "fundamental", "reference", "extended"], "open": 49.2, "high": 50.4, "low": 49.1,
                 "bid_size": 300, "ask_size": 200, "avg_volume_10d": 2400000, "high_52w": 50.38, "low_52w": 34.51,
-                "hard_to_borrow": False, "shortable": True, "ext_last": 50.31, "regular_last": 50.18})
+                "hard_to_borrow": True, "shortable": True, "borrow_rate": 7.5,
+                "ext_last": 50.31, "regular_last": 50.18})
     world.market.save_dividends([Dividend("S10", session - timedelta(days=d), .21, session - timedelta(days=d - 14), 4,
                                           "CD") for d in (35, 126, 217, 308)]
                                 + [Dividend("S10", session + timedelta(days=56), .22, None, 4, "CD")], NOW)

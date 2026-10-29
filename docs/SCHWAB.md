@@ -109,3 +109,14 @@ Endpoint paths were also checked against the maintained SDK's `schwab/client/bas
 https://github.com/alexgolec/schwab-py/blob/master/schwab/client/base.py
 The parser fixtures are documentation-shaped synthetic examples, not captured authenticated broker responses.
 Explicitly delayed Schwab chains are refused rather than silently mixed with the current execution model.
+
+## Additional company statistics
+
+The stock-page quote request asks for `quote,fundamental,reference,extended,regular`. If Schwab returns HTTP 400 for
+the expanded field selection, the client retries the plain quote request so the chart/quote can still populate.
+**Company data sources**, at the bottom of the stock page, lists which sections arrived.
+
+The extra section field names and units remain unverified against an authenticated response. In particular, do not
+assume whether `divYield` is a percentage or a fraction, or what units `htbRate` uses. Missing/ambiguous values stay
+unavailable. The documentation-shaped fixtures test parser behavior and are not live broker acceptance evidence.
+The request adds market-data context only; no account/trading endpoint is used.

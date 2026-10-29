@@ -31,7 +31,7 @@ from desk.stocks.prices import Panel, load_panel, split_factors
 from desk.stocks.repo import MARKET_FILE, StocksMarket, StocksResearch
 from desk.storage.db import DbKind, migrate
 
-VERSION = 2
+VERSION = 3
 
 
 class HistoricalMarket(StocksMarket):
@@ -258,6 +258,12 @@ def replay(
             engine.previous = day
             engine.previous_bars = engine._bars(asof)
         accounts = account_views(book, strategies)
+        from desk.stocks import replay_grades
+
+        grades = replay_grades.compute(book,market,strategies)
+        for account in accounts:
+            account["historical_grade"] = grades[account["id"]]
+        ledger.execute("INSERT INTO replay_meta VALUES ('grades',?)",(canonical_json(grades),))
         positions = book.positions(state=None)[-500:]
         trades = []
         for position in positions:
@@ -266,6 +272,7 @@ def replay(
         ledger.execute("UPDATE replay_meta SET value='true' WHERE key='complete'")
         return {
             "version": VERSION,
+            "grade_version": replay_grades.VERSION,
             "run_id": run_id,
             "record": "historical",
             "requested_sessions": sessions,

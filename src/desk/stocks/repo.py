@@ -555,10 +555,13 @@ class StocksResearch:
             if cur.rowcount == 0:
                 return False
             self.conn.executemany(
-                "INSERT INTO stk_list_snapshots(asof, list_id, rank, symbol, value, reason, price, spec_sha256, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO stk_list_snapshots(asof, list_id, rank, symbol, value, reason, price, spec_sha256, "
+                "created_at, detail_json)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [(day_of(asof), list_id, i + 1, r["symbol"], r.get("value"), r["reason"], r.get("price"), spec_sha256,
-                  to_iso(at)) for i, r in enumerate(rows)])
+                  to_iso(at), canonical_json({k:v for k,v in r.items() if k not in
+                    {"asof","list_id","rank","symbol","value","reason","price","spec_sha256","created_at","detail_json"}}))
+                 for i, r in enumerate(rows)])
         return True
 
     def list_on(self, list_id: str, asof: date | None = None) -> tuple[date | None, list[sqlite3.Row]]:

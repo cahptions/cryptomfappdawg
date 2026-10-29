@@ -70,6 +70,14 @@ try {
         .innerText(),
       "2.4M",
     );
+    assert.equal(
+      await stats
+        .locator(".sp-stat", { hasText: "Borrow" })
+        .locator("dd")
+        .innerText(),
+      "Hard to borrow",
+      "an unverified borrow-rate value must not be labeled as a percentage",
+    );
 
     // Related lists, news with per-ticker sentiment, analyst ratings, earnings.
     assert.ok((await page.locator("#sp-lists a.chip").count()) >= 3);

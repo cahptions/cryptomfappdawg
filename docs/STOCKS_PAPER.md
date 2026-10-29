@@ -18,6 +18,18 @@ $1,000/$5,000 forward accounts that test affordable trades selected from prior r
 Its virtual-funding override and intraday experiments are documented in [STOCKS_LEARNING.md](STOCKS_LEARNING.md).
 The strategy accounts described below retain their existing limits and history.
 
+The Paper strategy cards and **Strategy evidence** panel show **Forward PAPER** and **Historical replay** separately.
+Completed stock replays use the same session/trade thresholds, daily baseline comparisons, bootstrap statistics and
+Holm correction as the forward grader, using the replay's own sessions. The result is stored in its retained archive
+with the strategy specification, date range and tested family. An older specification is labeled outdated; use
+**Run replay** to open the existing controls. Automatic replay also refreshes older report versions when enabled.
+Options and rules needing unavailable publication-timed inputs remain explicitly unsupported by the stock-price replay.
+
+Historical rules were designed with knowledge of past data, and the stored listing universe/filing history can be
+incomplete. A favorable replay is exploratory reconstruction, not fresh prospective evidence. Replayed days never
+increase forward session counts, change forward grades, unlock trades or promote a model. **Inspect replay** opens the
+existing session slider, trades and playback; neither grade requires terminal commands.
+
 Every strategy trades its own paper account, so strategies never compete for cash and each has a clean record.
 Stock accounts start with $10,000 and option accounts with $50,000 (so that 2% of the account buys one contract of
 most liquid names). Results are compared in percentages, but contract minimums/capacity differ by capital:

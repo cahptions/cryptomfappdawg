@@ -214,6 +214,13 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
         "next_daily_update_after": (cal.session_close(next_day) + timedelta(minutes=delay)).isoformat(),
         "explanation": "Sessions are recorded trading days, not imports or application restarts. Evidence-grade "
                        "thresholds do not block PAPER entries. Daily decisions need the next session's prices to fill."}
+    from desk.stocks.paper import lab
+    from desk.stocks.paper.strategies import STRATEGIES
+    from desk.stocks.replay_grades import current
+
+    with reader(paths, RESEARCH_FILE) as conn:
+        learned, _ = lab.strategies(StocksResearch(conn))
+    result["historical_replays"] = current(evidence_document(paths,"report",kind="backtest"),(*STRATEGIES,*learned))
     return result
 
 

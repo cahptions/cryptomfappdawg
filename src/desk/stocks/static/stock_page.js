@@ -371,7 +371,7 @@ const KestrelStockPage = (() => {
       qd.shortable === false
         ? "Not shortable"
         : qd.hard_to_borrow === true
-          ? `Hard to borrow${qd.borrow_rate != null ? ` · ${fmt.num(qd.borrow_rate)}%` : ""}`
+          ? "Hard to borrow"
           : qd.hard_to_borrow === false
             ? "Easy to borrow"
             : null;

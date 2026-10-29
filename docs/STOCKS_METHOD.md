@@ -81,7 +81,8 @@ which exist only from the first day of collection.
 
 | List | Rule | Claim |
 |---|---|---|
-| Trending today | crowd attention 50%, volume vs normal 30%, today's move 20%; crowd ≥ 30 or volume ≥ 2.5× | describe, live only |
+| Trending today (v2) | relative volume 45% (full at 5×), absolute daily move / daily volatility 35% (full at 4σ), qualified same-session sampled options premium percentile 20%; reweight available components; require volume ≥ 1.5× or a ≥ 2σ move; no social or committee input | describe, live only |
+| WallStreetBets | covered tickers ranked by the source's rolling-24h WSB mentions; ties use source rank then ticker; counts, change, reported upvotes and observation time shown separately | describe, live only |
 | Top gainers / losers | 1-day return | describe |
 | Undervalued | valuation ≥ 70, quality ≥ 40, no red flag, valuation confidence ≥ 0.5 | outperform |
 | Overvalued | valuation ≤ 25 with confidence ≥ 0.5 | underperform |
@@ -99,6 +100,13 @@ which exist only from the first day of collection.
 | WSB vs reality | crowd ≥ 50 and \|crowd − fundamentals\| ≥ 25 | describe, live only |
 | New 52-week highs / lows | close within 0.3% of the 52-week high / low | describe |
 | The committee's picks | highest committee score with ≥ 6 desks counted | outperform |
+
+Trending measures activity rather than a direction or expected profit. Its daily volatility is the annualized
+20-session volatility divided by √252. The optional options component uses the percentile of sum(volume × midpoint ×
+100) among covered, quote-qualified same-session names; it is a premium proxy, not exchange trade flow or an assertion
+of buying. Missing options do not block an otherwise qualifying stock. WSB has no input to this ranking. The WSB tab
+shows reported upvotes rather than inferring sentiment or independent users from them. Its source's observation time
+and rolling window remain attached to the recorded daily row.
 
 ## 7. The track record
 

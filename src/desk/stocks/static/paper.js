@@ -15,6 +15,99 @@ const KestrelPaper = (() => {
     item.append(el("small", label), el("strong", value, cls));
     return item;
   }
+  const gradeText = (account) =>
+    account?.grade && typeof account.grade === "object"
+      ? account.grade.text
+      : account?.grade || "Forward record has not started";
+  function evidencePanel(account, live, openReplay) {
+    const section = el("section", undefined, "paper-evidence"),
+      grid = el("div", undefined, "paper-evidence-grid"),
+      forward = live.report?.accounts?.find((a) => a.id === account.id),
+      historical = live.historical_replays?.[account.id] || {
+        status: "missing",
+        message: "No completed replay grade yet.",
+      },
+      observed = el(
+        "article",
+        undefined,
+        "paper-evidence-card paper-forward-grade",
+      ),
+      replay = el(
+        "article",
+        undefined,
+        "paper-evidence-card paper-replay-grade",
+      );
+    section.append(el("h2", "Strategy evidence"));
+    observed.append(
+      el("h3", "Forward PAPER"),
+      el("strong", gradeText(forward)),
+      el(
+        "p",
+        `${forward?.sessions || 0} recorded market sessions${forward?.start ? ` · since ${forward.start}` : ""}.`,
+        "caption muted",
+      ),
+      el(
+        "p",
+        `Return ${percent(forward?.return)} · Drawdown ${percent(forward?.max_drawdown)}`,
+        "caption",
+      ),
+    );
+    replay.append(el("h3", "Historical replay"));
+    if (historical.status === "current") {
+      replay.append(
+        el("strong", historical.grade.text),
+        el(
+          "p",
+          `${historical.sessions} replayed sessions · ${historical.first_day}–${historical.last_day} · current strategy rules.`,
+          "caption muted",
+        ),
+        el(
+          "p",
+          `Return ${percent(historical.return)} · Drawdown ${percent(historical.max_drawdown)} · SPY price return ${percent(historical.spy_return)}`,
+          "caption",
+        ),
+      );
+      const stat = historical.vs_baseline || historical.vs_spy;
+      if (stat) {
+        const detail = el("details");
+        detail.append(
+          el("summary", "Baseline comparison"),
+          el(
+            "p",
+            `Mean daily excess ${percent(stat.mean)} · adjusted p-value ${stat.p_holm == null ? "not available" : Number(stat.p_holm).toFixed(4)}. The grade uses the same session/trade thresholds and multiple-strategy correction as Forward PAPER.`,
+            "caption muted",
+          ),
+        );
+        replay.append(detail);
+      }
+    } else
+      replay.append(
+        el(
+          "p",
+          historical.message ||
+            "This strategy needs a current historical replay.",
+          "muted",
+        ),
+      );
+    if (historical.status !== "unsupported") {
+      const run = el(
+        "button",
+        historical.status === "current" ? "Inspect replay" : "Run replay",
+      );
+      run.onclick = openReplay;
+      replay.append(run);
+    }
+    grid.append(observed, replay);
+    section.append(
+      grid,
+      el(
+        "p",
+        "Historical replay tests rules on saved past data. Those rules were designed with knowledge of history, and the saved universe or data may be incomplete. Forward sessions remain a separate test: replay sessions are never added to the forward count or used to unlock trading or model promotion.",
+        "caption muted",
+      ),
+    );
+    return section;
+  }
   function svg(tag, attrs) {
     const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [key, value] of Object.entries(attrs))
@@ -412,6 +505,14 @@ const KestrelPaper = (() => {
             "small",
             `${a.open_positions || 0} open · ${a.trades || 0} closed · ${a.sessions} sessions`,
           ),
+          el(
+            "small",
+            `Forward: ${gradeText(live.report?.accounts?.find((p) => p.id === a.id))}`,
+          ),
+          el(
+            "small",
+            `Historical replay: ${live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
+          ),
         );
         b.onclick = () => {
           selected = a.id;
@@ -427,6 +528,14 @@ const KestrelPaper = (() => {
         el("p", account.hypothesis || "", "muted"),
       );
       app.append(selectedTitle);
+      app.append(
+        evidencePanel(account, live, () => {
+          record = "historical";
+          selected = account.id;
+          tradeOffset = 0;
+          draw();
+        }),
+      );
       if (record === "historical" && report.run_id) {
         app.append(
           KestrelReplay.panel(report, account, ticket, titles, tradeDialog),
@@ -766,6 +875,7 @@ const KestrelPaper = (() => {
             const signature = (l, b) =>
               JSON.stringify([
                 l.report?.accounts,
+                l.historical_replays,
                 l.session_status,
                 l.trades?.map((p) => [p.id, p.state, p.unrealized_pnl]),
                 b.job?.running,

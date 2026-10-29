@@ -22,6 +22,22 @@ try {
     await page
       .getByRole("heading", { name: "Paper trading", exact: true })
       .waitFor();
+    await page
+      .getByRole("heading", { name: "Strategy evidence", exact: true })
+      .waitFor();
+    await page
+      .locator(".paper-forward-grade")
+      .getByRole("heading", { name: "Forward PAPER", exact: true })
+      .waitFor();
+    await page
+      .locator(".paper-replay-grade")
+      .getByRole("heading", { name: "Historical replay", exact: true })
+      .waitFor();
+    const forwardSessions = live.report.accounts.map((a) => [
+      a.id,
+      a.sessions,
+      a.grade,
+    ]);
     await page.locator(".paper-trade-card").first().waitFor();
     assert.equal(await page.locator("#app table").count(), 0);
     const chart = page.locator(".paper-equity svg"),
@@ -125,6 +141,22 @@ try {
       completed,
       "The new replay, rather than an older saved report, must complete",
     );
+    const afterReplay = await (
+      await page.request.get(`${base}/api/stocks/paper`)
+    ).json();
+    assert.deepEqual(
+      afterReplay.report.accounts.map((a) => [a.id, a.sessions, a.grade]),
+      forwardSessions,
+    );
+    assert.ok(
+      Object.values(afterReplay.historical_replays).some(
+        (r) => r.status === "current" && r.sessions === 63,
+      ),
+    );
+    await page
+      .locator(".paper-replay-grade")
+      .getByText(/63 replayed sessions/)
+      .waitFor();
     assert.ok((await page.locator(".paper-walk").count()) > 0);
     await page
       .getByRole("heading", {

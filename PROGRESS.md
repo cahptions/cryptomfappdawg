@@ -3,6 +3,44 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-28 ET / 2026-10-29 UTC — Claude handoff verified; market Trending, WSB and replay grades
+
+Continued from `89a2c40` on `claude/funny-rubin-gq99vj`. Confirmed the pushed design system (`d0c9055`), company-page
+sources (`10f935c`), stock page (`b2efe4d`), and evidence-list page (`194a932`), including the earlier All prices fix
+(`5ddf819`). The Stocks worktrees were clean. Unrelated LIVE crypto changes in another checkout were left alone.
+The exact handoff revision passed **1,466 offline tests, 5 live tests deselected**, Ruff and strict mypy before changes.
+Pinned Prettier 3.3.3 found two pre-existing smoke-script formatting failures; formatting was corrected separately.
+
+- Trending v2 uses relative volume (45%), absolute daily move scaled by daily volatility (35%), and qualified
+  same-session sampled options premium percentile (20%), reweighted over available components. Qualification needs
+  volume ≥ 1.5× normal or a ≥ 2σ move. No crowd/committee input. Home labels its score **Activity / 100**, not Committee.
+  Old crowd-weighted records remain immutable and cannot be relabeled as the new method. Preview signatures include
+  list specification hashes, forcing a rebuild after the update without needing another source receipt.
+- Independent **WallStreetBets** Home tab ranks covered names by observed rolling-24h mentions, with mention change,
+  reported upvotes and ET source time. New migration `stocks_research/0012_list_details.sql` preserves supplemental
+  facts in immutable daily list rows; both fresh previews and saved lists display them. No general-Reddit substitution.
+- Completed stock replays now retain a `historical_grade` per account and grades in their own archive's `replay_meta`.
+  Reuse the forward reporter's complete equity series, session/closed-trade hurdles, aligned baselines, bootstrap
+  and Holm family correction. Strategy cards and the **Strategy evidence** panel show Forward PAPER and Historical
+  replay side by side, with separate sessions/dates and a GUI replay action. Changed or mixed specifications are stale;
+  old ungraded reports require rerun. Replay version 3 refreshes old automatic runs when enabled. Unsupported options,
+  squeeze-publication and learned-policy histories say so. Replay grades cannot change forward grades/counts or promotion.
+- Removed the unverified Schwab borrow-rate percentage from display; borrow status remains. Documented company
+  sources, optional Finnhub setup, unit/entitlement limitations, and separate replay evidence. No source keys are in
+  this checkout; authenticated provider acceptance remains an operator-side verification, not a claimed cloud result.
+
+Validation after implementation: **1,475 offline tests passed, 5 opt-in live tests deselected** (one existing upstream
+Starlette/httpx deprecation warning); Ruff, strict mypy (246 source files), JS syntax and pinned Prettier 3.3.3 pass.
+All six handoff/browser workflows pass at desktop
+and 375 px (Home navigation, stock page, intraday, Evidence/calculator, PAPER replay, Plays). PAPER runs alone and checks
+that a real 63-session replay leaves forward sessions/grades/ledger views unchanged. New regressions cover social
+isolation, stale options, WSB facts surviving save/load, specification matching, full-session statistical grades,
+archive/API persistence, closed-trade minimums and unchanged forward records.
+
+Next: update/restart the laptop, inspect Company data sources with real credentials, and capture redacted authenticated
+response shapes before marking the extra provider fields verified. See `research/HANDOFF_CODEX_2026-10-29.md` for the
+remaining laptop acceptance steps.
+
 ## 2026-10-28 — Correction: all prices by default; cheaper alternatives stay visible
 
 The operator clarified there was no requested $475/$500 spending ceiling: they wanted affordable contracts included

@@ -35,6 +35,54 @@ try {
       .getByRole("heading", { name: "Market & options top 10" })
       .waitFor();
     await page.getByRole("heading", { name: "Options intelligence" }).waitFor();
+    await page.getByRole("tab", { name: "Trending", exact: true }).click();
+    await page
+      .getByRole("heading", {
+        name: "Trending top 10 · market data",
+        exact: true,
+      })
+      .waitFor();
+    await page
+      .getByText(
+        "Market activity, not direction. Ranked from stock volume, volatility-scaled moves and qualified options observations; no social input.",
+        { exact: true },
+      )
+      .waitFor();
+    if (scenario === "populated") {
+      await page
+        .getByRole("columnheader", {
+          name: "Activity / 100",
+          exact: true,
+          includeHidden: true,
+        })
+        .waitFor({ state: "attached" }); // Narrow screens hide the secondary table columns.
+      assert.equal(
+        await page
+          .locator(".movers-section")
+          .getByRole("columnheader", { name: "Committee", exact: true })
+          .count(),
+        0,
+      );
+    }
+    await page
+      .getByRole("tab", { name: "WallStreetBets", exact: true })
+      .click();
+    await page
+      .getByRole("heading", {
+        name: "WallStreetBets · most mentioned",
+        exact: true,
+      })
+      .waitFor();
+    if (scenario === "populated") {
+      await page
+        .getByRole("columnheader", { name: "Mentions · 24h", exact: true })
+        .waitFor();
+      assert.match(await page.locator(".movers-section").innerText(), /900/);
+      assert.match(
+        await page.locator(".movers-section").innerText(),
+        /Latest source observation/,
+      );
+    }
     await page.getByRole("tab", { name: "Rising trends" }).click();
     await page
       .getByRole("heading", { name: "Rising trends", exact: true })

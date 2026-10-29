@@ -24,19 +24,45 @@ synthetic serialization of existing recorded values, not additional live evidenc
 ## Set up in Settings (stock prices, SEC contact, and optional options)
 
 Use **Settings → Start here · free stock research** to save these privately; no file editing is needed.
-Then click **Start research**. No-signup public feeds start with the collector. Stock charts/history need the
-Massive key; SEC email requires no registration, and Tradier is optional while waiting for Schwab.
+Then click **Start research**. No-signup public feeds start with the collector. Connected Schwab supplies individual
+stock quotes/charts and option chains; Massive provides the separate broad daily-price archive. SEC email requires
+no registration, and Tradier is optional while waiting for Schwab.
 
 | Put in `secrets.env` | What it unlocks | Where to get it |
 |---|---|---|
-| `MASSIVE_API_KEY=...` | Stock prices: every US stock's daily bar, splits, dividends (2 years) | massive.com → sign up → Stocks **Basic** ($0) → dashboard → API keys |
+| `MASSIVE_API_KEY=...` | Broad daily bars, splits/dividends; company overview, news and branding where entitled | [Massive dashboard](https://massive.com/dashboard) → Stocks **Basic** ($0) → API keys |
+| `FINNHUB_API_KEY=...` (optional) | Analyst recommendations, the last four earnings quarters, and earnings calendar/estimates | [Finnhub registration](https://finnhub.io/register) → free key → Settings → optional company-data key |
 | `TRADIER_TOKEN=...` | Option chains: bid, ask, volume, open interest for every strike | tradier.com → developer sandbox (free) → API access token. Leave `stocks.tradier_env = "sandbox"`. With a Tradier Brokerage account instead, use its token and set `"production"` for real-time data. |
 | `SEC_CONTACT_EMAIL=you@...` | Company list, daily filings, insider trades, fails-to-deliver | Your own email address. The SEC asks every program to name a contact, and www.sec.gov refuses requests without one. It goes only to the SEC. |
 
 Without these, the desk still runs and says exactly what is missing (System page and `desk stocks doctor`):
-- no price key: no prices;
-- no token: no option chains;
+- no connected stock-data provider: no new prices;
+- neither Schwab nor Tradier connected: no new option chains;
 - no contact: SEC collection waits; Nasdaq listings and other no-signup feeds continue independently.
+
+## Company-page sources and verification status
+
+The stock page combines issuer filings with display-only company context. Cached sections keep their source and
+observation date; unavailable values remain missing. The saved source review is
+[stock_page_sources.json](../research/evidence/2026-10-29/stock_page_sources.json). Its keyless Wikimedia probes were
+successful. Massive, Finnhub and the additional Schwab quote sections still use documented/synthetic response examples
+until an authenticated laptop response confirms them. A reachable public documentation URL does not verify entitlement.
+
+| Source | Company-page use | Access and practical limits |
+|---|---|---|
+| [Massive ticker overview](https://massive.com/docs/rest/stocks/tickers/ticker-overview) | Description, employees, address, website, phone, industry, exchange, shares and branding | Documented as included in Basic, updated daily; actual key/plan access remains to verify. Requests share the existing Basic budget. Branding is fetched server-side; the API key never reaches the browser. |
+| [Massive news](https://massive.com/docs/rest/stocks/news) | Headlines, publisher, time, article links and provided ticker sentiment | Documented as included in Basic, updated hourly with two years on Basic; not a real-time news guarantee. Keyed response still to verify. |
+| [Wikidata](https://query.wikidata.org/) | Fallback founded date, dated headcount, headquarters, website and linked English Wikipedia article | Keyless; descriptive User-Agent. Missing labels are dropped. SEC/issuer data has priority; an issuer's Form 4 officer title takes priority for CEO. The saved probe encountered throttling, so retries/cache can delay context. |
+| [Wikipedia summary](https://en.wikipedia.org/api/rest_v1/) | Linked fallback company description | Keyless, cached; article attribution/CC BY-SA. Descriptive context is separate from trading features and historical evidence. |
+| [Finnhub OpenAPI specification](https://finnhub.io/static/swagger.json) | Recommendations, earnings results versus estimates, next-report calendar | Optional free key entered in Settings. `/stock/earnings` documents the last four quarters; calendar free history is one month plus updates. Earnings estimates are separate from SEC-reported figures. `/stock/price-target` is premium and unused. Actual key access/rate entitlement remains to verify. |
+| Schwab quote extra sections | Available quote/fundamental/reference/regular/extended statistics | See [Schwab field verification](SCHWAB.md#additional-company-statistics). Fields and units are accepted only when present; unverified dividend-yield and borrow-rate units are not inferred. |
+
+The **Company data sources** panel shows received sections and failures. Add an optional key in Settings, then leave
+the app collecting for the queued requests to run. No terminal repair is required to use the source controls. No new
+paid API is needed for these sections; a missing optional key does not stop quotes, collection or PAPER activity.
+
+**Discovery:** Trending ranks measured stock/qualified-options activity only. WallStreetBets has a separate Home tab
+showing observed mentions, reported upvotes and its source time. Social attention cannot qualify or rerank Trending.
 
 ## Sources used
 
