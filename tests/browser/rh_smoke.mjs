@@ -6,20 +6,30 @@ import { chromium } from "playwright";
 
 const base = process.env.KESTREL_RH_URL ?? "http://127.0.0.1:8878";
 const scenario = process.env.KESTREL_RH_SCENARIO ?? "populated";
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || undefined });
+const browser = await chromium.launch({
+  executablePath: process.env.CHROMIUM_EXECUTABLE || undefined,
+});
 const errors = [];
 try {
   for (const scheme of ["light", "dark"]) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: scheme });
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 900 },
+      colorScheme: scheme,
+    });
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
     page.on("pageerror", (e) => errors.push(String(e)));
     await page.goto(`${base}/#/`);
     await page.getByText("Your $500.00 reference account · paper").waitFor();
     if (scenario === "populated") {
       await page.locator(".rh-rows").first().getByText("ETH").waitFor();
-      await page.locator(".rh-chart-line").waitFor();                 // the account chart loads after the snapshot
-      await page.locator(".rh-chart svg").hover({ position: { x: 300, y: 100 } });
-      assert.ok(await page.locator(".rh-chart-dot").count(), "hover cursor shown");
+      await page.locator(".rh-chart-line").waitFor(); // the account chart loads after the snapshot
+      await page
+        .locator(".rh-chart svg")
+        .hover({ position: { x: 300, y: 100 } });
+      assert.ok(
+        await page.locator(".rh-chart-dot").count(),
+        "hover cursor shown",
+      );
       await page.goto(`${base}/#/coin/ETH-USD`);
       await page.getByText("Why the desk would or wouldn't buy").waitFor();
       assert.equal(await page.locator(".rh-why .rh-card").count(), 3);
@@ -27,8 +37,13 @@ try {
       await page.getByRole("tab", { name: "1W" }).click();
       await page.locator(".rh-chart-line").waitFor();
       for (const interval of ["15m", "4h", "1d", "1h"]) {
-        const loaded = page.waitForResponse((r) => r.url().includes(`/api/rh/coin/ETH-USD?span=1W&interval=${interval}`)
-          && r.ok());
+        const loaded = page.waitForResponse(
+          (r) =>
+            r
+              .url()
+              .includes(`/api/rh/coin/ETH-USD?span=1W&interval=${interval}`) &&
+            r.ok(),
+        );
         await page.getByRole("tab", { name: interval, exact: true }).click();
         const detail = await (await loaded).json();
         assert.equal(detail.interval, interval);
@@ -36,41 +51,87 @@ try {
         assert.equal(Object.keys(detail.frames).length, 4);
         await page.locator(".rh-chart-line").waitFor();
       }
-      await page.getByRole("heading", { name: "Data for the current check" }).waitFor();
+      await page
+        .getByRole("heading", { name: "Data for the current check" })
+        .waitFor();
     }
     await page.goto(`${base}/#/strategies`);
     await page.locator(".rh-strategy").first().waitFor();
     assert.equal(await page.locator(".rh-strategy").count(), 5);
     await page.goto(`${base}/#/system`);
-    await page.getByText(scenario === "populated" ? /^live · last/ : "Connect Robinhood prices (read-only)").waitFor();
-    await page.getByText("Next 15-minute candle close + publication grace", { exact: true }).waitFor();
+    await page
+      .getByText(
+        scenario === "populated"
+          ? /^live · last/
+          : "Connect Robinhood prices (read-only)",
+      )
+      .waitFor();
+    await page
+      .getByText("Next 15-minute candle close + publication grace", {
+        exact: true,
+      })
+      .waitFor();
     await page.goto(`${base}/#/learning`);
-    await page.getByRole("heading", { name: "Learning", exact: true }).waitFor();
+    await page
+      .getByRole("heading", { name: "Learning", exact: true })
+      .waitFor();
     await page.getByText("The learned strategy's own paper record").waitFor();
-    await page.getByRole("region", { name: "Early opportunity research" }).waitFor();
-    await page.getByText(scenario === "populated" ? "Listed pairs observed" : "Research sidecar has not produced a report yet").waitFor();
+    await page
+      .getByRole("region", { name: "Early opportunity research" })
+      .waitFor();
+    await page
+      .getByText(
+        scenario === "populated"
+          ? "Listed pairs observed"
+          : "Research sidecar has not produced a report yet",
+      )
+      .waitFor();
     await page.goto(`${base}/#/activity`);
     await page.getByRole("heading", { name: "Activity" }).waitFor();
     await page.close();
   }
-  const phone = await browser.newPage({ viewport: { width: 375, height: 812 } });
+  const phone = await browser.newPage({
+    viewport: { width: 375, height: 812 },
+  });
   await phone.goto(`${base}/#/`);
   await phone.getByText("Your $500.00 reference account · paper").waitFor();
-  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
-    "no horizontal scroll at phone width");
+  assert.equal(
+    await phone.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+    true,
+    "no horizontal scroll at phone width",
+  );
   for (const label of ["Investing", "Strategies", "Activity", "System"]) {
-    assert.ok(await phone.getByRole("link", { name: label, exact: true }).isVisible(), `${label} visible on a phone`);
+    assert.ok(
+      await phone.getByRole("link", { name: label, exact: true }).isVisible(),
+      `${label} visible on a phone`,
+    );
   }
   if (scenario === "populated") {
     await phone.goto(`${base}/#/coin/ETH-USD`);
-    await phone.getByRole("heading", { name: "Data for the current check" }).waitFor();
-    assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
-      "timeframe readiness fits a phone");
+    await phone
+      .getByRole("heading", { name: "Data for the current check" })
+      .waitFor();
+    assert.equal(
+      await phone.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+      true,
+      "timeframe readiness fits a phone",
+    );
   }
   await phone.goto(`${base}/#/learning`);
-  await phone.getByRole("region", { name: "Early opportunity research" }).waitFor();
-  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
-    "research panel fits a phone");
+  await phone
+    .getByRole("region", { name: "Early opportunity research" })
+    .waitFor();
+  assert.equal(
+    await phone.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+    true,
+    "research panel fits a phone",
+  );
   assert.deepEqual(errors, []);
   console.log(`rh smoke ok (${scenario})`);
 } finally {
