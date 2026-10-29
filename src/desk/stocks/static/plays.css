@@ -37,7 +37,7 @@
   border-radius: 20px;
   padding: 6px 14px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 .play-tab[aria-selected="true"] {
@@ -66,13 +66,13 @@
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
 }
 .play-targets {
   display: grid;
   gap: 8px;
   margin: 14px 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .play-target {
   display: grid;
@@ -83,11 +83,11 @@
   width: 100%;
   height: 8px;
   grid-column: 1 / -1;
-  accent-color: #a7b7ff;
+  accent-color: var(--accent);
 }
 .play-targets details,
 .play-greeks-guide {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .play-targets details p,
@@ -104,8 +104,8 @@
   padding: 20px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--panel, #101a16);
-  color: var(--text, #eef4ef);
+  background: var(--panel, var(--surface-2));
+  color: var(--text, var(--text));
   box-shadow: 0 16px 60px #0008;
 }
 .play-confirmation::backdrop {
@@ -116,7 +116,7 @@
   margin-top: 0;
 }
 .play-confirmation p {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
 }
 .play-actions {
@@ -171,8 +171,8 @@
   border-color: var(--green);
 }
 .research-badge.sell {
-  color: #f5c542;
-  border-color: #f5c542;
+  color: var(--warning);
+  border-color: var(--warning);
 }
 .play-contract {
   margin: 6px 0;
@@ -180,7 +180,7 @@
 }
 .play-legs {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
 }
 .play-chance {
@@ -189,7 +189,7 @@
   margin: 10px 0;
 }
 .play-chance-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -213,7 +213,7 @@
   color: var(--muted);
 }
 .play-metrics {
-  font-size: 12px;
+  font-size: 13px;
 }
 .play-unusual {
   border-left: 2px solid var(--green);
@@ -222,7 +222,7 @@
 }
 .play-unusual p {
   margin: 4px 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 .play-confirm {
   color: var(--green);
@@ -230,10 +230,10 @@
 .play-reasons {
   margin: 8px 0;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .play-reasons .play-flag {
-  color: #f5c542;
+  color: var(--warning);
 }
 .play-record p {
   margin: 4px 0;
@@ -247,7 +247,7 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .play-filter-field input,
@@ -264,7 +264,7 @@
   gap: 8px;
   align-items: center;
   margin: 16px 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 .play-budget-presets button {
   padding: 8px 12px;
@@ -272,13 +272,13 @@
   border-radius: 20px;
 }
 .play-budget-presets button[aria-pressed="true"] {
-  color: #c5d9ff;
-  border-color: #a7b7ff;
-  background: #172338;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .play-filter-summary {
   line-height: 1.6;
-  color: #c5d9ff;
+  color: var(--text-2);
 }
 .play-price-ranges {
   margin: 24px 0 32px;
@@ -295,7 +295,7 @@
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #111820;
+  background: var(--surface-2);
   min-width: 0;
 }
 .play-price-band h4,
@@ -311,7 +311,7 @@
   gap: 5px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: 14px;
 }
 .play-price-candidate small {
   color: var(--muted);
@@ -320,7 +320,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 20px;
-  background: #111820;
+  background: var(--surface-2);
   margin: 20px 0;
 }
 .play-filter-empty h3 {
@@ -343,7 +343,7 @@
     width: 100%;
   }
   .play-tab {
-    font-size: 12px;
+    font-size: 13px;
     padding: 5px 10px;
   }
 }
@@ -358,13 +358,13 @@
 /* Plays history: views, sessions, rows, the P/L chart */
 .plays-views a {
   padding: 0 0 13px;
-  font-size: 13px;
-  color: #929c87;
+  font-size: 14px;
+  color: var(--text-2);
   white-space: nowrap;
 }
 .plays-views a[aria-selected="true"] {
-  border-bottom: 2px solid var(--positive);
-  color: var(--positive);
+  border-bottom: 2px solid var(--accent);
+  color: var(--text-strong);
 }
 .pl-quick {
   display: flex;
@@ -377,21 +377,21 @@
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 5px 12px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .pl-quick-button[aria-pressed="true"] {
-  border-color: var(--positive);
-  color: var(--positive);
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 .pl-date {
   display: inline-flex;
   gap: 8px;
   align-items: center;
   margin-left: auto;
-  font-size: 13px;
+  font-size: 14px;
 }
 .pl-repair {
-  border-left: 2px solid #f5c542;
+  border-left: 2px solid var(--warning);
   padding-left: 10px;
 }
 .pl-stats {
@@ -425,7 +425,7 @@
 }
 .pl-row:hover,
 .pl-row:focus-visible {
-  background: #10130f;
+  background: var(--surface-1);
   color: inherit;
 }
 .pl-what,
@@ -443,21 +443,21 @@
 .pl-what span,
 .pl-now span,
 .pl-range span {
-  font-size: 12px;
+  font-size: 13px;
 }
 .pl-now strong {
   font-size: 20px;
   font-variant-numeric: tabular-nums;
 }
 .pl-state.won {
-  color: var(--positive);
+  color: var(--up);
 }
 .pl-state.lost,
 .pl-state.worthless {
-  color: var(--negative);
+  color: var(--down);
 }
 .pl-state.quarantined {
-  color: #f5c542;
+  color: var(--warning);
 }
 .pl-spark svg {
   display: block;
@@ -470,26 +470,26 @@
 }
 .pl-line.positive,
 .pl-dot.positive {
-  stroke: var(--positive);
-  fill: var(--positive);
+  stroke: var(--up);
+  fill: var(--up);
 }
 .pl-line.negative,
 .pl-dot.negative {
-  stroke: var(--negative);
-  fill: var(--negative);
+  stroke: var(--down);
+  fill: var(--down);
 }
 .pl-line.dashed {
-  stroke: #bfaa75;
+  stroke: var(--estimate);
   stroke-dasharray: 5 4;
   opacity: 0.8;
 }
 .pl-zero {
-  stroke: #3d4238;
+  stroke: var(--line-strong);
   stroke-width: 1;
   stroke-dasharray: 2 3;
 }
 .pl-twin {
-  stroke: #8d9488;
+  stroke: var(--series-ref);
   stroke-width: 1.5;
   stroke-dasharray: 3 3;
   fill: none;
@@ -509,16 +509,16 @@
   margin-bottom: 20px;
 }
 .pl-exit-metric {
-  background: #111820;
-  border: 1px solid #354252;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
   padding: 16px;
   min-width: 0;
 }
 .pl-exit-metric h3 {
-  font-size: 13px;
+  font-size: 14px;
   margin: 0 0 10px;
-  color: #c0cbda;
+  color: var(--text-2);
 }
 .pl-exit-metric > strong {
   display: block;
@@ -527,44 +527,44 @@
   overflow-wrap: anywhere;
 }
 .pl-estimated-value {
-  color: #bfaa75;
+  color: var(--estimate);
 }
 .pl-dot.estimated {
-  stroke: #bfaa75;
-  fill: #bfaa75;
+  stroke: var(--estimate);
+  fill: var(--estimate);
 }
 .pl-chart-method summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 .pl-exit-metric p {
   margin: 10px 0 0;
   overflow-wrap: anywhere;
 }
 .pl-best-exit {
-  border-color: #64805c;
+  border-color: var(--up-line);
 }
 .pl-jump-peak {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .pl-contracts {
   display: inline-flex;
   gap: 8px;
   align-items: center;
-  font-size: 13px;
+  font-size: 14px;
 }
 .pl-contracts input {
   width: 100px;
   margin: 0;
 }
 .pl-peak-label {
-  fill: var(--positive);
-  stroke: #080a08;
+  fill: var(--up);
+  stroke: var(--bg);
   stroke-width: 4px;
   paint-order: stroke;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
 }
 .pl-tooltip {
@@ -574,12 +574,12 @@
   gap: 4px;
   max-width: min(260px, 100%);
   padding: 10px 12px;
-  border: 1px solid #69788c;
+  border: 1px solid var(--text-3);
   border-radius: 6px;
-  background: #111820;
-  color: #e4eaf3;
+  background: var(--surface-2);
+  color: var(--text);
   box-shadow: 0 4px 16px #0008;
-  font-size: 12px;
+  font-size: 13px;
   pointer-events: none;
   z-index: 2;
 }
@@ -602,11 +602,11 @@
   padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  color: #929c87;
+  color: var(--text-2);
 }
 .pl-group button[aria-pressed="true"] {
-  border-color: var(--positive);
-  color: var(--positive);
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 .pl-group button:disabled {
   opacity: 0.4;
@@ -615,7 +615,7 @@
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  font-size: 13px;
+  font-size: 14px;
   white-space: nowrap;
 }
 .pl-toggle input {
@@ -633,27 +633,27 @@
 }
 .pl-axis {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .pl-crosshair {
-  stroke: #5b6155;
+  stroke: var(--text-3);
   stroke-width: 1;
 }
 .pl-marker {
-  stroke: #080a08;
+  stroke: var(--bg);
   stroke-width: 2;
 }
 .pl-marker.entry {
-  fill: #f2f5ef;
+  fill: var(--text);
 }
 .pl-marker.peak {
-  fill: var(--positive);
+  fill: var(--up);
 }
 .pl-marker.low {
-  fill: var(--negative);
+  fill: var(--down);
 }
 .pl-marker.expiry {
-  fill: #f5c542;
+  fill: var(--warning);
 }
 .pl-readout {
   min-height: 2.6em;
@@ -709,9 +709,6 @@
 }
 /* Plays performance: one validated pair (blue picks/KESTREL, orange SPY/market) and a grey dashed baseline */
 .plays-page {
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-ref: #8d9488;
 }
 .pf-section,
 .pf-chart {
@@ -724,23 +721,23 @@
 }
 .pf-cell small,
 .pf-name small {
-  font-size: 11px;
+  font-size: 12px;
 }
 .pf-name {
   display: flex;
   flex-direction: column;
 }
 .pf-label.failing {
-  color: var(--negative);
+  color: var(--down);
 }
 .pf-label.proven {
-  color: var(--positive);
+  color: var(--up);
 }
 .pf-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
-  font-size: 13px;
+  font-size: 14px;
   margin: 6px 0 10px;
 }
 .pf-key {
@@ -780,7 +777,7 @@
   stroke-dasharray: 5 4;
 }
 .pf-dot {
-  stroke: #080a08;
+  stroke: var(--bg);
   stroke-width: 2;
 }
 .pf-dot.pf-picks {
@@ -794,7 +791,7 @@
 }
 .pf-end {
   fill: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .pf-diagonal {
   stroke: var(--series-ref);
