@@ -98,6 +98,24 @@ and registers a linked doubled-budget sizing experiment; all challengers and los
 uninvested-cash baseline and separate finite-capital book. Reused rolling comparisons, overlapping exposures, multiple
 trials and modeled depth limit confidence; the hurdle is not a formal guarantee of profitability or significance.
 
+Formal comparison starts after at least **4 entry days with completed outcomes and 12 distinct underlying/day blocks**,
+with eligible earlier training labels and later held-out entries. These are evidence requirements, not spending or trade
+limits. Many fills in one stock on one day can produce dozens of outcomes but only one block. A version-0 formal model
+does not mean those outcomes or provisional per-experiment estimates are absent.
+
+**What the system has learned** shows the actual completed research outcome count, block/day counts and minimum progress,
+the exact remaining blockers, and the last completed outcome, usable observation and check-in times. Expand **Early
+experiment results** for provisional observed returns by structure/holding-time/entry-spacing family. Repeated fills and
+sizing variants are averaged within each underlying/day; both stronger and weaker families are retained in the summary,
+and every original experiment remains available. These descriptive averages are separate from held-out model results.
+The count is always based on uncapped research, even while inspecting a reference or small account. Closed research trades
+missing an outcome record are explicitly reported rather than silently treated as either trained evidence or invented labels.
+
+Saved observations are processed **before** provider requests. A slow or failed request cannot postpone that cycle's saved-
+data processing, and already-completed outcomes can receive a check-in after market hours without opening new trades.
+Check-ins refresh once after this reporting update even if the outcome count has not changed. GET reports are read-only;
+they do not create trades, labels or a trained model. Pause/STOP continue to control the Learning worker.
+
 The page shows model version, training/test coverage, changes, open/closed trades and daily/Friday weekly check-ins, with
 Markdown/JSON downloads. Options shows a separate learning-findings panel and links to the supporting workspace. Learning
 does not blend social mentions or unusual-volume rankings into its evidence count. There is no supported finding until

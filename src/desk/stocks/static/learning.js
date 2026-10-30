@@ -16,6 +16,185 @@ const KestrelLearning = (() => {
     n.append(el("small", label), el("strong", value));
     return n;
   }
+  function learningEvidence(data) {
+    const section = el(
+        "section",
+        undefined,
+        "paper-backtest-controls learning-evidence",
+      ),
+      evidence = data.evidence,
+      model = data.model || {};
+    section.append(el("h2", "What the system has learned"));
+    if (!evidence) {
+      section.append(
+        el(
+          "p",
+          "Evidence counts are unavailable from this server version. Restart Stocks after updating to load the progress report.",
+          "muted",
+        ),
+      );
+      return section;
+    }
+    const trained = model.version > 0;
+    section.append(
+      el(
+        "strong",
+        trained
+          ? model.status
+          : evidence.matured_outcomes
+            ? "Research results collected; formal comparison pending"
+            : "Collecting completed research outcomes",
+      ),
+      el(
+        "p",
+        "Evidence comes from the Uncapped research account. Reference and small-account trades are reported separately.",
+        "caption muted",
+      ),
+    );
+    const metrics = el(
+      "div",
+      undefined,
+      "paper-metrics learning-evidence-metrics",
+    );
+    metrics.append(
+      metric("Completed research outcomes", number(evidence.matured_outcomes)),
+      metric("Underlying/day blocks", number(evidence.underlying_day_blocks)),
+      metric("Entry days with outcomes", number(evidence.entry_days)),
+    );
+    section.append(metrics);
+    const readiness = el("div", undefined, "learning-readiness");
+    for (const [label, value, total] of [
+      ["Entry days", evidence.entry_days, evidence.min_entry_days],
+      [
+        "Underlying/day blocks",
+        evidence.underlying_day_blocks,
+        evidence.min_blocks,
+      ],
+    ]) {
+      const field = el("label"),
+        progress = el("progress");
+      progress.max = total;
+      progress.value = Math.min(value, total);
+      progress.setAttribute(
+        "aria-label",
+        `${label}: ${value} of ${total} minimum`,
+      );
+      field.append(
+        el("span", `${label}: ${number(value)} / ${number(total)} minimum`),
+        progress,
+      );
+      readiness.append(field);
+    }
+    section.append(readiness);
+    section.append(
+      el(
+        "p",
+        trained
+          ? `Formal model version ${model.version}: ${model.training_outcomes || 0} grouped training samples · ${model.test_outcomes || 0} held-out samples · ${model.test_blocks || 0} held-out underlying/day blocks.`
+          : `Formal train/test evaluation has not run yet (model version ${model.version || 0}). This does not mean that no research results exist.`,
+        "muted",
+      ),
+    );
+    if (model.candidate)
+      section.append(
+        el(
+          "p",
+          `Prior-data candidate: ${model.candidate}. Held-out mean net return: ${percent(model.test_net_return)}. ${model.promoted ? "PAPER policy promoted." : "No promotion; forward experimentation continues."}`,
+          "muted",
+        ),
+      );
+    const reasons = el("ul", undefined, "learning-evidence-blockers");
+    for (const reason of evidence.blockers || [])
+      reasons.append(el("li", reason));
+    if (reasons.children.length)
+      section.append(el("h3", "What is needed next"), reasons);
+    else if (!trained && evidence.ready_for_comparison)
+      section.append(
+        el(
+          "p",
+          "The evidence is ready for a chronological comparison; the next Learning cycle will evaluate it automatically.",
+          "muted",
+        ),
+      );
+    if (evidence.exit_horizon_reached)
+      section.append(
+        el(
+          "p",
+          `${number(evidence.exit_horizon_reached)} open research trades have reached their planned exit time. They need fresh executable quotes and available estimated exit capacity before becoming outcomes.`,
+          "caption muted",
+        ),
+      );
+    if (evidence.unresolved_expiries)
+      section.append(
+        el(
+          "p",
+          `${number(evidence.unresolved_expiries)} expired research positions await verified settlement; they are not completed training evidence.`,
+          "caption muted",
+        ),
+      );
+    section.append(
+      el(
+        "p",
+        `Last completed outcome: ${stamp(evidence.latest_outcome_at)} · Last usable observation: ${stamp(evidence.latest_source_at)} · Last check-in: ${stamp(evidence.latest_check_at)}.`,
+        "caption muted",
+      ),
+      el(
+        "p",
+        "Completed outcomes already update provisional per-experiment estimates and small-account research policies. Repeated fills and larger positions do not create independent evidence. Formal validation needs earlier labels to finish before later test entries; these thresholds do not stop PAPER experimentation.",
+        "caption muted",
+      ),
+    );
+    if (evidence.families?.length) {
+      const early = el("details", undefined, "learning-early-results");
+      const results = el("div", undefined, "learning-family-grid");
+      for (const f of evidence.families) {
+        const card = el("article", undefined, "learning-family");
+        card.append(
+          el(
+            "h4",
+            `${f.structure.replaceAll("_", " ")} · ${f.hold_minutes}m hold`,
+          ),
+          el(
+            "p",
+            f.repeat_minutes
+              ? `${f.repeat_minutes}m entry spacing`
+              : "Each fresh observation",
+            "caption muted",
+          ),
+          el("small", "Average net return"),
+          el(
+            "strong",
+            percent(f.mean_net_return),
+            f.mean_net_return > 0
+              ? "positive"
+              : f.mean_net_return < 0
+                ? "negative"
+                : "",
+          ),
+          el(
+            "p",
+            `${number(f.outcomes)} outcomes · ${number(f.blocks)} underlying/day blocks`,
+            "caption muted",
+          ),
+        );
+        results.append(card);
+      }
+      early.append(
+        el(
+          "summary",
+          `Early experiment results · ${evidence.family_total} families · provisional`,
+        ),
+        el(
+          "p",
+          "These are observed averages, not held-out forecasts. Repeated fills and size variants are averaged within each underlying/day. When there are more than eight families, the four strongest and four weakest remain visible here; every experiment stays in Experiments.",
+          "caption muted",
+        ),
+        results,
+      );
+      section.append(early);
+    }
+    return section;
+  }
   const policyName = (mode) =>
     ({
       starter: "Starter policy · research still gathering outcomes",
@@ -326,24 +505,7 @@ const KestrelLearning = (() => {
         ),
         profitChart(a.curve),
       );
-      const model = el("section", undefined, "paper-backtest-controls");
-      model.append(
-        el("h2", "What the system has learned"),
-        el("strong", data.model.status),
-        el(
-          "p",
-          `Model version ${data.model.version}. ${data.model.training_outcomes || 0} training outcomes · ${data.model.test_outcomes || 0} held-out outcomes · ${data.model.test_blocks || 0} underlying/day test blocks.`,
-          "muted",
-        ),
-        el(
-          "p",
-          data.model.candidate
-            ? `Prior-data candidate: ${data.model.candidate}. Held-out mean net return: ${percent(data.model.test_net_return)}. ${data.model.promoted ? "PAPER policy promoted." : "No promotion; forward experimentation continues."}`
-            : "Predictions begin as registered hypotheses. Matured outcomes update estimates; funding and repeated fills do not count as independent evidence.",
-          "muted",
-        ),
-      );
-      app.append(model);
+      app.append(learningEvidence(data));
       const views = el("div", undefined, "research-tabs"),
         content = el("section", undefined, "paper-trades");
       for (const [id, title] of [
@@ -709,6 +871,17 @@ const KestrelLearning = (() => {
                   a.policy?.forecast?.policy_hash,
                 ]),
                 d.model.version,
+                d.evidence && [
+                  d.evidence.matured_outcomes,
+                  d.evidence.underlying_day_blocks,
+                  d.evidence.entry_days,
+                  d.evidence.ready_for_comparison,
+                  d.evidence.closed_without_outcome,
+                  d.evidence.exit_horizon_reached,
+                  d.evidence.unresolved_expiries,
+                  d.evidence.latest_source_at,
+                  d.evidence.latest_check_at,
+                ],
                 d.progress.phase,
                 d.control.enabled,
                 d.paper_enabled,

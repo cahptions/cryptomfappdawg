@@ -425,3 +425,43 @@
     padding: 14px;
   }
 }
+.learning-evidence .learning-evidence-metrics {
+  margin: 16px 0;
+}
+.learning-readiness {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 12px;
+}
+.learning-readiness label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-2);
+}
+.learning-readiness progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.learning-evidence-blockers {
+  padding-left: 20px;
+  color: var(--text-2);
+}
+.learning-family-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+}
+.learning-family {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 0;
+}
+.learning-family h4 {
+  margin: 0;
+}
+.learning-family strong {
+  display: block;
+  font-size: 1.3rem;
+  margin-top: 6px;
+}

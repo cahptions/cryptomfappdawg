@@ -23,6 +23,47 @@ try {
     await page
       .getByRole("heading", { name: "PAPER Learning", exact: true })
       .waitFor();
+    const evidence = page.locator(".learning-evidence");
+    assert.equal(
+      record.model.version,
+      0,
+      "the fixture has completed outcomes before formal validation is ready",
+    );
+    assert.ok(record.evidence.matured_outcomes > 0);
+    assert.equal(
+      await evidence
+        .locator(".paper-metric")
+        .filter({ hasText: "Completed research outcomes" })
+        .locator("strong")
+        .innerText(),
+      String(record.evidence.matured_outcomes),
+    );
+    assert.match(
+      await evidence.innerText(),
+      /Research results collected; formal comparison pending/,
+    );
+    assert.doesNotMatch(await evidence.innerText(), /0 training outcomes/);
+    assert.equal(await evidence.locator("progress").count(), 2);
+    assert.match(await evidence.innerText(), /Need \d+ more entry days/);
+    assert.match(await evidence.innerText(), /Last completed outcome:/);
+    await evidence.getByText(/Early experiment results/).click();
+    assert.equal(
+      await evidence.locator(".learning-family").count(),
+      record.evidence.families.length,
+    );
+    assert.ok(
+      await evidence.locator(".learning-family strong").first().isVisible(),
+      "observed returns remain visible on phones as well as desktops",
+    );
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+    await evidence.screenshot({
+      path: `/tmp/kestrel-learning-evidence-${width}.png`,
+    });
     await page
       .getByRole("button", { name: "Pause Learning", exact: true })
       .click();

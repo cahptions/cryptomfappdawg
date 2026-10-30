@@ -155,6 +155,9 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig) -> None:
         learning.initialize(conn, utc_now())
         market_conn = connect(paths.db_dir / MARKET_FILE, DbKind.STOCKS_MARKET)
         market = StocksMarket(market_conn)
+        # Saved observations and matured results must not wait behind network requests or their timeouts.
+        if allowed(paths):
+            learning.tick(conn, market, utc_now())
         try:
             result = await collect(paths, loaded, conn, market, utc_now())
             learning.set_state(conn, "collection", result)

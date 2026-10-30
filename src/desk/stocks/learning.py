@@ -7,7 +7,7 @@ import math
 import sqlite3
 import zlib
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from statistics import mean, stdev
 from typing import Any
 
@@ -32,6 +32,9 @@ SMALL_ACCOUNTS = ("reference_1k", "reference_5k")
 ACCOUNTS = ((RESEARCH, "Uncapped research", CAPITAL), (REFERENCE, "$500,000 reference", CAPITAL),
             (SMALL_ACCOUNTS[0], "$1,000 account", 1_000.0), (SMALL_ACCOUNTS[1], "$5,000 account", 5_000.0))
 STRUCTURES = ("long_call", "long_put", "long_straddle")
+MIN_COMPARISON_DAYS = 4
+MIN_COMPARISON_BLOCKS = 12
+CHECK_METHOD_VERSION = 2
 
 
 def open_book(paths: DeskPaths) -> sqlite3.Connection:
@@ -361,8 +364,10 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
 
 def forecast(conn: sqlite3.Connection, experiment: str, now: datetime) -> dict[str, Any]:
     rows = conn.execute(
-        "SELECT block,AVG(net_return) r FROM stk_learning_outcomes WHERE experiment_id=? AND matured_at<? GROUP BY block",
-        (experiment, to_iso(now)),
+        "SELECT o.block,AVG(o.net_return) r FROM stk_learning_outcomes o "
+        "JOIN stk_positions p ON p.id=o.position_id AND p.account=? "
+        "WHERE o.experiment_id=? AND o.matured_at<? GROUP BY o.block",
+        (RESEARCH,experiment, to_iso(now)),
     ).fetchall()
     returns = [r["r"] for r in rows]
     return {
@@ -450,28 +455,102 @@ def propose(
     return count
 
 
+def outcome_rows(conn: sqlite3.Connection, now: datetime) -> list[sqlite3.Row]:
+    """Only matured uncapped research; configuration variants within a block are not independent days."""
+    return conn.execute(
+        "SELECT o.experiment_id,MIN(o.entered_at) entered_at,MAX(o.matured_at) matured_at,o.block,"
+        "AVG(o.net_return) net_return,COUNT(*) outcomes,e.config_json FROM stk_learning_outcomes o "
+        "JOIN stk_learning_experiments e ON e.id=o.experiment_id "
+        "JOIN stk_positions p ON p.id=o.position_id AND p.account=? "
+        "WHERE o.matured_at<=? GROUP BY o.experiment_id,o.block ORDER BY entered_at",
+        (RESEARCH,to_iso(now)),
+    ).fetchall()
+
+
+def partition_outcomes(rows: list[sqlite3.Row]) -> tuple[list[str],str | None,list[sqlite3.Row],list[sqlite3.Row]]:
+    days = sorted({cal.new_york(datetime.fromisoformat(r["entered_at"])).date().isoformat() for r in rows})
+    boundary = days[len(days)//2] if len(days)>=2 else None
+    if boundary is None:
+        return days,None,[],[]
+    cutoff = datetime.combine(date.fromisoformat(boundary),time(),cal.NEW_YORK)
+    train = [r for r in rows if datetime.fromisoformat(r["matured_at"]) < cutoff]
+    test = [r for r in rows if datetime.fromisoformat(r["entered_at"]) >= cutoff]
+    return days,boundary,train,test
+
+
+def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]:
+    """Read-only evidence funnel, including collected results before the formal model can be trained."""
+    rows = outcome_rows(conn,now)
+    days,boundary,train,test = partition_outcomes(rows)
+    blocks = len({r["block"] for r in rows})
+    total = sum(r["outcomes"] for r in rows)
+    families: dict[tuple[str,int,int],dict[str,Any]] = {}
+    for row in rows:
+        cfg = json.loads(row["config_json"])
+        key = (cfg["structure"],cfg["hold_minutes"],cfg.get("repeat_minutes",0))
+        family = families.setdefault(key,{"structure":key[0],"hold_minutes":key[1],"repeat_minutes":key[2],
+                                         "outcomes":0,"returns":{}})
+        family["outcomes"] += row["outcomes"]
+        family["returns"].setdefault(row["block"],[]).append(row["net_return"])
+    comparisons = []
+    for family in families.values():
+        values = [mean(v) for v in family.pop("returns").values()]
+        comparisons.append({**family,"blocks":len(values),"mean_net_return":mean(values)})
+    comparisons.sort(key=lambda f:(-f["mean_net_return"],f["structure"],f["hold_minutes"],f["repeat_minutes"]))
+    shown = comparisons if len(comparisons)<=8 else [*comparisons[:4],*comparisons[-4:]]
+    raw = conn.execute("SELECT COUNT(*) n,MAX(o.matured_at) latest FROM stk_learning_outcomes o "
+        "JOIN stk_positions p ON p.id=o.position_id AND p.account=? WHERE o.matured_at<=?",(RESEARCH,to_iso(now))).fetchone()
+    closed = conn.execute("SELECT COUNT(*) n,SUM(NOT EXISTS (SELECT 1 FROM stk_learning_outcomes o "
+        "WHERE o.position_id=p.id)) missing FROM stk_positions p WHERE p.account=? AND p.state='CLOSED' AND p.closed_at<=?",
+        (RESEARCH,to_iso(now))).fetchone()
+    open_ = conn.execute("SELECT COUNT(*) n,SUM(expires_day<?) expired,SUM(expires_day>=? AND "
+        "julianday(opened_at)+COALESCE(json_extract(plan_json,'$.hold_minutes'),0)/1440.0<=julianday(?)) due "
+        "FROM stk_positions WHERE account=? AND state='OPEN'",
+        (cal.new_york(now).date().toordinal(),cal.new_york(now).date().toordinal(),to_iso(now),RESEARCH)).fetchone()
+    reasons = []
+    if not total:
+        reasons.append("No eligible completed research outcomes yet. Open trades need a later executable exit quote.")
+    if len(days)<MIN_COMPARISON_DAYS:
+        reasons.append(f"Need {MIN_COMPARISON_DAYS-len(days)} more entry days with completed research outcomes.")
+    if blocks<MIN_COMPARISON_BLOCKS:
+        reasons.append(f"Need {MIN_COMPARISON_BLOCKS-blocks} more underlying/day blocks; "
+                       "repeated fills do not add independent blocks.")
+    if len(days)>=MIN_COMPARISON_DAYS and blocks>=MIN_COMPARISON_BLOCKS and not train:
+        reasons.append("Training outcomes must finish before held-out entries; "
+                       "the current split has no eligible training labels.")
+    if len(days)>=MIN_COMPARISON_DAYS and blocks>=MIN_COMPARISON_BLOCKS and not test:
+        reasons.append("No later held-out samples are available yet.")
+    missing = int(closed["missing"] or 0)
+    if missing:
+        reasons.append(f"{missing} closed research trades lack an outcome record; "
+                       "they are not silently counted as training evidence.")
+    return {"asof":to_iso(now),"account":RESEARCH,"matured_outcomes":total,"recorded_outcomes":raw["n"],
+        "closed_research_trades":closed["n"],"closed_without_outcome":missing,"unusable_outcomes":raw["n"]-total,
+        "underlying_day_blocks":blocks,"entry_days":len(days),"first_entry_day":days[0] if days else None,
+        "last_entry_day":days[-1] if days else None,"latest_outcome_at":raw["latest"],"boundary":boundary,
+        "potential_training_samples":len(train),"potential_test_samples":len(test),
+        "min_entry_days":MIN_COMPARISON_DAYS,"min_blocks":MIN_COMPARISON_BLOCKS,
+        "ready_for_comparison":len(days)>=MIN_COMPARISON_DAYS and blocks>=MIN_COMPARISON_BLOCKS and bool(train) and bool(test),
+        "open_research_trades":open_["n"],"exit_horizon_reached":int(open_["due"] or 0),
+        "unresolved_expiries":int(open_["expired"] or 0),"blockers":reasons,
+        "families":shown,"family_total":len(comparisons),
+        "latest_source_at":conn.execute("SELECT MAX(observed_at) FROM stk_learning_sources WHERE observed_at<=?",
+                                         (to_iso(now),)).fetchone()[0],
+        "latest_check_at":conn.execute("SELECT MAX(at) FROM stk_learning_checks WHERE at<=?",(to_iso(now),)).fetchone()[0]}
+
+
 def check_in(conn: sqlite3.Connection, now: datetime) -> None:
     key = "check:" + cal.new_york(now).date().isoformat()
     previous = state(conn, key, 0)
-    matured = conn.execute("SELECT COUNT(*) FROM stk_learning_outcomes WHERE matured_at<=?", (to_iso(now),)).fetchone()[0]
-    if previous == matured and state(conn, key + ":exists", False):
+    rows = outcome_rows(conn,now)
+    matured = sum(r["outcomes"] for r in rows)
+    if previous == matured and state(conn, key + ":exists", False) and state(conn,"check_method") == CHECK_METHOD_VERSION:
         return
     training = state(conn, "model", {"status": "Waiting for matured forward outcomes", "version": 0})
-    blocks = conn.execute(
-        "SELECT COUNT(DISTINCT block) FROM stk_learning_outcomes WHERE matured_at<=?", (to_iso(now),)
-    ).fetchone()[0]
+    blocks = len({r["block"] for r in rows})
     # Train/test by entry day with a temporal embargo: test entries must follow every training label's maturity.
-    rows = conn.execute(
-        "SELECT o.experiment_id,MIN(o.entered_at) entered_at,MAX(o.matured_at) matured_at,o.block,"
-        "AVG(o.net_return) net_return,e.config_json FROM stk_learning_outcomes o JOIN stk_learning_experiments e "
-        "ON e.id=o.experiment_id WHERE o.matured_at<=? GROUP BY o.experiment_id,o.block ORDER BY entered_at",
-        (to_iso(now),),
-    ).fetchall()
-    days = sorted({r["entered_at"][:10] for r in rows})
-    if len(days) >= 4 and blocks >= 12:
-        boundary = days[len(days) // 2]
-        train = [r for r in rows if r["matured_at"][:10] < boundary]
-        test = [r for r in rows if r["entered_at"][:10] >= boundary]
+    days,boundary,train,test = partition_outcomes(rows)
+    if len(days) >= MIN_COMPARISON_DAYS and blocks >= MIN_COMPARISON_BLOCKS:
         scored = []
         for structure in STRUCTURES:
             past = [r for r in train if json.loads(r["config_json"])["structure"] == structure]
@@ -540,10 +619,12 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
         "underlying_day_blocks": blocks,
         "new_outcomes": max(0, matured - last_total),
         "week_outcomes": conn.execute(
-            "SELECT COUNT(*) FROM stk_learning_outcomes WHERE matured_at>=? AND matured_at<=?",
-            (to_iso(now - timedelta(days=7)), to_iso(now)),
+            "SELECT COUNT(*) FROM stk_learning_outcomes o JOIN stk_positions p ON p.id=o.position_id "
+            "WHERE p.account=? AND o.matured_at>=? AND o.matured_at<=?",
+            (RESEARCH,to_iso(now - timedelta(days=7)), to_iso(now)),
         ).fetchone()[0],
         "model": training,
+        "evidence":evidence_progress(conn,now),
         "next": "Continue timestamped forward experiments; compare capital sizes on matched sources",
         "funding_excluded_from_profit": True,
         "baseline": "Uninvested cash: 0% trading return; the $500,000 reference mirrors research intents. "
@@ -558,6 +639,7 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
     set_state(conn, key, matured)
     set_state(conn, "check_total", matured)
     set_state(conn, key + ":exists", True)
+    set_state(conn,"check_method",CHECK_METHOD_VERSION)
 
 
 def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[str, Any]:
@@ -566,6 +648,8 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
     snapshots: dict[str, tuple[str, float, dict[Any, list[OptionQuote]]]] = {}
     local = cal.new_york(now)
     if not cal.is_trading_day(local.date()) or not (9, 30) <= (local.hour, local.minute) < (16, 0):
+        with PaperBook(conn).atomic():
+            check_in(conn,now)
         result = {"phase": "Market closed; saved experiments and losses are retained", "orders": 0}
         set_state(conn, "progress", result)
         return result
@@ -635,7 +719,8 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
         return result
 
 
-def report(conn: sqlite3.Connection) -> dict[str, Any]:
+def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, Any]:
+    now = now or utc_now()
     book = PaperBook(conn)
     accounts = []
     for account, title, capital in ACCOUNTS:
@@ -665,7 +750,7 @@ def report(conn: sqlite3.Connection) -> dict[str, Any]:
         ).fetchone()[0]
         unresolved = conn.execute(
             "SELECT COUNT(*) FROM stk_positions WHERE account=? AND state='OPEN' AND expires_day<?",
-            (account, cal.new_york(utc_now()).date().toordinal()),
+            (account, cal.new_york(now).date().toordinal()),
         ).fetchone()[0]
         accounts.append(
             {
@@ -724,6 +809,7 @@ def report(conn: sqlite3.Connection) -> dict[str, Any]:
         "progress": state(conn, "progress", {"phase": "Waiting for fresh option data"}),
         "collection": state(conn, "collection", {}),
         "model": state(conn, "model", {"version": 0, "status": "Untrained; collecting matured forward outcomes"}),
+        "evidence":evidence_progress(conn,now),
         "experiments": experiments,
         "experiment_total": experiment_total,
         "check_ins": checks,

@@ -3,6 +3,43 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-30 — Learning evidence before formal training; Claude continuation checked
+
+Continued from `1aa0987` on `claude/funny-rubin-gq99vj`, preserving all eight Claude commits after `25547f1`:
+Schwab refresh-login diagnostics and warning, remote/SSH callback setup, password-autofill protection, after-hours
+quote staleness/catch-up, retries after denied history requests, auth failures kept distinct from endpoint capability,
+and candle-spaced 1D/1W charts with honestly dated stale prices. No pending Stocks edits were found in the connected
+worktrees. Unrelated dirty LIVE crypto work was inspected by status only and remains untouched.
+
+The Learning screenshot's zero counters were formal model train/test counts, not total collected outcomes. Formal
+comparison waits for 4 entry days and 12 underlying/day blocks plus chronological label separation; `model` is not
+stored until then. The old UI defaulted absent fields to zero, hiding completed research and provisional estimates.
+The provider collection step could also hit its outer timeout before processing already-saved observations.
+
+- Add a read-only evidence report: actual completed research outcomes, closed trades without labels, blocks, entry
+  days, thresholds, chronological split eligibility, pending exit horizons/expiries and last observation/outcome/check-in.
+  Reuse the actual grader's partition logic and named thresholds. Exclude reference/small-account results and future
+  outcomes from research counts, forecasts and check-in totals. Preserve all existing records and promotion hurdles.
+- Replace the blanket zero display with progress meters, exact remaining blockers, and provisional observed-result
+  cards by structure/holding-time/spacing family. Average repeated fills and sizing variants within underlying/day
+  blocks; show both stronger and weaker families, with all original experiments retained. Returns remain visible on
+  phones. Formal model samples and held-out results stay separately labeled. Evidence-only changes trigger polling.
+- Process saved observations before provider calls, so a slow request cannot prevent that cycle's processing.
+  Already-stored matured outcomes can be checked after market hours without opening trades. Refresh check-ins once
+  after this reporting-method upgrade even without new outcomes. Pause/STOP, virtual funding and finite-account
+  constraints remain unchanged; GET requests do not train, fund, trade or fabricate labels.
+
+Validation: **1,498 offline tests passed, 5 opt-in live tests deselected**, with one existing Starlette/httpx warning.
+Ruff, strict mypy (246 source files), JS syntax and pinned Prettier 3.3.3 pass. Seven new regressions cover 52 completed
+outcomes while model version remains 0, independent block counts, account/future exclusion, missing labels/read-only
+GETs, actual chronological readiness, after-hours evaluation, one-time upgrade refresh and a hung provider call.
+Desktop/375px Learning and small-account browser workflows pass, including provisional cards and evidence polling
+without balance/model changes. Claude's stock-page browser workflow passes at both widths too.
+
+Next: update/restart the laptop and read the Learning panel's actual ledger counts and last usable source time.
+The cloud has no operator credentials or live laptop database; the screenshot's exact outcome distribution and
+current Schwab sign-in remain laptop-side checks, not authenticated results claimed by these offline tests.
+
 ## 2026-10-29 — Plays History: current intraday values instead of a frozen yesterday estimate
 
 Operator saw an Oct 28 estimated close during the Oct 29 trading session. Confirmed that the individual closing-

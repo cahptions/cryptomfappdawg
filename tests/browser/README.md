@@ -37,3 +37,7 @@ Options discovery lanes and source-capability guides in Settings. Neither fixtur
 to check an Oct 28 estimate becoming an Oct 29 quote without reload, preserving quantity/range, retaining values on
 refresh errors and stopping polling after navigation. Run it with `KESTREL_STOCKS_URL` set to that disposable server.
 The Python quote-freshness regressions separately test real saved-tick selection and live-before-repair ordering.
+
+The Learning workflow also verifies that completed outcomes remain visible while the formal model is version 0, with
+explicit block/day thresholds and provisional result cards at desktop and phone widths. The retail workflow verifies
+that evidence counts refresh even if account balances and model version stay unchanged.

@@ -108,6 +108,19 @@ try {
           },
         )
         .waitFor({ timeout: 25000 });
+      // Render-only late outcome: refresh evidence even when account balances/trade counts and model version stay fixed.
+      assert.equal(updated.model.version, 0);
+      updated.evidence.matured_outcomes += 1;
+      await page
+        .locator(".learning-evidence .paper-metric")
+        .filter({ hasText: "Completed research outcomes" })
+        .locator("strong")
+        .getByText(String(updated.evidence.matured_outcomes), { exact: true })
+        .waitFor({ timeout: 25000 });
+      assert.match(
+        await page.locator(".learning-evidence").innerText(),
+        /formal comparison pending/,
+      );
       await page.unroute(endpoint);
     }
     await page.close();
