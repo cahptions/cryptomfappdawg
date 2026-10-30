@@ -41,3 +41,11 @@ The Python quote-freshness regressions separately test real saved-tick selection
 The Learning workflow also verifies that completed outcomes remain visible while the formal model is version 0, with
 explicit block/day thresholds and provisional result cards at desktop and phone widths. The retail workflow verifies
 that evidence counts refresh even if account balances and model version stay unchanged.
+
+The shared chart overhaul is checked by `stocks_charting.mjs` against two disposable servers:
+`stocks_fixture_server --scenario learning-workflows --port 8898` and
+`stocks_fixture_server --scenario ui-workflows --port 8899`. Set `KESTREL_STOCKS_URL` and
+`KESTREL_CHART_STOCK_URL` if using different ports. It checks dated account context, persistent metric/range choices,
+missing observations, single-point history, zoom, keyboard event markers, calculator price/time scenarios, tooltip bounds
+and console errors at desktop and 375px. Restart fixture servers after changing static assets: the server captures them
+at startup, just like the installed app. Run the PAPER/replay browser workflow alone to avoid its known CPU timing flake.

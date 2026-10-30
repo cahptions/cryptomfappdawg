@@ -239,90 +239,187 @@ const KestrelLearning = (() => {
     section.append(grid);
     return section;
   }
-  function profitChart(curve) {
-    const box = el("section", undefined, "paper-equity"),
-      readout = el("p", "", "caption");
-    box.append(el("h3", "Trading P/L history — virtual funding excluded"));
-    if (!curve.length) {
-      box.append(
-        el(
-          "p",
-          "The curve begins with the first observed trading tick.",
-          "muted",
-        ),
+  const chartState = new Map();
+  function profitChart(a, evidence) {
+    const id = a.id;
+    let state = chartState.get(id);
+    // Reuse the chart across polling updates, retaining zoom, range and metric.
+    if (!state || state.chart.disposed) {
+      state = {
+        range: state?.range || "Max",
+        metric: state?.metric || "pnl",
+        events: state?.events ?? true,
+        request: 0,
+      };
+      state.box = el("section", undefined, "paper-equity learning-chart");
+      state.metricSelect = el("select");
+      state.metricSelect.setAttribute("aria-label", "Learning chart metric");
+      for (const [key, title] of [
+        ["pnl", "Trading P/L"],
+        ["equity", "Account value"],
+        ["cash", "Cash available"],
+        ["drawdown", "Trading P/L drawdown"],
+      ])
+        state.metricSelect.append(new Option(title, key));
+      state.metricSelect.value = state.metric;
+      state.metricSelect.onchange = () => {
+        state.metric = state.metricSelect.value;
+        paint();
+      };
+      const tools = el("div", undefined, "kc-toolbar"),
+        toggle = el("label", undefined, "kc-toggle"),
+        check = el("input");
+      check.type = "checkbox";
+      check.checked = state.events;
+      check.onchange = () => {
+        state.events = check.checked;
+        paint();
+      };
+      toggle.append(check, el("span", "Trades & funding"));
+      tools.append(state.metricSelect, toggle);
+      state.chart = KestrelCharts.create({
+        id: "learning",
+        label: "Trading P/L — funding excluded",
+        baseline: 0,
+        series: [
+          {
+            id: "value",
+            label: "Trading P/L",
+            value: (p) => p.value,
+            className: "paper-equity-line",
+          },
+        ],
+        legend: false,
+        empty: "Waiting for the first recorded account observation.",
+      });
+      state.note = el("p", "", "caption muted learning-chart-source");
+      state.event = el(
+        "p",
+        "Click a trade or funding marker for its details.",
+        "caption learning-chart-event",
       );
-      return box;
+      state.box.append(
+        el("h2", "Account performance"),
+        tools,
+        state.chart,
+        KestrelCharts.ranges(
+          ["1D", "1W", "1M", "3M", "YTD", "1Y", "Max"],
+          state.range,
+          (v) => {
+            state.range = v;
+            load();
+          },
+        ),
+        state.note,
+        state.event,
+      );
+      chartState.set(id, state);
     }
-    const low = Math.min(0, ...curve.map((r) => r.pnl)),
-      high = Math.max(0, ...curve.map((r) => r.pnl)),
-      span = high - low || 1;
-    const x = (i) => 20 + (i / Math.max(1, curve.length - 1)) * 960,
-      y = (v) => 220 - ((v - low) / span) * 180;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 1000 260");
-    svg.setAttribute("tabindex", "0");
-    svg.setAttribute("role", "img");
-    svg.setAttribute(
-      "aria-label",
-      "Learning trading P/L excluding funding. Arrow keys inspect observations.",
-    );
-    const path = document.createElementNS(svg.namespaceURI, "path");
-    path.setAttribute(
-      "d",
-      curve.map((r, i) => `${i ? "L" : "M"}${x(i)},${y(r.pnl)}`).join(""),
-    );
-    path.setAttribute("class", "paper-equity-line");
-    svg.append(path);
-    if (curve.length === 1) {
-      const dot = document.createElementNS(svg.namespaceURI, "circle");
-      for (const [key, value] of Object.entries({
-        cx: x(0),
-        cy: y(curve[0].pnl),
-        r: 4,
-        fill: "#abc6ff",
-      }))
-        dot.setAttribute(key, value);
-      svg.append(dot);
-      box.append(
-        el(
-          "p",
-          "One recorded starting point; the path grows as fresh quotes and trades are observed.",
-          "caption muted",
-        ),
-      );
-    }
-    let selected = curve.length - 1;
-    const inspect = (i) => {
-      selected = Math.max(0, Math.min(curve.length - 1, i));
-      readout.textContent = `${stamp(curve[selected].at)} · ${signed(curve[selected].pnl)} trading P/L`;
-    };
-    svg.onpointermove = (e) => {
-      const b = svg.getBoundingClientRect();
-      inspect(
-        Math.round(
-          ((((e.clientX - b.left) / b.width) * 1000 - 20) / 960) *
-            (curve.length - 1),
-        ),
-      );
-    };
-    svg.onpointerleave = () => inspect(curve.length - 1);
-    svg.onkeydown = (e) => {
-      if (
-        ["Home", "End", "ArrowLeft", "ArrowRight", "Escape"].includes(e.key)
-      ) {
-        e.preventDefault();
-        inspect(
-          e.key === "Home"
-            ? 0
-            : ["End", "Escape"].includes(e.key)
-              ? curve.length - 1
-              : selected + (e.key === "ArrowLeft" ? -1 : 1),
-        );
+    state.evidence = evidence;
+    function paint() {
+      if (!state.data) return;
+      const d = state.data;
+      let high = 0;
+      const points = d.points.map((p) => {
+        high = Math.max(high, p.pnl);
+        return {
+          ...p,
+          x: Date.parse(p.at),
+          value:
+            state.metric === "drawdown"
+              ? (p.drawdown ?? p.pnl - high)
+              : p[state.metric],
+        };
+      });
+      const title = state.metricSelect.selectedOptions[0].textContent;
+      const grouped = new Map();
+      for (const event of d.events) {
+        const key = event.at + event.kind;
+        if (!grouped.has(key)) grouped.set(key, { ...event, events: [] });
+        grouped.get(key).events.push(event);
       }
-    };
-    inspect(selected);
-    box.append(svg, readout);
-    return box;
+      const markers = [...grouped.values()].map((g) => ({
+        ...g,
+        x: Date.parse(g.at),
+        label:
+          g.events.length === 1
+            ? g.label
+            : g.kind === "funding"
+              ? `${g.events.length} virtual allocations · +${money(g.events.reduce((n, e) => n + e.amount, 0))}`
+              : `${g.events.length} ${g.kind === "entry" ? "opened" : "closed"} positions${g.kind === "exit" ? ` · ${signed(g.events.reduce((n, e) => n + e.pnl, 0))} net` : ""}`,
+      }));
+      state.chart.update({
+        points,
+        viewKey: state.range,
+        xMode: "time",
+        xTickFormat: (at) =>
+          points.length && points.at(-1).x - points[0].x < 86400000
+            ? new Date(at).toLocaleTimeString("en-US", {
+                timeZone: "America/New_York",
+                hour: "numeric",
+                minute: "2-digit",
+              })
+            : KestrelCharts.date(at),
+        changeText: (p) =>
+          state.metric === "equity" || state.metric === "cash"
+            ? `Includes virtual funding · trading P/L ${signed(p.pnl)}`
+            : state.metric === "drawdown"
+              ? "Below the prior peak in trading P/L · funding excluded"
+              : "Net trading result after fees · funding excluded",
+        dots: points.length <= 40,
+        label:
+          title + (state.metric === "pnl" ? " — virtual funding excluded" : ""),
+        baseline: ["pnl", "drawdown"].includes(state.metric) ? 0 : null,
+        series: [
+          {
+            id: "value",
+            label: title,
+            value: (p) => p.value,
+            className: "paper-equity-line",
+          },
+        ],
+        markers: state.events ? markers : [],
+        onMarker: (e) => {
+          state.event.textContent = `${stamp(e.at)} · ${e.label}${e.events.length === 1 && e.position_id ? ` · Position #${e.position_id}` : ""}`;
+        },
+        readoutRows: (p) => [
+          ["Trading P/L", signed(p.pnl)],
+          ["Equity", money(p.equity)],
+          ["Open positions", number(p.open_positions)],
+        ],
+        tooltipRows: (p) => [
+          [title, money(p.value)],
+          ["Trading P/L", signed(p.pnl)],
+          ["Account value", money(p.equity)],
+          ["Cash", money(p.cash)],
+          ["Total contributed", money(p.contributed)],
+          [
+            "Realized / unrealized",
+            `${signed(p.realized_pnl)} / ${signed(p.unrealized_pnl)}`,
+          ],
+          ["Trading fees", money(p.fees)],
+          ["Open / closed trades", `${p.open_positions} / ${p.closed_trades}`],
+        ],
+        coverage: `${number(d.observations)} recorded observations in this range · ${number(d.available_observations)} retained overall${d.sampled ? " · Extrema-preserving sample; no invented points" : ""}${d.event_count > d.events.length ? ` · Latest ${d.events.length} of ${d.event_count} events shown` : ""}. ${points.length === 1 ? "One observation; more history appears as quotes arrive." : ""}`,
+      });
+    }
+    async function load() {
+      const request = ++state.request;
+      try {
+        const result = await api(
+          `learning/chart?account=${id}&window=${state.range}`,
+        );
+        if (request !== state.request) return;
+        state.data = result;
+        paint();
+        state.note.textContent = `${result.basis} Last retained mark: ${stamp(result.available_last)}. Last usable market observation: ${stamp(state.evidence?.latest_source_at)}. Flat stretches can reflect unchanged or unavailable quotes; account timestamps alone do not establish fresh market prices.`;
+      } catch (e) {
+        if (request === state.request)
+          state.note.textContent = `Chart unavailable: ${e.message}. Existing account records are retained.`;
+      }
+    }
+    load();
+    return state.box;
   }
   async function show(ticket) {
     let data = await api("learning");
@@ -503,7 +600,7 @@ const KestrelLearning = (() => {
           `${a.open_positions} open positions · ${a.closed_trades} closed trades · ${a.pending_orders} pending orders in this account. P/L / contributed capital: ${percent(a.pnl_per_contributed_dollar)}.`,
           "muted",
         ),
-        profitChart(a.curve),
+        profitChart(a, data.evidence),
       );
       app.append(learningEvidence(data));
       const views = el("div", undefined, "research-tabs"),

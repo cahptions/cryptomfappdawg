@@ -86,3 +86,19 @@ def test_missing_iv_or_quotes_cannot_silently_become_a_zero_premium_trade():
 def test_invalid_or_unbounded_inputs_are_rejected(change):
     with pytest.raises(ValidationError):
         ScenarioInput(**{"legs": [{"occ": quote().occ}], "valuation_date": EXP, "underlying_price": 100, **change})
+
+
+def test_price_time_grid_agrees_with_scenario_and_expiration_payoff_after_fees():
+    q = quote()
+    inputs = ScenarioInput(legs=[{"occ": q.occ, "quantity": 3}], valuation_date=EXP, underlying_price=107)
+    result = calculate(inputs, {q.occ: q}, 100, date(2026, 10, 23), date(2026, 10, 23))
+    grid = result["heatmap"]
+    i, j = grid["prices"].index(107), grid["dates"].index(EXP.isoformat())
+    assert grid["values"][i][j] == result["scenario_pl"] == pytest.approx((700 - 500 - 1.3) * 3)
+    assert grid["dates"] == sorted(set(grid["dates"]))
+    assert grid["dates"][0] == "2026-10-23" and grid["dates"][-1] == EXP.isoformat()
+    assert all(len(row) == len(grid["dates"]) for row in grid["values"])
+    assert len(grid["prices"]) <= 12 and len(grid["dates"]) <= 8
+    inputs.legs[0].action = "sell"
+    sold = calculate(inputs, {q.occ: q}, 100, date(2026, 10, 23), date(2026, 10, 23))
+    assert sold["risk"]["unlimited_loss"] and sold["heatmap"]["values"][i][j] < 0

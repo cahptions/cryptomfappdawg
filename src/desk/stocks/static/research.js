@@ -91,23 +91,15 @@ const KestrelResearch = (() => {
     return node;
   }
   function spark(history, value) {
-    const svg = svgElement("svg", {
-      viewBox: "0 0 100 30",
-      class: `spark ${tone(value)}`,
-      "aria-hidden": "true",
-    });
-    const points = (history || []).filter((p) => Number.isFinite(p.close));
-    if (points.length < 2) return svg;
-    const lo = Math.min(...points.map((p) => p.close)),
-      range = Math.max(...points.map((p) => p.close)) - lo || 1;
-    const first = Date.parse(points[0].day),
-      span = Date.parse(points.at(-1).day) - first || 1;
-    let path = "";
-    points.forEach((p, i) => {
-      path += `${i && !p.gap_before ? "L" : "M"}${(((Date.parse(p.day) - first) / span) * 100).toFixed(2)},${(28 - ((p.close - lo) / range) * 26).toFixed(2)}`;
-    });
-    svg.append(svgElement("path", { d: path }));
-    return svg;
+    const chart = KestrelCharts.spark(
+      (history || []).map((p) => ({
+        value: p.close,
+        gap_before: p.gap_before,
+      })),
+      { color: value >= 0 ? "var(--up)" : "var(--down)" },
+    );
+    chart.classList.add("spark");
+    return chart;
   }
   function symbolCell(row, card = {}) {
     const cell = el("div", undefined, "symbol-cell"),
@@ -724,19 +716,9 @@ const KestrelResearch = (() => {
     intraday = {},
   ) {
     const wrapper = el("section", undefined, "chart-widget"),
-      tools = el("div", undefined, "chart-tools"),
-      ranges = el("div", undefined, "range-buttons"),
-      types = el("div", undefined, "chart-types"),
-      plot = el("div", undefined, "chart-plot"),
-      tooltip = el("div", undefined, "chart-tooltip"),
-      readout = el("div", undefined, "chart-readout"),
-      axis = el("div", undefined, "chart-axis");
+      tools = el("div", undefined, "chart-tools");
     let { range = intraday.bars?.length ? "1D" : "3M", kind = "Line" } =
       chartChoices.get(symbol) || {};
-    tooltip.hidden = true;
-    tooltip.id = `candle-tooltip-${++chartId}`;
-    tooltip.setAttribute("role", "tooltip");
-    tooltip.dataset.testid = "candle-tooltip";
     const periods = {
       "1D": 0,
       "1W": 0,
@@ -747,78 +729,52 @@ const KestrelResearch = (() => {
       "5Y": 1826,
       Max: Infinity,
     };
-    // Robinhood-style ranges: 1D is the latest session's 1-minute candles, 1W five sessions of 10-minute candles.
-    const asMinutes = (rows) =>
-      rows.map((b, index) => ({
-        ...b,
-        day: Date.parse(b.at) / 86400000 + 719163,
-        gap_before: !!b.gap_before && index > 0,
-      }));
+    const chart = KestrelCharts.create({
+      id: "stock",
+      headline: false,
+      legend: false,
+      className: "chart-plot",
+      tooltipClass: "chart-tooltip",
+      tooltipTestid: "candle-tooltip",
+      svgClass: "price-chart",
+      volume: true,
+    });
     function draw() {
-      plot.replaceChildren();
-      axis.replaceChildren();
-      tooltip.hidden = true;
-      const weekMode = range === "1W",
-        minuteMode = range === "1D" || weekMode,
-        bars = minuteMode
-          ? asMinutes((weekMode ? intraday.week : intraday.bars) || [])
-          : dailyBars;
-      for (const button of ranges.children)
-        button.setAttribute(
-          "aria-pressed",
-          String(button.textContent === range),
-        );
-      for (const button of types.children)
-        button.setAttribute(
-          "aria-pressed",
-          String(button.textContent === kind),
-        );
+      const minute = range === "1D" || range === "1W",
+        week = range === "1W";
+      const bars = minute
+        ? ((week ? intraday.week : intraday.bars) || []).map((p, i) => ({
+            ...p,
+            day: Date.parse(p.at) / 86400000 + 719163,
+            gap_before: !!p.gap_before && i > 0,
+          }))
+        : dailyBars;
       onInspect(null, null, range === "1D" ? intraday : null, range);
-      readout.textContent = weekMode
-        ? "Schwab 10-minute candles · last five regular sessions"
-        : minuteMode
-          ? "Schwab 1-minute candles · regular trading session · latest minute may still be forming"
-          : basis;
-      if (bars.length < 2) {
-        plot.append(
-          empty(
-            minuteMode
-              ? intraday.error
-                ? "Intraday chart unavailable"
-                : "Intraday data is loading"
-              : "Price history is building",
-            minuteMode
-              ? intraday.error ||
-                  "The app is requesting Schwab minute candles. The 1D chart appears as data arrives; longer-range charts remain available."
-              : "A chart appears after at least two real daily observations are stored.",
-            minuteMode && intraday.error ? "#settings" : null,
-            "Review Schwab connection",
-          ),
-        );
-        return;
-      }
-      const end = bars.at(-1).day;
-      const yearStart =
-        Date.UTC(new Date(dateOf(end) + "T12:00:00Z").getUTCFullYear(), 0, 1) /
-          86400000 +
-        719163;
-      let rows = minuteMode
+      const end = bars.at(-1)?.day || 0,
+        yearStart =
+          Date.UTC(
+            new Date(dateOf(end) + "T12:00:00Z").getUTCFullYear(),
+            0,
+            1,
+          ) /
+            86400000 +
+          719163;
+      let rows = minute
         ? bars
-        : bars.filter((b) =>
+        : bars.filter((p) =>
             periods[range] === "ytd"
-              ? b.day >= yearStart
-              : b.day >= end - periods[range],
+              ? p.day >= yearStart
+              : p.day >= end - periods[range],
           );
-      // Long candle views use real calendar OHLC aggregation, rather than thousands of overlapping bodies.
       if (kind === "Candles" && rows.length > 520) {
         const monthly = rows.length > 2000,
-          grouped = new Map();
+          groups = new Map();
         for (const row of rows) {
-          const d = new Date(dateOf(row.day) + "T12:00:00Z");
-          const key = monthly
-            ? dateOf(row.day).slice(0, 7)
-            : row.day - ((d.getUTCDay() + 6) % 7);
-          const prior = grouped.get(key);
+          const d = new Date(dateOf(row.day) + "T12:00:00Z"),
+            key = monthly
+              ? dateOf(row.day).slice(0, 7)
+              : row.day - ((d.getUTCDay() + 6) % 7),
+            prior = groups.get(key);
           if (prior) {
             prior.day = row.day;
             prior.high = Math.max(prior.high, row.high);
@@ -827,323 +783,131 @@ const KestrelResearch = (() => {
             prior.volume += row.volume || 0;
             prior.gap_before ||= row.gap_before;
           } else
-            grouped.set(key, {
+            groups.set(key, {
               ...row,
               start_day: row.day,
               interval: monthly ? "Monthly" : "Weekly",
               previous_close: bars[bars.indexOf(row) - 1]?.close,
             });
         }
-        rows = [...grouped.values()];
+        rows = [...groups.values()];
       }
-      const observationLabel = weekMode
+      const points = rows.map((p) => ({
+        ...p,
+        at: p.at || dateOf(p.day),
+        x: minute ? Date.parse(p.at) : Date.parse(dateOf(p.day) + "T12:00:00Z"),
+        value: p.close,
+      }));
+      const source = week
         ? "Schwab 10-minute candles · last five regular sessions"
-        : minuteMode
+        : minute
           ? `Schwab 1-minute candles · regular session ${intraday.session || ""} · latest minute may still be forming`
           : rows[0]?.interval
             ? `${rows[0].interval} candles · aggregated from daily OHLC`
             : basis;
-      const axisDate = (value) =>
-        weekMode
-          ? new Date(Math.round((value - 719163) * 86400000)).toLocaleString(
-              "en-US",
-              {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                timeZone: "America/New_York",
-              },
-            )
-          : minuteMode
-            ? intradayTime(Math.round((value - 719163) * 86400000))
-            : new Date(dateOf(value) + "T12:00:00Z").toLocaleDateString(
-                "en-US",
-                {
-                  month: "short",
-                  ...(end - rows[0]?.day > 365
-                    ? { year: "numeric" }
-                    : { day: "numeric" }),
-                  timeZone: "UTC",
-                },
-              );
-      if (rows.length < 2) {
-        plot.append(el("p", "Not enough observations in this range.", "muted"));
-        return;
-      }
-      // The previous close is the 1D reference line; the range's direction tints the line like the change.
-      const reference = range === "1D" ? intraday.previous_close : null,
-        base = reference || rows[0].open || rows[0].close,
-        direction = rows.at(-1).close >= base ? "up" : "down";
-      wrapper.dataset.direction = direction;
-      const lo = Math.min(
-          ...rows.map((r) => (kind === "Candles" ? r.low : r.close)),
-          ...(reference ? [reference] : []),
-        ),
-        hi = Math.max(
-          ...rows.map((r) => (kind === "Candles" ? r.high : r.close)),
-          ...(reference ? [reference] : []),
-        ),
-        padding = (hi - lo) * 0.09 || Math.abs(hi) * 0.01 || 1,
-        min = lo - padding,
-        max = hi + padding;
-      const width = 1000,
-        height = 320,
-        from = rows[0].day,
-        span = end - from || 1,
-        // Intraday ranges are spaced by candle, so nights and weekends take no room; daily ranges by date.
-        position = new Map(rows.map((r, i) => [r, i])),
-        x = minuteMode
-          ? (r) => (position.get(r) / Math.max(1, rows.length - 1)) * width
-          : (r) => ((r.day - from) / span) * width,
-        y = (v) => 250 - ((v - min) / (max - min)) * 235;
-      const svg = svgElement("svg", {
-        viewBox: `0 0 ${width} ${height}`,
-        preserveAspectRatio: "none",
-        class: `price-chart ${direction}`,
-        role: "img",
-        "aria-label": `${kind} chart of observed ${weekMode ? "10-minute" : minuteMode ? "1-minute intraday" : "daily"} stock prices. Use left and right arrows to inspect closes; Escape returns to latest.`,
-        tabindex: "0",
-        "aria-describedby": tooltip.id,
-      });
-      for (let i = 0; i < 4; i++) {
-        const at = 10 + i * 78;
-        svg.append(
-          svgElement("line", {
-            x1: 0,
-            x2: width,
-            y1: at,
-            y2: at,
-            class: "chart-guide",
-          }),
-        );
-      }
-      if (reference)
-        svg.append(
-          svgElement("line", {
-            x1: 0,
-            x2: width,
-            y1: y(reference),
-            y2: y(reference),
-            class: "chart-reference",
-          }),
-        );
-      if (kind === "Line") {
-        let d = "";
-        rows.forEach((r, i) => {
-          d += `${i && !r.gap_before ? "L" : "M"}${x(r).toFixed(2)},${y(r.close).toFixed(2)}`;
-        });
-        svg.append(svgElement("path", { d, class: "price-path" }));
-      } else {
-        const candleWidth = Math.max(
-          1,
-          Math.min(9, width / (rows.length * 1.8)),
-        );
-        for (const row of rows) {
-          const color = tone(row.close - row.open);
-          svg.append(
-            svgElement("line", {
-              x1: x(row),
-              x2: x(row),
-              y1: y(row.high),
-              y2: y(row.low),
-              class: `candle-wick ${color}`,
-            }),
-          );
-          svg.append(
-            svgElement("rect", {
-              x: x(row) - candleWidth / 2,
-              y: Math.min(y(row.open), y(row.close)),
-              width: candleWidth,
-              height: Math.max(1, Math.abs(y(row.close) - y(row.open))),
-              class: `candle-body ${color}`,
-            }),
-          );
-        }
-      }
-      const volume = Math.max(...rows.map((r) => r.volume || 0)) || 1;
-      for (const row of rows)
-        svg.append(
-          svgElement("rect", {
-            x: x(row) - 1,
-            y: height - (50 * (row.volume || 0)) / volume,
-            width: 2,
-            height: (50 * (row.volume || 0)) / volume,
-            class: `volume-bar ${tone(row.close - row.open)}`,
-          }),
-        );
-      const cursor = svgElement("line", {
-        x1: 0,
-        x2: 0,
-        y1: 0,
-        y2: height,
-        class: "chart-cursor",
-        visibility: "hidden",
-      });
-      svg.append(cursor);
-      let selectedIndex = rows.length - 1;
-      const inspect = (index, pointer) => {
-        selectedIndex = Math.max(0, Math.min(rows.length - 1, index));
-        const nearest = rows[selectedIndex];
-        cursor.setAttribute("x1", x(nearest));
-        cursor.setAttribute("x2", x(nearest));
-        cursor.setAttribute("visibility", "visible");
-        readout.textContent = `${minuteMode ? intradayTime(nearest.at, true) : shortDate(dateOf(nearest.day))} · ${money(nearest.close)} · Volume ${compact(nearest.volume)}`;
-        const previousClose = nearest.interval
-            ? nearest.previous_close
-            : bars[bars.indexOf(nearest) - 1]?.close,
-          values = el("dl");
-        for (const [label, value] of [
-          ["Open", money(nearest.open)],
-          ["High", money(nearest.high)],
-          ["Low", money(nearest.low)],
-          ["Close", money(nearest.close)],
-          ["Volume", number(nearest.volume)],
+      const reference = range === "1D" ? intraday.previous_close : null;
+      wrapper.dataset.direction =
+        rows.at(-1)?.close >= (reference || rows[0]?.close) ? "up" : "down";
+      chart.update({
+        points,
+        viewKey: range,
+        mode: kind === "Candles" ? "candles" : "line",
+        xMode: minute ? "index" : "time",
+        ariaLabel: `${kind} chart of observed ${week ? "10-minute" : minute ? "1-minute intraday" : "daily"} stock prices. Arrow keys inspect real candles.`,
+        baseline: reference,
+        series: [
+          {
+            id: "value",
+            label: "Close",
+            value: (p) => p.close,
+            className: "price-path",
+          },
+        ],
+        coverage: points.length
+          ? `${source} · ${number(points.length)} observations · volume below`
+          : intraday.error || source,
+        emptyTitle: minute
+          ? intraday.error
+            ? "Intraday chart unavailable"
+            : "Intraday data is loading"
+          : "Price history is building",
+        emptyAction:
+          minute && intraday.error
+            ? { label: "Review Schwab connection", href: "#settings" }
+            : null,
+        empty: minute
+          ? intraday.error
+            ? `Intraday chart unavailable: ${intraday.error}`
+            : "Intraday data is loading. The app is requesting Schwab minute candles; longer ranges remain available."
+          : "Price history is building. No observations have been invented.",
+        timeFormat: (p) =>
+          minute ? intradayTime(p.at, true) : shortDate(dateOf(p.day)),
+        xFormat: (p) =>
+          minute
+            ? week
+              ? KestrelCharts.date(p.at)
+              : intradayTime(p.at)
+            : KestrelCharts.date(p.at),
+        readoutRows: (p) => [
+          ["Close", money(p.close)],
+          ["Volume", compact(p.volume)],
+        ],
+        tooltipFooter: minute
+          ? week
+            ? "Schwab 10-minute OHLC · regular sessions · USD"
+            : "Schwab 1-minute OHLC · regular session · USD"
+          : `${basis} · USD`,
+        tooltipRows: (p) => [
+          ["Open", money(p.open)],
+          ["High", money(p.high)],
+          ["Low", money(p.low)],
+          ["Close", money(p.close)],
+          ["Volume", number(p.volume)],
           [
-            nearest.gap_before
-              ? "Since last observed close"
-              : nearest.interval
-                ? "Period change"
-                : weekMode
-                  ? "10-minute change"
-                  : minuteMode
-                    ? "Minute change"
-                    : "Day change",
-            previousClose
-              ? change(nearest.close / previousClose - 1)
-              : "Not available",
+            p.interval
+              ? "Period change"
+              : minute
+                ? "Candle change"
+                : "Day change",
+            (() => {
+              const prev =
+                p.previous_close ||
+                bars.find((b, i) => bars[i + 1]?.day === p.day)?.close;
+              return prev ? change(p.close / prev - 1) : "Not available";
+            })(),
           ],
-        ]) {
-          values.append(el("dt", label), el("dd", value));
-        }
-        tooltip.replaceChildren(
-          el(
-            "strong",
-            minuteMode
-              ? intradayTime(nearest.at, true)
-              : new Date(dateOf(nearest.day) + "T12:00:00Z").toLocaleDateString(
-                  "en-US",
-                  {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                    timeZone: "UTC",
-                  },
-                ),
-          ),
-          values,
-          ...(nearest.interval
-            ? [
-                el(
-                  "small",
-                  `From ${dateOf(nearest.start_day)} · ${nearest.interval} OHLC and total volume`,
-                ),
-              ]
+          ...(p.interval
+            ? [["Candle", `${p.interval} · from ${dateOf(p.start_day)}`]]
             : []),
-          el(
-            "small",
-            `${weekMode ? "Schwab 10-minute OHLC · regular sessions" : minuteMode ? "Schwab 1-minute OHLC · regular session" : basis} · USD`,
-          ),
-        );
-        tooltip.hidden = false;
-        const box = plot.getBoundingClientRect(),
-          bounds = svg.getBoundingClientRect(),
-          px = pointer
-            ? pointer.clientX - box.left
-            : (x(nearest) / width) * bounds.width,
-          py = pointer
-            ? pointer.clientY - box.top
-            : (y(nearest.close) / height) * bounds.height;
-        const tw = tooltip.offsetWidth,
-          th = tooltip.offsetHeight;
-        tooltip.style.left = `${Math.max(8, Math.min(box.width - tw - 8, px + tw + 20 > box.width ? px - tw - 14 : px + 16))}px`;
-        tooltip.style.top = `${Math.max(8, Math.min(box.height - th - 8, py + th + 16 > box.height ? py - th - 14 : py + 16))}px`;
-        onInspect(nearest, rows[0], range === "1D" ? intraday : null, range);
-      };
-      const reset = () => {
-        selectedIndex = rows.length - 1;
-        cursor.setAttribute("visibility", "hidden");
-        tooltip.hidden = true;
-        readout.textContent = `${observationLabel} · volume below`;
-        onInspect(null, rows[0], range === "1D" ? intraday : null, range);
-      };
-      svg.onpointermove = (event) => {
-        const bounds = svg.getBoundingClientRect(),
-          ratio = Math.max(
-            0,
-            Math.min(1, (event.clientX - bounds.left) / bounds.width),
-          ),
-          target = from + ratio * span;
-        let index = minuteMode ? Math.round(ratio * (rows.length - 1)) : 0;
-        if (!minuteMode)
-          rows.forEach((r, i) => {
-            if (Math.abs(r.day - target) < Math.abs(rows[index].day - target))
-              index = i;
-          });
-        inspect(index, event);
-      };
-      svg.onpointerdown = (event) => {
-        svg.setPointerCapture(event.pointerId);
-        svg.onpointermove(event);
-      };
-      svg.onpointerup = (event) => {
-        if (svg.hasPointerCapture(event.pointerId))
-          svg.releasePointerCapture(event.pointerId);
-        if (event.pointerType === "touch") reset();
-      };
-      svg.onpointercancel = reset;
-      svg.onpointerleave = reset;
-      svg.onblur = reset;
-      svg.onkeydown = (event) => {
-        if (event.key === "Escape") reset();
-        else if (
-          ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
-        ) {
-          event.preventDefault();
-          inspect(
-            event.key === "Home"
-              ? 0
-              : event.key === "End"
-                ? rows.length - 1
-                : selectedIndex + (event.key === "ArrowLeft" ? -1 : 1),
-          );
-        }
-      };
-      plot.append(svg, tooltip);
-      onInspect(null, rows[0], range === "1D" ? intraday : null, range);
-      readout.textContent = `${observationLabel} · volume below`;
-      axis.replaceChildren(
-        el("span", axisDate(from)),
-        el(
-          "span",
-          axisDate(
-            minuteMode
-              ? rows[Math.floor((rows.length - 1) / 2)].day
-              : Math.round((from + end) / 2),
-          ),
-        ),
-        el("span", axisDate(end)),
-      );
+        ],
+        onInspect: (p, i, first) =>
+          onInspect(p, first, range === "1D" ? intraday : null, range),
+      });
     }
-    for (const label of Object.keys(periods)) {
-      const button = el("button", label);
-      button.onclick = () => {
-        range = label;
-        chartChoices.set(symbol, { range, kind });
-        draw();
-      };
-      ranges.append(button);
-    }
-    for (const label of ["Line", "Candles"]) {
-      const button = el("button", label);
-      button.onclick = () => {
-        kind = label;
-        chartChoices.set(symbol, { range, kind });
-        draw();
-      };
-      types.append(button);
-    }
-    tools.append(ranges, types);
-    wrapper.append(plot, axis, tools, readout);
+    tools.append(
+      KestrelCharts.ranges(
+        Object.keys(periods),
+        range,
+        (v) => {
+          range = v;
+          chartChoices.set(symbol, { range, kind });
+          draw();
+        },
+        { className: "range-buttons" },
+      ),
+      KestrelCharts.ranges(
+        ["Line", "Candles"],
+        kind,
+        (v) => {
+          kind = v;
+          chartChoices.set(symbol, { range, kind });
+          draw();
+        },
+        { label: "Chart type", className: "chart-types" },
+      ),
+    );
+    chart.querySelector(".kc-coverage").classList.add("chart-readout");
+    wrapper.append(chart, tools);
     draw();
     return wrapper;
   }

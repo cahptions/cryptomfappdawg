@@ -101,39 +101,15 @@ const KestrelPlaysHistory = (() => {
   function sparkline(points) {
     const box = el("span", undefined, "pl-spark");
     if (!points?.length) return box;
-    const values = points.map((p) => p[1]),
-      lo = Math.min(0, ...values),
-      hi = Math.max(0, ...values),
-      span = hi - lo || 1,
-      w = 120,
-      h = 32,
-      x = (i) => (points.length === 1 ? w / 2 : (i / (points.length - 1)) * w),
-      y = (v) => h - 3 - ((v - lo) / span) * (h - 6);
-    const chart = svg("svg", {
-      viewBox: `0 0 ${w} ${h}`,
-      width: w,
-      height: h,
-      "aria-hidden": "true",
-    });
-    chart.append(
-      svg("line", { x1: 0, x2: w, y1: y(0), y2: y(0), class: "pl-zero" }),
+    box.append(
+      KestrelCharts.spark(
+        points.map((p) => ({ value: p[1], estimated: isDashed(p[2]) })),
+        {
+          color: points.at(-1)[1] >= 0 ? "var(--up)" : "var(--down)",
+          label: "Play P/L; dashed segments are modeled estimates",
+        },
+      ),
     );
-    const cls = `pl-line ${tone(values.at(-1)) || "flat"}`;
-    for (let i = 1; i < points.length; i++)
-      chart.append(
-        svg("line", {
-          x1: x(i - 1),
-          y1: y(values[i - 1]),
-          x2: x(i),
-          y2: y(values[i]),
-          class: `${cls}${isDashed(points[i][2]) || isDashed(points[i - 1][2]) ? " dashed" : ""}`,
-        }),
-      );
-    if (points.length === 1)
-      chart.append(
-        svg("circle", { cx: x(0), cy: y(values[0]), r: 2.5, class: cls }),
-      );
-    box.append(chart);
     return box;
   }
 
@@ -669,252 +645,130 @@ const KestrelPlaysHistory = (() => {
                   .pct ?? null,
             )
           : [];
-      const all = [...values, ...twinRows.filter((v) => v !== null), 0];
-      const scale = niceScale(Math.min(...all), Math.max(...all)),
-        lo = scale.lo,
-        hi = scale.hi;
-      const width =
-          window.innerWidth < 600
-            ? Math.max(260, window.innerWidth - 48)
-            : 1000,
-        height = 300,
-        left = 70,
-        right = 20,
-        top = 16,
-        bottom = 34,
-        plotW = width - left - right,
-        plotH = height - top - bottom;
-      const times = rows.map(pointTime),
-        span = times.at(-1) - times[0] || 1;
-      const x = (i) =>
-          left +
-          (rows.length === 1
-            ? plotW / 2
-            : ((times[i] - times[0]) / span) * plotW),
-        y = (v) => top + (1 - (v - lo) / (hi - lo)) * plotH;
-      const fmt = (v) =>
-        unit === "pct"
-          ? pct(v, Math.abs(hi - lo) < 0.05 ? 1 : 0)
-          : usd(v).replace(".00", "");
-      const chart = svg("svg", {
-        viewBox: `0 0 ${width} ${height}`,
-        preserveAspectRatio: "none",
-        role: "img",
-        tabindex: "0",
-        "aria-label": `Profit and loss of ${data.label}, ${rows.length} marks. Arrow keys inspect each mark.`,
-      });
-      for (const v of scale.ticks) {
-        chart.append(
-          svg("line", {
-            x1: left,
-            x2: width - right,
-            y1: y(v),
-            y2: y(v),
-            class: "chart-guide",
-          }),
-        );
-        const label = svg("text", {
-          x: left - 8,
-          y: y(v) + 4,
-          "text-anchor": "end",
-          class: "pl-axis",
-        });
-        label.textContent = fmt(v);
-        chart.append(label);
-      }
-      chart.append(
-        svg("line", {
-          x1: left,
-          x2: width - right,
-          y1: y(0),
-          y2: y(0),
-          class: "pl-zero",
-        }),
-      );
-      if (twinRows.some((v) => v !== null)) {
-        let d = "";
-        twinRows.forEach((v, i) => {
-          if (v === null) return;
-          d += `${d && twinRows[i - 1] !== null ? "L" : "M"}${x(i)},${y(v)}`;
-        });
-        chart.append(svg("path", { d, class: "pl-twin" }));
-      }
-      const lineTone = tone(values.at(-1)) || "flat";
-      for (let i = 1; i < rows.length; i++) {
-        if (hiddenTimes.some((t) => times[i - 1] < t && t < times[i])) continue;
-        const dashed = isDashed(rows[i].status) || isDashed(rows[i - 1].status);
-        chart.append(
-          svg("line", {
-            x1: x(i - 1),
-            y1: y(values[i - 1]),
-            x2: x(i),
-            y2: y(values[i]),
-            class: `pl-line ${lineTone}${dashed ? " dashed" : ""}`,
-          }),
-        );
-      }
+      const points = rows.map((p, i) => ({
+        ...p,
+        option_value: p.value,
+        value: values[i],
+        x: pointTime(p),
+        gap_before:
+          i > 0 &&
+          hiddenTimes.some(
+            (t) => pointTime(rows[i - 1]) < t && t < pointTime(p),
+          ),
+        twin: twinRows[i] ?? null,
+      }));
       const peak = best
-          ? rows.findIndex((p) => pointTime(p) === Date.parse(best.at))
-          : -1,
-        low = values.indexOf(Math.min(...values));
-      const marker = (i, kind, title) => {
-        const m = svg("circle", {
-          cx: x(i),
-          cy: y(values[i]),
-          r: kind === "entry" ? 4.5 : 4,
-          class: `pl-marker ${kind}`,
+        ? rows.findIndex((p) => pointTime(p) === Date.parse(best.at))
+        : -1;
+      const markers = [];
+      if (peak >= 0)
+        markers.push({
+          x: points[peak].x,
+          kind: "peak",
+          caption: `Best ${usd(best.pnl * quantity)}`,
+          className: "peak",
+          label: `Best observed exit ${usd(best.pnl * quantity)} · ${pointWhen(best)}`,
         });
-        const t = svg("title", {});
-        t.textContent = title;
-        m.append(t);
-        chart.append(m);
-      };
-      const first = (data.daily || [])[0];
-      if (first && rows[0].t === first.t)
-        marker(0, "entry", `Picked ${first.t}`);
-      if (peak >= 0) {
-        marker(
-          peak,
-          "peak",
-          `Best observed exit ${usd(best.pnl * quantity)} (${pct(best.pct)}) · ${pointWhen(best)}`,
-        );
-        const annotation = svg("text", {
-          x: x(peak),
-          y: Math.max(top + 14, y(values[peak]) - 12),
-          "text-anchor": x(peak) > width / 2 ? "end" : "start",
-          class: "pl-peak-label",
+      if (points.length)
+        markers.push({
+          x: points[0].x,
+          kind: "entry",
+          label: `First mark · ${pointWhen(rows[0])}`,
         });
-        annotation.textContent = `Best ${usd(best.pnl * quantity)}`;
-        chart.append(annotation);
-      }
-      if (rows.length > 2 && low !== 0)
-        marker(low, "low", `Low ${fmt(values[low])}`);
       if (rows.at(-1).status === "settled")
-        marker(rows.length - 1, "expiry", `Expired ${rows.at(-1).t}`);
-      const guide = svg("line", {
-          x1: 0,
-          x2: 0,
-          y1: top,
-          y2: height - bottom,
-          class: "pl-crosshair",
-        }),
-        dot = svg("circle", {
-          cx: 0,
-          cy: 0,
-          r: 5,
-          class: `pl-dot ${lineTone}`,
+        markers.push({
+          x: points.at(-1).x,
+          kind: "expiry",
+          label: "Expiration outcome; not a pre-expiry sale",
         });
-      chart.append(guide, dot);
-      const tooltip = el("div", undefined, "pl-tooltip");
-      tooltip.hidden = true;
-      const previousIndex = rows.findIndex(
-        (p) => pointTime(p) === inspectedTime,
-      );
-      let index =
-        seekPeak && peak >= 0
-          ? peak
-          : previousIndex >= 0
-            ? previousIndex
-            : rows.length - 1;
-      seekPeak = false;
-      function inspect(i) {
-        index = Math.max(0, Math.min(rows.length - 1, i));
-        const p = rows[index];
-        inspectedTime = pointTime(p);
-        dot.setAttribute(
-          "class",
-          `pl-dot ${isDashed(p.status) ? "estimated" : tone(values[index]) || "flat"}`,
-        );
-        guide.setAttribute("x1", x(index));
-        guide.setAttribute("x2", x(index));
-        dot.setAttribute("cx", x(index));
-        dot.setAttribute("cy", y(values[index]));
-        const when = pointWhen(p);
-        showMetric(selected, { ...p, ...p[basis] });
-        selected.label.textContent =
-          p.status === "settled"
-            ? "At expiry — not an earlier sale"
-            : isDashed(p.status)
-              ? "Estimated P/L at selected time"
-              : "If closed at selected time";
-        readout.replaceChildren(
-          el("strong", when),
-          document.createTextNode(` · worth ${price(p.value)}/share · P/L `),
-          el(
-            "strong",
+      const fmt = (v) => (unit === "pct" ? pct(v) : usd(v));
+      const chart = KestrelCharts.create({
+        id: "play",
+        points,
+        xMode: "time",
+        label: "Sale P/L after fees",
+        baseline: 0,
+        value: (p) => p.value,
+        format: fmt,
+        axisFormat: unit === "pct" ? (v) => pct(v, 0) : undefined,
+        series: [
+          {
+            id: "quoted",
+            label: "Recorded quote / settlement",
+            value: (p) => (isDashed(p.status) ? null : p.value),
+            className: "pl-line",
+          },
+          ...(includeEstimates
+            ? [
+                {
+                  id: "estimated",
+                  label: "Modeled estimate",
+                  color: "var(--warning, #d8aa64)",
+                  dashed: true,
+                  value: (p) => {
+                    const i = points.indexOf(p);
+                    return isDashed(p.status) || isDashed(points[i + 1]?.status)
+                      ? p.value
+                      : null;
+                  },
+                  className: "pl-line dashed",
+                },
+              ]
+            : []),
+          ...(twinRows.length
+            ? [
+                {
+                  id: "twin",
+                  label: "Random twin",
+                  value: (p) => p.twin,
+                  color: "var(--text-3)",
+                  dashed: true,
+                  className: "pl-twin",
+                },
+              ]
+            : []),
+        ],
+        tooltipClass: "pl-tooltip",
+        markerClass: "pl-marker",
+        markers,
+        dots: points.length < 40,
+        changeText: () =>
+          `${quantity} contract${quantity === 1 ? "" : "s"}${data.legs.length > 1 ? " per leg" : ""} · ${basis === "first" ? "When first shown" : "At the close"}`,
+        timeFormat: (p) => pointWhen(p),
+        xTickFormat: (at) =>
+          range === "1D"
+            ? clock(new Date(at).toISOString())
+            : shortDate(new Date(at).toISOString().slice(0, 10)),
+        xFormat: (p) =>
+          range === "1D" ? clock(new Date(p.x).toISOString()) : shortDate(p.t),
+        tooltipRows: (p) => [
+          [
+            "P/L after fees",
             `${usd(p[basis].pnl * quantity)} (${pct(p[basis].pct)})`,
-            tone(p[basis].pct),
-          ),
-          document.createTextNode(
-            ` · ${data.play.symbol} ${price(p.underlying)} · ${STATUS[p.status] || p.status}${p.note ? ` · ${p.note}` : ""}`,
-          ),
-        );
-        tooltip.replaceChildren(
-          el(
-            "strong",
-            `${usd(p[basis].pnl * quantity)} · ${pct(p[basis].pct)}`,
-          ),
-          el("span", when),
-          el("span", STATUS[p.status] || p.status),
-        );
-      }
-      chart.onpointermove = (e) => {
-        const b = chart.getBoundingClientRect();
-        const target =
-          times[0] +
-          ((((e.clientX - b.left) / b.width) * width - left) / plotW) * span;
-        let lo = 0,
-          hi = times.length - 1;
-        while (lo < hi) {
-          const middle = Math.floor((lo + hi) / 2);
-          if (times[middle] < target) lo = middle + 1;
-          else hi = middle;
-        }
-        inspect(
-          lo > 0 &&
-            Math.abs(times[lo - 1] - target) < Math.abs(times[lo] - target)
-            ? lo - 1
-            : lo,
-        );
-        tooltip.hidden = false;
-        const bounds = plot.getBoundingClientRect();
-        tooltip.style.left = `${Math.max(0, Math.min(bounds.width - tooltip.offsetWidth, e.clientX - bounds.left + 12))}px`;
-        tooltip.style.top = `${Math.max(0, Math.min(bounds.height - tooltip.offsetHeight, e.clientY - bounds.top - tooltip.offsetHeight - 12))}px`;
-      };
-      chart.onpointerleave = () => {
-        tooltip.hidden = true;
-      };
-      chart.onpointerdown = chart.onpointermove;
-      chart.onkeydown = (e) => {
-        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
-        e.preventDefault();
-        inspect(
-          e.key === "Home"
-            ? 0
-            : e.key === "End"
-              ? rows.length - 1
-              : index + (e.key === "ArrowLeft" ? -1 : 1),
-        );
-      };
-      const axis = el("div", undefined, "chart-axis");
-      const tick = (p) =>
-        range === "1D"
-          ? clock(new Date(pointTime(p)).toISOString())
-          : shortDate(p.t);
-      const middleTime = new Date((times[0] + times.at(-1)) / 2);
-      const middlePoint = {
-        t: middleTime.toLocaleDateString("en-CA", {
-          timeZone: "America/New_York",
-        }),
-        at: middleTime.toISOString(),
-      };
-      axis.append(
-        el("span", tick(rows[0])),
-        el("span", rows.length > 2 ? tick(middlePoint) : ""),
-        el("span", tick(rows.at(-1))),
-      );
-      plot.append(chart, axis, tooltip);
-      inspect(index);
+          ],
+          ["Option value / share", price(p.option_value)],
+          [data.play.symbol, price(p.underlying)],
+          ["Source", STATUS[p.status] || p.status],
+          ...(p.note ? [["Note", p.note]] : []),
+        ],
+        onInspect: (p, i) => {
+          const row = p || points.at(-1);
+          if (p) inspectedTime = row.x;
+          showMetric(selected, { ...row, ...row[basis] });
+          selected.label.textContent =
+            row.status === "settled"
+              ? "At expiry — not an earlier sale"
+              : isDashed(row.status)
+                ? "Estimated P/L at selected time"
+                : "If closed at selected time";
+          readout.textContent = `${pointWhen(row)} · worth ${price(row.option_value)}/share · P/L ${usd(row[basis].pnl * quantity)} (${pct(row[basis].pct)}) · ${data.play.symbol} ${price(row.underlying)} · ${STATUS[row.status] || row.status}`;
+        },
+      });
+      plot.append(chart);
+      const previous = rows.findIndex((p) => pointTime(p) === inspectedTime),
+        index = seekPeak && peak >= 0 ? peak : previous;
+      seekPeak = false;
+      if (index >= 0) chart.inspect(index);
       const statuses = new Set(rows.map((p) => p.status));
       legend.textContent = [
         `${rows.length} stored marks in this range. Solid: quoted or settled.`,
@@ -1235,144 +1089,36 @@ const KestrelPlaysHistory = (() => {
         readout.textContent = "";
         return;
       }
-      const values = rows.flatMap((r) => [r.picks, r.twins, r.spy, 0]),
-        scale = niceScale(Math.min(...values), Math.max(...values)),
-        lo = scale.lo,
-        hi = scale.hi;
-      const width = window.innerWidth < 600 ? 520 : 1000,
-        height = 280,
-        left = 70,
-        right = 110,
-        top = 14,
-        bottom = 30,
-        plotW = width - left - right,
-        plotH = height - top - bottom;
-      const x = (i) =>
-          left +
-          (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW),
-        y = (v) => top + (1 - (v - lo) / (hi - lo)) * plotH;
-      const chart = svg("svg", {
-        viewBox: `0 0 ${width} ${height}`,
-        preserveAspectRatio: "none",
-        role: "img",
-        tabindex: "0",
-        "aria-label": `Cumulative profit of $100 per play, ${rows.length} settlement dates. Arrow keys inspect each date.`,
+      const chart = KestrelCharts.create({
+        id: "performance",
+        label: "Cumulative P/L · $100 per play",
+        baseline: 0,
+        points: rows.map((r) => ({
+          ...r,
+          at: r.t,
+          x: Date.parse(r.t + "T12:00:00Z"),
+          value: r.picks,
+        })),
+        series: series.map(([id, label, cls], i) => ({
+          id,
+          label,
+          value: (p) => p[id],
+          className: `pf-line ${cls}`,
+          color: ["var(--up)", "var(--text-3)", "var(--series-1)"][i],
+        })),
+        tooltipRows: (r) => [
+          ["Settled plays", number(r.settled)],
+          ["Capital invested", money(r.invested)],
+          ["Picks", usd(r.picks)],
+          ["Random twins", usd(r.twins)],
+          ["SPY", usd(r.spy)],
+        ],
+        coverage:
+          "Recorded settlement dates only. Picks and baselines use the same investment amounts and dates.",
       });
-      for (const v of scale.ticks) {
-        chart.append(
-          svg("line", {
-            x1: left,
-            x2: width - right,
-            y1: y(v),
-            y2: y(v),
-            class: "chart-guide",
-          }),
-        );
-        const t = svg("text", {
-          x: left - 8,
-          y: y(v) + 4,
-          "text-anchor": "end",
-          class: "pl-axis",
-        });
-        t.textContent = usd(v).replace(".00", "");
-        chart.append(t);
-      }
-      chart.append(
-        svg("line", {
-          x1: left,
-          x2: width - right,
-          y1: y(0),
-          y2: y(0),
-          class: "pl-zero",
-        }),
-      );
-      for (const [key, label, cls] of series) {
-        const d = rows
-          .map((r, i) => `${i ? "L" : "M"}${x(i)},${y(r[key])}`)
-          .join("");
-        chart.append(svg("path", { d, class: `pf-line ${cls}` }));
-        if (rows.length === 1)
-          chart.append(
-            svg("circle", {
-              cx: x(0),
-              cy: y(rows[0][key]),
-              r: 4,
-              class: `pf-dot ${cls}`,
-            }),
-          );
-      }
-      // direct labels at the line ends, nudged apart so they never overlap
-      const ends = series
-        .map(([key, label]) => ({
-          label: label.split(",")[0],
-          y: y(rows.at(-1)[key]),
-        }))
-        .sort((a, b) => a.y - b.y);
-      for (let i = 1; i < ends.length; i++)
-        ends[i].y = Math.max(ends[i].y, ends[i - 1].y + 15);
-      for (const e of ends) {
-        const end = svg("text", {
-          x: x(rows.length - 1) + 8,
-          y: e.y + 4,
-          class: "pf-end",
-        });
-        end.textContent = e.label;
-        chart.append(end);
-      }
-      const guide = svg("line", {
-        x1: 0,
-        x2: 0,
-        y1: top,
-        y2: height - bottom,
-        class: "pl-crosshair",
-      });
-      chart.append(guide);
-      let index = rows.length - 1;
-      function inspect(i) {
-        index = Math.max(0, Math.min(rows.length - 1, i));
-        const r = rows[index];
-        guide.setAttribute("x1", x(index));
-        guide.setAttribute("x2", x(index));
-        readout.replaceChildren(
-          el("strong", longDate(r.t)),
-          document.createTextNode(
-            ` · ${r.settled} settled ($${number(r.invested)} put in) · picks `,
-          ),
-          el("strong", usd(r.picks), tone(r.picks)),
-          document.createTextNode(" · random twins "),
-          el("strong", usd(r.twins), tone(r.twins)),
-          document.createTextNode(" · SPY "),
-          el("strong", usd(r.spy), tone(r.spy)),
-        );
-      }
-      chart.onpointermove = (e) => {
-        const b = chart.getBoundingClientRect();
-        inspect(
-          Math.round(
-            ((((e.clientX - b.left) / b.width) * width - left) / plotW) *
-              (rows.length - 1),
-          ),
-        );
-      };
-      chart.onpointerleave = () => inspect(rows.length - 1);
-      chart.onkeydown = (e) => {
-        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
-        e.preventDefault();
-        inspect(
-          e.key === "Home"
-            ? 0
-            : e.key === "End"
-              ? rows.length - 1
-              : index + (e.key === "ArrowLeft" ? -1 : 1),
-        );
-      };
-      const axis = el("div", undefined, "chart-axis");
-      axis.append(
-        el("span", shortDate(rows[0].t)),
-        el("span", shortDate(rows.at(-1).t)),
-      );
-      plot.append(chart, axis);
-      inspect(index);
+      plot.append(chart);
+      legend.hidden = true;
+      readout.hidden = true;
     }
     pick.onchange = draw;
     draw();
@@ -1406,70 +1152,64 @@ const KestrelPlaysHistory = (() => {
       ),
       legend,
     );
-    const size = 320,
-      pad = 40,
-      span = size - 2 * pad,
-      x = (p) => pad + p * span,
-      y = (p) => size - pad - p * span;
-    const chart = svg("svg", {
-      viewBox: `0 0 ${size} ${size}`,
-      class: "pf-calibration",
-      role: "img",
-      "aria-label":
-        "Calibration: predicted chance against observed frequency, by tenths. A table follows.",
-    });
-    for (const v of [0, 0.25, 0.5, 0.75, 1]) {
-      chart.append(
-        svg("line", {
-          x1: x(0),
-          x2: x(1),
-          y1: y(v),
-          y2: y(v),
-          class: "chart-guide",
-        }),
-      );
-      const a = svg("text", {
-        x: x(0) - 6,
-        y: y(v) + 4,
-        "text-anchor": "end",
-        class: "pl-axis",
-      });
-      a.textContent = `${100 * v}%`;
-      const b = svg("text", {
-        x: x(v),
-        y: size - pad + 16,
-        "text-anchor": "middle",
-        class: "pl-axis",
-      });
-      b.textContent = `${100 * v}%`;
-      chart.append(a, b);
-    }
-    chart.append(
-      svg("line", {
-        x1: x(0),
-        y1: y(0),
-        x2: x(1),
-        y2: y(1),
-        class: "pf-diagonal",
-      }),
-    );
-    for (const [key, cls] of groups)
+    const merged = new Map();
+    for (const [key] of groups)
       for (const p of cal[key].points) {
-        const dot = svg("circle", {
-          cx: x(p.predicted),
-          cy: y(p.observed),
-          r: Math.max(4, Math.min(10, 2 + Math.sqrt(p.n))),
-          class: `pf-dot ${cls}`,
-          tabindex: "0",
-        });
-        const title = svg("title", {});
-        const text = `${cal[key].label} · predicted ${p.bucket} (mean ${Math.round(100 * p.predicted)}%) · happened ${Math.round(100 * p.observed)}% of ${p.n}`;
-        title.textContent = text;
-        dot.append(title);
-        dot.onpointerenter = dot.onfocus = () => (readout.textContent = text);
-        chart.append(dot);
+        const row = merged.get(p.predicted) || {
+          x: p.predicted,
+          expected: p.predicted,
+        };
+        row[key] = p.observed;
+        row[`${key}_n`] = p.n;
+        merged.set(p.predicted, row);
       }
-    box.append(chart, readout);
+    const points = [...merged.values()]
+      .sort((a, b) => a.x - b.x)
+      .map((p) => ({ ...p, value: p.itm_kestrel ?? p.itm_market }));
+    const chart = KestrelCharts.create({
+      id: "calibration",
+      label: "Observed event frequency",
+      points,
+      xKind: "number",
+      height: 300,
+      value: (p) => p.value,
+      format: (v) => chance(v),
+      axisFormat: (v) => chance(v),
+      yDomain: [0, 1],
+      xDomain: [0, 1],
+      xFormat: (p) => chance(p.x),
+      xTickFormat: (v) => chance(v),
+      timeFormat: (p) => `Mean predicted chance ${chance(p.x)}`,
+      series: [
+        ...groups.map(([id], i) => ({
+          id,
+          label: cal[id].label,
+          value: (p) => p[id],
+          scatter: true,
+          color: i ? "var(--series-1)" : "var(--up)",
+        })),
+        {
+          id: "expected",
+          label: "Ideal calibration",
+          value: (p) => p.expected,
+          dashed: true,
+          color: "var(--text-3)",
+        },
+      ],
+      tooltipRows: (p) =>
+        groups
+          .filter(([id]) => p[id] != null)
+          .map(([id]) => [
+            cal[id].label,
+            `${chance(p[id])} of ${p[id + "_n"]} plays`,
+          ]),
+      coverage:
+        "X: predicted probability. Y: observed frequency. Counts appear on hover; a small sample is not strong evidence.",
+      empty: "No resolved probability buckets yet.",
+    });
+    box.append(chart);
+    legend.hidden = true;
+    readout.hidden = true;
     const rows = groups.flatMap(([key]) =>
       cal[key].points.map((p) => [
         cal[key].label,

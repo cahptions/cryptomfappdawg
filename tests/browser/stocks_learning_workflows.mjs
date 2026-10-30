@@ -84,10 +84,10 @@ try {
     const chart = page.locator(".paper-equity svg");
     await chart.focus();
     await chart.press("Home");
-    const first = await page.locator(".paper-equity .caption").innerText();
+    const first = await page.locator(".paper-equity .kc-readout").innerText();
     await chart.press("End");
     assert.notEqual(
-      await page.locator(".paper-equity .caption").innerText(),
+      await page.locator(".paper-equity .kc-readout").innerText(),
       first,
     );
     await page

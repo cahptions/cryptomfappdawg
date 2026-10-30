@@ -30,12 +30,27 @@ try {
         headline = page.getByTestId("headline-price");
       assert.match(await chart.getAttribute("aria-label"), /1-minute intraday/);
       assert.equal(await page.locator(".volume-bar").count(), 390);
-      assert.match(await page.locator(".chart-axis").innerText(), /9:30 AM ET/);
       assert.match(
-        await page.locator(".chart-axis").innerText(),
+        await page
+          .locator(".kc-time-axis")
+          .allTextContents()
+          .then((v) => v.join(" ")),
+        /9:30 AM ET/,
+      );
+      assert.match(
+        await page
+          .locator(".kc-time-axis")
+          .allTextContents()
+          .then((v) => v.join(" ")),
         /12:44 PM ET/,
       );
-      assert.match(await page.locator(".chart-axis").innerText(), /3:59 PM ET/);
+      assert.match(
+        await page
+          .locator(".kc-time-axis")
+          .allTextContents()
+          .then((v) => v.join(" ")),
+        /3:59 PM ET/,
+      );
       assert.equal(await headline.innerText(), money(minutes.at(-1).close));
       await chart.focus();
       await chart.press("Home");

@@ -44,14 +44,19 @@ try {
       .getByRole("button", { name: "Available (3 sessions)", exact: true })
       .waitFor();
     const chart = page.locator(".paper-equity");
-    assert.equal(await chart.getByRole("button").count(), 1);
+    assert.equal(
+      await chart.locator(".kc-ranges").getByRole("button").count(),
+      1,
+    );
     assert.match(await chart.innerText(), /3 actual daily observations/);
-    assert.ok(await chart.locator(".paper-value-axis").count());
+    assert.ok(await chart.locator(".kc-axis:not(.kc-time-axis)").count());
     const equity = page
       .locator(".paper-metric")
       .filter({ hasText: "Simulated equity" })
       .locator("strong");
     const before = await equity.innerText();
+    await chart.getByLabel("PAPER chart metric").selectOption("pnl");
+    await chart.locator("h3").click();
     updated = true;
     await page.waitForFunction(
       (value) =>
@@ -64,6 +69,11 @@ try {
       { timeout: 20000 },
     );
     assert.notEqual(await equity.innerText(), before);
+    assert.equal(
+      await chart.getByLabel("PAPER chart metric").inputValue(),
+      "pnl",
+      "polling retains the selected chart metric",
+    );
     await page.screenshot({ path: `/tmp/kestrel-paper-sparse-${width}.png` });
     await page.goto(`${base}/#options`);
     await page

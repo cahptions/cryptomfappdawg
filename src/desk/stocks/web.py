@@ -761,6 +761,14 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         return control(paths, inputs.enabled)
 
+    @app.get("/api/stocks/learning/chart")
+    def learning_history(account: LearningAccount = "uncapped_research",
+                         window: Literal["1D", "1W", "1M", "3M", "YTD", "1Y", "Max"] = "Max") -> dict[str, Any]:
+        from desk.stocks import learning, learning_chart
+
+        with reader(paths, learning.FILE) as conn:
+            return learning_chart.history(conn, account, window)
+
     @app.post("/api/stocks/learning/experiments")
     def learning_experiment(inputs: LearningExperiment) -> dict[str, Any]:
         from desk.core.clock import utc_now

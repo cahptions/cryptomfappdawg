@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -121,13 +121,15 @@ def calculate(inputs: ScenarioInput, quotes: dict[str, OptionQuote], spot: float
                           premium, iv)
         legs.append(leg)
         info.append({"occ": quote.occ, "premium": premium, "iv": iv, "custom_price": item.entry_price is not None,
-                     "quoted_at": quote.quoted_at.isoformat() if quote.quoted_at else None})
+                     "quoted_at": quote.quoted_at.isoformat() if quote.quoted_at else None,
+                     "strike": quote.strike, "kind": quote.kind, "expiration": quote.expiration.isoformat()})
     first, last = min(leg.expiration for leg in legs), max(leg.expiration for leg in legs)
     if not captured <= inputs.valuation_date <= last:
         raise DeskError("Choose a scenario date between the saved snapshot and the last expiration")
     strikes = [leg.strike for leg in legs]
     lo, hi = 0., max(spot, inputs.underlying_price, *strikes) * 2
-    xs = sorted({*(lo + (hi - lo) * i / 120 for i in range(121)), *strikes, inputs.underlying_price, spot})
+    xs = sorted({*(lo + (hi - lo) * i / 120 for i in range(121)),
+                 *(spot * (.6 + .8 * i / 120) for i in range(121)), *strikes, inputs.underlying_price, spot})
     common = first == last
     terminal = [expiry_payoff(legs, s, inputs.fee_per_contract) if common else None for s in xs]
     curve = [{"price": s, "scenario": mark(legs, s, inputs.valuation_date, inputs.fee_per_contract, inputs.rate,
@@ -146,10 +148,19 @@ def calculate(inputs: ScenarioInput, quotes: dict[str, OptionQuote], spot: float
                        inputs.rate, inputs.dividend_yield)
             for key in combined:
                 combined[key] += getattr(g, key) * leg.quantity * 100
+    # Small, explicit scenario grid: every cell uses the same dated quotes, fees and IV assumption as the curve.
+    grid_dates = sorted({captured + timedelta(days=round((last - captured).days * i / 6)) for i in range(7)} |
+                        {inputs.valuation_date})
+    grid_prices = sorted({round(spot * (.8 + .04 * i), 2) for i in range(11)} | {inputs.underlying_price})
+    heatmap = {"dates": [d.isoformat() for d in grid_dates], "prices": grid_prices,
+               "values": [[mark(legs, s, d, inputs.fee_per_contract, inputs.rate, inputs.dividend_yield, inputs.iv_change)
+                           for d in grid_dates] for s in grid_prices]}
     return {"entry_cost": entry_cost(legs, inputs.fee_per_contract), "risk": expiry_risk(legs, inputs.fee_per_contract),
             "scenario_pl": mark(legs, inputs.underlying_price, inputs.valuation_date, inputs.fee_per_contract,
                                 inputs.rate, inputs.dividend_yield, inputs.iv_change),
-            "greeks": combined if known else None, "curve": curve, "legs": info,
+            "greeks": combined if known else None, "curve": curve, "legs": info, "heatmap": heatmap,
+            "underlying_price": spot, "scenario_price": inputs.underlying_price,
+            "valuation_date": inputs.valuation_date.isoformat(),
             "captured": captured.isoformat(), "archived": captured < today, "first_expiration": first.isoformat(),
             "last_expiration": last.isoformat(), "model": "European Black-Scholes-Merton approximation before expiry. "
             "American early exercise, discrete dividends, assignment, borrow, changing spreads and fill slippage are "

@@ -1104,7 +1104,7 @@ window.addEventListener("hashchange", render);
   try {
     const session = await api("session");
     csrf = session.csrf_token;
-    serverCompatible = session.ui_protocol === 7;
+    serverCompatible = session.ui_protocol === 8;
     await refresh(true);
   } catch (error) {
     statusLine.textContent = error.message;

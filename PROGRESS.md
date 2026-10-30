@@ -3,6 +3,41 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-30 — Shared charting, Learning performance and calculator overhaul
+
+Continued from `7ec7261` on `claude/funny-rubin-gq99vj`. Reviewed every Stocks chart surface; audit and data contracts
+are in `research/CHART_REDESIGN_2026-10-30.md`. No LIVE changes or brokerage orders; Schwab remains first for quotes,
+minute candles and option chains through the existing collector. No new dependencies or paid services.
+
+- Shared responsive charts now serve stock line/candle views, PAPER/replay, Learning, Plays P/L, cumulative performance,
+  calibration, company score history and list sparks. Consistent value/time axes, crosshairs, bounded rectangular
+  tooltips, touch/keyboard inspection, sparse observations, real gaps, optional comparisons and zoom. Financial-period
+  columns/EPS dots retain the appropriate discrete chart type with matching styling. Remove duplicate renderers.
+- Learning now reads retained history through a private, read-only `/api/stocks/learning/chart` endpoint: actual first,
+  last and P/L/equity extrema per bucket, at most 1,200 real points and 160 dated events. Dated cash, contributions,
+  fees, open/closed counts and realized/unrealized P/L accompany each observation. Historical tooltips never substitute
+  current balances; funding remains outside trading P/L. Full-history drawdown retains peaks before a selected range.
+  Metric/range/zoom survive refreshes, event groups are inspectable, and retained-mark time stays distinct from the last
+  usable market-source time. Account-value funding jumps are not presented as trading returns.
+- Calculator: chart-first workspace, gain/loss colors, focused/wide price ranges, zero/spot/strike/break-even guides,
+  rectangular scenario tooltips, multi-leg controls, date/price/IV sliders and a clickable price/time after-fee P/L grid.
+  Observed outcomes, archived entry references, exact common-expiry payoff and modeled scenarios remain separate.
+  Missing IV and mixed-expiry risk remain explicitly unavailable where appropriate. No trades are submitted.
+- PAPER choices persist during polling, with honest available-session ranges and a normalized SPY comparison. Replay
+  remains scoped to the selected session. Plays keep best observed exit/jump, quantities, entry basis, quote/estimate
+  distinction, actual timestamps and real missing-data gaps. Source failures retain a Settings recovery link.
+- UI protocol **8**: update and fully restart Stocks, not just the browser. Static assets are captured at server startup.
+
+Validation: **1,502 offline tests passed, 5 opt-in live deselected**, existing Starlette/httpx warning only. Ruff, strict
+mypy (247 source files), all Stocks JS syntax and pinned Prettier 3.3.3 pass. Four new backend regressions cover dated
+accounting, full retained history/extrema/drawdown, read-only endpoint validation and calculator grid/scenario agreement;
+19 relevant backend tests also pass after final refinements. Ten desktop/375px browser workflows pass: stock profile,
+intraday, GUI/calculator/Evidence, PAPER/replay (run alone), sparse PAPER/polling, Learning, retail Learning, shared-chart
+edge cases, Plays history/best exits and live-history freshness. No console errors or page overflow in the new chart checks.
+
+Next: update/restart the laptop and verify its authenticated Schwab feed and retained account history. This cloud session
+has no operator credentials or live laptop database; synthetic browser fixtures do not establish live provider freshness.
+
 ## 2026-10-30 — Learning evidence before formal training; Claude continuation checked
 
 Continued from `1aa0987` on `claude/funny-rubin-gq99vj`, preserving all eight Claude commits after `25547f1`:

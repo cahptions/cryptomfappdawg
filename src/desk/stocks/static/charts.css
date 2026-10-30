@@ -1,0 +1,617 @@
+.kc-chart {
+  position: relative;
+  min-width: 0;
+  --kc-color: var(--up);
+}
+.kc-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.kc-label {
+  color: var(--text-2);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.kc-value {
+  display: block;
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 560;
+  letter-spacing: -1.6px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.kc-change {
+  font-size: 13px;
+  margin-top: 6px;
+  color: var(--text);
+}
+.kc-stamp {
+  color: var(--text-3);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.kc-actions {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+}
+.kc-actions button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  border-radius: 50%;
+}
+.kc-actions button:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.kc-plot {
+  position: relative;
+  min-width: 0;
+  isolation: isolate;
+}
+.kc-plot svg.kc-svg {
+  display: block;
+  width: 100%;
+  height: var(--kc-height, 330px);
+  overflow: visible;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+.kc-svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+  border-radius: 4px;
+}
+.kc-line {
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.kc-grid {
+  stroke: var(--line);
+  stroke-width: 0.6;
+  opacity: 0.55;
+  stroke-dasharray: 2 5;
+}
+.kc-baseline {
+  stroke: var(--text-3);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+  opacity: 0.7;
+}
+.kc-reference {
+  stroke: var(--text-3);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+.kc-axis {
+  fill: var(--text-3);
+  font:
+    10px Inter,
+    system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.kc-crosshair {
+  stroke: var(--text-2);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.75;
+}
+.kc-cursor {
+  fill: var(--kc-color);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+.kc-wick {
+  stroke-width: 1;
+}
+.kc-wick.positive {
+  stroke: var(--up);
+}
+.kc-wick.negative {
+  stroke: var(--down);
+}
+.kc-candle.positive {
+  fill: var(--up);
+}
+.kc-candle.negative {
+  fill: var(--down);
+}
+.kc-volume {
+  fill: var(--text-3);
+  opacity: 0.25;
+}
+.kc-volume.positive {
+  fill: var(--up);
+}
+.kc-volume.negative {
+  fill: var(--down);
+}
+.kc-tooltip {
+  position: absolute;
+  z-index: 8;
+  width: min(245px, 95%);
+  box-sizing: border-box;
+  padding: 13px 15px;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 8px 30px #0008;
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--text);
+}
+.kc-tooltip[hidden] {
+  display: none !important;
+}
+.kc-tooltip > strong {
+  display: block;
+  font-size: 11px;
+  color: var(--text-2);
+  margin-bottom: 9px;
+}
+.kc-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.kc-tip-row span {
+  color: var(--text-2);
+}
+.kc-tip-row strong {
+  font-weight: 550;
+  text-align: right;
+}
+.kc-tip-event {
+  display: block;
+  margin-top: 9px;
+  color: var(--text-2);
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+.kc-marker {
+  fill: var(--surface-2);
+  stroke: var(--text-2);
+  stroke-width: 2;
+  cursor: pointer;
+}
+.kc-marker.entry {
+  stroke: var(--up);
+}
+.kc-marker.exit {
+  stroke: var(--down);
+}
+.kc-marker.funding {
+  stroke: var(--accent);
+}
+.kc-ranges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  min-width: 0;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+}
+.kc-ranges button {
+  flex: 0 0 auto;
+  min-height: 42px;
+  min-width: 39px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
+  font-size: 12px;
+}
+.kc-ranges button:hover {
+  color: var(--text);
+}
+.kc-ranges button[aria-pressed="true"] {
+  color: var(--text);
+  border-bottom-color: var(--kc-color, var(--accent));
+}
+.kc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+}
+.kc-key {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  border: 0;
+  padding: 5px 0;
+  color: var(--text-2);
+  background: none;
+  font-size: 11px;
+}
+.kc-key::before {
+  content: "";
+  width: 14px;
+  height: 2px;
+  background: var(--key-color);
+}
+.kc-key[aria-pressed="false"] {
+  opacity: 0.35;
+}
+.kc-key:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.kc-readout {
+  color: var(--text-2);
+  min-height: 18px;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.kc-coverage {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+}
+.kc-empty {
+  padding: 60px 12px;
+  text-align: center;
+}
+.kc-spark {
+  display: block;
+  width: 100%;
+  height: 34px;
+}
+@media (max-width: 600px) {
+  .kc-value {
+    font-size: 32px;
+  }
+  .kc-head {
+    gap: 8px;
+  }
+  .kc-ranges {
+    gap: 0;
+  }
+  .kc-ranges button {
+    padding-inline: 8px;
+  }
+  .kc-tooltip {
+    width: min(225px, 95%);
+  }
+  .kc-readout {
+    font-size: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kc-chart * {
+    transition: none !important;
+  }
+}
+/* Page adapters: one visual language, with chart controls kept beside the data. */
+.kc-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 12px 0 18px;
+}
+.kc-toolbar select {
+  width: auto;
+  max-width: 100%;
+  font-size: 13px;
+  background: var(--surface-1);
+}
+.kc-toggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.kc-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.paper-equity,
+.pl-chart,
+.pf-chart {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  padding: 24px 0;
+  box-shadow: none;
+}
+.paper-equity h2,
+.paper-equity h3 {
+  margin: 0 0 20px;
+}
+.chart-widget .chart-tools {
+  border: 0;
+  margin-top: 12px;
+  gap: 20px;
+}
+.chart-widget .chart-plot {
+  height: auto;
+  overflow: visible;
+}
+.chart-widget .kc-tooltip {
+  background: var(--surface-2);
+}
+.pl-group {
+  border: 0;
+  gap: 4px;
+}
+.pl-group button {
+  font-size: 12px;
+  padding: 9px 13px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+}
+.pl-group button[aria-pressed="true"] {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+.pl-exit-metric {
+  background: var(--surface-1);
+  border-color: var(--line);
+}
+.pl-best-exit {
+  border-color: var(--line-strong);
+}
+.kc-marker.peak {
+  stroke: var(--accent);
+  fill: var(--accent);
+}
+.pl-plot .kc-plot svg,
+.paper-chart-plot .kc-plot svg {
+  height: var(--kc-height);
+}
+.options-calculator {
+  width: min(1360px, 96vw);
+  background: var(--bg);
+  padding: 28px;
+}
+.options-calculator > .calc-heading {
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.calc-workspace {
+  grid-template-columns: minmax(280px, 0.65fr) minmax(0, 1.35fr);
+  gap: 32px;
+}
+.calc-results {
+  position: static;
+}
+.calc-leg {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  padding: 16px 0;
+}
+.calc-editor h3 {
+  font-size: 16px;
+  margin-top: 24px;
+}
+.calc-field {
+  font-size: 12px;
+}
+.calc-scenarios {
+  grid-template-columns: 1fr 1fr;
+}
+.calc-results .calc-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+  border-top: 1px solid var(--line);
+  margin: 24px 0;
+}
+.calc-summary > div {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding: 18px 0;
+  border-radius: 0;
+}
+.calc-summary span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.calc-results .calc-summary strong {
+  font-size: 22px;
+}
+.payoff-chart {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.calc-results .payoff-chart .kc-plot svg {
+  height: var(--kc-height);
+}
+.calc-heatmap {
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+.calc-heatmap-grid {
+  display: grid;
+  grid-template-columns: 78px repeat(var(--heat-columns), minmax(80px, 1fr));
+  gap: 3px;
+  min-width: 700px;
+  padding: 8px 0;
+}
+.calc-heatmap-grid > strong {
+  padding: 10px 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-align: center;
+}
+.calc-heat-cell {
+  font-size: 11px;
+  padding: 12px 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.calc-heat-cell.positive {
+  color: var(--up);
+  background: color-mix(
+    in srgb,
+    var(--up) calc(var(--heat-opacity) * 100%),
+    var(--bg)
+  );
+}
+.calc-heat-cell.negative {
+  color: var(--down);
+  background: color-mix(
+    in srgb,
+    var(--down) calc(var(--heat-opacity) * 100%),
+    var(--bg)
+  );
+}
+.calc-heat-cell:hover,
+.calc-heat-cell:focus-visible {
+  border-color: var(--text);
+}
+.calc-live {
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+@media (max-width: 750px) {
+  .calc-workspace {
+    display: flex;
+    flex-direction: column;
+  }
+  .calc-results {
+    order: -1;
+    width: 100%;
+  }
+  .calc-editor {
+    width: 100%;
+  }
+  .kc-toolbar {
+    gap: 10px;
+  }
+  .chart-widget .chart-tools {
+    display: block;
+  }
+  .calc-visual .kc-toolbar {
+    align-items: flex-start;
+  }
+}
+.kc-legend[hidden] {
+  display: none;
+}
+.kc-readout,
+.kc-coverage {
+  max-width: none;
+}
+.stock-research .kc-ranges button,
+.stock-research .kc-ranges button[aria-pressed="true"] {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+}
+.stock-research .kc-ranges button[aria-pressed="true"] {
+  color: var(--text);
+  border-bottom-color: var(--up);
+}
+.calc-source {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.calc-source summary {
+  cursor: pointer;
+}
+.calc-source p {
+  max-width: none;
+  margin: 10px 0 0;
+}
+.calc-results > h3 {
+  font-size: 15px;
+  margin: 24px 0 14px;
+}
+.calc-results .calc-scenarios {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 600px) {
+  .options-calculator {
+    padding: 18px;
+  }
+  .options-calculator .calc-heading h2 {
+    font-size: 19px;
+  }
+  .options-calculator .calc-heading > button {
+    padding: 8px 14px;
+  }
+  .calc-source {
+    font-size: 10px;
+  }
+  .calc-live {
+    padding: 8px 0;
+    bottom: -18px;
+  }
+  .kc-stamp {
+    font-size: 10px;
+  }
+  .learning-chart .kc-label {
+    max-width: 210px;
+  }
+}
+.kc-marker-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 550;
+}
+.viz-tip {
+  background: var(--surface-2);
+  border-color: var(--line);
+  box-shadow: 0 8px 30px #0008;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.viz-rule {
+  opacity: 0.6;
+  border-color: var(--line);
+}
+.viz-rule > span,
+.viz-x,
+.viz-legend {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.viz-bar {
+  border-radius: 3px 3px 0 0;
+}
+@media (max-width: 600px) {
+  .viz-tip {
+    max-width: 230px;
+    font-size: 11px;
+  }
+}
+.kc-chart [hidden] {
+  display: none !important;
+}

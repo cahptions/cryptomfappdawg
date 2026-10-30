@@ -108,12 +108,6 @@ const KestrelPaper = (() => {
     );
     return section;
   }
-  function svg(tag, attrs) {
-    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const [key, value] of Object.entries(attrs))
-      node.setAttribute(key, value);
-    return node;
-  }
   function equityChart(account, options = {}) {
     return KestrelPaperChart.render(account, { record, ...options });
   }

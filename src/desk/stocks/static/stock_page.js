@@ -245,34 +245,14 @@ const KestrelStockPage = (() => {
     }
     return box;
   }
-  function svgEl(tag, attrs = {}) {
-    const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-    return n;
-  }
   function spark(values, cls = "") {
-    const svg = svgEl("svg", {
-      viewBox: "0 0 100 32",
-      preserveAspectRatio: "none",
-      class: `sp-spark ${cls}`,
-      "aria-hidden": "true",
-    });
-    const xs = values.filter((v) => v != null);
-    if (xs.length < 2) return svg;
-    const lo = Math.min(...xs),
-      hi = Math.max(...xs),
-      span = hi - lo || 1;
-    svg.append(
-      svgEl("polyline", {
-        points: xs
-          .map(
-            (v, i) =>
-              `${((i / (xs.length - 1)) * 100).toFixed(2)},${(30 - ((v - lo) / span) * 28).toFixed(2)}`,
-          )
-          .join(" "),
-      }),
+    const chart = KestrelCharts.spark(
+      values.map((value) => ({ value })),
+      { color: cls === "down" ? "var(--down)" : "var(--up)" },
     );
-    return svg;
+    chart.classList.add("sp-spark");
+    if (cls) chart.classList.add(cls);
+    return chart;
   }
 
   // ── sections ────────────────────────────────────────────────────────────────────────────
@@ -961,38 +941,38 @@ const KestrelStockPage = (() => {
   function scoreHistory(profile) {
     const points = (profile.score_history || []).filter((p) => p.score != null);
     if (points.length < 2) return null;
-    const wrap = el("div", undefined, "sp-score-history"),
-      svg = svgEl("svg", {
-        viewBox: "0 0 100 40",
-        preserveAspectRatio: "none",
-        role: "img",
-        "aria-label": `Committee score history: ${points[0].score.toFixed(0)} on ${points[0].day}, ${points.at(-1).score.toFixed(0)} on ${points.at(-1).day}`,
-      });
-    const y = (v) => 40 - (v / 100) * 40;
-    svg.append(
-      svgEl("rect", {
-        x: 0,
-        width: 100,
-        y: y(58),
-        height: y(42) - y(58),
-        class: "band",
-      }),
-      svgEl("polyline", {
-        points: points
-          .map(
-            (p, i) =>
-              `${((i / (points.length - 1)) * 100).toFixed(2)},${y(p.score).toFixed(2)}`,
-          )
-          .join(" "),
-      }),
-    );
+    const wrap = el("div", undefined, "sp-score-history");
     wrap.append(
       el("div", "Score history", "sp-mini-title"),
-      svg,
-      el(
-        "small",
-        `${fmt.date(points[0].day, false)} → ${fmt.date(points.at(-1).day, false)} · neutral band 42–58`,
-      ),
+      KestrelCharts.create({
+        id: "score-history",
+        headline: false,
+        legend: false,
+        zoom: false,
+        height: 150,
+        yDomain: [0, 100],
+        points: points.map((p) => ({
+          ...p,
+          at: p.day,
+          x: Date.parse(p.day + "T12:00:00Z"),
+          value: p.score,
+        })),
+        format: (v) => fmt.num(v, 1),
+        axisFormat: (v) => fmt.num(v, 0),
+        bands: [{ from: 42, to: 58 }],
+        tooltipRows: (p) => [
+          ["Committee score", fmt.num(p.score, 1)],
+          [
+            "View",
+            p.score >= 58
+              ? "Bullish lean"
+              : p.score < 42
+                ? "Bearish lean"
+                : "Neutral",
+          ],
+        ],
+        coverage: "Neutral band 42–58. Scores are not probabilities.",
+      }),
     );
     return wrap;
   }

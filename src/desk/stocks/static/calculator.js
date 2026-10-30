@@ -29,123 +29,119 @@ const KestrelCalculator = (() => {
     });
     return n;
   }
-  function svg(tag, attrs) {
-    const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const [key, value] of Object.entries(attrs))
-      n.setAttribute(key, value);
-    return n;
-  }
-  function payoffChart(result) {
-    const box = el("div", undefined, "payoff-chart"),
-      curve = result.curve;
-    const values = curve
-      .flatMap((p) => [p.scenario, p.expiration])
-      .filter((v) => v != null);
-    if (!values.length) {
-      box.append(
-        el(
-          "p",
-          "No model curve available for these quotes. Select the common expiration date for exact payoff, or choose contracts with inferable IV.",
-          "muted",
-        ),
-      );
-      return box;
-    }
-    const min = Math.min(0, ...values),
-      max = Math.max(0, ...values),
-      span = max - min || 1;
-    const x = (p) => 50 + (p / curve.at(-1).price) * 900,
-      y = (v) => 260 - ((v - min) / span) * 230;
-    const plot = svg("svg", {
-      viewBox: "0 0 1000 310",
-      role: "img",
-      tabindex: "0",
-      "aria-label":
-        "Profit and loss by underlying price. Use arrow keys to inspect prices.",
-    });
-    plot.append(
-      svg("line", {
-        x1: 50,
-        x2: 950,
-        y1: y(0),
-        y2: y(0),
-        class: "chart-guide",
-      }),
-    );
-    for (const [key, cls] of [
-      ["expiration", "payoff-expiry"],
-      ["scenario", "payoff-scenario"],
-    ]) {
-      let path = "";
-      curve.forEach((p, i) => {
-        if (p[key] != null)
-          path += `${i ? "L" : "M"}${x(p.price)},${y(p[key])}`;
-      });
-      plot.append(svg("path", { d: path, class: cls }));
-    }
-    const pointer = svg("line", {
-      x1: 0,
-      x2: 0,
-      y1: 15,
-      y2: 270,
-      class: "chart-cursor",
-      visibility: "hidden",
-    });
-    plot.append(pointer);
-    const readout = el(
-      "p",
-      "Move across the chart to inspect a price scenario.",
-      "caption",
-    );
-    readout.setAttribute("aria-live", "polite");
-    let selected = Math.round(curve.length / 2);
-    function inspect(i) {
-      selected = Math.max(0, Math.min(curve.length - 1, i));
-      const p = curve[selected];
-      pointer.setAttribute("x1", x(p.price));
-      pointer.setAttribute("x2", x(p.price));
-      pointer.setAttribute("visibility", "visible");
-      readout.textContent = `Underlying ${money(p.price)} · Scenario P/L ${money(p.scenario)}${p.expiration == null ? "" : ` · Expiration P/L ${money(p.expiration)}`}`;
-    }
-    plot.onpointermove = (e) => {
-      const r = plot.getBoundingClientRect(),
-        price =
-          Math.max(
-            0,
-            Math.min(1, (((e.clientX - r.left) / r.width) * 1000 - 50) / 900),
-          ) * curve.at(-1).price;
-      let i = 0;
-      curve.forEach((p, j) => {
-        if (Math.abs(p.price - price) < Math.abs(curve[i].price - price)) i = j;
-      });
-      inspect(i);
-    };
-    plot.onkeydown = (e) => {
-      if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
-        e.preventDefault();
-        inspect(
-          e.key === "Home"
-            ? 0
-            : e.key === "End"
-              ? curve.length - 1
-              : selected + (e.key === "ArrowLeft" ? -1 : 1),
+  function payoffChart(result, { wide = false, onSelect = () => {} } = {}) {
+    const spot = result.underlying_price,
+      focus = result.scenario_price;
+    const curve = wide
+      ? result.curve
+      : result.curve.filter(
+          (p) =>
+            p.price >= Math.min(spot * 0.65, focus * 0.9) &&
+            p.price <= Math.max(spot * 1.35, focus * 1.1),
         );
-      }
-    };
-    const axis = el("div", undefined, "chart-axis");
-    axis.append(
-      el("span", money(0)),
-      el("span", "Underlying price"),
-      el("span", money(curve.at(-1).price)),
+    const chart = KestrelCharts.create({
+      id: "calculator",
+      className: "payoff-chart",
+      xKind: "number",
+      baseline: 0,
+      label: `Projected P/L · ${result.valuation_date}`,
+      value: (p) => p.value,
+      valueColor: (p) => (p.value >= 0 ? "var(--up)" : "var(--down)"),
+      points: curve.map((p) => ({
+        ...p,
+        x: p.price,
+        value: p.scenario ?? p.expiration,
+      })),
+      series: [
+        {
+          id: "scenario",
+          label: "Selected date & IV",
+          signed: true,
+          value: (p) => p.scenario,
+          color: "var(--up)",
+          className: "payoff-scenario",
+        },
+        {
+          id: "expiration",
+          label: "At expiration",
+          value: (p) => p.expiration,
+          color: "var(--text-2)",
+          dashed: true,
+          className: "payoff-expiry",
+        },
+      ],
+      format: KestrelCharts.signed,
+      xFormat: (p) => money(p.price),
+      timeFormat: (p) => `Underlying ${money(p.price)}`,
+      changeText: () => "Modeled position value after entry and closing fees",
+      tooltipRows: (p) => [
+        ["Underlying", money(p.price)],
+        ["Scenario P/L", money(p.scenario)],
+        ["Expiration P/L", money(p.expiration)],
+      ],
+      references: [
+        { x: spot, label: "Spot" },
+        ...result.risk.breakevens.map((x) => ({ x, label: "B/E" })),
+        ...[
+          ...new Set(result.legs.map((l) => l.strike).filter(Number.isFinite)),
+        ].map((x) => ({ x, label: "Strike" })),
+      ],
+      coverage:
+        "Drag or use arrow keys to explore. Click a price to set the scenario. Solid: modeled selected date; dashed: common-expiration payoff. Neither is a forecast or guaranteed fill.",
+      onSelect: (p) => onSelect(p.price, result.valuation_date),
+      empty:
+        "No inferable IV for these quotes. A common-expiry payoff remains available at expiration.",
+    });
+    const index = curve.findIndex((p) => p.price === focus);
+    if (index >= 0) chart.inspect(index);
+    return chart;
+  }
+  function heatmap(result, onSelect) {
+    const box = el("div", undefined, "calc-heatmap"),
+      grid = el("div", undefined, "calc-heatmap-grid"),
+      data = result.heatmap;
+    if (!data)
+      return el(
+        "p",
+        "The saved server does not support the scenario grid. Restart after updating.",
+        "muted",
+      );
+    grid.style.setProperty("--heat-columns", data.dates.length);
+    grid.append(el("strong", "Stock / date"));
+    for (const d of data.dates)
+      grid.append(el("strong", KestrelCharts.date(d)));
+    const maximum = Math.max(
+      1,
+      ...data.values.flat().filter(Number.isFinite).map(Math.abs),
     );
+    for (let i = data.prices.length - 1; i >= 0; i--) {
+      grid.append(el("strong", money(data.prices[i])));
+      data.values[i].forEach((v, j) => {
+        const b = el(
+          "button",
+          Number.isFinite(v) ? KestrelCharts.signed(v) : "—",
+          `calc-heat-cell ${v >= 0 ? "positive" : "negative"}`,
+        );
+        b.type = "button";
+        b.disabled = v == null;
+        b.style.setProperty(
+          "--heat-opacity",
+          0.08 + 0.35 * Math.sqrt(Math.abs(v || 0) / maximum),
+        );
+        b.setAttribute(
+          "aria-label",
+          `${data.dates[j]} · underlying ${money(data.prices[i])} · modeled P/L ${money(v)}`,
+        );
+        b.onclick = () => onSelect(data.prices[i], data.dates[j]);
+        grid.append(b);
+      });
+    }
     box.append(
-      plot,
-      axis,
-      readout,
+      grid,
       el(
         "p",
-        "Blue: selected date and IV scenario · Dashed: exact common-expiration payoff",
-        "muted caption",
+        "Modeled P/L after fees. Tap a cell to set its price and date; IV stays at the selected assumption. Mixed expirations assume the same price at each earlier expiry.",
+        "caption muted",
       ),
     );
     return box;
@@ -160,10 +156,18 @@ const KestrelCalculator = (() => {
     header.append(title, close);
     dialog.setAttribute("aria-labelledby", title.id);
     close.onclick = () => dialog.close();
-    const notice = el(
+    const noticeText = el(
       "p",
-      `${initial.source} snapshot ${initial.asof}. Model scenarios use saved quotes, not guaranteed fills. ${initial.stale_session ? "Archived prices: refresh the chain before relying on current costs." : ""}`,
-      "notice",
+      `${initial.source} snapshot ${initial.asof}. ${initial.idea_id ? "This play uses its archived entry reference; changing the scenario does not rewrite that entry." : "Bid/ask inputs come from the saved chain; Schwab refreshes through the collector."} Model scenarios use saved quotes, not guaranteed fills. ${initial.stale_session ? "Archived prices: refresh the chain before relying on current costs." : ""}`,
+      "caption muted",
+    );
+    const notice = el("details", undefined, "calc-source");
+    notice.append(
+      el(
+        "summary",
+        `${initial.source} · quote snapshot ${initial.asof} · modeled scenarios`,
+      ),
+      noticeText,
     );
     const legHost = el("div", undefined, "calc-legs"),
       add = el("button", "+ Add leg"),
@@ -174,7 +178,9 @@ const KestrelCalculator = (() => {
       assumptions = el("div", undefined, "calc-assumptions");
     let serial = 0,
       timer,
-      closed = false;
+      closed = false,
+      chartMode = "P/L curve",
+      wide = false;
     const cache = new Map();
     const spot = initial.underlying_price || contract.strike;
     const legs = selectedLegs
@@ -246,11 +252,17 @@ const KestrelCalculator = (() => {
       el("h3", "Build your position"),
       legHost,
       add,
-      el("h3", "Explore the outcome"),
-      controls,
       assumptionsBox,
     );
-    results.append(message, summary, plot);
+    const modelInfo = el("div", undefined, "calc-model-info");
+    results.append(
+      message,
+      plot,
+      el("h3", "Explore price, time and volatility"),
+      controls,
+      summary,
+      modelInfo,
+    );
     workspace.append(editor, results);
     dialog.append(header, notice, workspace, live);
     document.body.append(dialog);
@@ -357,7 +369,48 @@ const KestrelCalculator = (() => {
               "IV cannot be inferred for at least one leg. Its pre-expiry scenario curve is unavailable; common-expiry payoff remains exact.",
             ),
           );
-        plot.replaceChildren(payoffChart(result), info);
+        const choose = (p, d) => {
+          price.value = Number(p.toFixed(2));
+          priceSlider.value = price.value;
+          date.value = d;
+          dateSlider.value = day(d);
+          schedule();
+        };
+        const panel = el("div", undefined, "calc-visual"),
+          rangeLabel = el("label", undefined, "kc-toggle"),
+          rangeInput = el("input");
+        rangeInput.type = "checkbox";
+        rangeInput.checked = wide;
+        const visual = el("div");
+        function renderVisual() {
+          visual.replaceChildren(
+            chartMode === "P/L curve"
+              ? payoffChart(result, { wide, onSelect: choose })
+              : heatmap(result, choose),
+          );
+        }
+        rangeInput.onchange = () => {
+          wide = rangeInput.checked;
+          renderVisual();
+        };
+        rangeLabel.append(rangeInput, el("span", "Wide price range"));
+        const chartTools = el("div", undefined, "kc-toolbar");
+        chartTools.append(
+          KestrelCharts.ranges(
+            ["P/L curve", "Price & time"],
+            chartMode,
+            (v) => {
+              chartMode = v;
+              renderVisual();
+            },
+            { label: "Calculator visualization" },
+          ),
+          rangeLabel,
+        );
+        panel.append(chartTools, visual);
+        renderVisual();
+        plot.replaceChildren(panel);
+        modelInfo.replaceChildren(info);
       } catch (error) {
         if (!closed && request === serial) {
           message.textContent = error.message;
@@ -365,6 +418,7 @@ const KestrelCalculator = (() => {
             "Scenario unavailable. Check the selected contracts and inputs.";
           summary.replaceChildren();
           plot.replaceChildren();
+          modelInfo.replaceChildren();
         }
       }
     }

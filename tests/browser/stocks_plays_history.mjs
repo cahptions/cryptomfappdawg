@@ -84,7 +84,9 @@ try {
     const detailUrl = page.url();
     await page.getByRole("button", { name: "All" }).click();
     assert.ok(
-      (await page.locator(".pl-plot .pl-line").count()) > 10,
+      (await page.locator(".pl-plot .pl-line").first().getAttribute("d")).split(
+        "L",
+      ).length > 10,
       "All retains the intraday path instead of reducing it to a few daily closes",
     );
     await page
@@ -117,7 +119,13 @@ try {
     await page.getByRole("button", { name: "1D" }).click();
     assert.match(await page.locator(".pl-readout").innerText(), /\d:\d\d/);
     await page.getByRole("button", { name: "$", exact: true }).click();
-    assert.match(await page.locator(".pl-axis").first().textContent(), /\$/);
+    assert.match(
+      await page
+        .locator(".pl-chart .kc-axis:not(.kc-time-axis)")
+        .first()
+        .textContent(),
+      /\$/,
+    );
     await page.getByRole("button", { name: "1M" }).click();
     await page.getByRole("button", { name: "%", exact: true }).click();
     // greeks then and now, why it was picked, every mark
@@ -150,15 +158,15 @@ try {
       "picks, random twins and SPY",
     );
     assert.match(
-      await page.locator(".pf-chart .pl-readout").first().innerText(),
-      /1 settled/,
+      await page.locator(".pf-chart .kc-readout").first().innerText(),
+      /Settled plays 1/,
     );
     await page.getByLabel("Category").selectOption("likely_itm");
     await page.getByText("No play in this view has settled yet.").waitFor();
     await page.getByLabel("Category").selectOption("lottos");
     assert.match(
-      await page.locator(".pf-chart .pl-readout").first().innerText(),
-      /settled .* picks/,
+      await page.locator(".pf-chart .kc-readout").first().innerText(),
+      /Settled plays .*Picks/,
     );
     await page.getByRole("heading", { name: "By category" }).waitFor();
     assert.match(
@@ -169,7 +177,9 @@ try {
       .getByRole("heading", { name: "Predicted chance vs what happened" })
       .waitFor();
     assert.ok(
-      (await page.locator(".pf-calibration .pf-dot").count()) > 0,
+      (await page
+        .locator('[data-chart="calibration"] .kc-observation')
+        .count()) > 0,
       "calibration dots are drawn",
     );
     await page
@@ -283,7 +293,9 @@ try {
     await page.getByLabel("Contracts", { exact: true }).fill("3");
     await page.getByRole("button", { name: "1M", exact: true }).click();
     assert.ok(
-      (await page.locator(".pl-plot .pl-line").count()) >= 3,
+      (await page.locator(".pl-plot .pl-line").first().getAttribute("d")).split(
+        "L",
+      ).length >= 3,
       "one month preserves the spike even when the play expired in an earlier calendar month",
     );
     await page.getByRole("button", { name: "All", exact: true }).click();
@@ -293,7 +305,7 @@ try {
     );
     assert.equal(await page.locator(".pl-line.dashed").count(), 0);
     assert.equal(
-      await page.locator(".pl-chart .chart-axis span").nth(1).innerText(),
+      await page.locator(".pl-chart .kc-time-axis").nth(1).textContent(),
       "Oct 14",
       "the midpoint label follows elapsed time, not the density of captured quotes",
     );
