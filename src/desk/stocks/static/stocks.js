@@ -1201,8 +1201,10 @@ document.addEventListener("click", (event) => {
   )
     closeMore();
 });
+// Every navigation opens its page at the top (data refreshes call render() directly and keep your place).
 window.addEventListener("hashchange", () => {
   closeMore();
+  window.scrollTo(0, 0);
   render();
 });
 (async () => {

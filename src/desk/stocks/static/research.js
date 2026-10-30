@@ -32,7 +32,8 @@ const KestrelResearch = (() => {
       : value > 0
         ? "positive"
         : "negative";
-  const requestedChains = new Map();
+  const requestedChains = new Map(),
+    chainPolls = new Map();
   const change = (value) =>
     value == null ? "—" : `${value > 0 ? "+" : ""}${percent(value)}`;
   function badge(text, className = "") {
@@ -1167,19 +1168,52 @@ const KestrelResearch = (() => {
         ),
       );
       if (!data.contracts.length) {
-        container.append(
-          empty(
-            "Chain collection requested",
+        // Say here what is happening, and fill in by itself when the chain arrives: no trip to another page.
+        const running = queued?.running ?? snapshot.worker_running,
+          job = snapshot.jobs?.options || {},
+          box = empty(
+            running ? "Option chain on its way" : "Collection is paused",
             data.message ||
-              ((queued?.running ?? snapshot.worker_running)
-                ? "This stock is prioritized for the next available collection pass. The page refreshes as stored data arrives. See System for any source error."
-                : "This stock is queued. Start PAPER in System to resume collection, or connect your options provider in Settings."),
-            "#system",
-            "View collection status ↗",
+              (running
+                ? `${symbol} is first in line for the next options pass, usually within about 5 minutes. This section fills in by itself.`
+                : "The chain arrives once collection runs. Start it here."),
+            null,
+          ),
+          when = (iso) =>
+            new Date(iso).toLocaleString("en-US", {
+              timeZone: "America/New_York",
+              weekday: "short",
+              hour: "numeric",
+              minute: "2-digit",
+            }) + " ET";
+        box.append(
+          el(
+            "p",
+            [
+              job.last_ok_at
+                ? `Last options pass ${when(job.last_ok_at)}`
+                : "No options pass yet",
+              job.error ? `last error: ${job.error}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+            job.error ? "error" : "muted",
           ),
         );
+        if (!running) box.append(collectionControls());
+        else if (job.error)
+          box.append(link("Check the options connection ↗", "#settings"));
+        container.append(box);
+        const tries = (chainPolls.get(symbol) || 0) + 1;
+        chainPolls.set(symbol, tries);
+        if (running && tries <= 20)
+          setTimeout(() => {
+            if (ticket === generation && container.isConnected)
+              optionChain(symbol, container, ticket, expiration);
+          }, 30000);
         return;
       }
+      chainPolls.delete(symbol);
       const controls = el("div", undefined, "chain-controls"),
         expiry = el("select"),
         tabs = el("div", undefined, "research-tabs"),
