@@ -300,6 +300,9 @@ def main() -> None:
             if args.scenario in {"populated", "stock-page"}:
                 events_fixture(world)
             world.close()
+        # Workflows assert explanatory text, so fixtures show it; the desk's own default is numbers first.
+        paths.ensure()
+        (paths.home / "stocks-ui.json").write_text('{"explain": true}')
         app = create_app(paths, auto_start=False)
         if args.scenario == "personal-workflows":
             from datetime import datetime

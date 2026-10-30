@@ -1,0 +1,341 @@
+/* KESTREL neon: the personal layer over the design system. Glowing chart lines, heavy tabular numbers, quiet
+   cards, and "numbers first": explanatory captions hide until the ⓘ toggle shows them. Tokens only. */
+
+/* Glow: chart lines and sparks carry their own colour as a soft light. */
+.kc-line,
+.kc-spark-line,
+svg.spark path,
+svg.spark polyline {
+  filter: drop-shadow(
+    0 0 5px color-mix(in srgb, currentColor 55%, transparent)
+  );
+}
+.payoff-expiry {
+  filter: none;
+}
+
+/* Numbers: heavier and tighter wherever a figure is the point. */
+h1,
+.kc-value,
+.calc-stat strong,
+.standing-tile > strong,
+.event-figure strong,
+.paper-metric strong,
+.benchmark-card strong,
+.sp-stat dd {
+  font-variant-numeric: tabular-nums;
+}
+.kc-value,
+.calc-stat strong,
+.standing-tile > strong,
+.paper-metric strong {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+[data-testid="headline-price"] {
+  font-weight: 750;
+  letter-spacing: -0.035em;
+}
+
+/* Brand moments in violet light. */
+.brand img {
+  filter: drop-shadow(
+    0 0 8px color-mix(in srgb, var(--accent) 60%, transparent)
+  );
+}
+button.primary,
+.link-button {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 6px 24px -6px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+header > nav[aria-label="Main"] a[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: var(--text-strong);
+}
+.tabbar a[aria-current="page"] svg {
+  filter: drop-shadow(
+    0 0 6px color-mix(in srgb, var(--accent) 70%, transparent)
+  );
+}
+
+/* Numbers first: explanations wait behind the ⓘ toggle. Errors, notices and stale-data warnings always show. */
+body.numbers-first p.caption,
+body.numbers-first .kc-coverage,
+body.numbers-first .play-filter-help,
+body.numbers-first .sp-caption,
+body.numbers-first .sp-source,
+body.numbers-first #app > p.muted,
+body.numbers-first .hub-title p.muted,
+body.numbers-first .explorer-heading p.muted,
+body.numbers-first .events-title > p,
+body.numbers-first .event-logged,
+body.numbers-first .calc-model-info,
+body.numbers-first .play-method {
+  display: none;
+}
+button.icon-link {
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+#explain-toggle {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+#explain-toggle[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+  color: var(--accent);
+}
+.more-explain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 6px 0;
+  padding: 10px 8px 4px;
+  border-top: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+
+/* Home cockpit: your plays (left, tall), the market and today's top ideas (right), the latest event below. */
+.cockpit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin-bottom: 18px;
+}
+.cockpit-head h1 {
+  margin: 0;
+  font-size: var(--text-3xl);
+  letter-spacing: -0.03em;
+}
+.cockpit-head span {
+  font-size: var(--text-sm);
+}
+.cockpit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "plays market"
+    "plays ideas"
+    "event event";
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.cockpit-card {
+  min-width: 0;
+  padding: 20px 22px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+/* With nothing tracked yet, the ideas move up under the empty plays card instead of leaving a void. */
+.cockpit.no-plays {
+  grid-template-areas:
+    "plays market"
+    "ideas market"
+    "event event";
+  align-items: start;
+}
+.cockpit-plays {
+  grid-area: plays;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(
+      120% 70% at 0% 0%,
+      color-mix(in srgb, var(--accent) 16%, transparent),
+      transparent 60%
+    ),
+    var(--surface-1);
+}
+.cockpit-market {
+  grid-area: market;
+}
+.cockpit-ideas {
+  grid-area: ideas;
+}
+.cockpit-card .eyebrow {
+  margin-bottom: 6px;
+}
+.cockpit-figure {
+  display: block;
+  font-size: var(--text-hero);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: var(--text-strong);
+}
+.cockpit-figure.up {
+  color: var(--up);
+  text-shadow: 0 0 28px color-mix(in srgb, var(--up) 45%, transparent);
+}
+.cockpit-figure.down {
+  color: var(--down);
+  text-shadow: 0 0 28px color-mix(in srgb, var(--down) 45%, transparent);
+}
+.cockpit-sub {
+  margin: 6px 0 14px;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.cockpit-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.cockpit-card-head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.cockpit-card-head a,
+.cockpit-card > a:not(.cockpit-row),
+.cockpit-more {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
+}
+.cockpit-list {
+  display: grid;
+  margin: 4px 0 14px;
+}
+.cockpit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  margin: 0 -10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+.cockpit-row + .cockpit-row {
+  box-shadow: 0 -1px 0 var(--line);
+}
+.cockpit-row:hover {
+  background: var(--surface-2);
+  color: var(--text-strong);
+}
+.cockpit-name,
+.cockpit-value {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.cockpit-value {
+  justify-items: end;
+  text-align: right;
+}
+.cockpit-name b {
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit-value b {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cockpit-value b.up {
+  color: var(--up);
+}
+.cockpit-value b.down {
+  color: var(--down);
+}
+.cockpit-value b.accent {
+  color: var(--accent);
+}
+.cockpit-name small,
+.cockpit-value small {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+/* The six index cards as a compact 3 × 2 grid inside the market panel. */
+.cockpit-market .benchmark-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border: 0;
+  gap: 1px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--line);
+}
+.cockpit-market .benchmark-card {
+  min-width: 0;
+  padding: 12px;
+  border: 0;
+  background: var(--surface-1);
+}
+.cockpit-market .benchmark-card strong {
+  font-size: var(--text-md);
+}
+.cockpit-market .cockpit-sub {
+  margin-bottom: 0;
+}
+.cockpit-event {
+  grid-area: event;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--text);
+}
+.cockpit-event:hover {
+  background: var(--surface-2);
+  color: var(--text-strong);
+}
+.cockpit-event strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit-event .cockpit-more {
+  margin-left: auto;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .cockpit {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "plays"
+      "event"
+      "ideas"
+      "market";
+  }
+  .cockpit-figure {
+    font-size: 40px;
+  }
+}
+@media (max-width: 650px) {
+  .cockpit-head h1 {
+    font-size: var(--text-2xl);
+  }
+  .cockpit-card {
+    padding: 16px;
+  }
+  .cockpit-market .benchmark-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cockpit-event small {
+    display: none;
+  }
+}
+/* With captions hidden, a status heading and its link must not run together. */
+.paper-status > strong {
+  display: block;
+  margin-bottom: 6px;
+}

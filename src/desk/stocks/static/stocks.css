@@ -12,21 +12,22 @@
 }
 :root {
   color-scheme: dark;
-  /* Surfaces: true black page, three steps of lift. */
+  /* Surfaces: true black page, three quiet steps of lift; lines barely there (cards read by spacing). */
   --bg: #000000;
-  --surface-1: #0c0e0d;
-  --surface-2: #151817;
-  --surface-3: #1e2221;
-  --line: #222625;
-  --line-strong: #343a38;
+  --surface-1: #09090b;
+  --surface-2: #121215;
+  --surface-3: #1b1b20;
+  --line: #17171c;
+  --line-strong: #2a2a32;
   /* Ink. */
   --text-strong: #ffffff;
-  --text: #f2f4f3;
-  --text-2: #a3a9a6;
-  --text-3: #7d847f;
-  /* Brand and interaction. */
-  --accent: #c2f53c;
-  --accent-ink: #0d1400;
+  --text: #f3f2f5;
+  --text-2: #a5a3ad;
+  --text-3: #7e7b88;
+  /* Brand and interaction: one neon violet (7.2:1 on black). */
+  --accent: #b07cff;
+  --accent-ink: #14062b;
+  --glow: 0 0 24px color-mix(in srgb, var(--accent) 35%, transparent);
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
   /* Direction: mint up, orange-red down (a colour-blind-safe pair; always shown with a sign). */

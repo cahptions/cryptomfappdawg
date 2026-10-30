@@ -158,6 +158,7 @@ try {
       .getByRole("button", { name: "Open exact-leg payoff calculator" })
       .click();
     await page.locator("dialog.options-calculator").waitFor();
+    await page.locator(".calc-leg").nth(1).waitFor(); // legs render once the saved chain loads
     assert.equal(await page.locator(".calc-leg").count(), 2);
     assert.deepEqual(
       (

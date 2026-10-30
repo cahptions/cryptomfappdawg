@@ -136,3 +136,23 @@ def test_frozen_calculator_preserves_exact_put_when_chain_is_gone_and_rejects_wr
     assert chain["asof"] == "2026-10-26" and chain["underlying_price"] == 101.
     with pytest.raises(DeskError, match="different stock"):
         ps.calculator_chain(market, research, ident, "QQQ", datetime(2026,11,20).date())
+
+
+def test_cockpit_values_open_plays_at_their_latest_saved_quote(books):
+    market, research, ident = books
+    queued = select(research, ident)
+    summary = ps.cockpit(research, START)
+    assert summary["open"] == 1 and summary["pnl"] is None and summary["rows"][0]["state"] == "queued"
+    opening = START.replace(hour=9, minute=31)
+    tick(research, opening)
+    assert ps.advance(market, research, opening) == 1                  # entered at the $2.00 ask
+    tick(research, opening + timedelta(hours=2), bid=2.9, ask=3.)
+    summary = ps.cockpit(research, opening + timedelta(hours=2))
+    row = summary["rows"][0]
+    assert row["id"] == queued and row["state"] == "open" and row["quantity"] == 7
+    assert row["pnl"] == summary["pnl"] == pytest.approx(7 * ps.pnl("BUY", 2., play()["legs"], 2.9, False)["pnl"])
+    assert row["pnl"] > 0 and row["quoted_at"] and row["label"].startswith("SPY $100 put")
+    ps.action(research, queued, "close", opening + timedelta(hours=3))
+    tick(research, opening + timedelta(hours=3, seconds=5), bid=2.95, ask=3.05)
+    ps.advance(market, research, opening + timedelta(hours=3, seconds=5))
+    assert ps.cockpit(research, opening + timedelta(hours=4))["open"] == 0

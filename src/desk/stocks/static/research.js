@@ -238,6 +238,186 @@ const KestrelResearch = (() => {
     section.append(grid);
     return section;
   }
+  // Home for one person: their plays' P/L, the market and today's top ideas on one screen, then the research.
+  function cockpitHome(hub, ticket) {
+    const hour = new Date().getHours(),
+      greeting =
+        hour < 5
+          ? "Late night"
+          : hour < 12
+            ? "Good morning"
+            : hour < 18
+              ? "Good afternoon"
+              : "Good evening";
+    const head = el("div", undefined, "cockpit-head");
+    head.append(
+      el("h1", greeting),
+      el(
+        "span",
+        snapshot.asof
+          ? `Research session ${shortDate(snapshot.asof)}`
+          : "Awaiting the first research session",
+        "muted",
+      ),
+    );
+    const grid = el(
+      "section",
+      undefined,
+      `cockpit${hub.cockpit?.plays?.rows?.length ? "" : " no-plays"}`,
+    );
+    grid.setAttribute("aria-label", "Your desk at a glance");
+    grid.append(
+      cockpitPlays(hub.cockpit?.plays),
+      cockpitMarket(hub),
+      cockpitIdeas(hub.cockpit),
+    );
+    const latest = hub.events?.recent?.[0];
+    if (latest) {
+      const line = link("", "#events");
+      line.className = `cockpit-event tone-${latest.tone}`;
+      line.append(
+        el("span", undefined, "event-mark"),
+        el("strong", latest.title),
+        el("small", shortDate(latest.day), "muted"),
+        el("span", "All events →", "cockpit-more"),
+      );
+      grid.append(line);
+    }
+    app.append(head, grid);
+    if (snapshot.research_preview?.awaiting_newer_close)
+      app.append(
+        el(
+          "p",
+          `Showing published research through ${snapshot.research_preview.asof}. Closing prices for ${snapshot.research_preview.expected_asof} are not stored yet.`,
+          "notice",
+        ),
+      );
+    return homeBody(hub, ticket, "stocks", null);
+  }
+  function cockpitPlays(mine) {
+    const box = el("article", undefined, "cockpit-card cockpit-plays"),
+      rows = mine?.rows || [];
+    const pnl = mine?.pnl;
+    box.append(el("div", "YOUR PLAYS", "eyebrow"));
+    const figure = el(
+      "strong",
+      pnl == null
+        ? rows.length
+          ? "—"
+          : "$0.00"
+        : `${pnl > 0 ? "+" : pnl < 0 ? "−" : ""}${money(Math.abs(pnl))}`,
+      `cockpit-figure ${pnl > 0 ? "up" : pnl < 0 ? "down" : ""}`,
+    );
+    box.append(
+      figure,
+      el(
+        "p",
+        rows.length
+          ? `${mine.open} open · P/L at the latest saved quotes${mine.priced < rows.length ? ` · ${rows.length - mine.priced} waiting for a quote` : ""}`
+          : "No plays tracked yet.",
+        "cockpit-sub",
+      ),
+    );
+    if (!rows.length) {
+      box.append(link("Pick a play to track →", "#plays"));
+      return box;
+    }
+    const list = el("div", undefined, "cockpit-list");
+    for (const r of rows) {
+      const row = link("", `#plays/mine/${encodeURIComponent(r.id)}`);
+      row.className = "cockpit-row";
+      const name = el("span", undefined, "cockpit-name");
+      name.append(
+        el("b", r.label),
+        el("small", `${r.action} · ${r.quantity}× · ${r.state}`),
+      );
+      const value = el("span", undefined, "cockpit-value");
+      value.append(
+        el(
+          "b",
+          r.pnl == null
+            ? r.state === "queued"
+              ? "Queued"
+              : "—"
+            : `${r.pnl > 0 ? "+" : r.pnl < 0 ? "−" : ""}${money(Math.abs(r.pnl))}`,
+          r.pnl > 0 ? "up" : r.pnl < 0 ? "down" : "",
+        ),
+        el(
+          "small",
+          [
+            r.pct != null ? percent(r.pct) : null,
+            r.chance != null ? `${Math.round(r.chance * 100)}% chance` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+      );
+      row.append(name, value);
+      list.append(row);
+    }
+    box.append(list, link("All my plays →", "#plays/mine"));
+    return box;
+  }
+  function cockpitMarket(hub) {
+    const box = el("article", undefined, "cockpit-card cockpit-market");
+    const title = el("div", undefined, "cockpit-card-head");
+    title.append(el("h2", "Market overview"), link("Events →", "#events"));
+    box.append(title, benchmarkStrip(hub));
+    const ai = (hub.events?.standing || []).find((s) => s.subject === "ai");
+    if (ai)
+      box.append(
+        el(
+          "p",
+          `AI stocks ${ai.from_high > -0.0005 ? "at their high" : `${(ai.from_high * 100).toFixed(1).replace("-", "−")}% below their 52-week high`}`,
+          "cockpit-sub",
+        ),
+      );
+    return box;
+  }
+  function cockpitIdeas(cockpit) {
+    const box = el("article", undefined, "cockpit-card cockpit-ideas"),
+      ideas = cockpit?.ideas || [];
+    const title = el("div", undefined, "cockpit-card-head");
+    title.append(el("h2", "Top ideas"), link("All plays →", "#plays"));
+    box.append(title);
+    if (!ideas.length) {
+      box.append(
+        el(
+          "p",
+          "Plays appear after the worker's next options pass.",
+          "cockpit-sub",
+        ),
+      );
+      return box;
+    }
+    for (const p of ideas) {
+      const row = link("", `#plays/idea/${encodeURIComponent(p.idea_id)}`);
+      row.className = "cockpit-row";
+      const name = el("span", undefined, "cockpit-name");
+      name.append(
+        el(
+          "b",
+          `${p.symbol} ${money(p.strike)} ${(p.type || "").toLowerCase()}`,
+        ),
+        el("small", `${p.action} · ${p.expiration}`),
+      );
+      const chance = p.itm_kestrel ?? p.itm_market;
+      const value = el("span", undefined, "cockpit-value");
+      value.append(
+        el(
+          "b",
+          chance == null ? "—" : `${Math.round(chance * 100)}%`,
+          "accent",
+        ),
+        el("small", money(p.action === "SELL" ? p.max_loss : p.cost)),
+      );
+      row.append(name, value);
+      box.append(row);
+    }
+    if (ideas[0].category)
+      box.append(el("p", ideas[0].category, "cockpit-sub"));
+    return box;
+  }
   async function home(ticket, focus) {
     const [hub, contractScreen] = await Promise.all([
       api("home"),
@@ -245,6 +425,7 @@ const KestrelResearch = (() => {
     ]);
     if (ticket !== generation) return;
     app.className = "research-home";
+    if (focus !== "options") return cockpitHome(hub, ticket);
     const top = el("div", undefined, "hub-title"),
       title = el("div");
     title.append(
@@ -282,6 +463,11 @@ const KestrelResearch = (() => {
         ),
       );
     }
+    app.append(benchmarkStrip(hub));
+    return homeBody(hub, ticket, focus, contractScreen);
+  }
+  // The six index cards; on Home they sit inside the cockpit's market panel.
+  function benchmarkStrip(hub) {
     const benchmark = el("section", undefined, "benchmark-strip");
     benchmark.setAttribute("aria-label", "Market benchmarks");
     for (const item of hub.benchmarks) {
@@ -300,7 +486,9 @@ const KestrelResearch = (() => {
         : "No stored price history";
       benchmark.append(card);
     }
-    app.append(benchmark);
+    return benchmark;
+  }
+  async function homeBody(hub, ticket, focus, contractScreen) {
     const suggestions = document.getElementById("stock-symbols");
     suggestions.replaceChildren();
     for (const [symbol, card] of Object.entries(hub.stocks)) {

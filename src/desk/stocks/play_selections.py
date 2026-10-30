@@ -395,6 +395,45 @@ def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: b
     return {"idea": found, "tracking": current, "plan": prepared, "chart": chart}
 
 
+def cockpit(research: sqlite3.Connection, now: datetime, limit: int = 6) -> dict[str, Any]:
+    """Home's "Your plays": each open or queued selection, valued at its latest saved quotes against its entry.
+
+    The value is the latest stored tick per leg (bid for a bought leg, ask for a sold one), whatever its age; its
+    quote time is returned so the page can say how old it is. No provider call and no estimate fills a gap."""
+    open_sql = ("FROM stk_play_selections p WHERE NOT EXISTS (SELECT 1 FROM stk_play_selection_events e "
+                "WHERE e.selection_id=p.id AND e.kind IN ('CLOSE','CANCEL','EXPIRED_NO_ENTRY'))")
+    total = research.execute(f"SELECT COUNT(*) {open_sql}").fetchone()[0]
+    rows = research.execute(f"SELECT p.id {open_sql} ORDER BY p.confirmed_at DESC LIMIT ?",
+                            (limit,)).fetchall()
+    out: list[dict[str, Any]] = []
+    pnl_sum, priced = 0.0, 0
+    for (ident,) in rows:
+        current = ticket(research, ident, now)
+        play, entry = current["idea"]["play"], current["entry"]
+        item: dict[str, Any] = {"id": ident, "symbol": play["symbol"], "label": label(play),
+                                "action": play["action"], "state": current["state"], "quantity": current["quantity"],
+                                "chance": play.get("itm_kestrel", play.get("itm_market")), "pnl": None, "pct": None,
+                                "quoted_at": None, "expired": current["expired"]}
+        if entry is not None:
+            ticks = []
+            for leg in play["legs"]:
+                tick = research.execute("SELECT bid, ask, quoted_at FROM stk_track_ticks WHERE occ=? "
+                                        "ORDER BY at DESC LIMIT 1", (leg["occ"],)).fetchone()
+                ticks.append(tick)
+            usable = all(t is not None and t["quoted_at"] and t["bid"] is not None and t["ask"] is not None
+                         and math.isfinite(t["bid"]) and math.isfinite(t["ask"]) for t in ticks)
+            if usable:
+                value = sum(t["bid"] if leg["side"] == "buy" else -t["ask"]
+                            for leg, t in zip(play["legs"], ticks, strict=True))
+                result = pnl(play["action"], entry["price"], play["legs"], value, False)
+                item.update(pnl=round(result["pnl"] * current["quantity"], 2), pct=result["pct"],
+                            quoted_at=min(t["quoted_at"] for t in ticks))
+                pnl_sum += item["pnl"]
+                priced += 1
+        out.append(item)
+    return {"rows": out, "open": total, "priced": priced, "pnl": round(pnl_sum, 2) if priced else None}
+
+
 def listing(research: sqlite3.Connection, now: datetime, offset: int = 0, limit: int = 20) -> dict[str, Any]:
     rows = research.execute("SELECT id FROM stk_play_selections ORDER BY confirmed_at DESC,id LIMIT ? OFFSET ?",
                             (limit, offset)).fetchall()

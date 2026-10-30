@@ -1075,6 +1075,7 @@ async function refresh(initial = false) {
     snapshot = await api("snapshot");
     snapshot.worker_running ||= snapshot.collection?.running;
     workerState();
+    if (!previous) applyExplain(Boolean(snapshot.ui?.explain));
     statusLine.replaceChildren();
     statusLine.className = "";
     // Schwab ends its sign-in 7 days after the browser login; say so on every page before quotes stop.
@@ -1149,6 +1150,29 @@ function workerState() {
   pill.title = `PAPER worker ${running ? "running" : "paused"} · latest analysis ${snapshot?.asof || "not ready"} · ${number(snapshot?.listings || 0)} active listings`;
   document.getElementById("more-status").textContent = pill.title;
 }
+// Numbers first: explanatory captions hide until the ⓘ toggle shows them; the choice is saved for this desk.
+const explainToggle = document.getElementById("explain-toggle"),
+  moreExplain = document.getElementById("more-explain");
+function applyExplain(on) {
+  document.body.classList.toggle("numbers-first", !on);
+  explainToggle.setAttribute("aria-pressed", String(on));
+  explainToggle.title = on
+    ? "Explanations shown · click to hide"
+    : "Show explanations";
+  moreExplain.checked = on;
+}
+async function setExplain(on) {
+  applyExplain(on);
+  try {
+    snapshot.ui = await api("ui", { explain: on });
+  } catch (error) {
+    statusLine.textContent = error.message;
+    statusLine.className = "error";
+  }
+}
+explainToggle.onclick = () =>
+  setExplain(document.body.classList.contains("numbers-first"));
+moreExplain.onchange = () => setExplain(moreExplain.checked);
 // Phone: the More tab opens a sheet with the sections that do not fit in the tab bar.
 const moreButton = document.getElementById("more-button"),
   moreSheet = document.getElementById("more-sheet");

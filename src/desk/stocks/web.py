@@ -94,6 +94,16 @@ def reader(paths: DeskPaths, name: str) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def ui_prefs(paths: DeskPaths) -> dict[str, Any]:
+    """Display preferences; numbers first (explanations hidden behind the ⓘ toggle) unless chosen otherwise."""
+    try:
+        path = paths.home / "stocks-ui.json"
+        value = json.loads(path.read_text()) if path.exists() and path.stat().st_size < 4096 else {}
+    except (OSError, ValueError):
+        value = {}
+    return {"explain": value.get("explain") is True}
+
+
 def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
     from desk.stocks.options_view import overlay
 
@@ -125,6 +135,7 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
             "source_keys": {name: credentials.configured(name) for name in
                             ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "FINNHUB_API_KEY")},
             "price_progress": price_progress,
+            "ui": ui_prefs(paths),
             "options_research": options_view,
             "plays_tracking": tracking,
             "progress": current_progress,
@@ -524,8 +535,37 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
     @app.get("/api/stocks/home")
     def research_home() -> dict[str, Any]:
+        from desk.stocks.play_selections import cockpit, idea_id
+
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
-            return hub_home(market, research, preview=saved_view(paths, "research"), options_view=saved_view(paths, "options"))
+            value = hub_home(market, research, preview=saved_view(paths, "research"),
+                             options_view=saved_view(paths, "options"))
+            try:
+                mine = cockpit(research, utc_now())
+            except sqlite3.OperationalError:
+                mine = {"rows": [], "open": 0, "priced": 0, "pnl": None}
+        # Today's top ideas: the first Plays category's leaders, linked to their detail and calculator.
+        board, ideas = saved_view(paths, "plays") or {}, []
+        for category in board.get("categories", [])[:1]:
+            for play in category.get("plays", [])[:3]:
+                ideas.append({**{k: play.get(k) for k in ("symbol", "action", "type", "strike", "expiration", "cost",
+                                                          "max_loss", "itm_kestrel", "itm_market", "chance_label")},
+                              "category": category.get("title"),
+                              "idea_id": idea_id(board["asof"], category["id"], str(board.get("method", "unknown")),
+                                                 play)})
+        return {**value, "cockpit": {"plays": mine, "ideas": ideas, "ideas_asof": board.get("asof")}}
+
+    @app.post("/api/stocks/ui")
+    def ui_preferences(inputs: dict[str, Any]) -> dict[str, Any]:
+        """This desk's display preferences (numbers first, or explanations shown). Kept beside the other settings."""
+        if set(inputs) - {"explain"} or not isinstance(inputs.get("explain", False), bool):
+            raise HTTPException(422, "Unknown display preference")
+        value = {**ui_prefs(paths), **inputs}
+        paths.ensure()
+        from desk.stocks.connection import _atomic_private
+
+        _atomic_private(paths.home / "stocks-ui.json", json.dumps(value))
+        return value
 
     @app.get("/api/stocks/lists/{list_id}")
     def research_list(list_id: str) -> dict[str, Any]:
