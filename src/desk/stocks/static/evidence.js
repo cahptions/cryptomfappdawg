@@ -101,8 +101,10 @@ const KestrelEvidence = (() => {
         "primary",
       );
       run.disabled = Boolean(job.running);
-      const health = el("button", "Check data health");
-      actions.append(run, health);
+      // The health check lives in the Data health card, beside the results it produces.
+      const health = el("button", "Check data health", "primary");
+      health.type = "button";
+      actions.append(run);
       if (job.running && job.owned) {
         const cancel = el(
           "button",
@@ -271,7 +273,9 @@ const KestrelEvidence = (() => {
       }
       const healthSection = el("section", undefined, "screen-card");
       healthSection.id = "evidence-health";
-      healthSection.append(el("h2", "Data health"));
+      const healthHead = el("div", undefined, "section-heading");
+      healthHead.append(el("h2", "Data health"), health);
+      healthSection.append(healthHead);
       const healthOutput = el("div");
       drawHealth(healthOutput);
       healthSection.append(healthOutput);

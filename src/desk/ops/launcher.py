@@ -87,7 +87,7 @@ def install_launchers(paths: DeskPaths, python_executable: str, *, port: int = 8
         raise ValueError("unknown desk")
     ports = {"solana": port, "robinhood": rh_port, "stocks": stocks_port, "arbitrage": arbitrage_port}
     colours = {"solana": ("#0c1016", "#3cd2ff"), "robinhood": ("#000000", "#00c805"),
-               "stocks": ("#080b06", "#c2f43a"), "arbitrage": ('#080b08', '#c2f43a')}
+               "stocks": ("#08060c", "#b07cff"), "arbitrage": ('#080b08', '#c2f43a')}
     if any(not 1024 <= ports[desk] <= 65535 for desk in selected):
         raise ValueError("dashboard ports must be between 1024 and 65535")
     home = data_home or _data_home()
@@ -235,6 +235,13 @@ def open_window(url: str, desk: str, profiles: Path) -> list[str]:
 
 def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30, restart: bool = False) -> str:
     """Make sure the dashboard answers, then open it in its own window; returns the URL."""
+    url = ensure_running(desk, port, paths, wait_seconds=wait_seconds, restart=restart)
+    open_window(url, desk, paths.home / "windows")
+    return url
+
+
+def ensure_running(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30, restart: bool = False) -> str:
+    """Start (or, with ``restart``, safely restart) the dashboard in the background until it answers; no window."""
     url = f"http://127.0.0.1:{port}/"
     if desk == "stocks" and not restart and responding(url):
         from desk.stocks.runtime import server_is_current
@@ -261,9 +268,37 @@ def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 3
         if not server_is_current(url):
             raise DeskError("Stocks is responding from a different or older installation. No unrelated process was stopped. "
                             "Open the updated installation with: uv run desk stocks dashboard --restart --open")
-    open_window(url, desk, paths.home / "windows")
     return url
 
 
-__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "desktop_entry", "install_launchers", "monitors", "open_desk",
+UPDATE_BRANCH = "claude/funny-rubin-gq99vj"   # where KESTREL's updates are published
+COMMAND = """#!/bin/sh
+# KESTREL on this computer. Written by `uv run desk open --desk stocks --install`.
+#   kestrel           health: app, collector, last close, Schwab sign-in, a live test quote, jobs
+#   kestrel update    pull the latest version, install it, restart the app in the background
+#   kestrel open      open the app window
+cd {repo} || exit 1
+case "${{1:-status}}" in
+  status) exec {uv} run desk stocks status ;;
+  update) git pull --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync && exec {uv} run desk stocks restart ;;
+  open) exec {uv} run desk open --desk stocks ;;
+  *) echo "usage: kestrel [status | update | open]"; exit 2 ;;
+esac
+"""
+
+
+def install_command(repo: Path, bin_dir: Path, uv: str | None = None) -> Path:
+    """Write the ``kestrel`` command (status, update, open) into ``bin_dir``; usually ~/.local/bin."""
+    import shlex
+
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    path = bin_dir / "kestrel"
+    path.write_text(COMMAND.format(repo=shlex.quote(str(repo)), uv=shlex.quote(uv or shutil.which("uv") or "uv"),
+                                   branch=UPDATE_BRANCH), encoding="utf-8")
+    os.chmod(path, 0o700)                  # yours to run; nobody else on the computer
+    return path
+
+
+__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "desktop_entry", "ensure_running", "install_command",
+           "install_launchers", "monitors", "open_desk",
            "open_window", "responding", "saved_place", "screen_area", "window_slot"]

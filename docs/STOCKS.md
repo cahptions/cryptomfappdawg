@@ -115,6 +115,17 @@ evidence. The automatic worker refreshes these previews as well as advancing the
 Source provenance and limits are in [STOCKS_SOURCES.md](STOCKS_SOURCES.md). Never paste keys, codes or token files into chat.
 Environment variables override secrets.env, so remove an obsolete exported value if it overrides a new key.
 
+## The `kestrel` command
+
+`uv run desk open --desk stocks --install` also installs a `kestrel` command in `~/.local/bin`. Run it from any
+folder, over SSH too:
+
+- **`kestrel`** prints a plain-English health report and says which items need attention. It covers the app, the
+  collector, the last close analysed, stored prices, the Schwab sign-in, one live test quote, and any failing job.
+- **`kestrel update`** pulls the latest version, installs it and restarts the app in the background. Saved data and
+  PAPER preferences are kept.
+- **`kestrel open`** opens the app window.
+
 ## 3. Automatic collection and PAPER trading
 
 Opening Stocks starts `desk stocks paper --continuous --price-days 20` in the background. There is no24-hour

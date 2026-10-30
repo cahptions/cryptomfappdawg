@@ -61,6 +61,11 @@ def add_parser(sub: Any) -> None:
     for name in ("report", "validate", "learn"):
         commands.add_parser(name, help="stored PAPER report" if name == "report" else
                             "explicit offline historical research; no LIVE changes").set_defaults(func=run)
+    status = commands.add_parser("status", help="plain-English health: app, collector, last close, Schwab, jobs")
+    status.add_argument("--offline", action="store_true", help="skip the one live test quote")
+    status.set_defaults(func=run)
+    commands.add_parser("restart", help="restart the Stocks app in the background (after an update); no window"
+                        ).set_defaults(func=run)
     dash = commands.add_parser("dashboard", help="local Stocks dashboard with private Settings")
     dash.add_argument("--port", type=int)
     dash.add_argument("--open", action="store_true")
@@ -93,6 +98,19 @@ def run(args: argparse.Namespace) -> int:
     loaded = load_config(paths.config_dir)
     settings = loaded.settings.stocks
     action = args.stocks_command
+    if action == "status":
+        from desk.core.clock import utc_now
+        from desk.stocks import status
+
+        now = utc_now()
+        print(status.render(status.lines(paths, loaded, now, online=not args.offline), now))
+        return 0
+    if action == "restart":
+        from desk.ops.launcher import ensure_running
+
+        print("Restarting KESTREL with the installed version; saved data and PAPER preferences are kept.")
+        print(f"KESTREL is running: {ensure_running('stocks', settings.dashboard_port, paths, restart=True)}")
+        return 0
     if action == "connect":
         callback = args.callback_url or preferences(paths, settings)["callback_url"]
         with WorkerLock(paths, "stocks-worker"):

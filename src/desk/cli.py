@@ -848,6 +848,14 @@ def cmd_open(args: argparse.Namespace) -> int:
                                       stocks_port=ports["stocks"], desks=(args.desk,)):
             print(path)
         print("App installed in your application menu.")
+        if args.desk == "stocks":
+            from pathlib import Path
+
+            from desk.core.paths import REPO_ROOT
+            from desk.ops.launcher import install_command
+
+            command = install_command(REPO_ROOT, Path.home() / ".local" / "bin")
+            print(f"Command installed: {command}  (kestrel · kestrel update · kestrel open)")
     print(open_desk(args.desk, port, paths, **restart))
     return 0
 

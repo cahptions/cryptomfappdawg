@@ -294,6 +294,20 @@ const KestrelResearch = (() => {
       );
     return homeBody(hub, ticket, "stocks", null);
   }
+  // The oldest quote behind the P/L, so a number from yesterday never reads as live.
+  function quotedAt(rows) {
+    const times = rows
+      .map((r) => r.quoted_at)
+      .filter(Boolean)
+      .sort();
+    if (!times.length) return "";
+    return ` as of ${new Date(times[0]).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    })} ET`;
+  }
   function cockpitPlays(mine) {
     const box = el("article", undefined, "cockpit-card cockpit-plays"),
       rows = mine?.rows || [];
@@ -313,7 +327,7 @@ const KestrelResearch = (() => {
       el(
         "p",
         rows.length
-          ? `${mine.open} open · P/L at the latest saved quotes${mine.priced < rows.length ? ` · ${rows.length - mine.priced} waiting for a quote` : ""}`
+          ? `${mine.open} open · P/L at saved quotes${quotedAt(rows)}${mine.priced < rows.length ? ` · ${rows.length - mine.priced} waiting for a quote` : ""}`
           : "No plays tracked yet.",
         "cockpit-sub",
       ),
