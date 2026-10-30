@@ -301,7 +301,17 @@ def valuation_status(research: sqlite3.Connection, legs: list[dict[str, Any]], n
     if finished or (latest and latest["status"] == "settled"):
         value.update(state="final",message="This reference is finished; its recorded result is preserved.")
     elif not trading:
-        value.update(state="market_closed",message="Options market is closed. Showing the last saved value.")
+        # A closed market only excuses a value that reached the last session's close; an older one is stale.
+        last = (today if cal.is_trading_day(today) and now >= cal.session_close(today)
+                else cal.previous_trading_day(today))
+        if latest is not None and point_time(latest) < cal.session_close(last) - timedelta(minutes=30):
+            saved = cal.new_york(point_time(latest))
+            value.update(state="stale", message=(
+                f"No option quotes were saved after {saved:%a %b %-d, %-I:%M %p} ET, before the {last:%a %b %-d} close, "
+                "so this is not the closing value. Quotes resume while PAPER collection is running during market "
+                "hours with a working market-data connection."))
+        else:
+            value.update(state="market_closed",message="Options market is closed. Showing the last saved value.")
     else:
         quotes = [research.execute("SELECT * FROM stk_track_ticks WHERE occ=? AND session=? ORDER BY at DESC LIMIT 1",
                                    (leg["occ"],day_of(today))).fetchone() for leg in legs]

@@ -114,3 +114,15 @@ def test_tracking_uses_the_shared_session_close_instead_of_its_own_fixed_4pm(mon
     monkeypatch.setattr(cal,"session_close",lambda day:datetime.combine(day,early.replace(hour=13,minute=0).timetz()))
     assert pt.market_open(early)
     assert not pt.market_open(early.replace(hour=13,minute=2))
+
+
+@pytest.mark.parametrize("quoted,state", [(datetime(2026,10,28,13,5,tzinfo=cal.NEW_YORK), "stale"),
+                                          (datetime(2026,10,29,15,58,tzinfo=cal.NEW_YORK), "market_closed")])
+def test_after_hours_an_old_quote_is_stale_but_one_from_the_close_is_not(saved, quoted, state):
+    _paths,dbs,play = saved
+    before_open = datetime(2026,10,30,8,tzinfo=cal.NEW_YORK)
+    exits = {"close":{"latest":{"t":quoted.isoformat(),"at":quoted.isoformat(),"status":"quoted"}}}
+    status = ph.valuation_status(dbs.research,play["legs"],before_open,exits)
+    assert status["state"] == state and not status["market_open"]
+    if state == "stale":
+        assert "Wed Oct 28, 1:05 PM ET" in status["message"] and "Thu Oct 29 close" in status["message"]
