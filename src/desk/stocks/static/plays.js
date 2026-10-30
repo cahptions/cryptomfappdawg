@@ -368,7 +368,7 @@ const KestrelPlays = (() => {
       [kind, "Option type"],
       [action, "Buy or sell"],
       [maxCost, "Max cost / risk ($)"],
-      [minItm, "Minimum chance at expiry (%)"],
+      [minItm, "Min chance at expiry (%)"],
       [view, "Layout"],
     ]) {
       const label = el("label", undefined, "play-filter-field");
@@ -786,9 +786,12 @@ const KestrelPlays = (() => {
         body.append(grid);
       }
     }
-    app.append(
-      controls.element,
-      controls.budgets,
+    // Categories first (what kind of play), then a compact filter bar; the method notes close the page.
+    app.append(tabs, controls.element, controls.budgets, summary, body);
+    draw();
+    const method = el("details", undefined, "play-method");
+    method.append(
+      el("summary", "How plays are chosen and filtered"),
       el(
         "p",
         `Searching ${number(data.coverage.underlyings)} collected underlyings. Coverage grows as collection rotates; watchlist stocks are prioritized.`,
@@ -799,18 +802,13 @@ const KestrelPlays = (() => {
         "Cost / risk is for one contract per leg, including entry fees: purchase cost for buys; maximum loss for sells. Chance follows the card's expiry event: ITM, a break-even move, or a short option expiring worthless.",
         "caption muted play-filter-help",
       ),
-      summary,
-      tabs,
-      body,
-    );
-    draw();
-    app.append(
       el(
         "p",
         "Market = what the option's price implies. History = how often this stock moved that far in that many sessions, at today's volatility. KESTREL = a forecast blending implied and realized volatility, tilted by the committee only as far as its measured record allows, then calibrated against how past plays finished. Unusual activity is detected from quote snapshots (volume, open interest, quotes, changes between snapshots), not from exchange trade prints, so it cannot see trade direction for certain.",
         "muted caption",
       ),
     );
+    app.append(method);
   }
   // System → Plays tracking: what is followed live, how fresh, what waits, and what it costs.
   function tracking(t) {
