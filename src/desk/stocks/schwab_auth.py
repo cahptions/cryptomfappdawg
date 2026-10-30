@@ -18,6 +18,7 @@ import stat
 import tempfile
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -27,6 +28,7 @@ import httpx
 from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
 from desk.core.secrets import Secrets
+from desk.stocks.calendar import NEW_YORK
 
 AUTHORIZE_URL = "https://api.schwabapi.com/v1/oauth/authorize"
 TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"  # noqa: S105 -- public endpoint, not a credential
@@ -38,6 +40,19 @@ LOGIN_LIFETIME_DAYS = 7
 _ERROR_CODE = re.compile(r"^[A-Za-z_]{1,64}$")
 RELOGIN = ("Schwab sign-in has expired: Schwab requires a fresh browser login every 7 days. In Settings choose "
            "Start browser authorization and log in again; your app key and secret are kept.")
+# A sign-in that ends well before its 7 days was ended by Schwab, not by age. The usual cause is a newer sign-in with
+# the same app key on another computer: each computer needs its own Schwab app to stay signed in at the same time.
+EARLY_HOURS = 6.5 * 24
+
+
+def _iso(stamp: float | None) -> str | None:
+    return datetime.fromtimestamp(stamp, UTC).isoformat() if stamp is not None else None
+
+
+def _clock(stamp: float) -> str:
+    """A New York wall-clock time for messages, e.g. ``Fri 2:14 PM ET``."""
+    local = datetime.fromtimestamp(stamp, NEW_YORK)
+    return f"{local:%a} {local:%I:%M %p}".replace(" 0", " ") + " ET"
 
 
 class SchwabAuthError(DeskError):
@@ -178,9 +193,43 @@ class SchwabTokens:
     def state_path(self) -> Path:
         return self.path.with_name(self.path.stem + ".state.json")
 
-    def _mark_relogin(self, code: str | None) -> None:
-        self.state_path.write_text(json.dumps({"relogin_required_at": time.time(), "error": code}), encoding="utf-8")
+    def _mark_relogin(self, status: int, code: str | None) -> None:
+        self.state_path.write_text(json.dumps({"relogin_required_at": time.time(), "status": status, "error": code}),
+                                   encoding="utf-8")
         os.chmod(self.state_path, 0o600)
+
+    def ending(self) -> dict[str, Any] | None:
+        """When and how Schwab stopped accepting this computer's sign-in, from the marker and the kept token.
+
+        ``last_ok_at`` is the last refresh Schwab accepted, so the sign-in ended between it and ``ended_at``."""
+        if not self.relogin_required():
+            return None
+        try:
+            state = json.loads(self.state_path.read_text(encoding="utf-8"))
+            ended = float(state["relogin_required_at"])
+        except (OSError, ValueError, TypeError, KeyError):
+            return {"ended_at": None, "early": False, "reason": RELOGIN}
+        out: dict[str, Any] = {"ended_at": ended, "status": state.get("status"), "error": state.get("error"),
+                               "early": False, "reason": RELOGIN}
+        try:
+            token = self.read()
+        except SchwabAuthError:
+            return out
+        signed_in = float(token["authorized_at"])
+        last_ok = float(token.get("refreshed_at") or float(token["expires_at"]) - 1800)
+        hours = (ended - signed_in) / 3600
+        out.update(signed_in_at=signed_in, last_ok_at=max(signed_in, last_ok), hours=round(hours, 1),
+                   early=hours < EARLY_HOURS)
+        if out["early"]:
+            code = ", ".join(str(v) for v in (f"HTTP {state.get('status')}" if state.get("status") else None,
+                                               state.get("error")) if v)
+            out["reason"] = (
+                f"Schwab ended this computer's sign-in {hours:.1f} hours after you signed in here, not after 7 days: "
+                f"it stopped accepting it between {_clock(out['last_ok_at'])} and {_clock(ended)}"
+                f"{f' ({code})' if code else ''}. The usual cause is a newer sign-in with the same app key on another "
+                "computer; each computer needs its own Schwab app to stay signed in at the same time. In Settings "
+                "choose Start browser authorization to sign in again; your app key and secret are kept.")
+        return out
 
     def _clear_relogin(self) -> None:
         self.state_path.unlink(missing_ok=True)
@@ -200,12 +249,15 @@ class SchwabTokens:
 
     def _refused(self, grant: str, status: int, code: str | None) -> SchwabAuthError:
         detail = f"HTTP {status}{f', {code}' if code else ''}"
-        if code in ("invalid_client", "unauthorized_client") or (status == 401 and grant != "refresh_token"):
+        if grant == "refresh_token" and status in (400, 401):
+            # Schwab also answers an expired refresh token with invalid_client; a new login is the fix either way,
+            # and a wrong key or secret then shows up as a refused login code.
+            self._mark_relogin(status, code)
+            ending = self.ending() or {}
+            return SchwabLoginExpired(f"{ending.get('reason') or RELOGIN} ({detail})")
+        if code in ("invalid_client", "unauthorized_client") or status == 401:
             return SchwabAuthError(f"Schwab rejected the app key or secret ({detail}). In the developer portal check "
                                    "the app is Ready For Use, then copy its App Key and Secret into Settings again.")
-        if grant == "refresh_token" and status in (400, 401):
-            self._mark_relogin(code)
-            return SchwabLoginExpired(f"{RELOGIN} ({detail})")
         if grant == "authorization_code":
             return SchwabAuthError(f"Schwab refused the login code ({detail}). A code works once and only for about "
                                    "30 seconds, and the callback URL must match the app exactly; start browser "
@@ -242,8 +294,9 @@ class SchwabTokens:
                     or not math.isfinite(lifetime) or not 0 < lifetime <= 86400
                     or str(value.get("token_type", "Bearer")).lower() != "bearer"):
                 raise ValueError
-            return {"format": 1, "access_token": access, "refresh_token": refresh, "expires_at": time.time() + lifetime,
-                    "authorized_at": (previous or {}).get("authorized_at", time.time())}
+            now = time.time()
+            return {"format": 1, "access_token": access, "refresh_token": refresh, "expires_at": now + lifetime,
+                    "authorized_at": (previous or {}).get("authorized_at", now), "refreshed_at": now}
         except (KeyError, ValueError, TypeError) as exc:
             raise SchwabAuthError("Schwab token response is incomplete; stored credentials were retained") from exc
 
@@ -277,10 +330,19 @@ class SchwabTokens:
             out = {"connected": self.has_credentials, "credentials_set": self.has_credentials,
                    "access_expires_in_seconds": round(float(value["expires_at"]) - time.time()),
                    "authorization_age_days": round(age, 2), "login_days_left": round(max(0.0, left), 2),
-                   "relogin_required": False,
-                   "note": (f"Signed in {age:.1f} days ago. Quotes refresh automatically; Schwab needs a fresh "
-                            f"browser login every {LOGIN_LIFETIME_DAYS} days ({max(0.0, left):.1f} days left).")}
-            if self.relogin_required() or left <= 0:
+                   "signed_in_at": _iso(float(value["authorized_at"])), "relogin_required": False,
+                   "note": (f"Signed in here {_clock(float(value['authorized_at']))} ({age:.1f} days ago). Quotes "
+                            f"refresh automatically; Schwab needs a fresh browser login every {LOGIN_LIFETIME_DAYS} "
+                            f"days ({max(0.0, left):.1f} days left).")}
+            ending = self.ending()
+            if ending or left <= 0:
+                del out["note"]               # "days left" would contradict the ended sign-in
+            if ending:
+                out.update(connected=False, relogin_required=True, reason=ending["reason"],
+                           ended_early=ending["early"], ended_after_hours=ending.get("hours"),
+                           ended_at=_iso(ending["ended_at"]), last_ok_at=_iso(ending.get("last_ok_at")),
+                           error=ending.get("error"))
+            elif left <= 0:
                 out.update(connected=False, relogin_required=True, reason=RELOGIN)
             return out
         except SchwabAuthError as exc:

@@ -35,7 +35,7 @@ def test_status_reads_this_desk_in_plain_words(tmp_path: Path) -> None:
         assert by["App"][0] is False and "kestrel open" in by["App"][1]
         assert by["Collector"] == (False, "paused · use Start PAPER in the app")
         assert by["Prices"][0] and by["Prices"][1].startswith("through Wed Oct 21")
-        assert by["Schwab"][0] is False and "Open Schwab authorization" in by["Schwab"][1]
+        assert by["Schwab"] == (False, "not signed in · sign in again: KESTREL → Settings → Start browser authorization")
         assert by["Last close"] == (False, "nothing analysed yet")
         assert "Live quote" not in by
         text = status.render(found, NOW)
@@ -43,3 +43,14 @@ def test_status_reads_this_desk_in_plain_words(tmp_path: Path) -> None:
         assert text.endswith("need attention.")
     finally:
         w.close()
+
+
+def test_schwab_line_gives_the_times_to_compare_across_computers() -> None:
+    ok, _, text = status._schwab({"connected": True, "relogin_required": False, "login_days_left": 6.8,
+                                  "signed_in_at": "2026-10-30T13:12:00+00:00"})
+    assert ok and text == "signed in here Fri Oct 30, 9:12 AM ET · 6.8 days left"
+    ok, _, text = status._schwab({"connected": False, "relogin_required": True, "ended_early": True,
+                                  "ended_after_hours": 4.9, "error": "invalid_grant",
+                                  "last_ok_at": "2026-10-30T17:44:00+00:00", "ended_at": "2026-10-30T18:14:00+00:00"})
+    assert not ok and text.startswith("ended 4.9 h after signing in here, between Fri Oct 30, 1:44 PM ET and "
+                                      "Fri Oct 30, 2:14 PM ET (invalid_grant)")

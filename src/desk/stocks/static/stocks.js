@@ -955,9 +955,10 @@ async function settingsPage() {
           el(
             "p",
             data.schwab.relogin_required
-              ? "Schwab sign-in expired. Log in again with Start browser authorization above."
+              ? data.schwab.reason ||
+                  "Schwab sign-in expired. Log in again with Start browser authorization above."
               : data.schwab.connected
-                ? "Authorization saved on this laptop."
+                ? "Authorization saved on this computer."
                 : "Not authorized yet.",
             data.schwab.relogin_required ? "error" : "",
           ),
@@ -973,8 +974,9 @@ async function settingsPage() {
             data.login?.pending
               ? "Browser login pending · expires after five minutes."
               : data.login?.error ||
-                  data.schwab.note ||
-                  data.schwab.reason ||
+                  (data.schwab.relogin_required
+                    ? ""
+                    : data.schwab.note || data.schwab.reason) ||
                   "",
             "muted",
           ),
@@ -1085,15 +1087,23 @@ async function refresh(initial = false) {
       schwab.credentials_set
     ) {
       const left = schwab.login_days_left;
+      // Ended early (hours, not 7 days) usually means a newer sign-in on the other computer; Settings says when.
       const warning = schwab.relogin_required
-        ? "Schwab sign-in expired: live quotes and play tracking are stopped."
+        ? schwab.ended_early
+          ? `Schwab ended this computer's sign-in after ${schwab.ended_after_hours} hours, not 7 days: live quotes and play tracking are stopped.`
+          : "Schwab sign-in expired: live quotes and play tracking are stopped."
         : left != null && left < 1.5
           ? `Schwab sign-in ends in ${left < 1 ? `${Math.max(1, Math.round(left * 24))} hours` : "about a day"}: log in again before then so tracking has no gap.`
           : null;
       if (warning) {
         statusLine.append(
           el("strong", warning + " "),
-          link("Log in again in Settings →", "#settings"),
+          link(
+            schwab.ended_early
+              ? "Why, and sign in again →"
+              : "Log in again in Settings →",
+            "#settings",
+          ),
         );
         statusLine.className = schwab.relogin_required
           ? "status-alert"

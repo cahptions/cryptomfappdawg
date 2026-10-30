@@ -242,7 +242,7 @@ def test_status_counts_down_the_seven_day_login_window(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("grant,response,expected", [
-    ("refresh_token", httpx.Response(401, json={"error": "invalid_client"}), "app key or secret"),
+    ("authorization_code", httpx.Response(401, json={"error": "invalid_client"}), "app key or secret"),
     ("authorization_code", httpx.Response(400, json={"error": "invalid_request"}), "login code"),
 ])
 def test_refusals_say_what_to_fix_without_marking_a_relogin(tmp_path: Path, grant: str, response: httpx.Response,
@@ -252,3 +252,42 @@ def test_refusals_say_what_to_fix_without_marking_a_relogin(tmp_path: Path, gran
     with pytest.raises(SchwabAuthError) as error:
         tokens._headers() if grant == "refresh_token" else tokens.exchange("code", CALLBACK)
     assert expected in str(error.value) and not tokens.relogin_required()
+
+
+def test_a_refused_refresh_is_not_retried_even_as_invalid_client(tmp_path: Path) -> None:
+    """Schwab answers an expired refresh token with invalid_client: asking again on every request cannot help."""
+    calls = []
+
+    def respond(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(401, json={"error": "invalid_client"})
+
+    tokens = SchwabTokens(tmp_path / "tokens.json", CREDS, transport=httpx.MockTransport(respond))
+    stored(tokens, lifetime=-1)
+    for _ in range(3):
+        with pytest.raises(SchwabLoginExpired):
+            tokens._headers()
+    assert len(calls) == 1 and tokens.relogin_required()
+
+
+def test_an_early_ending_says_when_and_points_at_the_other_computer(tmp_path: Path) -> None:
+    tokens = SchwabTokens(tmp_path / "tokens.json", CREDS, transport=httpx.MockTransport(
+        lambda _: httpx.Response(400, json={"error": "invalid_grant"})))
+    now = time.time()
+    tokens.save({"format": 1, "access_token": "a", "refresh_token": "r", "expires_at": now - 60,
+                 "authorized_at": now - 5 * 3600, "refreshed_at": now - 1860})
+    with pytest.raises(SchwabLoginExpired) as error:
+        tokens._headers()
+    assert "5.0 hours after you signed in here" in str(error.value) and "another computer" in str(error.value)
+    status = tokens.status()
+    assert status["relogin_required"] and status["ended_early"] and status["ended_after_hours"] == 5.0
+    assert status["error"] == "invalid_grant" and "HTTP 400, invalid_grant" in status["reason"]
+    assert status["last_ok_at"] < status["ended_at"] and "between" in status["reason"]
+    # Near the end of the 7 days it is the ordinary weekly login, named as such.
+    stale = SchwabTokens(tmp_path / "old.json", CREDS, transport=httpx.MockTransport(
+        lambda _: httpx.Response(400, json={"error": "invalid_grant"})))
+    stale.save({"format": 1, "access_token": "a", "refresh_token": "r", "expires_at": now - 60,
+                "authorized_at": now - 6.9 * 86400})
+    with pytest.raises(SchwabLoginExpired):
+        stale._headers()
+    assert not stale.status()["ended_early"] and "every 7 days" in stale.status()["reason"]

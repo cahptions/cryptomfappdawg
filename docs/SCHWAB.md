@@ -133,9 +133,25 @@ request with HTTP 400 (or 401). The app then:
 - counts down the days left in the 7-day window while the login is still valid.
 
 Fix: Settings → **Start browser authorization** → **Open Schwab authorization** → log in, then **Test market-data
-access**. The app key and secret are kept. Other refusals are named too: `invalid_client` means the key or secret
-does not match an app that is Ready For Use; a refused login code means it was used twice, took longer than about 30
-seconds, or the callback URL does not match the app exactly.
+access**. The app key and secret are kept. A refused refresh is never retried, whatever its code: Schwab also answers
+an expired refresh token with `invalid_client` ([schwab-py](https://schwab-py.readthedocs.io/en/latest/auth.html)),
+and asking again on every request cannot help. On a login, `invalid_client` means the key or secret does not match an
+app that is Ready For Use; a refused login code means it was used twice, took longer than about 30 seconds, or the
+callback URL does not match the app exactly.
+
+### Ended after hours, not 7 days: two computers, one Schwab app
+
+Each computer keeps its own sign-in (`~/.config/desk/schwab-token.json`). When both use the **same app key**, a new
+sign-in on one computer is the usual reason Schwab stops accepting the other's within hours. The app tells the two
+endings apart: when Schwab refuses a sign-in more than half a day short of its 7 days, Settings, the alert on every
+page and `kestrel` say how many hours it lasted and the window in which Schwab stopped accepting it (between the last
+refresh it accepted and the refusal). Run `kestrel` on both computers: if one computer's window contains the other's
+"signed in here" time, that sign-in ended it.
+
+The fix is one Schwab app per computer (developer.schwab.com → Create App, same Market Data product and callback URL;
+enter its App Key and Secret in that computer's Settings once it is Ready For Use, then sign in), or signing in on one
+computer only. Copying a token file between computers is not a fix: both would refresh the same token, and schwab-py
+warns the slower one gets locked out.
 
 ## Logging in from another computer over SSH
 

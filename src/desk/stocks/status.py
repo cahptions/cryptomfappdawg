@@ -54,6 +54,22 @@ async def _live(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases) ->
         await suite.aclose()
 
 
+def _schwab(schwab: dict[str, Any]) -> Line:
+    """Signed in since when, or when Schwab ended it: run on both computers, the times show which sign-in ended which."""
+    if schwab.get("connected") and not schwab.get("relogin_required"):
+        return True, "Schwab", (f"signed in here {_time(schwab.get('signed_in_at'))} · "
+                                f"{schwab.get('login_days_left', 0):.1f} days left")
+    fix = "sign in again: KESTREL → Settings → Start browser authorization"
+    if schwab.get("ended_early"):
+        code = f" ({schwab['error']})" if schwab.get("error") else ""
+        return False, "Schwab", (f"ended {schwab.get('ended_after_hours')} h after signing in here, between "
+                                 f"{_time(schwab.get('last_ok_at'))} and {_time(schwab.get('ended_at'))}{code}; a "
+                                 f"newer sign-in on another computer does this · {fix}")
+    if schwab.get("relogin_required"):
+        return False, "Schwab", f"the 7-day sign-in ended · {fix}"
+    return False, "Schwab", f"not signed in · {fix}"
+
+
 def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool = True) -> list[Line]:
     from desk.stocks.connection import connection_status
 
@@ -79,9 +95,7 @@ def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool
         out.append((row is not None, "Prices", f"through {_day(date_of(row[0]))} ({row[1].replace('_', ' ')})"
                     if row else "none stored yet"))
         schwab: dict[str, Any] = connection_status(paths, settings, load_secrets(paths.secrets_file))["schwab"]
-        signed_in = bool(schwab.get("connected")) and not schwab.get("relogin_required")
-        out.append((signed_in, "Schwab", (schwab.get("note") or "signed in") if signed_in else
-                    "sign-in needed: open KESTREL → Settings → Open Schwab authorization"))
+        out.append(_schwab(schwab))
         if online:
             out.append(asyncio.run(_live(paths, loaded, dbs)))
         jobs = market.jobs()
