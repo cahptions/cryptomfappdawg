@@ -21,6 +21,9 @@ def test_kestrel_command_is_a_private_valid_script_with_status_update_and_open(t
     assert "cd /home/neo/kestrel" in text and "/home/neo/.local/bin/uv run desk stocks status" in text
     assert f'git pull --ff-only origin "${{KESTREL_BRANCH:-{UPDATE_BRANCH}}}"' in text
     assert "run desk stocks restart" in text and "run desk open --desk stocks" in text
+    assert "signin) exec /home/neo/.local/bin/uv run desk stocks connect --manual" in text
+    assert not (tmp_path / "bin" / ".kestrel.new").exists()
+    assert install_command(Path("/home/neo/kestrel"), tmp_path / "bin", uv="uv") == path     # rewritten in place
     assert subprocess.run(["sh", "-n", str(path)], check=False).returncode == 0       # parses as POSIX sh
     usage = subprocess.run(["sh", str(path), "nonsense"], capture_output=True, text=True, check=False,
                            cwd=tmp_path, env={**os.environ, "PATH": "/usr/bin:/bin"})

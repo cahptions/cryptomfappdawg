@@ -926,7 +926,7 @@ async function settingsPage() {
     "Copy Client ID and Client Secret from the approved Schwab app into these fields. Choose Schwab market data, keep the registered callback identical, then click Save privately. Blank fields preserve already saved values.",
     "Click Start browser authorization, then Open Schwab authorization. Complete the broker login in your browser. Allow a self-signed warning only for your exact local callback address.",
     "Choose Test market-data access below. This checks a SPY quote through your selected connection and places no order.",
-    "Using this desk from another computer over SSH? Schwab sends your browser to https://127.0.0.1:8182 after login, and that address must reach this laptop. Forward both ports, then start authorization again: ssh -N -L 8767:127.0.0.1:8767 -L 8182:127.0.0.1:8182 you@laptop",
+    "Viewing this desk from another computer over SSH? Sign in from the SSH terminal instead: run kestrel signin, open the link it prints, log in, then paste the final address (it will fail to load; that is expected) at the hidden prompt and press Enter. The app keeps running.",
     "If Schwab rejects the local callback registration, a free Tailscale .ts.net HTTPS hostname is the optional fallback. Read docs/SCHWAB.md before configuring Serve; KESTREL never enables public Funnel.",
   ]) {
     steps.append(el("li", text));

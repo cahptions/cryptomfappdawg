@@ -125,6 +125,11 @@ folder, over SSH too:
 - **`kestrel update`** pulls the latest version, installs it and restarts the app in the background. Saved data and
   PAPER preferences are kept.
 - **`kestrel open`** opens the app window.
+- **`kestrel signin`** does the weekly Schwab sign-in from the terminal, over SSH too, while the app keeps running.
+  Open the printed link in any browser, log in, then paste the final address (it fails to load; that is expected)
+  at the hidden prompt and press Enter within about 30 seconds.
+
+`kestrel update` also refreshes the `kestrel` command itself, so new subcommands arrive with updates.
 
 ## 3. Automatic collection and PAPER trading
 

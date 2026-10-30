@@ -155,6 +155,13 @@ warns the slower one gets locked out.
 
 ## Logging in from another computer over SSH
 
+Simplest: in the SSH terminal run **`kestrel signin`** (`uv run desk stocks connect --manual`). Open the printed link
+in the browser you are using, log in, copy the complete final address from the address bar (the page fails to load;
+that is expected) and paste it at the hidden prompt within about 30 seconds. Nothing is echoed; press Enter. The app
+and its collector keep running, and nothing needs forwarding.
+
+The rest of this section is the browser route through the dashboard's own Settings page.
+
 The dashboard (8767) and the OAuth callback listener (8182) run on the laptop and listen on 127.0.0.1 only. After
 login Schwab redirects *your browser* to `https://127.0.0.1:8182/oauth/callback?...`; on another computer that
 address means that computer, so the page cannot load and the login is not saved. Forward both ports in one SSH

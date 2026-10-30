@@ -291,3 +291,28 @@ def test_an_early_ending_says_when_and_points_at_the_other_computer(tmp_path: Pa
     with pytest.raises(SchwabLoginExpired):
         stale._headers()
     assert not stale.status()["ended_early"] and "every 7 days" in stale.status()["reason"]
+
+
+def test_kestrel_signin_runs_beside_the_collector_once_schwab_is_chosen(tmp_path: Path,
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The weekly sign-in over SSH changes no setting, so it does not wait for (or stop) the running collector."""
+    from argparse import Namespace
+
+    from desk.core.worker_lock import WorkerBusy, WorkerLock
+    from desk.stocks.cli import run
+
+    paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "private" / "secrets.env")
+    paths.secrets_file.parent.mkdir()
+    monkeypatch.setattr(DeskPaths, "from_env", lambda: paths)
+    monkeypatch.setattr("secrets.token_urlsafe", lambda _: "fixed-state")
+    monkeypatch.setattr("getpass.getpass", lambda _: f"{CALLBACK}?code=abc&state=fixed-state")
+    exchanged: list[tuple[str, str]] = []
+    monkeypatch.setattr(SchwabTokens, "exchange", lambda self, code, callback: exchanged.append((code, callback)))
+    signin = Namespace(stocks_command="connect", callback_url=None, manual=True, listen_port=None)
+    # The first connection (choosing Schwab) still waits for the collector.
+    with WorkerLock(paths, "stocks-worker"), pytest.raises(WorkerBusy):
+        run(signin)
+    save_connection(paths, app_key="test-app-key", app_secret="test-app-secret", callback=CALLBACK, provider="schwab")
+    with WorkerLock(paths, "stocks-worker"):
+        assert run(signin) == 0
+    assert exchanged == [("abc", CALLBACK)]

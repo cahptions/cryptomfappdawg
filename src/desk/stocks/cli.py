@@ -106,15 +106,25 @@ def run(args: argparse.Namespace) -> int:
         print(status.render(status.lines(paths, loaded, now, online=not args.offline), now))
         return 0
     if action == "restart":
-        from desk.ops.launcher import ensure_running
+        import os
+        from pathlib import Path
 
+        from desk.core.paths import REPO_ROOT
+        from desk.ops.launcher import ensure_running, install_command
+
+        command = Path.home() / ".local" / "bin" / "kestrel"
+        if command.is_file():              # `kestrel update` brings new kestrel subcommands with it
+            install_command(REPO_ROOT, command.parent, uv=os.environ.get("UV"))
         print("Restarting KESTREL with the installed version; saved data and PAPER preferences are kept.")
         print(f"KESTREL is running: {ensure_running('stocks', settings.dashboard_port, paths, restart=True)}")
         return 0
     if action == "connect":
-        callback = args.callback_url or preferences(paths, settings)["callback_url"]
-        with WorkerLock(paths, "stocks-worker"):
-            save_connection(paths, app_key="", app_secret="", callback=callback, provider="schwab")
+        current = preferences(paths, settings)
+        callback = args.callback_url or current["callback_url"]
+        if current != {"options_provider": "schwab", "callback_url": callback}:
+            # Changing the connection waits for the collector; the weekly sign-in changes nothing and runs alongside.
+            with WorkerLock(paths, "stocks-worker"):
+                save_connection(paths, app_key="", app_secret="", callback=callback, provider="schwab")
         if args.manual:
             import secrets
 

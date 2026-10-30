@@ -277,25 +277,32 @@ COMMAND = """#!/bin/sh
 #   kestrel           health: app, collector, last close, Schwab sign-in, a live test quote, jobs
 #   kestrel update    pull the latest version, install it, restart the app in the background
 #   kestrel open      open the app window
+#   kestrel signin    the weekly Schwab sign-in from this terminal, over SSH too: open the printed link in any
+#                     browser, log in, then paste the final address (it may fail to load) at the hidden prompt
 cd {repo} || exit 1
 case "${{1:-status}}" in
   status) exec {uv} run desk stocks status ;;
   update) git pull --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync && exec {uv} run desk stocks restart ;;
   open) exec {uv} run desk open --desk stocks ;;
-  *) echo "usage: kestrel [status | update | open]"; exit 2 ;;
+  signin) exec {uv} run desk stocks connect --manual ;;
+  *) echo "usage: kestrel [status | update | open | signin]"; exit 2 ;;
 esac
 """
 
 
 def install_command(repo: Path, bin_dir: Path, uv: str | None = None) -> Path:
-    """Write the ``kestrel`` command (status, update, open) into ``bin_dir``; usually ~/.local/bin."""
+    """Write the ``kestrel`` command (status, update, open, signin) into ``bin_dir``; usually ~/.local/bin.
+
+    Written beside and renamed over the old file, so a ``kestrel update`` that is still running is never cut short."""
     import shlex
 
     bin_dir.mkdir(parents=True, exist_ok=True)
     path = bin_dir / "kestrel"
-    path.write_text(COMMAND.format(repo=shlex.quote(str(repo)), uv=shlex.quote(uv or shutil.which("uv") or "uv"),
-                                   branch=UPDATE_BRANCH), encoding="utf-8")
-    os.chmod(path, 0o700)                  # yours to run; nobody else on the computer
+    fresh = bin_dir / ".kestrel.new"
+    fresh.write_text(COMMAND.format(repo=shlex.quote(str(repo)), uv=shlex.quote(uv or shutil.which("uv") or "uv"),
+                                    branch=UPDATE_BRANCH), encoding="utf-8")
+    os.chmod(fresh, 0o700)                 # yours to run; nobody else on the computer
+    os.replace(fresh, path)
     return path
 
 
