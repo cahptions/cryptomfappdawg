@@ -72,41 +72,67 @@ def test_remote_kestrel_runs_each_command_on_the_other_computer(tmp_path: Path) 
     assert subprocess.run(["sh", str(script), "nonsense"], capture_output=True, check=False, env=env).returncode == 2
 
 
-def _world(monkeypatch: pytest.MonkeyPatch, *, listening: bool, answers: list[bool], ssh: int = 0) -> dict:
+def _world(monkeypatch: pytest.MonkeyPatch, *, answering: set[int] = frozenset(), listening: set[int] = frozenset(),
+           ssh: list[int] | None = None, tunnel_answers: bool = True) -> dict:
+    """``answering``/``listening``: local ports; ``ssh``: exit codes of the ping/start calls in order."""
     seen: dict = {"commands": [], "windows": []}
-    monkeypatch.setattr(launcher, "responding", lambda url: False)
-    monkeypatch.setattr(launcher, "_listening", lambda port: listening)
-    monkeypatch.setattr(launcher, "_answers", lambda url, seconds: answers.pop(0))
-    monkeypatch.setattr(launcher, "_quiet", lambda command, timeout=30: seen["commands"].append(command) or ssh)
+    codes = list(ssh or [])
+    monkeypatch.setattr(launcher, "responding", lambda url: int(url.rsplit(":", 1)[1].strip("/")) in answering)
+    monkeypatch.setattr(launcher, "_listening", lambda port: port in listening)
+    monkeypatch.setattr(launcher, "_answers", lambda url, seconds: tunnel_answers)
+    monkeypatch.setattr(launcher, "notify", lambda text: None)
+
+    def quiet(command: list[str], timeout: float = 30) -> int:
+        seen["commands"].append(command)
+        return 0 if "-L" in command else codes.pop(0)
+
+    monkeypatch.setattr(launcher, "_quiet", quiet)
     monkeypatch.setattr(launcher, "open_window", lambda url, desk, profiles: seen["windows"].append(url))
     return seen
 
 
-def test_open_starts_a_background_tunnel_then_the_window(paths: DeskPaths, monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _world(monkeypatch, listening=False, answers=[True])
+def test_a_tunnel_that_already_answers_is_reused(paths: DeskPaths, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _world(monkeypatch, answering={18768})
+    assert launcher.remote_window(HP, 8767, paths) == "http://127.0.0.1:18768/"
+    assert seen["commands"] == []
+
+
+def test_the_hp_is_asked_directly_then_a_background_tunnel_opens(paths: DeskPaths,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _world(monkeypatch, ssh=[0])
     assert launcher.remote_window(HP, 8767, paths) == "http://127.0.0.1:18767/"
-    [tunnel] = seen["commands"]
-    assert tunnel[0] == "ssh" and "BatchMode=yes" in tunnel and "ExitOnForwardFailure=yes" in tunnel
+    ping, tunnel = seen["commands"]
+    assert ping[:-1] == [*launcher.SSH, HP] and "http://127.0.0.1:8767/" in ping[-1]
+    assert "BatchMode=yes" in tunnel and "ExitOnForwardFailure=yes" in tunnel
     assert tunnel[-5:] == ["-f", "-N", "-L", "18767:127.0.0.1:8767", HP]
     assert seen["windows"] == ["http://127.0.0.1:18767/"]
 
 
-def test_an_unreachable_computer_is_named_and_no_window_opens(paths: DeskPaths,
-                                                              monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _world(monkeypatch, listening=False, answers=[], ssh=255)
-    with pytest.raises(DeskError, match=f"Could not reach {HP}"):
+def test_a_stuck_old_tunnel_on_18767_is_stepped_over(paths: DeskPaths, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _world(monkeypatch, listening={18767}, ssh=[0])
+    assert launcher.remote_window(HP, 8767, paths) == "http://127.0.0.1:18768/"
+    assert seen["commands"][-1][-2] == "18768:127.0.0.1:8767"
+
+
+def test_a_stopped_app_is_started_there_once(paths: DeskPaths, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _world(monkeypatch, ssh=[1, 0, 0])                   # not answering, start, answering
+    launcher.remote_window(HP, 8767, paths)
+    assert seen["commands"][1] == [*launcher.SSH, HP, launcher._START] and "kestrel restart" in launcher._START
+    assert seen["windows"] == ["http://127.0.0.1:18767/"]
+    seen = _world(monkeypatch, ssh=[1, 1, 1])                   # still not answering: say how to update it there
+    with pytest.raises(DeskError, match=r"did not start\. Update it there once"):
         launcher.remote_window(HP, 8767, paths)
     assert seen["windows"] == []
 
 
-def test_a_live_tunnel_is_reused_and_a_stopped_app_is_started_there(paths: DeskPaths,
-                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _world(monkeypatch, listening=True, answers=[False, True])
-    launcher.remote_window(HP, 8767, paths)
-    assert seen["commands"] == [[*launcher.SSH, HP, "~/.local/bin/kestrel restart"]]   # no second tunnel
-    assert seen["windows"] == ["http://127.0.0.1:18767/"]
-    seen = _world(monkeypatch, listening=True, answers=[False, False])
-    with pytest.raises(DeskError, match="not running there"):
+def test_an_unreachable_computer_is_named_and_no_window_opens(paths: DeskPaths,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _world(monkeypatch, ssh=[255])
+    with pytest.raises(DeskError, match=f"Could not reach {HP}"):
+        launcher.remote_window(HP, 8767, paths)
+    assert seen["windows"] == [] and len(seen["commands"]) == 1
+    _world(monkeypatch, ssh=[0], tunnel_answers=False)
+    with pytest.raises(DeskError, match="connection to it from here did not open"):
         launcher.remote_window(HP, 8767, paths)
 
 

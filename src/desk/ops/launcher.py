@@ -184,21 +184,48 @@ def _answers(url: str, seconds: float) -> bool:
     return True
 
 
-def remote_window(host: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30) -> str:
-    """Open ``host``'s Stocks desk here through an SSH tunnel: started once, reused by later opens, and gone when
-    the other computer is. If the tunnel is up but the app is not running there, it is started there."""
-    local = port + STOCKS_REMOTE_OFFSET
-    url = f"http://127.0.0.1:{local}/"
-    if not responding(url):
-        if not _listening(local):
-            tunnel = [*SSH, "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30", "-o",
-                      "ServerAliveCountMax=3", "-f", "-N", "-L", f"{local}:127.0.0.1:{port}", host]
-            if _quiet(tunnel) != 0:
-                raise DeskError(f"Could not reach {host}. Is it on and on this network? Check with: ssh {host}")
-        if not _answers(url, 5):
-            _quiet([*SSH, host, "~/.local/bin/kestrel restart"], timeout=90)
-            if not _answers(url, wait_seconds):
-                raise DeskError(f"{host} answered, but KESTREL Stocks is not running there. On it, run: kestrel")
+# Run on the other computer: is its Stocks app answering? Then: start it, with the kestrel command or without it.
+_PING = ("py=$(command -v python3 || echo ~/kestrel/.venv/bin/python); \"$py\" -c "
+         "'import urllib.request as u; u.urlopen(\"http://127.0.0.1:{port}/\", timeout=5)'")
+_START = "~/.local/bin/kestrel restart || (cd ~/kestrel && ~/.local/bin/uv run desk stocks restart)"
+
+
+def remote_window(host: str, port: int, paths: DeskPaths) -> str:
+    """Open ``host``'s Stocks desk here through an SSH tunnel.
+
+    A tunnel that already answers is reused. Otherwise the other computer is asked directly whether its app is
+    running (and it is started there if not), then a new tunnel takes the first free local port from 18767 up, so
+    an old, stuck connection holding 18767 is stepped over rather than waited on."""
+    ports = range(port + STOCKS_REMOTE_OFFSET, port + STOCKS_REMOTE_OFFSET + 5)
+    for local in ports:
+        if responding(f"http://127.0.0.1:{local}/"):
+            return _show(f"http://127.0.0.1:{local}/", paths)
+    print(f"Connecting to {host}…", flush=True)
+    ping = [*SSH, host, _PING.format(port=port)]
+    answered = _quiet(ping, timeout=20)
+    if answered == 255:                                  # ssh's own failure: off, asleep or another network
+        raise DeskError(f"Could not reach {host}. Is it on and on this network? Check with: ssh {host}")
+    if answered != 0:
+        print(f"KESTREL Stocks is not running on {host}; starting it there (up to a minute)…", flush=True)
+        notify(f"Starting KESTREL Stocks on {host}…")
+        _quiet([*SSH, host, _START], timeout=120)
+        if _quiet(ping, timeout=20) != 0:
+            raise DeskError(f"KESTREL Stocks is not running on {host} and did not start. Update it there once: "
+                            f"ssh {host}, then: cd ~/kestrel && git pull origin {UPDATE_BRANCH} && uv sync && "
+                            "uv run desk open --desk stocks --install")
+    free = next((p for p in ports if not _listening(p)), None)
+    if free is None:
+        raise DeskError(f"Local ports {ports[0]}–{ports[-1]} are all held by old connections; restart this computer")
+    tunnel = [*SSH, "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+              "-f", "-N", "-L", f"{free}:127.0.0.1:{port}", host]
+    url = f"http://127.0.0.1:{free}/"
+    if _quiet(tunnel) != 0 or not _answers(url, 10):
+        raise DeskError(f"{host}'s KESTREL is running, but the connection to it from here did not open. "
+                        f"Check with: ssh {host}")
+    return _show(url, paths)
+
+
+def _show(url: str, paths: DeskPaths) -> str:
     open_window(url, "stocks", paths.home / "windows")
     return url
 
