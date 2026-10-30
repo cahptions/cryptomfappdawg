@@ -804,15 +804,60 @@ li::marker {
 }
 
 /* ── Older shared pieces ─────────────────────────────────────────────── */
+/* Settings: each free source is a card in a two-column grid; saved ones carry an accent edge. */
+.source-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.source-form > button,
+.source-form > p {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
 .source-step {
-  margin-bottom: 1rem;
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.source-step.saved {
+  border-color: var(--accent-line);
+}
+.source-step > label {
+  margin: 0 0 4px;
+  font-size: var(--text-md);
+  font-weight: 650;
+  color: var(--text-strong);
+}
+.source-step > p {
+  flex: 1;
+  margin: 4px 0 8px;
+  font-size: var(--text-sm);
 }
 .source-step input {
   display: block;
-  width: min(100%, 38rem);
+  width: 100%;
+  max-width: none;
   margin: 0.75rem 0 0.4rem;
+}
+.source-step.saved .source-presence {
+  color: var(--accent);
+}
+.table-wrap.wrap-cells td {
+  min-width: 180px;
+  white-space: normal;
+  vertical-align: top;
+}
+@media (max-width: 900px) {
+  .source-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .source-presence {
   display: block;
@@ -838,6 +883,7 @@ li::marker {
 }
 .collection-controls button {
   min-height: 36px;
+  margin-left: auto;
   padding: 7px 16px;
 }
 .collection-state {

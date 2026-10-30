@@ -283,7 +283,7 @@ function sourceSetup() {
       "Start here · free stock research",
       "Connected Schwab is preferred for viewed-stock quotes and up to 20 years of available daily chart history. Set it up in the Schwab connection section below. Massive supplies separate market-wide closing-price history for research and daily PAPER; SEC supplies company filings. Collection starts automatically unless paused.",
     ),
-    form = el("form"),
+    form = el("form", undefined, "source-form"),
     fields = {},
     message = el("p", undefined, "muted");
   for (const [id, name, title, text, type, href, action] of [
@@ -356,6 +356,7 @@ function sourceSetup() {
         "source-presence muted",
       ),
     );
+    section.classList.toggle("saved", Boolean(snapshot.source_keys[name]));
     form.append(section);
   }
   const save = el("button", "Save research sources", "primary");
@@ -739,41 +740,41 @@ async function settingsPage() {
     "What each data connection powers",
     "Sources have different coverage and clocks. A working live quote does not prove that broad-market backtests or historical option quotes are available.",
   );
-  roles.append(
-    table(
-      ["Source", "Used for", "Coverage and setup"],
+  const sourceRoles = table(
+    ["Source", "Used for", "Coverage and setup"],
+    [
       [
-        [
-          link("Schwab Developer Portal ↗", "https://developer.schwab.com/"),
-          "Viewed-stock quotes, 1-minute charts, available daily chart history and option chains",
-          "Authorize the brokerage login below and choose Test market-data access. Quote delay and availability depend on your entitlements. Charts can request up to 20 years where supplied.",
-        ],
-        [
-          link("Massive stocks plans ↗", "https://massive.com/stocks"),
-          "Market-wide closing bars for cross-sectional research, daily strategy PAPER and chronological stock replay",
-          "Check your plan's accessible dates and publication delay. A 403 does not necessarily mean the key is wrong. A per-stock Schwab chart does not substitute for a complete market-wide session.",
-        ],
-        [
-          link("Tradier documentation ↗", "https://docs.tradier.com/"),
-          "Alternative stock/options observations",
-          "Sandbox data is delayed. Use the selected provider and the timestamps shown on each observation.",
-        ],
-        [
-          link(
-            "SEC data access ↗",
-            "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
-          ),
-          "Dated filings and company fundamentals",
-          "Save your contact email above; no paid account is required. Publication dates govern which filings a replay may use.",
-        ],
-        [
-          "Archived historical options",
-          "Required for genuine historical bid/ask, IV and option-strategy fills",
-          "Not supplied by a stock price chart. This app archives observations it receives; buying a historical dataset alone will not integrate it. A separately implemented and tested import adapter is required.",
-        ],
+        link("Schwab Developer Portal ↗", "https://developer.schwab.com/"),
+        "Viewed-stock quotes, 1-minute charts, available daily chart history and option chains",
+        "Authorize the brokerage login below and choose Test market-data access. Quote delay and availability depend on your entitlements. Charts can request up to 20 years where supplied.",
       ],
-    ),
+      [
+        link("Massive stocks plans ↗", "https://massive.com/stocks"),
+        "Market-wide closing bars for cross-sectional research, daily strategy PAPER and chronological stock replay",
+        "Check your plan's accessible dates and publication delay. A 403 does not necessarily mean the key is wrong. A per-stock Schwab chart does not substitute for a complete market-wide session.",
+      ],
+      [
+        link("Tradier documentation ↗", "https://docs.tradier.com/"),
+        "Alternative stock/options observations",
+        "Sandbox data is delayed. Use the selected provider and the timestamps shown on each observation.",
+      ],
+      [
+        link(
+          "SEC data access ↗",
+          "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+        ),
+        "Dated filings and company fundamentals",
+        "Save your contact email above; no paid account is required. Publication dates govern which filings a replay may use.",
+      ],
+      [
+        "Archived historical options",
+        "Required for genuine historical bid/ask, IV and option-strategy fills",
+        "Not supplied by a stock price chart. This app archives observations it receives; buying a historical dataset alone will not integrate it. A separately implemented and tested import adapter is required.",
+      ],
+    ],
   );
+  sourceRoles.classList.add("wrap-cells");
+  roles.append(sourceRoles);
   app.append(roles);
   const box = panel("Schwab connection"),
     form = el("form"),
