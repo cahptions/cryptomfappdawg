@@ -123,6 +123,17 @@ missing price sessions,20 companies and5 rotating option underlyings per pass, a
 limits. Saved history is reused. Unavailable optional sources are recorded; each strategy still requires its own
 inputs and a qualifying setup. "Running PAPER" does not promise an immediate simulated trade.
 
+**Same-evening close.**
+- **When:** with Schwab signed in, about five minutes after the 16:00 New York close the worker reads every stored
+  stock's regular-session open, high, low, close (`regularMarketLastPrice`, which must have traded that day) and volume.
+- **How much:** about 60 requests of 100 symbols, inside the rate limit.
+- **Result:** the day is saved once and the daily research and PAPER session run that evening.
+- **Fallback:** if Schwab is signed out, or fewer than 80% of stocks return a usable close, nothing is saved and the day
+  waits for Massive's next-morning file as before.
+- **Check against Massive:** once Massive publishes the same day, its closes are compared with Schwab's (agreement
+  within 0.5%). Stored bars are never rewritten. If more than 5% of stocks disagree, the same-evening close switches
+  itself off and System says why. Code: `src/desk/stocks/schwab_close.py`.
+
 Initial history must pass the minimum research warmup before the first PAPER session is consumed. Existing
 positions remain subject to their normal management rules. Closed-session decisions and next-session fills
 retain their original timing; historical backfill does not fabricate historical entries. STOP continues to block

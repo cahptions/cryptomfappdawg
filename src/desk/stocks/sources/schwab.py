@@ -360,6 +360,13 @@ class SchwabClient:
             raise ValueError("Schwab quote batches contain 1..100 symbols")
         return parse_quotes(await self._get("quotes", {"symbols": ",".join(symbols), "fields": "quote"}))
 
+    async def closing_quotes(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        """Up to 100 symbols' ``quote`` and ``regular`` sections: the session's open, high, low and volume and the regular
+        session's last trade and its time (desk.stocks.schwab_close turns them into daily bars)."""
+        if not 1 <= len(symbols) <= 100:
+            raise ValueError("Schwab quote batches contain 1..100 symbols")
+        return parse_quote_details(await self._get("quotes", {"symbols": ",".join(symbols), "fields": "quote,regular"}))
+
     async def quote_details(self, symbols: list[str]) -> tuple[list[StockQuote], dict[str, dict[str, Any]]]:
         """Quotes plus the stock page's statistics in one request. If Schwab refuses the extra sections the plain
         quote is used, so a viewed stock never loses its price over a statistic."""

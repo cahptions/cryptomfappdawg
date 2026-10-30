@@ -30,6 +30,7 @@ from desk.stocks.paper.report import report
 from desk.stocks.paper.strategies import STRATEGIES
 from desk.stocks.prices import load_panel
 from desk.stocks.repo import StocksDatabases, StocksMarket, StocksResearch
+from desk.stocks.schwab_close import target_session
 from desk.stocks.suite import build_stocks_suite
 
 log = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     # Available option observations are published even with no/unfinished/denied stock-history backfill.
     _atomic_private(saved_path(paths, "options"), json.dumps(options_view(market, now), allow_nan=False))
     publish_plays(paths, dbs, now)
-    expected = cal.last_closed_session(now, timedelta(minutes=settings.refresh_after_close_minutes))
+    expected = target_session(market, now, timedelta(minutes=settings.refresh_after_close_minutes))
     days = [d for d in market.bar_days() if expected - timedelta(days=settings.history_days) <= d <= expected]
     if not days:
         return {"waiting": f"Waiting for published prices through {expected.isoformat()}", "paper": None}
@@ -188,7 +189,7 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
             for order in book.pending():
                 if order.order["action"] == "ENTER":
                     book.resolve(order.id, "CANCELLED", now, "STOP: new entries disabled")
-    target = cal.last_closed_session(now, timedelta(minutes=settings.refresh_after_close_minutes))
+    target = target_session(market, now, timedelta(minutes=settings.refresh_after_close_minutes))
     available = [d for d in market.bar_days() if d <= target]
     if not available or available[-1] != target:
         return {"waiting": f"Waiting for published {target.isoformat()} closing prices", "paper": None}
@@ -308,6 +309,13 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             if _due(market, "corporate_actions", now, 24):
                 jobs["corporate_actions"] = await run_job("corporate_actions", collect.corporate_actions(suite, market, now,
                                                                             history_days=settings.history_days))
+        # Same evening: today's closing bars from Schwab five minutes after the close, then checks against Massive.
+        from desk.stocks import schwab_close
+
+        if schwab_close.due(market, now) or suite.massive.configured:
+            jobs["schwab_close"] = await run_job("schwab_close", schwab_close.job(suite, market, now))
+            if jobs["schwab_close"].get("close", {}).get("stored"):
+                preview_now()
         if suite.sec.contact_configured:
             jobs["companies"] = await run_job("companies", collect.companies(suite, market, now,
                                                         collect.stale_companies(market, now, limit=company_limit)))

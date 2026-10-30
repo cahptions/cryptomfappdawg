@@ -5,16 +5,32 @@
 
 ## Guiding principle (from the user, 2026-10-30): beauty in simple efficiency
 
-This is one person's app. Before adding a step, screen, setting or paragraph, ask:
+This is one person's app. Simple efficiency means **no convolution and nothing inane**. It does not mean dumbing
+things down: if something is genuinely complex (options math, evidence, risk), it stays complete and correct, and it
+is presented as clearly as it can be. Before adding a step, screen, setting or paragraph, ask:
 
 - **Is this the shortest path?** Prefer one click to an instruction, and an app that handles a case itself to a
   workaround the user has to type. Example: logging in to Schwab must never require an SSH tunnel.
-- **Does the user see the number first?** Explanations sit behind the ⓘ toggle. Errors and stale-data warnings
-  always show.
-- **Can something be removed instead?** Fewer, better things beat more options.
+- **Does the user see the number first?** Explanations sit behind the ⓘ toggle, not in place of the substance. Errors
+  and stale-data warnings always show.
+- **Is it convoluted?** Remove detours, duplicated screens and filler before adding anything. Keep real depth.
 
-Correctness and honesty rules still hold: research and PAPER only, and no fabricated data. They should arrive in the
-simplest form that keeps them true.
+Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
+
+## 2026-10-30 — Same-evening close from Schwab; research account capped
+
+- **Same-evening close (`schwab_close.py`).**
+  - Five minutes after the close, the worker reads every stored stock's regular-session bar from Schwab: 100 symbols per
+    request, fields `quote,regular`.
+  - It saves the day once if at least 80% of stocks have a valid bar, and research and PAPER run that evening.
+    `runner.target_session` picks today as soon as today's bars exist.
+  - **Check:** once Massive publishes, its closes are compared with Schwab's (within 0.5%). Stored bars are never
+    rewritten. If more than 5% of stocks disagree, the feature disables itself and the reason shows on System.
+  - The field meanings must still be confirmed against a real response; the Massive comparison does that daily.
+- **Learning:** the research account is capped at what it held when the update first ran (`research_cap`). After that
+  it trades only its own cash, sized to fit.
+- **Guiding principle** refined by the user: no convolution, nothing inane, but no dumbing down of genuinely complex
+  things.
 
 ## 2026-10-30 — UI 2.0 (top-to-bottom review)
 

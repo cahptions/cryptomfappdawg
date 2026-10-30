@@ -752,6 +752,7 @@ verified_fields = []
 [providers.schwab.endpoints.quotes]
 path = "/quotes"
 status = "to_verify"
+notes = "stock page quotes; the same-evening close reads fields=quote,regular for every stored stock (100 per request) and is checked against Massive's daily bars the next day"
 verified_fields = []
 
 [providers.schwab.endpoints.pricehistory]
