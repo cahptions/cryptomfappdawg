@@ -14,6 +14,11 @@ const KestrelLearning = (() => {
           timeZone: "America/New_York",
         }) + " ET"
       : "Not yet";
+  // The research account is named by what it holds now, like the fixed $1,000 and $5,000 accounts.
+  const titleOf = (a) =>
+    Number.isFinite(a.cap?.equity)
+      ? `${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(a.cap.equity)} research`
+      : a.title;
   function metric(label, value) {
     const n = el("div", undefined, "paper-metric");
     n.append(el("small", label), el("strong", value));
@@ -50,7 +55,7 @@ const KestrelLearning = (() => {
       ),
       el(
         "p",
-        "Evidence comes from the Uncapped research account. Reference and small-account trades are reported separately.",
+        "Evidence comes from the main research account. Reference and small-account trades are reported separately.",
         "caption muted",
       ),
     );
@@ -219,10 +224,10 @@ const KestrelLearning = (() => {
     for (const a of accounts.filter((a) => a.small_account)) {
       const card = el("article", undefined, "learning-account-card"),
         stats = el("dl"),
-        open = el("button", `View ${a.title}`);
+        open = el("button", `View ${titleOf(a)}`);
       open.onclick = () => select(a.id);
       card.append(
-        el("h3", a.title),
+        el("h3", titleOf(a)),
         el("strong", money(a.equity), "learning-account-equity"),
       );
       for (const [title, value] of [
@@ -513,7 +518,8 @@ const KestrelLearning = (() => {
       );
       const tabs = el("div", undefined, "research-tabs");
       for (const a of data.accounts) {
-        const b = el("button", a.title);
+        const b = el("button", titleOf(a));
+        b.dataset.account = a.id;
         b.setAttribute("aria-pressed", String(a.id === account));
         b.onclick = () => {
           account = a.id;
@@ -527,7 +533,7 @@ const KestrelLearning = (() => {
       if (!a) return;
       const selected = el("div", undefined, "learning-account-heading");
       selected.append(
-        el("h2", a.title),
+        el("h2", titleOf(a)),
         el(
           "p",
           `Started ${stamp(a.started_at)} · Last recorded observation ${stamp(a.curve.at(-1)?.at)}`,
@@ -675,7 +681,9 @@ const KestrelLearning = (() => {
                 KestrelPaper.tradeDialog(
                   p,
                   page.decisions,
-                  Object.fromEntries(data.accounts.map((x) => [x.id, x.title])),
+                  Object.fromEntries(
+                    data.accounts.map((x) => [x.id, titleOf(x)]),
+                  ),
                 );
               grid.append(b);
             }
@@ -777,11 +785,19 @@ const KestrelLearning = (() => {
           el("h2", "Virtual capital is not trading profit"),
           el(
             "p",
-            "The starting deposit and every automatic top-up remain in the funding ledger. Failed trades remain in trading P/L.",
+            "The starting deposit and every earlier top-up remain in the funding ledger. Failed trades remain in trading P/L.",
             "muted",
           ),
         );
-        if (!a.funding_allowed)
+        if (a.cap)
+          content.append(
+            el(
+              "p",
+              `Capped ${stamp(a.cap.at)} at ${money(a.cap.equity)}. It now trades only the cash it holds; the deposits before that stay below.`,
+              "notice",
+            ),
+          );
+        else if (!a.funding_allowed)
           content.append(
             el(
               "p",
@@ -789,7 +805,7 @@ const KestrelLearning = (() => {
               "notice",
             ),
           );
-        for (const e of (a.funding_allowed ? data.funding : []).filter(
+        for (const e of (a.funding_allowed || a.cap ? data.funding : []).filter(
           (e) => e.kind === "VIRTUAL_FUNDING",
         )) {
           const n = el("article", undefined, "paper-pending");
@@ -931,7 +947,7 @@ const KestrelLearning = (() => {
                   data.accounts
                     .map(
                       (a) =>
-                        `## ${a.title}\nContributed: ${money(a.contributed)}\nAdditional funding: ${money(a.additional_funding)}\nTrading P/L excluding funding: ${signed(a.trading_pnl)}\nFees: ${money(a.fees)}\n`,
+                        `## ${titleOf(a)}\nContributed: ${money(a.contributed)}\nAdditional funding: ${money(a.additional_funding)}\nTrading P/L excluding funding: ${signed(a.trading_pnl)}\nFees: ${money(a.fees)}\n`,
                     )
                     .join("\n") +
                   `\nModel: ${data.model.status}\n${data.execution_note}\n\n` +

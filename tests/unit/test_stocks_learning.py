@@ -1,4 +1,4 @@
-"""Uncapped virtual funding, later-quote execution, mature labels and isolation from existing PAPER."""
+"""The capped research account, later-quote execution, mature labels and isolation from existing PAPER."""
 
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -28,23 +28,29 @@ def chain(world, at, bid=4.8, ask=5.0, source="synthetic_learning"):
     return quotes
 
 
-def test_virtual_funding_is_uncapped_separate_from_profit_and_preserves_losses(tmp_path):
+def test_research_account_is_capped_at_its_total_once_and_never_topped_up(tmp_path):
     world = make_world(tmp_path, n=12)
     conn = learning.open_book(world.paths)
     try:
-        learning.initialize(conn, AT)
         book = PaperBook(conn)
-        assert learning.fund(book, learning.RESEARCH, 2_000_000, AT)
-        assert book.deposits(learning.RESEARCH) == 2_000_000 and book.cash(learning.RESEARCH) == 2_000_000
+        # A book from before the cap: the research account had received virtual deposits.
+        book.open_account(learning.RESEARCH, learning.CAPITAL, AT, AT.date())
+        book.add_cash(learning.RESEARCH, AT, AT.date(), 1_500_000 * 1_000_000, "DEPOSIT")
+        later = AT + timedelta(days=1)
+        learning.initialize(conn, later)
+        cap = learning.state(conn, "research_cap")
+        assert cap == {"at": cap["at"], "equity": 2_000_000, "contributed": 2_000_000}
+        assert not learning.fund(book, learning.RESEARCH, 3_000_000, later)
+        assert learning.fund(book, learning.RESEARCH, 2_000_000, later)
+        assert book.deposits(learning.RESEARCH) == 2_000_000         # nothing added, nothing erased
         main = learning.report(conn)["accounts"][0]
         assert main["additional_funding"] == 1_500_000 and main["trading_pnl"] == 0
-        assert not learning.fund(book, learning.REFERENCE, 2_000_000, AT)
-        book.add_cash(learning.RESEARCH, AT, AT.date(), -2_000_000 * 1_000_000, "FEE")
-        assert learning.fund(book, learning.RESEARCH, 3_000_000, AT + timedelta(minutes=1))
-        main = learning.report(conn)["accounts"][0]
-        assert main["trading_pnl"] == -2_000_000 and main["contributed"] == 5_000_000
-        learning.initialize(conn, AT + timedelta(minutes=2))
-        assert book.deposits(learning.RESEARCH) == 5_000_000  # restart cannot reset losses or seed twice
+        assert main["cap"]["equity"] == 2_000_000 and main["funding_allowed"] is False
+        book.add_cash(learning.RESEARCH, later, later.date(), -500_000 * 1_000_000, "FEE")
+        learning.initialize(conn, later + timedelta(days=1))
+        assert learning.state(conn, "research_cap") == cap                # set once; a restart never resets it
+        assert learning.report(conn)["accounts"][0]["trading_pnl"] == -500_000
+        assert not learning.fund(book, learning.REFERENCE, 2_000_000, later)
     finally:
         conn.close()
         world.close()
@@ -67,8 +73,7 @@ def test_real_later_quotes_generate_partial_fills_funding_mature_outcomes_and_pr
         second = learning.tick(conn, world.market, later)
         assert second["filled"] > 0
         report = learning.report(conn)
-        assert report["accounts"][0]["additional_funding"] > 0
-        assert report["accounts"][1]["additional_funding"] == 0
+        assert all(a["additional_funding"] == 0 for a in report["accounts"])   # sized to cash, never topped up
         assert all(a["trading_pnl"] < 0 and a["cash"] >= 0 for a in report["accounts"])
         assert all(value is None for value in report["limits"].values())
         fills = conn.execute("SELECT COUNT(*) FROM stk_learning_fills").fetchone()[0]

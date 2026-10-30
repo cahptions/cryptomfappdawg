@@ -29,7 +29,7 @@ RESEARCH = "uncapped_research"
 REFERENCE = "reference_500k"
 CAPITAL = 500_000.0
 SMALL_ACCOUNTS = ("reference_1k", "reference_5k")
-ACCOUNTS = ((RESEARCH, "Uncapped research", CAPITAL), (REFERENCE, "$500,000 reference", CAPITAL),
+ACCOUNTS = ((RESEARCH, "Research account", CAPITAL), (REFERENCE, "$500,000 reference", CAPITAL),
             (SMALL_ACCOUNTS[0], "$1,000 account", 1_000.0), (SMALL_ACCOUNTS[1], "$5,000 account", 5_000.0))
 STRUCTURES = ("long_call", "long_put", "long_straddle")
 MIN_COMPARISON_DAYS = 4
@@ -109,6 +109,13 @@ def initialize(conn: sqlite3.Connection, now: datetime) -> None:
             if created and account in SMALL_ACCOUNTS:
                 conn.execute("INSERT OR IGNORE INTO stk_learning_nav VALUES (?,?,?,?,?)",
                              (to_iso(now),account,capital,capital,0.0))
+        # The research account once received automatic virtual deposits. At the user's request (2026-10-30) it is
+        # capped, once, at what it holds when this first runs: earlier deposits stay in its history, none follow.
+        if state(conn, "research_cap") is None:
+            marked = conn.execute("SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions "
+                                  "WHERE state='OPEN' AND account=?", (RESEARCH,)).fetchone()[0] / MICRO
+            set_state(conn, "research_cap", {"at": to_iso(now), "equity": book.cash(RESEARCH) + marked,
+                                             "contributed": book.deposits(RESEARCH)})
         for structure in STRUCTURES:
             for hold in (30, 120):
                 for budget in (5_000, 50_000, 500_000, 1_000_000):
@@ -118,20 +125,9 @@ def initialize(conn: sqlite3.Connection, now: datetime) -> None:
 
 
 def fund(book: PaperBook, account: str, required: float, now: datetime) -> bool:
-    deficit = to_micros(required, cost=True) - to_micros(book.cash(account), cost=False)
-    if deficit <= 0:
-        return True
-    if account != RESEARCH:
-        return False
-    book.add_cash(account, now, cal.new_york(now).date(), deficit, "DEPOSIT")
-    book.event(
-        now,
-        account,
-        "VIRTUAL_FUNDING",
-        None,
-        {"amount": deficit / MICRO, "reason": "Additional experiment capital; excluded from trading P/L"},
-    )
-    return True
+    """Whether the account's own cash covers ``required``. Every account, research included, trades only what it
+    holds; no virtual deposit is added (the research account was capped on 2026-10-30)."""
+    return to_micros(required, cost=True) <= to_micros(book.cash(account), cost=False)
 
 
 def fresh(q: OptionQuote, now: datetime) -> bool:
@@ -226,19 +222,19 @@ def fill_orders(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: d
         units = min(remaining, capacity(conn, order.account, actual))
         if units <= 0:
             continue
-        if order.account != RESEARCH:
-            low, high = 0, units
-            while low < high:
-                middle = (low + high + 1) // 2
-                candidate = impact(legs, quotes, middle, True)
-                needed = to_micros(candidate.debit,cost=True)+to_micros(candidate.fees,cost=True)
-                if needed <= to_micros(book.cash(order.account),cost=False):
-                    low = middle
-                else:
-                    high = middle - 1
-            units = low
+        # Size to the account's own cash: no account is topped up.
+        low, high = 0, units
+        while low < high:
+            middle = (low + high + 1) // 2
+            candidate = impact(legs, quotes, middle, True)
+            needed = to_micros(candidate.debit,cost=True)+to_micros(candidate.fees,cost=True)
+            if needed <= to_micros(book.cash(order.account),cost=False):
+                low = middle
+            else:
+                high = middle - 1
+        units = low
         if units <= 0:
-            book.resolve(order.id, "CANCELLED", now, "Capital-constrained reference has insufficient cash")
+            book.resolve(order.id, "CANCELLED", now, "This account has insufficient cash")
             continue
         fill = impact(legs, quotes, units, True)
         required = (to_micros(fill.debit,cost=True)+to_micros(fill.fees,cost=True))/MICRO
@@ -759,7 +755,8 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
                 "starting_capital": capital,
                 "contributed": contributed,
                 "additional_funding": contributed - capital if contributed else 0,
-                "funding_allowed": account == RESEARCH,
+                "funding_allowed": False,
+                "cap": state(conn, "research_cap") if account == RESEARCH else None,
                 "small_account": account in SMALL_ACCOUNTS,
                 "started_at": conn.execute("SELECT MIN(at) FROM stk_cash WHERE account=? AND reason='DEPOSIT'",
                                            (account,)).fetchone()[0],

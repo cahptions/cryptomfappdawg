@@ -8,8 +8,12 @@ An explicit pause persists across dashboard restarts. No brokerage orders or rea
 
 The independent `stocks-learning-paper.db` contains four books:
 
-- **Uncapped research:** a $500,000 starting reference deposit. The engine automatically records additional virtual deposits
-  when fills need more cash. There are no policy ceilings on aggregate spending, trades, positions or contract quantities.
+- **Research account:** started with a $500,000 reference deposit.
+  - **Until 2026-10-30:** it received automatic virtual deposits whenever fills needed more cash.
+  - **The cap:** at the user's request, it was capped once, at what it held when the update first ran. The page names it by
+    that amount, such as "$2,317,215 research". The cap is stored as `research_cap` and never reset.
+  - **Since then:** it trades only its own cash, with orders sized to fit, like the other books. Earlier deposits stay in
+    its funding ledger. There are no other ceilings on trades, positions or contract quantities.
 - **$500,000 reference:** receives the same order intents but buys only what its remaining cash can afford, including impact
   and fees. It receives no top-ups and cannot restrict research. Its result measures the cost of finite buying power.
 - **$1,000 account** and **$5,000 account:** choose their own affordable contracts using research available before each

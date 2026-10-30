@@ -29,7 +29,8 @@ try {
       await tip.innerText(),
       /Cash[\s\S]*Total contributed[\s\S]*Realized \/ unrealized[\s\S]*Trading fees/,
     );
-    assert.match(await tip.innerText(), /\$500,000\.00/);
+    // The fixture's research book holds $2,000,000 contributed before the cap (2026-10-30).
+    assert.match(await tip.innerText(), /Total contributed\s+\$2,000,000\.00/);
     const bounds = await tip.boundingBox();
     assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
     await chart.getByLabel("Learning chart metric").selectOption("equity");
@@ -54,7 +55,7 @@ try {
     await chart.locator(".kc-marker").first().press("Enter");
     assert.match(
       await chart.locator(".learning-chart-event").innerText(),
-      /Virtual funding|Opened|Closed/,
+      /virtual funding|opened|closed/i,
     );
     await chart.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `/tmp/kestrel-chart-learning-${width}.png` });

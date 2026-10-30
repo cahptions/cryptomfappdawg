@@ -15,7 +15,9 @@ try {
     ).json();
     const main = record.accounts[0],
       reference = record.accounts[1];
-    assert.ok(main.additional_funding > 0);
+    assert.ok(main.additional_funding > 0); // deposits from before the cap stay in the ledger
+    assert.equal(main.cap.equity, main.contributed); // capped once at what it held; no deposits since
+    assert.equal(main.funding_allowed, false);
     assert.equal(main.trading_pnl, main.equity - main.contributed);
     assert.equal(reference.additional_funding, 0);
     assert.ok(main.closed_trades > 0);
@@ -143,9 +145,13 @@ try {
       .locator(".paper-metric")
       .filter({ hasText: "Additional virtual funding" });
     assert.equal(await fundingMetric.locator("strong").innerText(), "$0.00");
-    await page
-      .getByRole("button", { name: "Uncapped research", exact: true })
-      .click();
+    await page.locator('button[data-account="uncapped_research"]').click();
+    assert.match(
+      await page
+        .locator('button[data-account="uncapped_research"]')
+        .innerText(),
+      /^\$[\d,]+ research$/,
+    );
     await page
       .getByRole("button", { name: "Experiments", exact: true })
       .click();

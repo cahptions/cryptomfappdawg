@@ -248,6 +248,17 @@ def main() -> None:
 
                 lab = learning.open_book(paths)
                 try:
+                    if args.scenario == "learning-workflows":
+                        # A book from before the cap (2026-10-30): the research account had a virtual deposit.
+                        from desk.stocks.paper.book import PaperBook
+
+                        legacy, book = AT - timedelta(days=1), PaperBook(lab)
+                        with book.atomic():
+                            book.open_account(learning.RESEARCH, learning.CAPITAL, legacy, legacy.date())
+                            book.add_cash(learning.RESEARCH, legacy, legacy.date(), 1_500_000 * 1_000_000, "DEPOSIT")
+                            book.event(legacy, learning.RESEARCH, "VIRTUAL_FUNDING", None,
+                                       {"amount": 1_500_000.0,
+                                        "reason": "Additional experiment capital; excluded from trading P/L"})
                     if args.scenario == "learning-retail":
                         from tests.unit.test_stocks_learning_retail import outcome
 
