@@ -98,7 +98,40 @@ def test_price_time_grid_agrees_with_scenario_and_expiration_payoff_after_fees()
     assert grid["dates"] == sorted(set(grid["dates"]))
     assert grid["dates"][0] == "2026-10-23" and grid["dates"][-1] == EXP.isoformat()
     assert all(len(row) == len(grid["dates"]) for row in grid["values"])
-    assert len(grid["prices"]) <= 12 and len(grid["dates"]) <= 8
+    assert len(grid["prices"]) <= 22 and len(grid["dates"]) <= 10
     inputs.legs[0].action = "sell"
     sold = calculate(inputs, {q.occ: q}, 100, date(2026, 10, 23), date(2026, 10, 23))
     assert sold["risk"]["unlimited_loss"] and sold["heatmap"]["values"][i][j] < 0
+
+
+def test_chance_of_profit_is_the_lognormal_mass_where_the_expiry_payoff_is_positive():
+    from desk.stocks.calculator import chance_of_profit
+    from desk.stocks.odds import above
+
+    captured = EXP - timedelta(days=73)
+    call = [leg()]
+    got = chance_of_profit(call, 100, captured, .65, .04, 0, 0)
+    assert got is not None and got["days"] == 73
+    breakeven = expiry_risk(call, .65)["breakevens"][0]
+    assert got["chance"] == pytest.approx(above(100, breakeven, .2, .3, .04))
+    assert got["expected_move"] == pytest.approx(100 * .3 * (.2 ** .5))
+    straddle = [leg(), leg("put")]
+    low, high = expiry_risk(straddle, .65)["breakevens"]
+    both = chance_of_profit(straddle, 100, captured, .65, .04, 0, 0)
+    assert both is not None
+    assert both["chance"] == pytest.approx(1 - above(100, low, .2, .3, .04) + above(100, high, .2, .3, .04))
+    wider = chance_of_profit(straddle, 100, captured, .65, .04, 0, .2)
+    assert wider is not None and wider["chance"] > both["chance"]          # more volatility, fatter tails
+    assert chance_of_profit([leg(), leg(expiration=EXP + timedelta(days=28))], 100, captured, .65, .04, 0, 0) is None
+    assert chance_of_profit([ScenarioLeg("call", 100, EXP, 1, 5, None)], 100, captured, .65, .04, 0, 0) is None
+
+
+def test_price_range_sets_the_grid_and_the_result_carries_the_chance():
+    q = quote()
+    inputs = ScenarioInput(legs=[{"occ": q.occ}], valuation_date=EXP, underlying_price=100, price_range=.1)
+    result = calculate(inputs, {q.occ: q}, 100, date(2026, 10, 23), date(2026, 10, 23))
+    prices = result["heatmap"]["prices"]
+    assert prices[0] == pytest.approx(90) and prices[-1] == pytest.approx(110) and len(prices) == 21
+    assert result["price_range"] == .1 and 0 < result["chance"]["chance"] < 1
+    with pytest.raises(ValidationError):
+        ScenarioInput(legs=[{"occ": q.occ}], valuation_date=EXP, underlying_price=100, price_range=2)

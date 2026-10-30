@@ -384,138 +384,17 @@
 .paper-chart-plot .kc-plot svg {
   height: var(--kc-height);
 }
-.options-calculator {
-  width: min(1360px, 96vw);
-  background: var(--bg);
-  padding: 28px;
-}
-.options-calculator > .calc-heading {
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-}
-.calc-workspace {
-  grid-template-columns: minmax(280px, 0.65fr) minmax(0, 1.35fr);
-  gap: 32px;
-}
-.calc-results {
-  position: static;
-}
-.calc-leg {
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-  padding: 16px 0;
-}
-.calc-editor h3 {
-  font-size: 16px;
-  margin-top: 24px;
-}
-.calc-field {
-  font-size: 12px;
-}
-.calc-scenarios {
-  grid-template-columns: 1fr 1fr;
-}
-.calc-results .calc-summary {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 20px;
-  border-top: 1px solid var(--line);
-  margin: 24px 0;
-}
-.calc-summary > div {
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-  padding: 18px 0;
-  border-radius: 0;
-}
-.calc-summary span {
-  font-size: 12px;
-  color: var(--text-2);
-}
-.calc-results .calc-summary strong {
-  font-size: 22px;
-}
 .payoff-chart {
   border: 0;
   padding: 0;
   background: transparent;
 }
-.calc-results .payoff-chart .kc-plot svg {
-  height: var(--kc-height);
-}
-.calc-heatmap {
-  overflow-x: auto;
-  padding-bottom: 10px;
-}
-.calc-heatmap-grid {
-  display: grid;
-  grid-template-columns: 78px repeat(var(--heat-columns), minmax(80px, 1fr));
-  gap: 3px;
-  min-width: 700px;
-  padding: 8px 0;
-}
-.calc-heatmap-grid > strong {
-  padding: 10px 4px;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--text-2);
-  text-align: center;
-}
-.calc-heat-cell {
-  font-size: 11px;
-  padding: 12px 4px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  font-variant-numeric: tabular-nums;
-}
-.calc-heat-cell.positive {
-  color: var(--up);
-  background: color-mix(
-    in srgb,
-    var(--up) calc(var(--heat-opacity) * 100%),
-    var(--bg)
-  );
-}
-.calc-heat-cell.negative {
-  color: var(--down);
-  background: color-mix(
-    in srgb,
-    var(--down) calc(var(--heat-opacity) * 100%),
-    var(--bg)
-  );
-}
-.calc-heat-cell:hover,
-.calc-heat-cell:focus-visible {
-  border-color: var(--text);
-}
-.calc-live {
-  background: var(--bg);
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 500;
-}
 @media (max-width: 750px) {
-  .calc-workspace {
-    display: flex;
-    flex-direction: column;
-  }
-  .calc-results {
-    order: -1;
-    width: 100%;
-  }
-  .calc-editor {
-    width: 100%;
-  }
   .kc-toolbar {
     gap: 10px;
   }
   .chart-widget .chart-tools {
     display: block;
-  }
-  .calc-visual .kc-toolbar {
-    align-items: flex-start;
   }
 }
 .kc-legend[hidden] {
@@ -537,43 +416,7 @@
   color: var(--text);
   border-bottom-color: var(--up);
 }
-.calc-source {
-  font-size: 12px;
-  color: var(--text-2);
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
-}
-.calc-source summary {
-  cursor: pointer;
-}
-.calc-source p {
-  max-width: none;
-  margin: 10px 0 0;
-}
-.calc-results > h3 {
-  font-size: 15px;
-  margin: 24px 0 14px;
-}
-.calc-results .calc-scenarios {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
 @media (max-width: 600px) {
-  .options-calculator {
-    padding: 18px;
-  }
-  .options-calculator .calc-heading h2 {
-    font-size: 19px;
-  }
-  .options-calculator .calc-heading > button {
-    padding: 8px 14px;
-  }
-  .calc-source {
-    font-size: 10px;
-  }
-  .calc-live {
-    padding: 8px 0;
-    bottom: -18px;
-  }
   .kc-stamp {
     font-size: 10px;
   }

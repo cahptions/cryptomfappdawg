@@ -1,6 +1,8 @@
 """Read-only multi-leg scenario analytics. Exact common-expiry payoff; explicitly modeled earlier marks.
 
-No strategy selection, order entry, probability-of-profit claim, or mutation of PAPER occurs here.
+The chance of profit is the options market's own view: a risk-neutral lognormal at the legs' implied volatility, as
+broker and calculator tools show it. It is not KESTREL's calibrated chance and not a forecast. No strategy selection,
+order entry or mutation of PAPER occurs here.
 """
 
 from __future__ import annotations
@@ -9,12 +11,14 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from itertools import pairwise
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from desk.core.errors import DeskError
 from desk.stocks.contracts import OptionQuote
+from desk.stocks.odds import above
 from desk.stocks.options import bs_price, greeks, implied_vol
 
 
@@ -36,6 +40,7 @@ class ScenarioInput(BaseModel):
     rate: float = Field(default=.04, ge=-.05, le=.5, allow_inf_nan=False)
     dividend_yield: float = Field(default=0, ge=0, le=.5, allow_inf_nan=False)
     fee_per_contract: float = Field(default=.65, ge=0, le=100, allow_inf_nan=False)
+    price_range: float = Field(default=.2, ge=.02, le=1, allow_inf_nan=False)  # grid half-width, share of spot
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,28 @@ def expiry_risk(legs: Sequence[ScenarioLeg], fee: float) -> dict[str, Any]:
             "message": "Expiration payoff after the selected entry and closing fees. Standard 100-share contracts only."}
 
 
+def chance_of_profit(legs: Sequence[ScenarioLeg], spot: float, captured: date, fee: float, rate: float,
+                     dividend: float, iv_change: float) -> dict[str, Any] | None:
+    """Risk-neutral chance that the common-expiry payoff after fees is above zero, with the expected 1-sigma move.
+
+    Volatility is the legs' implied volatility (plus the scenario change), weighted by contracts. None when the legs
+    expire on different dates or a leg has no inferable IV."""
+    if len({leg.expiration for leg in legs}) != 1 or any(leg.iv is None for leg in legs):
+        return None
+    weight = sum(abs(leg.quantity) for leg in legs)
+    sigma = max(.005, sum((leg.iv or 0) * abs(leg.quantity) for leg in legs) / weight + iv_change)
+    days = max(1, (legs[0].expiration - captured).days)
+    t, mu = days / 365, rate - dividend
+    edges = [0., *sorted(expiry_risk(legs, fee)["breakevens"]), math.inf]
+    chance = 0.
+    for lo, hi in pairwise(edges):
+        probe = (lo + hi) / 2 if math.isfinite(hi) else lo * 1.5 + 1
+        if expiry_payoff(legs, probe, fee) > 0:
+            chance += above(spot, lo, t, sigma, mu) - (above(spot, hi, t, sigma, mu) if math.isfinite(hi) else 0.)
+    return {"chance": min(1., max(0., chance)), "sigma": sigma, "days": days,
+            "expected_move": spot * sigma * math.sqrt(t), "expiration": legs[0].expiration.isoformat()}
+
+
 def mark(legs: Sequence[ScenarioLeg], spot: float, day: date, fee: float, rate: float, dividend: float,
          iv_change: float) -> float | None:
     result = -entry_cost(legs, fee)
@@ -128,8 +155,11 @@ def calculate(inputs: ScenarioInput, quotes: dict[str, OptionQuote], spot: float
         raise DeskError("Choose a scenario date between the saved snapshot and the last expiration")
     strikes = [leg.strike for leg in legs]
     lo, hi = 0., max(spot, inputs.underlying_price, *strikes) * 2
+    band = inputs.price_range
     xs = sorted({*(lo + (hi - lo) * i / 120 for i in range(121)),
-                 *(spot * (.6 + .8 * i / 120) for i in range(121)), *strikes, inputs.underlying_price, spot})
+                 *(spot * (.6 + .8 * i / 120) for i in range(121)),
+                 *(spot * (1 - band + 2 * band * i / 160) for i in range(161) if spot * (1 - band + 2 * band * i / 160) > 0),
+                 *strikes, inputs.underlying_price, spot})
     common = first == last
     terminal = [expiry_payoff(legs, s, inputs.fee_per_contract) if common else None for s in xs]
     curve = [{"price": s, "scenario": mark(legs, s, inputs.valuation_date, inputs.fee_per_contract, inputs.rate,
@@ -148,14 +178,18 @@ def calculate(inputs: ScenarioInput, quotes: dict[str, OptionQuote], spot: float
                        inputs.rate, inputs.dividend_yield)
             for key in combined:
                 combined[key] += getattr(g, key) * leg.quantity * 100
-    # Small, explicit scenario grid: every cell uses the same dated quotes, fees and IV assumption as the curve.
-    grid_dates = sorted({captured + timedelta(days=round((last - captured).days * i / 6)) for i in range(7)} |
-                        {inputs.valuation_date})
-    grid_prices = sorted({round(spot * (.8 + .04 * i), 2) for i in range(11)} | {inputs.underlying_price})
+    # Price × date grid: every cell uses the same dated quotes, fees and IV assumption as the curve.
+    span = (last - captured).days
+    grid_dates = sorted({captured + timedelta(days=round(span * i / 8)) for i in range(9)} | {inputs.valuation_date})
+    grid_prices = sorted({round(spot * (1 - band + 2 * band * i / 20), 2) for i in range(21)
+                          if spot * (1 - band + 2 * band * i / 20) > 0} | {inputs.underlying_price})
     heatmap = {"dates": [d.isoformat() for d in grid_dates], "prices": grid_prices,
                "values": [[mark(legs, s, d, inputs.fee_per_contract, inputs.rate, inputs.dividend_yield, inputs.iv_change)
                            for d in grid_dates] for s in grid_prices]}
     return {"entry_cost": entry_cost(legs, inputs.fee_per_contract), "risk": expiry_risk(legs, inputs.fee_per_contract),
+            "chance": chance_of_profit(legs, spot, captured, inputs.fee_per_contract, inputs.rate, inputs.dividend_yield,
+                                       inputs.iv_change),
+            "price_range": band,
             "scenario_pl": mark(legs, inputs.underlying_price, inputs.valuation_date, inputs.fee_per_contract,
                                 inputs.rate, inputs.dividend_yield, inputs.iv_change),
             "greeks": combined if known else None, "curve": curve, "legs": info, "heatmap": heatmap,
