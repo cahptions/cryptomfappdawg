@@ -19,6 +19,15 @@ const number = (x) =>
     : Number(x).toLocaleString("en-US", { maximumFractionDigits: 2 });
 const percent = (x) =>
   x === null || x === undefined ? "—" : `${(100 * x).toFixed(2)}%`;
+// "Apple Inc. Common Stock" → "Apple Inc.": listing suffixes add nothing on a list row.
+function companyName(name) {
+  return (name || "")
+    .replace(
+      /\s*[-–]?\s*(Class [A-Z] )?(Common Stock|Ordinary Shares|Common Shares|American Depositary Shares|Depositary Shares|ADS|ADR)\b.*$/i,
+      "",
+    )
+    .trim();
+}
 function el(tag, text, cls) {
   const n = document.createElement(tag);
   if (text !== undefined) n.textContent = String(text);
@@ -149,16 +158,34 @@ function collectionControls() {
     state.stopping || (running && !state.owned && !state.managed),
   );
   status.textContent = state.stopping
-    ? "Pausing PAPER and collection safely. Completed imports and simulated trades stay saved."
+    ? "Pausing safely. Completed imports and simulated trades stay saved."
     : running
       ? state.owned || state.managed
-        ? "PAPER and collection are running. Eligible strategies simulate trades as their required data becomes available."
+        ? "Collecting data and simulating trades as each strategy's data arrives."
         : "An existing Stocks worker is collecting. Control it from its terminal."
       : state.error
         ? state.error
         : state.exit_code
-          ? "PAPER worker stopped unexpectedly. Check System and stocks-research.log for details."
-          : "PAPER is paused. Start PAPER resumes collection and simulated trading; this choice is remembered.";
+          ? "The PAPER worker stopped unexpectedly. Check System and stocks-research.log."
+          : "Collection and simulated trading are paused. This choice is remembered.";
+  const badge = el(
+    "span",
+    undefined,
+    `collection-state ${state.stopping ? "stopping" : running ? "running" : state.error || state.exit_code ? "failed" : "paused"}`,
+  );
+  badge.append(
+    el("i"),
+    el(
+      "strong",
+      state.stopping
+        ? "Pausing"
+        : running
+          ? "Running"
+          : state.error || state.exit_code
+            ? "Stopped"
+            : "Paused",
+    ),
+  );
   button.onclick = async () => {
     button.disabled = true;
     try {
@@ -173,7 +200,7 @@ function collectionControls() {
       button.disabled = false;
     }
   };
-  box.append(button, status);
+  box.append(badge, status, button);
   return box;
 }
 function connectionWorkerControls() {
@@ -440,7 +467,7 @@ function discover(selected) {
       who = el("div", undefined, "list-who"),
       name = link("", `#stock/${encodeURIComponent(r.symbol)}`);
     name.className = "list-name";
-    name.append(el("strong", r.symbol), el("span", r.name || ""));
+    name.append(el("strong", r.symbol), el("span", companyName(r.name)));
     who.append(el("span", String(r.rank).padStart(2, "0"), "list-rank"), name);
     if (r.sector) who.append(el("small", r.sector));
     const price = el("div", undefined, "list-price");

@@ -108,7 +108,7 @@ const KestrelResearch = (() => {
     cell.title = row.reason || card.name || row.symbol;
     name.append(
       link(row.symbol, `#stock/${encodeURIComponent(row.symbol)}`),
-      el("small", card.name || "US equity"),
+      el("small", companyName(card.name) || "US equity"),
     );
     cell.append(monogram, name);
     return cell;
@@ -125,14 +125,13 @@ const KestrelResearch = (() => {
       const displayedScore = activityRank ? r.value : card.score;
       if (displayedScore != null)
         signal.append(badge(number(displayedScore), "score-badge"));
-      signal.append(
-        el(
-          "small",
-          activityRank
-            ? "Activity, not direction"
-            : card.verdict || "Research list",
-        ),
-      );
+      // Activity lists: the first measured fact, with the full reason on hover.
+      const fact = activityRank
+        ? (r.reason || "").split(/;|\. /)[0] || "Activity, not direction"
+        : card.verdict || "Research list";
+      const note = el("small", fact);
+      if (activityRank && r.reason) note.title = r.reason;
+      signal.append(note);
       return [
         el("span", String(i + 1).padStart(2, "0"), "rank"),
         symbolCell(r, card),
@@ -309,24 +308,22 @@ const KestrelResearch = (() => {
       o.value = symbol;
       suggestions.append(o);
     }
-    if (!snapshot.asof || !snapshot.worker_running) {
+    // Setup guidance only when something is missing; otherwise just the compact PAPER control while paused.
+    const keyed = snapshot.source_keys.MASSIVE_API_KEY;
+    if (!keyed || !snapshot.asof) {
       const setup = el("div", undefined, "setup-strip");
-      const progress = snapshot.price_progress || {},
-        keyed = snapshot.source_keys.MASSIVE_API_KEY;
       const message = !keyed
         ? focus === "options"
           ? "Options use the selected Schwab or Tradier connection. The separate broad-market history feed is not configured; this does not prevent connected chains or quotes."
           : "Broad-market research history is not configured. Set up that source in Settings; connected Schwab charts and options operate independently."
-        : !snapshot.asof
-          ? researchReadiness().message
-          : `${number(progress.sessions)} price sessions stored · latest close ${progress.latest}. Research updates as new observations arrive.`;
+        : researchReadiness().message;
       setup.append(
         el("div", message),
         link("Set up data sources ↗", "#settings"),
         collectionControls(),
       );
       app.append(setup);
-    }
+    } else if (!snapshot.worker_running) app.append(collectionControls());
     if (focus === "options") {
       app.append(optionsCollections(hub));
       app.append(
@@ -470,12 +467,14 @@ const KestrelResearch = (() => {
               ["market_activity", "trending"].includes(selected),
             ),
           );
-          if (["market_activity", "trending"].includes(selected)) {
-            for (const row of list.rows.slice(0, 10))
-              content.append(
-                el("p", `${row.symbol}: ${row.reason}`, "muted caption"),
-              );
-          }
+          if (["market_activity", "trending"].includes(selected))
+            content.append(
+              el(
+                "p",
+                "Activity, not direction. Hover a row's note for every measured input.",
+                "muted caption",
+              ),
+            );
         }
       } else if (!list?.asof) {
         const readiness = list?.options_clock

@@ -21,7 +21,7 @@ const KestrelExplore = (() => {
         quote = el("div", undefined, "screen-quote");
       name.append(
         link(row.symbol, `#stock/${encodeURIComponent(row.symbol)}`),
-        el("small", stock.name || row.reason),
+        el("small", companyName(stock.name) || row.reason),
       );
       name.title = row.reason || "";
       quote.append(el("strong", money(row.price ?? stock.price)));

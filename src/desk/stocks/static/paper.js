@@ -267,8 +267,8 @@ const KestrelPaper = (() => {
           "muted",
         ),
       );
-      hero.append(heading, collectionControls());
-      app.replaceChildren(hero);
+      hero.append(heading);
+      app.replaceChildren(hero, collectionControls());
       for (const [id, label] of [
         ["live", "Forward PAPER"],
         ["historical", "Historical backtests"],
@@ -491,13 +491,23 @@ const KestrelPaper = (() => {
         : [account, ...accounts.filter((a) => a.id !== selected)].slice(0, 4);
       for (const a of featured) {
         const b = el("button", undefined, "paper-strategy");
+        b.type = "button";
         b.setAttribute("aria-pressed", String(a.id === selected));
+        const value = el("span", undefined, "paper-strategy-value");
+        value.append(
+          el("b", money(a.equity)),
+          el(
+            "em",
+            percent(a.return),
+            a.return > 0 ? "positive" : a.return < 0 ? "negative" : "",
+          ),
+        );
         b.append(
           el("strong", a.title),
-          el("span", `${money(a.equity)} · ${percent(a.return)}`),
+          value,
           el(
             "small",
-            `${a.open_positions || 0} open · ${a.trades || 0} closed · ${a.sessions} sessions`,
+            `${a.open_positions || 0} open · ${a.trades || 0} closed · ${a.sessions} ${a.sessions === 1 ? "session" : "sessions"}`,
           ),
           el(
             "small",

@@ -25,28 +25,57 @@
   gap: 12px;
   margin-bottom: 30px;
 }
+/* Strategy cards are buttons: lay their lines out as a column, not the global button's centred row. */
 .paper-strategy {
-  text-align: left;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  padding: 16px;
-  border-radius: 10px;
+  display: grid;
+  align-content: start;
+  justify-content: stretch;
+  justify-items: start;
+  gap: 4px;
   min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  font-weight: 500;
+  text-align: left;
+  white-space: normal;
+}
+.paper-strategy:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
 }
 .paper-strategy[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: var(--accent-line);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
-.paper-strategy span,
-.paper-strategy small,
 .paper-strategy strong {
-  display: block;
+  font-size: var(--text-md);
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--text-strong);
+}
+.paper-strategy-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+.paper-strategy-value b {
+  font-size: var(--text-lg);
+  font-weight: 650;
+}
+.paper-strategy-value em {
+  font-size: var(--text-sm);
+  font-style: normal;
+  font-weight: 600;
 }
 .paper-strategy small {
-  color: var(--text);
-  font-size: 12px;
-  margin-top: 7px;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-2);
 }
 .paper-account-title {
   margin-top: 28px;

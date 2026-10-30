@@ -817,13 +817,55 @@ li::marker {
 .source-presence {
   display: block;
 }
+/* PAPER worker control: state, one line of status and the button, as a compact strip. */
 .collection-controls {
-  max-width: 50rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  max-width: 100%;
   margin: 1rem 0;
+  padding: 10px 10px 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
 }
 .collection-controls p {
-  margin: 0.5rem 0;
+  flex: 1 1 220px;
+  margin: 0;
   font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.collection-controls button {
+  min-height: 36px;
+  padding: 7px 16px;
+}
+.collection-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+.collection-state i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.collection-state.running i {
+  background: var(--up);
+  box-shadow: 0 0 0 3px var(--up-soft);
+}
+.collection-state.stopping i {
+  background: var(--warning);
+}
+.collection-state.failed i {
+  background: var(--down);
+}
+@media (max-width: 650px) {
+  .collection-controls {
+    border-radius: var(--radius);
+  }
 }
 .chart {
   display: block;
