@@ -3,6 +3,19 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## Guiding principle (from the user, 2026-10-30): beauty in simple efficiency
+
+This is one person's app. Before adding a step, screen, setting or paragraph, ask:
+
+- **Is this the shortest path?** Prefer one click to an instruction, and an app that handles a case itself to a
+  workaround the user has to type. Example: logging in to Schwab must never require an SSH tunnel.
+- **Does the user see the number first?** Explanations sit behind the ⓘ toggle. Errors and stale-data warnings
+  always show.
+- **Can something be removed instead?** Fewer, better things beat more options.
+
+Correctness and honesty rules still hold: research and PAPER only, and no fabricated data. They should arrive in the
+simplest form that keeps them true.
+
 ## 2026-10-30 — UI 2.0 (top-to-bottom review)
 
 User asked for "a complete UI redo, top to bottom review and upgrade … an ultimate version 2.0", and earlier for an
