@@ -57,6 +57,7 @@ OPEN = time(9, 30)
 CLOSE_WINDOW = time(15, 50)         # every contract is due once more for its closing quote
 FOLD_AFTER = timedelta(minutes=5)   # a session's quotes are folded five minutes after the close
 FRESH_CLOSE = timedelta(minutes=60)  # a closing row needs a quote from the session's last hour
+CATCH_UP_EVERY = timedelta(minutes=30)  # how often a missed closing quote is asked for again before the next open
 INTRADAY_KEEP_DAYS = 35             # compacted after this (the database refuses deletes inside 30 days)
 PASS_TIMEOUT = 240.0                # a pass never runs into the next one
 
@@ -566,6 +567,50 @@ async def probe(schwab: QuoteClient, chains: ChainClient, market: sqlite3.Connec
 MARKS_EVERY = timedelta(hours=1)    # marks and gap repair: every pass after the close, hourly while trading
 
 
+def close_pending(research: sqlite3.Connection, now: datetime) -> bool:
+    """The last session's closing quotes are still being caught up and the next attempt is due."""
+    state = get_state(research, "close_catch_up")
+    session = cal.last_closed_session(now, FOLD_AFTER).isoformat()
+    if state.get("session") != session:
+        return True
+    return not state.get("complete") and now - datetime.fromisoformat(state["at"]) >= CATCH_UP_EVERY
+
+
+async def catch_up_close(research: sqlite3.Connection, now: datetime, board: dict[str, Any] | None, *,
+                         schwab: QuoteClient | None, chains: ChainClient | None,
+                         clock: Callable[[], datetime] = utc_now) -> dict[str, Any] | None:
+    """Between a close and the next open, fetch the closing quote of every tracked contract whose close was never
+    captured (the laptop was off, or the market-data sign-in had lapsed). Schwab keeps serving the last bid/ask
+    with its quote time, so a quote dated inside that session's last hour is that session's real closing quote;
+    anything quoted earlier or later is ignored, never relabelled."""
+    if schwab is None and chains is None:
+        return None
+    session = cal.last_closed_session(now, FOLD_AFTER)
+    close = cal.session_close(session)
+    state = get_state(research, "close_catch_up")
+    if state.get("session") == session.isoformat() and (
+            state.get("complete") or now - datetime.fromisoformat(state["at"]) < CATCH_UP_EVERY):
+        return None
+    captured = {r["occ"] for r in research.execute("SELECT occ FROM stk_track_days WHERE session = ?",
+                                                   (day_of(session),))}
+    missing = [t for occ, t in tracked_set(research, session, board).items() if occ not in captured]
+    saved: set[str] = set()
+
+    def save(ticks: list[OptionTick], source: str) -> None:
+        closing = [t for t in ticks if t.quoted_at is not None and cal.new_york(t.quoted_at).date() == session
+                   and close - FRESH_CLOSE <= t.quoted_at <= close + timedelta(minutes=2)]
+        with transaction(research):
+            save_ticks(research, tick_rows(closing, clock(), session, f"{source}_after_close"))
+        saved.update(t.occ for t in closing)
+
+    result = await quote_pass(missing, save, schwab=schwab, chains=chains) if missing else PassResult()
+    report = {"session": session.isoformat(), "asked": len(missing), "closing_quotes": len(saved),
+              # complete only when every missing contract now has a real close (a quote from earlier is no close)
+              "complete": len(saved) == len(missing) and not result.errors, "at": to_iso(now)}
+    put_state(research, "close_catch_up", report, now)
+    return report
+
+
 async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now: datetime, *,
                    board: dict[str, Any] | None, schwab: QuoteClient | None, chains: ChainClient | None,
                    rate: Callable[[date], float], history: Any = None,
@@ -599,6 +644,11 @@ async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now
                 log.warning("play mark repair failed; live quote collection is unaffected")
 
     if not trading:
+        caught = await catch_up_close(research, now, board, schwab=schwab, chains=chains, clock=clock)
+        if caught is not None:
+            report["close_catch_up"] = caught
+            folded += fold_due(research, now, rate)
+            report["folded"] = [d.isoformat() for d in folded]
         await maintain()
         report["market"] = "closed"
         put_state(research, "idle", report, now)
@@ -662,8 +712,8 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = N
         if market_open(now):
             if gate.get("slot") == slot(now):
                 return None
-        elif gate.get("at") and now - datetime.fromisoformat(gate["at"]) < timedelta(hours=1) and not research.execute(
-                "SELECT 1 FROM stk_track_ticks LIMIT 1").fetchone():
+        elif (gate.get("at") and now - datetime.fromisoformat(gate["at"]) < timedelta(hours=1) and not research.execute(
+                "SELECT 1 FROM stk_track_ticks LIMIT 1").fetchone() and not close_pending(research, now)):
             return None
         try:
             board = saved(paths, "plays")
@@ -694,7 +744,40 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = N
         runtime.close()
 
 
-__all__ = ["CLOSE_WINDOW", "INTERVALS", "PASS_MINUTES", "PRIORITY_LABELS", "REQUESTS_PER_PASS", "PassResult",
-           "Tracked", "archive_ticks", "compact", "computed_greeks", "cycle", "due", "first_seen", "fold", "fold_due",
-           "freshness", "get_state", "last_ticks", "legs_key", "market_open", "pack", "parse_occ", "probe", "put_state",
-           "quote_pass", "run_pass", "save_ticks", "slot", "status", "storage", "tick_rows", "tracked_set", "unpack"]
+__all__ = [
+    "CLOSE_WINDOW",
+    "INTERVALS",
+    "PASS_MINUTES",
+    "PRIORITY_LABELS",
+    "REQUESTS_PER_PASS",
+    "PassResult",
+    "Tracked",
+    "archive_ticks",
+    "catch_up_close",
+    "close_pending",
+    "compact",
+    "computed_greeks",
+    "cycle",
+    "due",
+    "first_seen",
+    "fold",
+    "fold_due",
+    "freshness",
+    "get_state",
+    "last_ticks",
+    "legs_key",
+    "market_open",
+    "pack",
+    "parse_occ",
+    "probe",
+    "put_state",
+    "quote_pass",
+    "run_pass",
+    "save_ticks",
+    "slot",
+    "status",
+    "storage",
+    "tick_rows",
+    "tracked_set",
+    "unpack",
+]

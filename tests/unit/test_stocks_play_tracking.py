@@ -375,6 +375,48 @@ async def test_a_pass_quotes_due_contracts_and_reports_freshness(tmp_path: Path)
         assert status["storage"]["rows"]["stk_track_ticks"] == 3
         closed = await pt.run_pass(dbs.market, dbs.research, ny(17), board=board, schwab=quotes, chains=None,
                                    rate=lambda _: 0.04, clock=lambda: ny(17))
-        assert closed["market"] == "closed" and closed["folded"] == [SESSION.isoformat()] and len(quotes.asked) == 1
+        assert closed["market"] == "closed" and closed["folded"] == [SESSION.isoformat()]
+        # the 11:00 quotes were not in the last hour, so the close was asked for once; 11:00 again is not a close
+        assert len(quotes.asked) == 2 and closed["close_catch_up"]["closing_quotes"] == 0
+    finally:
+        dbs.close()
+
+
+async def test_a_missed_close_is_taken_from_the_quote_schwab_still_serves_after_hours(tmp_path: Path) -> None:
+    """The sign-in lapsed all session: that evening Schwab still returns the 3:59 PM bid/ask, which is the real
+    closing quote of that session; an older quote time is never relabelled as the close."""
+    dbs = research_db(tmp_path)
+    try:
+        fresh, old = occ_of("GOOGL", "call", 325), occ_of("GOOGL", "put", 300)
+        record_play(dbs.research, SESSION - timedelta(days=1), "edge", 1, [{"occ": fresh, "side": "buy", "strike": 325},
+                                                                          {"occ": old, "side": "buy", "strike": 300}])
+
+        class AfterHours:
+            configured = True
+
+            def __init__(self) -> None:
+                self.asked: list[list[str]] = []
+
+            async def option_quotes(self, occs: list[str]) -> list[OptionTick]:
+                self.asked.append(occs)
+                return [OptionTick(o, 16.6, 17.0, 16.8, 16.8, 900, 4000, 0.31, 0.55, 0.01, -0.09, 0.4, 298.5,
+                                   ny(15, 59) if o == fresh else ny(13, 40)) for o in occs]
+
+        schwab = AfterHours()
+        evening = ny(20, 57)
+        report = await pt.run_pass(dbs.market, dbs.research, evening, board=None, schwab=schwab, chains=None,
+                                   rate=lambda _: 0.04, clock=lambda: evening)
+        assert report["close_catch_up"]["closing_quotes"] == 1 and report["folded"] == [SESSION.isoformat()]
+        day = dbs.research.execute("SELECT * FROM stk_track_days WHERE occ = ?", (fresh,)).fetchone()
+        assert day["status"] == "quoted" and day["bid"] == 16.6 and day["source"] == "schwab_quotes_after_close"
+        assert dbs.research.execute("SELECT 1 FROM stk_track_days WHERE occ = ?", (old,)).fetchone() is None
+        later = evening + timedelta(minutes=10)
+        await pt.run_pass(dbs.market, dbs.research, later, board=None, schwab=schwab, chains=None,
+                          rate=lambda _: 0.04, clock=lambda: later)
+        assert len(schwab.asked) == 1                          # asked again only after half an hour
+        morning = ny(8, 0, SESSION + timedelta(days=1))
+        await pt.run_pass(dbs.market, dbs.research, morning, board=None, schwab=schwab, chains=None,
+                          rate=lambda _: 0.04, clock=lambda: morning)
+        assert schwab.asked[-1] == [old]                       # only the contract still without a close
     finally:
         dbs.close()
