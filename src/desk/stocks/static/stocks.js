@@ -1133,7 +1133,8 @@ async function refresh(initial = false) {
       : null;
   }
 }
-// The worker pill in the header (and the phone's More sheet): running or paused, and the latest analysed session.
+// The worker pill in the header (and the phone's More sheet): running or paused, and the last market close it has
+// finished analysing ("Oct 29 close"), not today's date.
 function workerState() {
   const running = !!snapshot?.worker_running,
     session = snapshot?.asof
@@ -1141,8 +1142,8 @@ function workerState() {
           month: "short",
           day: "numeric",
           timeZone: "UTC",
-        })
-      : "not ready";
+        }) + " close"
+      : "no data yet";
   const pill = document.getElementById("worker-pill");
   pill.className = running ? "running" : "paused";
   pill.querySelector("span").textContent =
