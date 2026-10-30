@@ -39,6 +39,7 @@ from desk.stocks import calendar as cal
 from desk.stocks import options as opt
 from desk.stocks.contracts import OptionQuote, OptionTick, StockQuote
 from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE, day_of
+from desk.stocks.schwab_auth import SchwabAuthError
 from desk.stocks.sources.schwab import OCC
 from desk.storage.db import DbKind, connect, transaction
 
@@ -205,6 +206,9 @@ async def quote_pass(due_now: Sequence[Tracked], save: Save, *, schwab: QuoteCli
                 if exc.status_code in (400, 404) and start == 0:
                     result.endpoint = "refused"
                 break                      # retried next pass; the chains below still run
+            except SchwabAuthError as exc:  # signed out: says nothing about whether the endpoint quotes options
+                result.errors.append(f"Schwab option quotes: {exc}"[:200])
+                break
             except DeskError as exc:       # a response that did not parse as option quotes
                 result.errors.append(f"Schwab option quotes: {exc}"[:200])
                 result.endpoint = result.endpoint or "no_options"

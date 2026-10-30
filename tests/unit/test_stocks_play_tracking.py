@@ -206,6 +206,19 @@ class Refusing:
         raise ProviderError("schwab", ProviderErrorKind.HTTP_ERROR, f"quotes: HTTP {self.status}", self.status)
 
 
+async def test_a_lapsed_sign_in_is_not_mistaken_for_an_endpoint_without_option_quotes() -> None:
+    from desk.stocks.schwab_auth import SchwabLoginExpired
+
+    class SignedOut:
+        configured = True
+
+        async def option_quotes(self, occs: list[str]) -> list[OptionTick]:
+            raise SchwabLoginExpired("Schwab sign-in has expired")
+
+    result = await pt.quote_pass(tracked(5), lambda *_: None, schwab=SignedOut(), chains=None)
+    assert result.endpoint is None and "sign-in" in result.errors[0]
+
+
 @pytest.mark.parametrize(("status", "state"), [(400, "refused"), (None, None), (503, None)])
 async def test_an_endpoint_without_option_quotes_falls_back_to_chains(status: int | None, state: str | None) -> None:
     chains = FakeChains()
