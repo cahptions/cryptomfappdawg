@@ -297,6 +297,19 @@ nav a[aria-current="page"] {
 #status:empty {
   display: none;
 }
+#status.status-alert,
+#status.status-warn {
+  color: var(--text);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+#status.status-warn {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+#status a {
+  font-weight: 600;
+  color: var(--text-strong);
+  text-decoration: underline;
+}
 
 /* ── Page and type ────────────────────────────────────────────────────── */
 main {

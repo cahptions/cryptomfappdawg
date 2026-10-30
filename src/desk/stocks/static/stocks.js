@@ -1043,6 +1043,29 @@ async function refresh(initial = false) {
     snapshot.worker_running ||= snapshot.collection?.running;
     statusLine.textContent = `PAPER · ${snapshot.worker_running ? "Worker running" : "Worker stopped"} · Latest analysis: ${snapshot.asof || "not ready"} · ${snapshot.listings} active listings`;
     statusLine.className = "";
+    // Schwab ends its sign-in 7 days after the browser login; say so on every page before quotes stop.
+    const schwab = snapshot.connection?.schwab || {};
+    if (
+      snapshot.connection?.options_provider === "schwab" &&
+      schwab.credentials_set
+    ) {
+      const left = schwab.login_days_left;
+      const warning = schwab.relogin_required
+        ? "Schwab sign-in expired: live quotes and play tracking are stopped."
+        : left != null && left < 1.5
+          ? `Schwab sign-in ends in ${left < 1 ? `${Math.max(1, Math.round(left * 24))} hours` : "about a day"}: log in again before then so tracking has no gap.`
+          : null;
+      if (warning) {
+        statusLine.prepend(
+          el("strong", warning + " "),
+          link("Log in again in Settings →", "#settings"),
+          " · ",
+        );
+        statusLine.className = schwab.relogin_required
+          ? "status-alert"
+          : "status-warn";
+      }
+    }
     const changed =
       previous?.asof !== snapshot.asof ||
       previous?.worker?.finished_at !== snapshot.worker?.finished_at ||

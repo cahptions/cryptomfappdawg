@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
 from desk.stocks import calendar as cal
 from desk.stocks import odds as od
@@ -293,6 +294,22 @@ async def test_history_is_not_refetched_within_six_hours(dbs: Any) -> None:
     assert len(history.daily) == 1
     state = json.loads(research.execute("SELECT value_json FROM stk_track_state WHERE key = 'repair'").fetchone()[0])
     assert state["pending"] == 1 and state["note"]
+
+
+async def test_a_refused_history_request_is_asked_again_on_the_next_pass(dbs: Any) -> None:
+    """A Schwab sign-in that lapsed mid-gap must not delay the repair by six hours once it works again."""
+    research, market = dbs.research, dbs.market
+    record(research, position([leg("AAL", "call", 12)]))
+
+    class SignedOut(FakeHistory):
+        async def daily_since(self, symbol: str, since: date, today: date) -> list[Bar]:
+            self.daily.append((symbol, since))
+            raise DeskError("Schwab sign-in has expired")
+
+    refused, working = SignedOut({}), FakeHistory({})
+    await pm.update(market, research, ny(D3), history=refused, rate=rate, budget=20)
+    await pm.update(market, research, ny(D3, 19), history=working, rate=rate, budget=20)
+    assert len(refused.daily) == 1 and len(working.daily) == 1
 
 
 # ── twins ────────────────────────────────────────────────────────────────────────────────────────

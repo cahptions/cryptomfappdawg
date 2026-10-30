@@ -227,11 +227,13 @@ class Closes:
 
 # ── repair: stock closes from Schwab history ─────────────────────────────────────────────────────
 async def fetch_closes(market: sqlite3.Connection, research: sqlite3.Connection, history: History,
-                       wanted: dict[str, date], today: date, now: datetime, budget: int) -> tuple[int, list[str]]:
+                       wanted: dict[str, date], today: date, now: datetime,
+                       budget: int) -> tuple[int, list[str], list[str]]:
     """Fetch daily candles for symbols whose closes are missing back to ``wanted[symbol]``. Candles are kept only
     when they agree with stored official closes (Schwab's history may be split-adjusted) and only after the
-    symbol's last known split."""
-    requests, errors = 0, []
+    symbol's last known split. Returns (requests, errors, symbols answered): a refused or failed request is not
+    an answer, so that symbol is asked again on the next pass rather than hours later."""
+    requests, errors, answered = 0, [], []
     for symbol, since in sorted(wanted.items(), key=lambda kv: kv[1]):
         if requests >= budget:
             break
@@ -241,6 +243,7 @@ async def fetch_closes(market: sqlite3.Connection, research: sqlite3.Connection,
         except DeskError as exc:
             errors.append(f"{symbol} history: {exc}"[:200])
             continue
+        answered.append(symbol)
         split = market.execute("SELECT MAX(execution_date) FROM stk_splits WHERE symbol = ?", (symbol,)).fetchone()[0]
         last_closed = cal.last_closed_session(now, FOLD_AFTER)
         rows = [(symbol, day_of(b.day), b.close, "schwab_history", to_iso(now)) for b in bars
@@ -254,7 +257,7 @@ async def fetch_closes(market: sqlite3.Connection, research: sqlite3.Connection,
         with transaction(research):
             research.executemany("INSERT OR IGNORE INTO stk_track_closes(symbol, session, close, source, fetched_at)"
                                  " VALUES (?, ?, ?, ?, ?)", rows)
-    return requests, errors
+    return requests, errors, answered
 
 
 # ── repair: contract rows for sessions without a closing quote ───────────────────────────────────
@@ -577,10 +580,9 @@ async def update(market: sqlite3.Connection, research: sqlite3.Connection, now: 
             put_state(research, "repair", {"pending": len(open_positions), "fetching": len(need),
                                            "note": f"fetching stock history for {len(need)} symbols",
                                            "at": to_iso(now)}, now)
-        spent, errors = await fetch_closes(market, research, history, need, today, now, budget)
+        spent, errors, asked = await fetch_closes(market, research, history, need, today, now, budget)
         report["requests"] += spent
         report["errors"].extend(errors)
-        asked = sorted(need, key=lambda sym: need[sym])[:spent]
         with transaction(research):
             put_state(research, "history_fetched", {**{k: v for k, v in fetched.items()
                                                        if now - datetime.fromisoformat(v) < REFETCH_AFTER},
