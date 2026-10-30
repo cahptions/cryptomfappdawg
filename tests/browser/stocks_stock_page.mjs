@@ -26,8 +26,12 @@ try {
     await about.waitFor();
 
     // Header: price, today's change and the after-hours line.
-    await page.getByText("Today", { exact: true }).waitFor();
-    await page.getByText("After hours", { exact: true }).waitFor();
+    // The fixture's quote and minute candles are days old: the change is dated, never "Today", and an old
+    // extended-hours price is not shown as "After hours".
+    const label = page.locator(".stock-change:not(.after) .muted");
+    await label.waitFor();
+    assert.notEqual(await label.innerText(), "Today");
+    assert.ok(await page.locator(".stock-change.after").isHidden());
 
     // About: long descriptions open and close; facts carry their source.
     const text = about.locator(".sp-about-text");

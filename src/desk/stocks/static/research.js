@@ -752,7 +752,7 @@ const KestrelResearch = (() => {
       rows.map((b, index) => ({
         ...b,
         day: Date.parse(b.at) / 86400000 + 719163,
-        gap_before: b.gap_before || (index > 0 && b.session_start),
+        gap_before: !!b.gap_before && index > 0,
       }));
     function draw() {
       plot.replaceChildren();
@@ -890,7 +890,11 @@ const KestrelResearch = (() => {
         height = 320,
         from = rows[0].day,
         span = end - from || 1,
-        x = (r) => ((r.day - from) / span) * width,
+        // Intraday ranges are spaced by candle, so nights and weekends take no room; daily ranges by date.
+        position = new Map(rows.map((r, i) => [r, i])),
+        x = minuteMode
+          ? (r) => (position.get(r) / Math.max(1, rows.length - 1)) * width
+          : (r) => ((r.day - from) / span) * width,
         y = (v) => 250 - ((v - min) / (max - min)) * 235;
       const svg = svgElement("svg", {
         viewBox: `0 0 ${width} ${height}`,
@@ -1064,12 +1068,17 @@ const KestrelResearch = (() => {
       };
       svg.onpointermove = (event) => {
         const bounds = svg.getBoundingClientRect(),
-          target = from + ((event.clientX - bounds.left) / bounds.width) * span;
-        let index = 0;
-        rows.forEach((r, i) => {
-          if (Math.abs(r.day - target) < Math.abs(rows[index].day - target))
-            index = i;
-        });
+          ratio = Math.max(
+            0,
+            Math.min(1, (event.clientX - bounds.left) / bounds.width),
+          ),
+          target = from + ratio * span;
+        let index = minuteMode ? Math.round(ratio * (rows.length - 1)) : 0;
+        if (!minuteMode)
+          rows.forEach((r, i) => {
+            if (Math.abs(r.day - target) < Math.abs(rows[index].day - target))
+              index = i;
+          });
         inspect(index, event);
       };
       svg.onpointerdown = (event) => {
@@ -1107,7 +1116,9 @@ const KestrelResearch = (() => {
         el(
           "span",
           axisDate(
-            minuteMode ? (from + end) / 2 : Math.round((from + end) / 2),
+            minuteMode
+              ? rows[Math.floor((rows.length - 1) / 2)].day
+              : Math.round((from + end) / 2),
           ),
         ),
         el("span", axisDate(end)),
@@ -1362,7 +1373,7 @@ const KestrelResearch = (() => {
         x = profile?.quote_details || {};
       const ext = x.ext_last,
         close = x.regular_last ?? q?.last;
-      afterLine.hidden = !(ext && close && Math.abs(ext - close) > 1e-9);
+      afterLine.hidden = !(q && ext && close && Math.abs(ext - close) > 1e-9);
       if (afterLine.hidden) return;
       const delta = ext - close;
       afterLine.replaceChildren(
@@ -1397,10 +1408,23 @@ const KestrelResearch = (() => {
       } else if (range && RANGE_LABEL[range] && baseline?.close) {
         setChange(price - baseline.close, baseline.close, RANGE_LABEL[range]);
       } else if (!quote && minuteLast && minuteBase) {
-        setChange(minuteLast.close - minuteBase, minuteBase, "Today");
+        const today = new Date().toLocaleDateString("en-CA", {
+          timeZone: "America/New_York",
+        });
+        setChange(
+          minuteLast.close - minuteBase,
+          minuteBase,
+          !session.session || session.session === today
+            ? "Today"
+            : F.date(session.session, false),
+        );
       } else {
         const [delta, base] = todayChange();
-        setChange(delta, base, "Today");
+        setChange(
+          delta,
+          base,
+          quote || !latest ? "Today" : F.date(dateOf(latest.day), false),
+        );
       }
       priceCaption.textContent = row?.at
         ? `${intradayTime(row.at, true)} · ${range === "1W" ? "10-minute" : "1-minute"} close · USD · ${session?.previous_close ? "Change vs previous close" : "Change since session open"}`
