@@ -303,7 +303,7 @@ function sourceSetup() {
     label.htmlFor = id;
     input.id = id;
     input.type = type;
-    input.autocomplete = "off";
+    input.autocomplete = type === "password" ? "new-password" : "off";
     input.spellcheck = false;
     input.maxLength = 2000;
     input.placeholder = snapshot.source_keys[name]
@@ -776,7 +776,7 @@ async function settingsPage() {
     const input = el("input");
     input.id = id;
     input.type = type;
-    input.autocomplete = "off";
+    input.autocomplete = type === "password" ? "new-password" : "off";
     input.spellcheck = false;
     input.value = value || "";
     form.append(l, input);
