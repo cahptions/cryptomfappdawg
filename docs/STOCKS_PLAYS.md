@@ -89,6 +89,20 @@ personal entry history. It never silently swaps in the first strike from today's
 available after raw chain retention expires; other strikes/expirations require the same session's saved chain.
 Calculator edits and chart quantity changes are hypothetical and do not change a saved selection.
 
+**The calculator workspace** (also opened from any strike in a stock's option chain) follows the popular profit
+calculators (OptionStrat, optionsprofitcalculator.com).
+
+- **Stats strip:** net debit or credit, max profit, max loss, break-evens, chance of profit and profit ÷ risk.
+- **Strategy templates:** long call or put, the four verticals, straddle, strangle, iron condor, iron butterfly,
+  butterfly and calendar. Each is built from the nearest saved strikes, and the strategy is named from the legs.
+- **Strike rail:** buy and sell pills against today's price, and leg cards with a strike stepper.
+- **Views:** a P/L curve with ±1σ guides, or a price × date table in $ or in % of the amount at risk. A range slider
+  sets the price window, and clicking a cell sets the scenario.
+- **Controls:** price, date and IV, plus the position's Greeks.
+
+Chance of profit is the options market's own view: a risk-neutral lognormal at the legs' implied volatility, with the
+same expiration for every leg. It is not KESTREL's calibrated chance on the Plays cards and not a forecast.
+
 Code: `play_selections.py`, `static/play_workflow.js`; research migration `0010_personal_plays.sql`.
 
 ## Profit targets, stock prices and understandable Greeks

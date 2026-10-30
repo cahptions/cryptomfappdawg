@@ -3,6 +3,32 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-30 — UI 2.0 (top-to-bottom review)
+
+User asked for "a complete UI redo, top to bottom review and upgrade … an ultimate version 2.0", and earlier for an
+options calculator "as good or better" than the popular ones. Audit, plan and status are in
+`research/UI_V2_PLAN_2026-10-30.md`.
+
+- **Shell:** desktop nav trimmed to eight sections; System and Settings are icons beside a worker pill. On a phone the
+  nav is a bottom tab bar (Home, Stocks, Plays, Paper, More), and More opens a sheet with the rest. The status bar
+  shows only alerts and errors.
+- **Calculator:** rebuilt as a full-screen OptionStrat-style workspace.
+  - stats strip with an options-implied chance of profit (`calculator.chance_of_profit`);
+  - 12 strategy templates and strategy naming;
+  - strike rail and leg cards;
+  - P/L curve with ±1σ guides, or a price × date table in $ or %, with a `price_range` input;
+  - Greeks.
+- **Paper:** strategy cards fixed (they were overlapping). The PAPER control is now a compact strip on every page.
+- **Home:** calmer, with no raw notes block.
+- **Plays:** categories first, then a compact filter bar.
+- **Learning:** three headline figures and a dense detail grid.
+- **Settings:** source cards in a grid.
+- **Options:** options content only.
+- **Stocks:** screens show their top five.
+- **Tests:** new `tests/browser/stocks_calculator.mjs`; calculator unit tests for chance of profit and price range.
+  Existing browser workflows still pass: smoke populated/empty, events, GUI, charting, personal plays, plays
+  populated/empty/history, Learning and retail, Paper workflows (run alone) and sparse, options stale, update.
+
 ## 2026-10-30 — Notable events log
 
 User asked whether the app should log this week's AI sell-off (Alphabet −13% on Oct 29 after results) and other notable

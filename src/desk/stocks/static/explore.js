@@ -13,8 +13,9 @@ const KestrelExplore = (() => {
       el("span", String(Math.min(10, rows.length)), "screen-count"),
     );
     section.append(head);
+    // The top five per screen keeps the page scannable; "Explore list" opens the full ranking.
     const listEl = el("ol", undefined, "screen-ranked-list");
-    for (const [index, row] of rows.slice(0, 10).entries()) {
+    for (const [index, row] of rows.slice(0, 5).entries()) {
       const stock = hub.stocks[row.symbol] || {},
         item = el("li"),
         name = el("div"),
@@ -55,7 +56,12 @@ const KestrelExplore = (() => {
     const footer = el("div", undefined, "screen-card-footer");
     footer.append(
       el("small", `Snapshot ${fmtDate(customRows?.[0]?.asof || list?.asof)}`),
-      link("Explore list ↗", `#lists/${id}`),
+      link(
+        rows.length > 5
+          ? `All ${Math.min(10, rows.length)} ↗`
+          : "Explore list ↗",
+        `#lists/${id}`,
+      ),
     );
     if (customRows) footer.lastChild.remove();
     section.append(footer);
