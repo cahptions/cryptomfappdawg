@@ -332,9 +332,19 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                 analysis = process(paths, loaded, dbs, utc_now())
         except MemoryPressure as exc:
             analysis = {"waiting": str(exc), "paper": None}
+        # Notable events never stop collection or PAPER: a failure is recorded on the System page.
+        try:
+            from desk.stocks import market_events
+
+            events = await run_job("market_events", market_events.job(
+                suite, market, dbs.research, utc_now(), guard=_memory_guard))
+        except Exception as exc:  # reported, then the cycle continues
+            log.warning("market events failed", extra={"error": str(exc)[:200]})
+            market.job("market_events", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+            events = {"ok": False, "error": str(exc)[:300]}
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",
                   "research_only": research_only, "options_provider": suite.option_source,
-                  "problems": suite.problems, "jobs": jobs,
+                  "problems": suite.problems, "jobs": jobs, "market_events": events,
                   "analysis": analysis}
         _atomic_private(saved_path(paths, "worker"), json.dumps(result, allow_nan=False))
         progress("idle")

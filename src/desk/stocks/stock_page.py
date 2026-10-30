@@ -317,6 +317,16 @@ def ratings(feeds: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
                                     "history": rows[:6], "source": "Finnhub analyst recommendation trends"}
 
 
+def notable_events(research: sqlite3.Connection, symbol: str) -> list[dict[str, Any]]:
+    """This symbol's entries in the notable-events log (its own big moves, or its fund's), newest first."""
+    from desk.stocks import market_events
+
+    try:
+        return market_events.read(research, symbol=symbol, limit=12)
+    except sqlite3.OperationalError:
+        return []
+
+
 def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str, now: datetime, *,
           detail: dict[str, Any] | None, quote: dict[str, Any] | None, profile: dict[str, Any],
           feeds: dict[str, dict[str, Any]], list_titles: dict[str, str], finnhub_configured: bool,
@@ -346,8 +356,9 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
             "lists": related_lists(research, symbol, list_titles),
             "peers": peers(market, research, symbol, (detail or {}).get("sector"), market_cap),
             "score_history": score_history(research, symbol),
+            "events": notable_events(research, symbol),
             "logo": has_logo, "finnhub_configured": finnhub_configured, "sources": sources}
 
 
-__all__ = ["about", "build", "chief_executive", "dividends", "earnings", "financials", "insiders", "peers", "periods",
-           "person", "ratings", "related_lists", "score_history", "short_interest"]
+__all__ = ["about", "build", "chief_executive", "dividends", "earnings", "financials", "insiders", "notable_events",
+           "peers", "periods", "person", "ratings", "related_lists", "score_history", "short_interest"]

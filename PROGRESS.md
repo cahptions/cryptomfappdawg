@@ -3,6 +3,36 @@
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 
+## 2026-10-30 — Notable events log
+
+User asked whether the app should log this week's AI sell-off (Alphabet −13% on Oct 29 after results) and other notable
+events. New `desk.stocks.market_events` with fixed rules, version 1 (`docs/STOCKS_EVENTS.md`).
+
+- **What it logs:**
+  - big index, sector, asset, theme and stock moves, measured against each one's usual move over the prior 63 sessions;
+  - 5-session slides;
+  - broad sell-off and rally days;
+  - 10% and 20% falls from a 52-week high, and recoveries;
+  - 200-day trend breaks;
+  - VIX, 10-year yield and high-yield spread jumps.
+- **Themes:** an equal-weight AI basket (19 names), the Magnificent Seven and SMH. A big stock move notes its largest
+  move in stored prices and an 8-K results filing that session.
+- **Point in time and storage:** each session is judged from data through its own close only. A session waits for
+  split data refreshed after it. Rates wait for FRED's next-morning publication. Rows are appended once per
+  (rules sha, day, kind, subject) in `stocks_research/0013_market_events.sql` and never rewritten. The first pass
+  backfills stored history (basis `history`).
+- **Worker job:** `market_events` runs after each collection pass, with the memory guard, and is reported on System.
+  A failure never stops collection or PAPER. It fetches up to two dated Massive headline sets per pass for big stock
+  moves in the last 30 days, for reading only.
+- **UI:**
+  - new Events tab: where the S&P 500, Nasdaq 100, SMH and AI stocks stand against their 52-week high, a filterable
+    timeline, same-day index and sector crossings grouped, and the rules in words;
+  - Home sidebar shows the latest notable events;
+  - each stock page lists its own "Notable moves".
+- **API:** `GET /api/stocks/events`. UI protocol **9**.
+- **Tests:** `tests/unit/test_stocks_market_events.py` (11) and `tests/browser/stocks_events.mjs` (populated scenario
+  with one planted sell-off day).
+
 ## 2026-10-30 — Shared charting, Learning performance and calculator overhaul
 
 Continued from `7ec7261` on `claude/funny-rubin-gq99vj`. Reviewed every Stocks chart surface; audit and data contracts

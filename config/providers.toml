@@ -546,7 +546,7 @@ verified_fields = ["results.{name,description,homepage_url,total_employees,list_
 [providers.massive.endpoints.news]
 path = "/v2/reference/news"
 status = "to_verify"
-notes = "stock page only: latest headlines with publisher and per-ticker sentiment insights; all Stocks plans"
+notes = "display only: a viewed stock's latest headlines, and headlines between the previous close and the end of the day for a logged big stock move (published_utc.gte/lte); all Stocks plans"
 verified_fields = ["results[].{id,title,description,article_url,published_utc,author,tickers,publisher.name,insights}"]
 
 [providers.massive.endpoints.branding]

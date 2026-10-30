@@ -95,6 +95,36 @@ def stock_page_fixture(world: StocksWorld) -> None:
                        "WHERE symbol='S10' AND feed=?", (json.dumps(value), NOW.isoformat(), NOW.isoformat(), feed))
 
 
+def events_fixture(world: StocksWorld) -> None:
+    """Notable events: the real scan over the synthetic history, plus one planted sell-off day (fixture only)."""
+    from desk.stocks import market_events as me
+    from desk.storage.db import transaction
+
+    world.market.job("corporate_actions", NOW, detail={"through": world.days[-1].isoformat()})
+    me.scan(world.market, world.research.conn, NOW)
+    day = world.days[-2]
+    members = [{"symbol": s, "move": m} for s, m in (("S10", -0.131), ("S11", -0.052), ("CHEAP", -0.031),
+                                                       ("SQZ", -0.024), ("S12", 0.004))]
+    planted = [
+        me.Event(day, "move", "stock", "S10", 3, "down", "negative", "S10 Corp (S10) fell 13.1%",
+                 "#1 most traded US stock; 6.2× its usual daily move of 2.1%. Its largest one-day fall in stored "
+                 "prices (since Oct 21, 2024). The day it reported results (SEC 8-K filed Oct 19).",
+                 {"symbol": "S10", "move": -0.131, "z": -6.2, "usual": 0.021, "most_traded_rank": 1}),
+        me.Event(day, "move", "theme", "ai", 2, "down", "negative", "AI stocks fell 3.4%",
+                 "4 of 5 members fell. 2.9× its usual daily move of 1.2% (prior 63 sessions).",
+                 {"move": -0.034, "z": -2.9, "usual": 0.012, "members": members, "counted": 5, "moved": 4}),
+        me.Event(day, "breadth", "market", "market", 1, "down", "negative",
+                 "Broad sell-off: 88% of 1,912 actively traded stocks fell",
+                 "Stocks above $5 trading over $20M a day; the median stock fell 1.9%.",
+                 {"share": 0.88, "counted": 1912, "fell": 1683, "rose": 229, "median_move": -0.019}),
+    ]
+    with transaction(world.research.conn):
+        me.save(world.research.conn, planted, NOW, "close")
+    me.save_headlines(world.research.conn, day, "S10", [
+        {"title": "Synthetic headline: S10 slides after results (browser fixture)", "url": "https://example.test/s10",
+         "source": "Fixture Wire", "published": NOW.isoformat()}], NOW)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
@@ -267,6 +297,8 @@ def main() -> None:
                          "https://www.sec.gov/", NOW.isoformat(),symbol))
             if args.scenario == "stock-page":
                 stock_page_fixture(world)
+            if args.scenario in {"populated", "stock-page"}:
+                events_fixture(world)
             world.close()
         app = create_app(paths, auto_start=False)
         if args.scenario == "personal-workflows":

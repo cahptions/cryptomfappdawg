@@ -157,8 +157,17 @@ def home(market_conn: sqlite3.Connection, research_conn: sqlite3.Connection, *,
         "SUM(json_extract(detail_json, '$.price.ret_1d') > 0) advancing, "
         "SUM(json_extract(detail_json, '$.price.ret_1d') < 0) declining, "
         "SUM(json_extract(detail_json, '$.price.ret_1d') = 0) unchanged FROM stk_scores_latest").fetchone()
+    from desk.stocks import market_events
+
+    try:
+        latest = research.latest_asof()
+        events = {"recent": market_events.recent(research_conn, latest or date.today()),
+                  "standing": (market_events.state(research_conn, "standing") or {}).get("value", [])}
+    except sqlite3.OperationalError:
+        events = {"recent": [], "standing": []}
     return {"benchmarks": [price_card(market_conn, s, name) for s, name in INDEX_NAMES.items()],
             "sectors": [price_card(market_conn, s, name, bars=2) for s, name in SECTOR_NAMES.items()],
+            "events": events,
             "stocks": stocks, "breadth": dict(breadth), "watchlist": research.watchlist()[:25],
             "limits": {"stock_cards": 150, "sparkline_observations": 24, "list_rows": 10},
             "basis": "Stored daily closes; ETF benchmarks are proxies, not index quotes. No live data calls."}

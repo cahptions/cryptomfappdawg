@@ -539,6 +539,23 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             raise HTTPException(404, "No such research list")
         return value
 
+    @app.get("/api/stocks/events")
+    def notable_events(group: str = "all", severity: int = 1, symbol: str | None = None,
+                       limit: int = 300) -> dict[str, Any]:
+        from desk.stocks import market_events
+
+        if group != "all" and group not in market_events.GROUPINGS:
+            raise HTTPException(422, "Unknown event group")
+        if symbol is not None and not re.fullmatch(r"[A-Z0-9.\-]{1,12}", symbol):
+            raise HTTPException(422, "Invalid symbol")
+        with reader(paths, RESEARCH_FILE) as research:
+            try:
+                return market_events.page(research, group=None if group == "all" else group,
+                                          severity=min(3, max(1, severity)), symbol=symbol,
+                                          limit=min(500, max(1, limit)))
+            except sqlite3.OperationalError:     # before the worker's first pass creates the tables
+                return market_events.empty_page()
+
     @app.get("/api/stocks/explore")
     def explore() -> dict[str, Any]:
         from desk.core.clock import utc_now

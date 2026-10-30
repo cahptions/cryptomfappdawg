@@ -183,6 +183,10 @@ crypto learning book**. Neither account capital nor historical gains are relabel
 remain account-relative. Scores measure ranked evidence; desk "confidence" is data coverage, not a calibrated
 profit probability. [Methodology](STOCKS_METHOD.md), [PAPER rules/limits](STOCKS_PAPER.md).
 
+The **Events** tab logs unusual market days (big index, sector, theme and stock moves, broad sell-offs,
+corrections, VIX spikes, sharp rate moves) by fixed rules from stored closing data, as context for reading
+results. [How events are found](STOCKS_EVENTS.md).
+
 `uv run desk stop` activates the shared STOP file. The next Stocks pass cancels pending entries, continues
 managing held PAPER positions and suppresses new entries. `uv run desk resume` clears the shared STOP,
 so inspect its impact on other desks before deliberately resuming.

@@ -215,9 +215,14 @@ class MassiveClient:
     async def ticker_details(self, symbol: str) -> dict[str, Any]:
         return parse_ticker_details(await self._get("ticker_details", path=f"/v3/reference/tickers/{quote(symbol, safe='')}"))
 
-    async def news(self, symbol: str, limit: int = 20) -> list[dict[str, Any]]:
-        return parse_news(await self._get("news", params={"ticker": symbol, "order": "desc", "sort": "published_utc",
-                                                           "limit": limit}), limit)
+    async def news(self, symbol: str, limit: int = 20, *, published_after: datetime | None = None,
+                   published_before: datetime | None = None) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"ticker": symbol, "order": "desc", "sort": "published_utc", "limit": limit}
+        if published_after is not None:
+            params["published_utc.gte"] = published_after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if published_before is not None:
+            params["published_utc.lte"] = published_before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return parse_news(await self._get("news", params=params), limit)
 
     async def icon(self, path: str) -> tuple[str, bytes]:
         body = await self._get("branding", path=path)

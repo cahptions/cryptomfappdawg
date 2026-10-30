@@ -589,6 +589,34 @@ const KestrelResearch = (() => {
     opportunities.append(collections);
     main.append(opportunities);
     if (focus !== "options") main.append(optionsCollections(hub));
+    const notable = el("section", undefined, "sidebar-section hub-events");
+    notable.append(
+      sectionTitle("Notable events", "Logged by fixed rules", "#events"),
+    );
+    const recentEvents = hub.events?.recent || [];
+    for (const event of recentEvents.slice(0, 5))
+      notable.append(KestrelEvents.row(event));
+    if (!recentEvents.length)
+      notable.append(
+        el("p", "Nothing unusual logged in the last 30 days.", "muted caption"),
+      );
+    const fromHigh = (hub.events?.standing || []).filter(
+      (s) => s.subject === "SPY" || s.subject === "QQQ" || s.subject === "ai",
+    );
+    if (fromHigh.length)
+      notable.append(
+        el(
+          "p",
+          fromHigh
+            .map(
+              (s) =>
+                `${s.label} ${s.from_high > -0.0005 ? "at its high" : `${(s.from_high * 100).toFixed(1).replace("-", "−")}% from high`}`,
+            )
+            .join(" · "),
+          "muted caption",
+        ),
+      );
+    aside.append(notable);
     const pulse = el("section", undefined, "sidebar-section");
     pulse.append(sectionTitle("Research pulse", "Latest scored universe"));
     const breadth = hub.breadth,
@@ -1262,6 +1290,7 @@ const KestrelResearch = (() => {
         page.relatedLists(profile),
         caseHost,
         page.news(profile, symbol),
+        KestrelEvents.section(profile.events),
         ...(etf
           ? []
           : [

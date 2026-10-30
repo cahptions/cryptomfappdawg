@@ -1022,6 +1022,7 @@ async function render() {
       await KestrelPlays.show(ticket, route);
     else if (route === "learning") await KestrelLearning.show(ticket);
     else if (route === "proof") await KestrelEvidence.show(ticket);
+    else if (route === "events") await KestrelEvents.show(ticket);
     else if (route === "settings") await settingsPage();
     else if (route === "system") systemPage();
     else if (route === "stocks" || route === "lists")
@@ -1104,7 +1105,7 @@ window.addEventListener("hashchange", render);
   try {
     const session = await api("session");
     csrf = session.csrf_token;
-    serverCompatible = session.ui_protocol === 8;
+    serverCompatible = session.ui_protocol === 9;
     await refresh(true);
   } catch (error) {
     statusLine.textContent = error.message;
