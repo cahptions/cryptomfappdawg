@@ -130,6 +130,26 @@ folder, over SSH too:
   at the hidden prompt and press Enter within about 30 seconds.
 
 `kestrel update` also refreshes the `kestrel` command itself, so new subcommands arrive with updates.
+`kestrel restart` restarts the app in the background.
+
+### Using another computer's KESTREL Stocks
+
+Schwab allows one Market Data app per developer account, and each sign-in with that app ends the previous one. So
+one computer (here the HP) holds the Schwab sign-in and collects; the other shows it. Run once on the other computer:
+
+```bash
+cd ~/kestrel && uv run desk open --desk stocks --install --remote neo@192.168.0.10
+```
+
+It creates an SSH key if needed and adds it to that computer (type its password once), stops this computer's own
+Stocks app (its data is kept), and from then on:
+
+- the **KESTREL Stocks** menu launcher opens that computer's app in its own window, through an SSH tunnel on local
+  port 18767 that is started once and reused (if the app is not running there, it is started there);
+- `kestrel`, `kestrel update`, `kestrel signin` and `kestrel restart` run on that computer; `kestrel open` opens the
+  window here.
+
+`--remote off` brings back this computer's own Stocks app.
 
 ## 3. Automatic collection and PAPER trading
 

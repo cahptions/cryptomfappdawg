@@ -25,6 +25,7 @@ from desk.storage.databases import Databases
 @pytest.fixture
 def paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DeskPaths:
     paths = DeskPaths(tmp_path / "data", REPO_ROOT / "config", tmp_path / "private.env")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))           # `kestrel` is installed into ~/.local/bin
     monkeypatch.setattr(cli, "_bootstrap", lambda _: (paths, []))
     monkeypatch.setattr(cli, "load_secrets", lambda _: Secrets())
     return paths

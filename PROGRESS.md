@@ -17,6 +17,21 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-30 — One Schwab sign-in, two computers
+
+- **Why the sign-in kept "expiring":** the Dell and the HP each had their own Schwab sign-in from the same Schwab app.
+  A new sign-in on one most likely ends the other's within hours. Schwab allows only one Market Data app per
+  developer account, so only one computer can stay signed in: the HP.
+- **Early endings named:** when Schwab refuses a sign-in hours (not 7 days) after the login, Settings, the alert on
+  every page and `kestrel` say how long it lasted and the window in which it stopped working. Any refused refresh,
+  including `invalid_client`, now asks for a new sign-in instead of being retried on every request.
+- **`kestrel signin`:** the weekly sign-in from any terminal, over SSH too, while the app keeps running.
+- **The Dell shows the HP:** `uv run desk open --desk stocks --install --remote neo@192.168.0.10` (once, on the Dell)
+  sets up an SSH key, stops the Dell's own Stocks app (data kept), and makes the main **KESTREL Stocks** launcher
+  open the HP's app through a reused SSH tunnel (local port 18767). `kestrel`, `kestrel update`, `kestrel signin`
+  and `kestrel restart` on the Dell run on the HP. `--remote off` brings back the Dell's own. The Stocks launcher
+  icon is now baby blue.
+
 ## 2026-10-30 — Same-evening close from Schwab; research account capped
 
 - **Same-evening close (`schwab_close.py`).**

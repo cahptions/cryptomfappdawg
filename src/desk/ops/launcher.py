@@ -65,14 +65,15 @@ def _exec_arg(value: str) -> str:
     return f'"{value}"' if any(char in _RESERVED for char in value) else value
 
 
-def desktop_entry(paths: DeskPaths, python_executable: str, desk: str, port: int) -> str:
+def desktop_entry(paths: DeskPaths, python_executable: str, desk: str, port: int, remote: str | None = None) -> str:
     spec = DESKS[desk]
+    comment = f"{spec['comment']} · on {remote}" if remote else spec["comment"]
     env = [f"{k}={v}" for k, v in (("DESK_HOME", paths.home), ("DESK_CONFIG_DIR", paths.config_dir),
                                    ("DESK_SECRETS_FILE", paths.secrets_file))]
     command = " ".join(_exec_arg(a) for a in ["env", *env, python_executable, "-m", "desk", "open", "--desk", desk,
                                                "--port", str(port)])
     return ("[Desktop Entry]\nType=Application\nVersion=1.0\n"
-            f"Name={spec['name']}\nComment={spec['comment']}\nExec={command}\nIcon={spec['icon']}\n"
+            f"Name={spec['name']}\nComment={comment}\nExec={command}\nIcon={spec['icon']}\n"
             f"Terminal=false\nCategories=Office;Finance;\nStartupNotify=true\nStartupWMClass={spec['icon']}\n")
 
 
@@ -87,7 +88,7 @@ def install_launchers(paths: DeskPaths, python_executable: str, *, port: int = 8
         raise ValueError("unknown desk")
     ports = {"solana": port, "robinhood": rh_port, "stocks": stocks_port, "arbitrage": arbitrage_port}
     colours = {"solana": ("#0c1016", "#3cd2ff"), "robinhood": ("#000000", "#00c805"),
-               "stocks": ("#08060c", "#b07cff"), "arbitrage": ('#080b08', '#c2f43a')}
+               "stocks": ("#08060c", "#89cff0"), "arbitrage": ('#080b08', '#c2f43a')}
     if any(not 1024 <= ports[desk] <= 65535 for desk in selected):
         raise ValueError("dashboard ports must be between 1024 and 65535")
     home = data_home or _data_home()
@@ -97,12 +98,116 @@ def install_launchers(paths: DeskPaths, python_executable: str, *, port: int = 8
     written = []
     for desk in selected:
         entry = apps / f"{DESKS[desk]['icon']}.desktop"
-        entry.write_text(desktop_entry(paths, python_executable, desk, ports[desk]), encoding="utf-8")
+        remote = remote_host(paths) if desk == "stocks" else None
+        entry.write_text(desktop_entry(paths, python_executable, desk, ports[desk], remote), encoding="utf-8")
         os.chmod(entry, 0o700)
         icon = icons / f"{DESKS[desk]['icon']}.svg"
         icon.write_text(ICON.format(bg=colours[desk][0], fg=colours[desk][1]), encoding="utf-8")
         written += [entry, icon]
     return written
+
+
+STOCKS_REMOTE_OFFSET = 10000      # another computer's Stocks port appears here 10000 higher: 8767 → 18767
+_HOST = re.compile(r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9.-]*$")
+SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8"]
+
+
+def remote_path(paths: DeskPaths) -> Path:
+    return paths.home / "stocks-remote"
+
+
+def check_host(host: str) -> str:
+    if not _HOST.fullmatch(host):
+        raise DeskError("Give the other computer as user@address, for example neo@192.168.0.10")
+    return host
+
+
+def remote_host(paths: DeskPaths) -> str | None:
+    """The computer whose Stocks desk this one shows (e.g. ``neo@192.168.0.10``), or None for its own."""
+    try:
+        host = remote_path(paths).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return host if _HOST.fullmatch(host) else None
+
+
+def set_remote_host(paths: DeskPaths, host: str | None) -> None:
+    path = remote_path(paths)
+    if host is None:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(check_host(host) + "\n", encoding="utf-8")
+
+
+def _quiet(command: list[str], timeout: float = 30) -> int:
+    """Run without a terminal or captured output (a backgrounded ``ssh -f`` keeps any pipe open)."""
+    try:
+        return subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,  # noqa: S603
+                              stderr=subprocess.DEVNULL, check=False, timeout=timeout, start_new_session=True).returncode
+    except (OSError, subprocess.TimeoutExpired):
+        return 1
+
+
+def reachable(host: str) -> bool:
+    return _quiet([*SSH, host, "true"]) == 0
+
+
+def ssh_key_setup(host: str) -> None:
+    """Once, in a terminal: a key so the menu launcher reaches ``host`` without a password prompt."""
+    if reachable(host):
+        return
+    key = Path.home() / ".ssh" / "id_ed25519"
+    if not key.exists():
+        print(f"Creating an SSH key ({key}) so this computer can reach {host} without a password.")
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)  # noqa: S603,S607
+    print(f"Adding it to {host}: type {host.split('@')[0]}'s password on {host.split('@')[-1]} once.")
+    subprocess.run(["ssh-copy-id", "-i", f"{key}.pub", host], check=False)  # noqa: S603,S607
+    if not reachable(host):
+        raise DeskError(f"Could not reach {host} with a key. Check it is on and the address is right: ssh {host}")
+
+
+def _listening(port: int) -> bool:
+    import socket
+
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _answers(url: str, seconds: float) -> bool:
+    until = time.monotonic() + seconds
+    while not responding(url):
+        if time.monotonic() > until:
+            return False
+        time.sleep(0.5)
+    return True
+
+
+def remote_window(host: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30) -> str:
+    """Open ``host``'s Stocks desk here through an SSH tunnel: started once, reused by later opens, and gone when
+    the other computer is. If the tunnel is up but the app is not running there, it is started there."""
+    local = port + STOCKS_REMOTE_OFFSET
+    url = f"http://127.0.0.1:{local}/"
+    if not responding(url):
+        if not _listening(local):
+            tunnel = [*SSH, "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30", "-o",
+                      "ServerAliveCountMax=3", "-f", "-N", "-L", f"{local}:127.0.0.1:{port}", host]
+            if _quiet(tunnel) != 0:
+                raise DeskError(f"Could not reach {host}. Is it on and on this network? Check with: ssh {host}")
+        if not _answers(url, 5):
+            _quiet([*SSH, host, "~/.local/bin/kestrel restart"], timeout=90)
+            if not _answers(url, wait_seconds):
+                raise DeskError(f"{host} answered, but KESTREL Stocks is not running there. On it, run: kestrel")
+    open_window(url, "stocks", paths.home / "windows")
+    return url
+
+
+def notify(text: str) -> None:
+    """A desktop notification, for errors from menu launchers that have no terminal."""
+    if shutil.which("notify-send"):
+        subprocess.Popen(["notify-send", "KESTREL Stocks", text], start_new_session=True,  # noqa: S603,S607
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def responding(url: str, timeout: float = 1.0) -> bool:
@@ -279,19 +384,37 @@ COMMAND = """#!/bin/sh
 #   kestrel open      open the app window
 #   kestrel signin    the weekly Schwab sign-in from this terminal, over SSH too: open the printed link in any
 #                     browser, log in, then paste the final address (it may fail to load) at the hidden prompt
+#   kestrel restart   restart the app in the background
 cd {repo} || exit 1
 case "${{1:-status}}" in
   status) exec {uv} run desk stocks status ;;
   update) git pull --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync && exec {uv} run desk stocks restart ;;
   open) exec {uv} run desk open --desk stocks ;;
   signin) exec {uv} run desk stocks connect --manual ;;
-  *) echo "usage: kestrel [status | update | open | signin]"; exit 2 ;;
+  restart) exec {uv} run desk stocks restart ;;
+  *) echo "usage: kestrel [status | update | open | signin | restart]"; exit 2 ;;
+esac
+"""
+REMOTE_COMMAND = """#!/bin/sh
+# KESTREL Stocks on {host}, used from this computer. Written by
+# `uv run desk open --desk stocks --install --remote {host}`; `--remote off` brings back this computer's own.
+#   kestrel           health of the KESTREL on {host}
+#   kestrel update    update it there and restart it
+#   kestrel signin    its weekly Schwab sign-in, from this terminal
+#   kestrel restart   restart it there
+#   kestrel open      open it in a window here
+action="${{1:-status}}"
+case "$action" in
+  status|update|signin|restart) exec ssh -t {host} "~/.local/bin/kestrel $action" ;;
+  open) cd {repo} || exit 1; exec {uv} run desk open --desk stocks ;;
+  *) echo "usage: kestrel [status | update | signin | restart | open]  (runs on {host})"; exit 2 ;;
 esac
 """
 
 
-def install_command(repo: Path, bin_dir: Path, uv: str | None = None) -> Path:
-    """Write the ``kestrel`` command (status, update, open, signin) into ``bin_dir``; usually ~/.local/bin.
+def install_command(repo: Path, bin_dir: Path, uv: str | None = None, remote: str | None = None) -> Path:
+    """Write the ``kestrel`` command into ``bin_dir`` (usually ~/.local/bin): for this computer's desk, or with
+    ``remote`` for that computer's, over SSH.
 
     Written beside and renamed over the old file, so a ``kestrel update`` that is still running is never cut short."""
     import shlex
@@ -299,13 +422,16 @@ def install_command(repo: Path, bin_dir: Path, uv: str | None = None) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     path = bin_dir / "kestrel"
     fresh = bin_dir / ".kestrel.new"
-    fresh.write_text(COMMAND.format(repo=shlex.quote(str(repo)), uv=shlex.quote(uv or shutil.which("uv") or "uv"),
-                                    branch=UPDATE_BRANCH), encoding="utf-8")
+    template = REMOTE_COMMAND if remote else COMMAND
+    fresh.write_text(template.format(repo=shlex.quote(str(repo)), uv=shlex.quote(uv or shutil.which("uv") or "uv"),
+                                     branch=UPDATE_BRANCH, host=shlex.quote(check_host(remote) if remote else "")),
+                     encoding="utf-8")
     os.chmod(fresh, 0o700)                 # yours to run; nobody else on the computer
     os.replace(fresh, path)
     return path
 
 
-__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "desktop_entry", "ensure_running", "install_command",
-           "install_launchers", "monitors", "open_desk",
-           "open_window", "responding", "saved_place", "screen_area", "window_slot"]
+__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "check_host", "desktop_entry", "ensure_running",
+           "install_command", "install_launchers", "monitors", "notify", "open_desk", "open_window", "remote_host",
+           "remote_window", "responding", "saved_place", "screen_area", "set_remote_host", "ssh_key_setup",
+           "window_slot"]

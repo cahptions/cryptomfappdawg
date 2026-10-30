@@ -827,6 +827,7 @@ def cmd_services(args: argparse.Namespace) -> int:
 
 
 def cmd_open(args: argparse.Namespace) -> int:
+    from desk.ops import launcher
     from desk.ops.launcher import install_launchers, open_desk
 
     restart = {"restart": True} if getattr(args, "restart", False) else {}
@@ -842,6 +843,13 @@ def cmd_open(args: argparse.Namespace) -> int:
     settings = load_config(paths.config_dir).settings
     ports = {"robinhood": settings.robinhood.dashboard_port, "stocks": settings.stocks.dashboard_port, "solana": 8765}
     port = args.port or ports[args.desk]
+    requested = getattr(args, "remote", None)
+    if requested is not None:
+        if args.desk != "stocks":
+            raise DeskError("--remote is for --desk stocks")
+        if requested != "off":
+            launcher.ssh_key_setup(launcher.check_host(requested))
+        launcher.set_remote_host(paths, None if requested == "off" else requested)
     if getattr(args, "install", False):
         ports[args.desk] = port
         for path in install_launchers(paths, sys.executable, port=ports["solana"], rh_port=ports["robinhood"],
@@ -852,10 +860,24 @@ def cmd_open(args: argparse.Namespace) -> int:
             from pathlib import Path
 
             from desk.core.paths import REPO_ROOT
-            from desk.ops.launcher import install_command
 
-            command = install_command(REPO_ROOT, Path.home() / ".local" / "bin")
-            print(f"Command installed: {command}  (kestrel · kestrel update · kestrel open)")
+            remote = launcher.remote_host(paths)
+            command = launcher.install_command(REPO_ROOT, Path.home() / ".local" / "bin", remote=remote)
+            print(f"Command installed: {command}  (kestrel · kestrel update · kestrel signin · kestrel open)")
+            if remote:
+                from desk.ops.dashboard_restart import restart_dashboard
+
+                restart_dashboard(paths, desk="stocks")        # stop this computer's own copy; its data is kept
+                print(f"KESTREL Stocks here now opens {remote}'s, and kestrel runs there. This computer's own "
+                      "Stocks app is stopped (its data is kept); bring it back with --remote off.")
+    remote = launcher.remote_host(paths) if args.desk == "stocks" else None
+    if remote:
+        try:
+            print(launcher.remote_window(remote, port, paths))
+        except DeskError as exc:
+            launcher.notify(str(exc))                           # the menu launcher has no terminal to print to
+            raise
+        return 0
     print(open_desk(args.desk, port, paths, **restart))
     return 0
 
@@ -1099,6 +1121,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--install", action="store_true", help="also install this desk's application-menu icon")
     p.add_argument("--restart", action="store_true", help="load updated code by safely restarting Stocks or Arbitrage")
     p.add_argument("--port", type=int, choices=range(1024, 65536), default=None, metavar="1024..65535")
+    p.add_argument("--remote", metavar="USER@ADDRESS|off",
+                   help="Stocks only: open another computer's desk here over SSH from now on (off: this computer's)")
     p.set_defaults(func=cmd_open)
 
     p = sub.add_parser("backups", help="online backups, verification and typed-confirmation restore")
