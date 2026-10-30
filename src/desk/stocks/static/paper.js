@@ -8,8 +8,11 @@ const KestrelPaper = (() => {
     showAll = false;
   const names = (accounts) =>
     Object.fromEntries(accounts.map((a) => [a.id, a.title]));
-  const signed = (n) =>
-    n == null ? "—" : `${n >= 0 ? "+" : "−"}${money(Math.abs(n))}`;
+  const signed = (n) => {
+    if (n == null) return "—";
+    const cents = Math.round(n * 100) / 100;
+    return `${cents > 0 ? "+" : cents < 0 ? "−" : ""}${money(Math.abs(cents))}`;
+  };
   function metric(label, value, cls = "") {
     const item = el("div", undefined, "paper-metric");
     item.append(el("small", label), el("strong", value, cls));

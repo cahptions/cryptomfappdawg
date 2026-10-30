@@ -3,8 +3,11 @@ const KestrelLearning = (() => {
   let account = "uncapped_research",
     view = "open",
     offset = 0;
-  const signed = (value) =>
-    `${value >= 0 ? "+" : "−"}${money(Math.abs(value))}`;
+  // Sign after rounding to cents, so a tiny negative remainder never reads "−$0.00".
+  const signed = (value) => {
+    const cents = Math.round(value * 100) / 100;
+    return `${cents > 0 ? "+" : cents < 0 ? "−" : ""}${money(Math.abs(cents))}`;
+  };
   const stamp = (value) =>
     value
       ? new Date(value).toLocaleString("en-US", {
@@ -564,14 +567,33 @@ const KestrelLearning = (() => {
         selected.append(policy);
       }
       app.append(selected);
-      const metrics = el("div", undefined, "paper-metrics");
-      metrics.append(
+      // Three headline numbers, then the accounting detail as a dense grid: every figure stays visible.
+      const metrics = el("div", undefined, "learning-account-metrics"),
+        headline = el("div", undefined, "paper-metrics learning-hero-metrics"),
+        detail = el("div", undefined, "learning-detail-metrics");
+      const pnl = metric(
+        "Trading P/L — funding excluded",
+        signed(a.trading_pnl),
+      );
+      pnl.classList.add(
+        a.trading_pnl > 0
+          ? "positive"
+          : a.trading_pnl < 0
+            ? "negative"
+            : "flat",
+      );
+      headline.append(
+        metric("Equity including funding", money(a.equity)),
+        pnl,
+        a.small_account
+          ? metric("Return on starting balance", percent(a.return_on_start))
+          : metric("Cash available", money(a.cash)),
+      );
+      detail.append(
+        ...(a.small_account ? [metric("Cash available", money(a.cash))] : []),
         metric("Starting virtual capital", money(a.starting_capital)),
         metric("Additional virtual funding", money(a.additional_funding)),
         metric("Total contributed", money(a.contributed)),
-        metric("Equity including funding", money(a.equity)),
-        metric("Trading P/L — funding excluded", signed(a.trading_pnl)),
-        metric("Cash available", money(a.cash)),
         metric(
           "Capital employed — marked positions",
           money(a.capital_employed),
@@ -581,10 +603,7 @@ const KestrelLearning = (() => {
         metric("Trading fees", money(a.fees)),
         metric("Trading P/L drawdown", money(a.trading_pnl_drawdown)),
       );
-      if (a.small_account)
-        metrics.append(
-          metric("Return on starting balance", percent(a.return_on_start)),
-        );
+      metrics.append(headline, detail);
       if (a.unresolved_expiries)
         app.append(
           el(
