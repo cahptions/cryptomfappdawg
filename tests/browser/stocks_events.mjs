@@ -21,7 +21,9 @@ try {
     await page.goto(`${base}/#events`);
     await page.getByRole("heading", { name: "Notable events" }).waitFor();
     assert.equal(
-      await page.locator('nav a[href="#events"]').getAttribute("aria-current"),
+      await page
+        .locator('nav[aria-label="Main"] a[href="#events"]')
+        .getAttribute("aria-current"),
       "page",
     );
 

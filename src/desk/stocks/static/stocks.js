@@ -985,11 +985,15 @@ async function render() {
     route = location.hash.replace(/^#/, "") || "dashboard";
   app.replaceChildren();
   app.className = "";
-  for (const a of document.querySelectorAll("nav a")) {
-    if (a.hash === "#" + route.split("/")[0])
-      a.setAttribute("aria-current", "page");
+  const section = "#" + route.split("/")[0];
+  for (const a of document.querySelectorAll("nav a:not(#worker-pill)")) {
+    if (a.hash === section) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
+  moreButton.classList.toggle(
+    "current",
+    [...moreSheet.querySelectorAll("a")].some((a) => a.hash === section),
+  );
   if (!snapshot) {
     heading("Loading…");
     return;
@@ -1042,7 +1046,8 @@ async function refresh(initial = false) {
     const previous = snapshot;
     snapshot = await api("snapshot");
     snapshot.worker_running ||= snapshot.collection?.running;
-    statusLine.textContent = `PAPER · ${snapshot.worker_running ? "Worker running" : "Worker stopped"} · Latest analysis: ${snapshot.asof || "not ready"} · ${snapshot.listings} active listings`;
+    workerState();
+    statusLine.replaceChildren();
     statusLine.className = "";
     // Schwab ends its sign-in 7 days after the browser login; say so on every page before quotes stop.
     const schwab = snapshot.connection?.schwab || {};
@@ -1057,10 +1062,9 @@ async function refresh(initial = false) {
           ? `Schwab sign-in ends in ${left < 1 ? `${Math.max(1, Math.round(left * 24))} hours` : "about a day"}: log in again before then so tracking has no gap.`
           : null;
       if (warning) {
-        statusLine.prepend(
+        statusLine.append(
           el("strong", warning + " "),
           link("Log in again in Settings →", "#settings"),
-          " · ",
         );
         statusLine.className = schwab.relogin_required
           ? "status-alert"
@@ -1100,7 +1104,54 @@ async function refresh(initial = false) {
       : null;
   }
 }
-window.addEventListener("hashchange", render);
+// The worker pill in the header (and the phone's More sheet): running or paused, and the latest analysed session.
+function workerState() {
+  const running = !!snapshot?.worker_running,
+    session = snapshot?.asof
+      ? new Date(snapshot.asof + "T12:00:00Z").toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC",
+        })
+      : "not ready";
+  const pill = document.getElementById("worker-pill");
+  pill.className = running ? "running" : "paused";
+  pill.querySelector("span").textContent =
+    `${running ? "Running" : "Paused"} · ${session}`;
+  pill.title = `PAPER worker ${running ? "running" : "paused"} · latest analysis ${snapshot?.asof || "not ready"} · ${number(snapshot?.listings || 0)} active listings`;
+  document.getElementById("more-status").textContent = pill.title;
+}
+// Phone: the More tab opens a sheet with the sections that do not fit in the tab bar.
+const moreButton = document.getElementById("more-button"),
+  moreSheet = document.getElementById("more-sheet");
+function closeMore() {
+  moreSheet.hidden = true;
+  moreButton.setAttribute("aria-expanded", "false");
+}
+moreButton.onclick = () => {
+  const open = moreSheet.hidden;
+  moreSheet.hidden = !open;
+  moreButton.setAttribute("aria-expanded", String(open));
+  if (open) moreSheet.querySelector("a")?.focus();
+};
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !moreSheet.hidden) {
+    closeMore();
+    moreButton.focus();
+  }
+});
+document.addEventListener("click", (event) => {
+  if (
+    !moreSheet.hidden &&
+    !moreSheet.contains(event.target) &&
+    !moreButton.contains(event.target)
+  )
+    closeMore();
+});
+window.addEventListener("hashchange", () => {
+  closeMore();
+  render();
+});
 (async () => {
   try {
     const session = await api("session");
