@@ -324,6 +324,8 @@ const KestrelResearch = (() => {
       );
       app.append(setup);
     } else if (!snapshot.worker_running) app.append(collectionControls());
+    // Options: its own data first; Learning findings and the social note close the page.
+    const optionsTail = [];
     if (focus === "options") {
       app.append(optionsCollections(hub));
       app.append(
@@ -334,7 +336,7 @@ const KestrelResearch = (() => {
       );
       const learned = await KestrelLearning.findings(ticket);
       if (ticket !== generation) return;
-      app.append(learned);
+      optionsTail.push(learned);
       const social = el("section", undefined, "paper-status");
       social.append(
         el("h2", "Social discovery · separate from market evidence"),
@@ -348,7 +350,7 @@ const KestrelResearch = (() => {
           "#lists/wsb_vs_reality",
         ),
       );
-      app.append(social);
+      optionsTail.push(social);
     }
     const layout = el("div", undefined, "hub-layout"),
       main = el("div", undefined, "hub-main"),
@@ -586,7 +588,7 @@ const KestrelResearch = (() => {
     ])
       collections.append(listCard(id, title, text, hub));
     opportunities.append(collections);
-    main.append(opportunities);
+    if (focus !== "options") main.append(opportunities);
     if (focus !== "options") main.append(optionsCollections(hub));
     const notable = el("section", undefined, "sidebar-section hub-events");
     notable.append(
@@ -732,7 +734,7 @@ const KestrelResearch = (() => {
     );
     aside.append(health);
     layout.append(main, aside);
-    app.append(layout);
+    app.append(layout, ...optionsTail);
   }
 
   function chartWidget(
