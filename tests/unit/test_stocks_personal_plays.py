@@ -113,6 +113,22 @@ def test_fresh_entry_close_and_profit_path_use_actual_reference_quotes_not_idea_
     assert research.execute("SELECT COUNT(*) FROM stk_plays").fetchone()[0] == 0
 
 
+def test_an_open_tracked_play_says_where_it_stands_against_its_exit_plan(books):
+    market, research, ident = books
+    selected = select(research, ident)
+    opening = START.replace(hour=9, minute=30)
+    tick(research, opening, ask=3., bid=2.9)
+    assert ps.advance(market, research, opening) == 1
+    out = ps.view(research, selected, opening + timedelta(minutes=5), personal=True)
+    plan = out["chart"]["exit_plan"]                    # an older saved play without one gets the standard plan
+    assert plan["source"] == "standard" and plan["take_profit"]["return"] == 1.0 and plan["stop"]["return"] == -0.5
+    assert out["chart"]["exit_status"]["state"] == "hold"
+    doubled = opening + timedelta(hours=2)
+    tick(research, doubled, bid=6.2, ask=6.3)           # the put more than doubles: +100% is the take-profit
+    status = ps.view(research, selected, doubled + timedelta(minutes=1), personal=True)["chart"]["exit_status"]
+    assert status["state"] == "take_profit" and status["return"] >= 1.0 and "Take-profit reached" in status["text"]
+
+
 def test_cancelled_and_expired_without_entry_never_fill_later(books):
     market, research, ident = books
     selected = select(research, ident)

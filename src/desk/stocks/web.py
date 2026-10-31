@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import mimetypes
 import re
 import secrets
@@ -101,7 +102,11 @@ def ui_prefs(paths: DeskPaths) -> dict[str, Any]:
         value = json.loads(path.read_text()) if path.exists() and path.stat().st_size < 4096 else {}
     except (OSError, ValueError):
         value = {}
-    return {"explain": value.get("explain") is True}
+    bankroll = value.get("bankroll")
+    valid = (isinstance(bankroll, dict) and isinstance(bankroll.get("amount"), (int, float))
+             and not isinstance(bankroll.get("amount"), bool) and 1 <= bankroll["amount"] <= 10_000_000
+             and bankroll.get("level") in ("careful", "balanced", "bold"))
+    return {"explain": value.get("explain") is True, "bankroll": bankroll if valid else None}
 
 
 def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
@@ -441,6 +446,14 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 play["idea_id"] = idea_id(value["asof"], category["id"], str(value.get("method", "unknown")), play)
         return value
 
+    @app.get("/api/stocks/plays/bankroll")
+    def plays_bankroll(amount: float = Query(gt=0, le=10_000_000, allow_inf_nan=False),
+                       level: Literal["careful", "balanced", "bold"] = "balanced") -> dict[str, Any]:
+        """The day's plays chosen and sized for a bankroll (research guidance; no order is sent)."""
+        from desk.stocks.play_plan import bankroll
+
+        return bankroll(plays_view(), amount, level)
+
     @app.get("/api/stocks/plays/idea/{ident}")
     def play_idea(ident: str) -> dict[str, Any]:
         from desk.stocks.play_selections import view
@@ -558,7 +571,13 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.post("/api/stocks/ui")
     def ui_preferences(inputs: dict[str, Any]) -> dict[str, Any]:
         """This desk's display preferences (numbers first, or explanations shown). Kept beside the other settings."""
-        if set(inputs) - {"explain"} or not isinstance(inputs.get("explain", False), bool):
+        bankroll = inputs.get("bankroll")
+        if (set(inputs) - {"explain", "bankroll"} or not isinstance(inputs.get("explain", False), bool)
+                or (bankroll is not None and not (
+                    isinstance(bankroll, dict) and set(bankroll) == {"amount", "level"}
+                    and isinstance(bankroll["amount"], (int, float)) and not isinstance(bankroll["amount"], bool)
+                    and math.isfinite(bankroll["amount"]) and 1 <= bankroll["amount"] <= 10_000_000
+                    and bankroll["level"] in ("careful", "balanced", "bold")))):
             raise HTTPException(422, "Unknown display preference")
         value = {**ui_prefs(paths), **inputs}
         paths.ensure()

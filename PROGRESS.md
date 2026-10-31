@@ -17,6 +17,18 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-31 — Confidence, exit plans and My bankroll
+
+- `play_plan.py`: **confidence** (five plain checks, the meter is the count: odds, KESTREL's expected value, the
+  research agreeing with the direction, liquidity, a proven category record), **exit plans** (take-profit, stop and a
+  leave-by date in Learning's return-on-risk units, as stock prices for a move today and as the day time alone gets
+  there; a category's proven learned rule replaces the standard one), and **bankroll** sizing (Careful 5%/20%,
+  Balanced 10%/35%, Bold 20%/60% of the amount per play / in all; one per stock, two per category, ≤ 60% in one
+  direction; 3 of 5 checks, 2 when few qualify).
+- Every play is built with both; the tracked-play page shows live status (take profit, stop, time to leave, odds
+  improved against your own entry so adding is allowed, or hold). `/api/stocks/plays/bankroll` and a remembered
+  amount/level in the display preferences; 💼 My bankroll is the first Plays tab, and every card shows how many fit.
+
 ## 2026-10-31 — The main option strategies in Plays and on the Options page
 
 - New categories: 🎢 **Strangles**, 🦅 **Iron condors**, 🦋 **Iron butterflies**, 💵 **Cash-secured puts** (with

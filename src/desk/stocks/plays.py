@@ -1184,6 +1184,8 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         **{k: (None if v is None else round(float(v), 4)) for k, v in chance.items()},
         "in_the_money": event == "itm" and (u.price > event_strike if event_kind == "call" else u.price < event_strike),
         "earnings": earnings, "liquidity": grade, "score": round(c.score, 4), "reasons": c.reasons, "flags": flags,
+        "committee": None if u.committee is None else round(float(u.committee), 1),
+        "iv30": None if not u.iv30 else round(float(u.iv30), 4), "rv": None if not u.rv else round(float(u.rv), 4),
         "unusual": c.unusual, "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source,
         "calibration": move_level if event == "move" else itm_level, "odds_version": od.MODEL_VERSION}
     from desk.stocks.play_targets import build as target_probabilities
@@ -1248,6 +1250,7 @@ def records(research: StocksResearch) -> dict[str, dict[str, Any]]:
         out[category] = {"resolved": len(rows), "itm_rate": sum(r["hit"] for r in rows) / len(rows),
                          "predicted_itm": statistics.fmean(predicted) if predicted else None,
                          "median_return": statistics.median(r["net_return"] for r in rows),
+                         "mean_return": statistics.fmean(r["net_return"] for r in rows),
                          "brier": od.brier([r["itm_kestrel_raw"] for r in rows if r["itm_kestrel_raw"] is not None],
                                            [bool(r["hit"]) for r in rows if r["itm_kestrel_raw"] is not None])}
     return out
@@ -1561,6 +1564,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                 "message": "No option chains are stored yet. Connect Schwab or Tradier in Settings; chains are collected "
                            "every 15 minutes while the market is open.", "graded": graded}
     from desk.stocks import play_learning as lrn
+    from desk.stocks import play_plan as plan
 
     session = min(latest, expected)
     live = lrn.promoted(research.conn)
@@ -1613,9 +1617,12 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                     shadow[v.id][cat.id] = lrn.select(v, cat.id, found, done, limit)
         recorded[cat.id] = plays
         exit_rule = (learned.get("exits") or {}).get(cat.id) or {}
+        cheaper = budget_plays(cat.id, tables, ctx, live.get(cat.id))
+        for p in [*plays, *cheaper]:                          # how far to trust it, when to leave, for every play
+            plan.attach(p, cat.id, track.get(cat.id), exit_rule, ctx.rate, session)
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
                  "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
-                 "budget_plays": budget_plays(cat.id,tables,ctx,live.get(cat.id)),
+                 "budget_plays": cheaper,
                  "label": (learned.get("labels") or {}).get(cat.id), "live_rules": live.get(cat.id),
                  "exit": exit_rule if exit_rule.get("suggested") else None}
         if cat.id == "unusual":

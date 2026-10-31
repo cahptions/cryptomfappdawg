@@ -244,4 +244,20 @@ def test_the_page_endpoint_serves_the_saved_plays(world: StocksWorld) -> None:
         assert body["asof"] == ASOF.isoformat() and len(body["categories"]) == len(pl.CATEGORIES)
         assert client.get("/assets/plays.js").status_code == 200 and client.get("/assets/plays.css").status_code == 200
         assert "#plays" in client.get("/").text
+        # every served play says how far to trust it and when to leave; the bankroll route sizes the day's picks
+        play = body["categories"][0]["plays"][0]
+        assert play["confidence"]["of"] == 5 and play["exit_plan"]["leave_by"]
+        picks = client.get("/api/stocks/plays/bankroll", params={"amount": 5000, "level": "bold"}).json()
+        assert picks["per_play_cap"] == 1000 and picks["summary"]["risk"] <= picks["risk_cap"] == 3000
+        assert all(p["quantity"] >= 1 and p["play"]["idea_id"] for p in picks["picks"])
+        assert client.get("/api/stocks/plays/bankroll", params={"amount": -5}).status_code == 422
+        assert client.get("/api/stocks/plays/bankroll", params={"amount": 500, "level": "yolo"}).status_code == 422
+        # the amount and level are remembered with the other display preferences
+        headers = {"X-CSRF-Token": client.get("/api/stocks/session").json()["csrf_token"]}
+        saved_ui = client.post("/api/stocks/ui", json={"bankroll": {"amount": 1000, "level": "careful"}},
+                               headers=headers).json()
+        assert saved_ui["bankroll"] == {"amount": 1000, "level": "careful"}
+        assert client.get("/api/stocks/snapshot").json()["ui"]["bankroll"]["amount"] == 1000
+        assert client.post("/api/stocks/ui", json={"bankroll": {"amount": 0, "level": "careful"}},
+                           headers=headers).status_code == 422
     assert math.isfinite(saved["coverage"]["contracts_scored"])

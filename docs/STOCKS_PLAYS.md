@@ -140,6 +140,49 @@ or unavailable fields remain explicitly missing. Display-only profile text never
 
 Code: `company_profiles.py`, SEC submissions parser and market migration `0006_company_profiles.sql`.
 
+## Confidence, exit plans and My bankroll
+
+**Confidence** is five plain checks, and the meter is how many pass (never a disguised probability; the chance of
+profit is shown separately). Open it on any card to see each check and why:
+
+1. **Better than even odds**: KESTREL's chance of a profit at expiry is 50% or more.
+2. **KESTREL's math favours it**: its expected value after fees is above zero.
+3. **The research agrees**: bullish plays need a bullish committee lean (≥ 58), bearish ones a bearish lean (< 42),
+   condors and butterflies no strong lean (42–58), straddles and strangles a stock moving more than its options price.
+4. **Easy to trade**: liquidity A or B (spreads ≤ 12%, open interest ≥ 250).
+5. **Proven category**: at least 20 of the category's plays resolved, averaging a profit on the money at risk.
+
+5 is Very strong, 4 Strong, 3 Moderate, 2 Weak, 0–1 Very weak. New categories start without check 5.
+
+Every play carries an **exit plan** in the units Learning grades (return on the money at risk, round-trip fees
+included): a take-profit, a stop and a date to be out by, each also given as the stock price that would reach it after
+a move today and, where time alone gets there, the day it would if the stock stays put. The standard rules are the
+common ones per structure: bought options +100% / −50%; LEAPS +50% / −30%; lottos +200% and no stop; debit spreads
+half the maximum gain / −50%; straddles and strangles +50% / −40%; credit spreads and condors half the credit / a loss
+of twice the credit; iron butterflies a quarter of the credit / −50%; cash-secured puts half the premium / a loss of
+twice the premium. Bought plays leave 21 days before expiry (a third of the time for short-dated ones). Once a
+category's walk-forward exit rule is proven better than holding, that **learned** rule replaces the standard one. On
+a play you track, the detail page says where it stands: take-profit reached, stop reached, time to leave, odds
+improved (adding is allowed: KESTREL's chance of a profit from here is 10+ points above the same chance at your own
+entry, 21+ days remain, and it is not losing more than 25%), or hold.
+
+**💼 My bankroll** (the first Plays tab): enter what you have set aside for options and a level, and KESTREL picks the
+day's plays from every category, both the overall rankings and the price-range alternatives:
+
+| Level | Worst case per play | All plays together |
+|---|---|---|
+| Careful | 5% | 20% |
+| Balanced | 10% | 35% |
+| Bold | 20% | 60% |
+
+Plays need 3 of 5 confidence checks (2 when fewer than three qualify, and the page says so), most confident first,
+then best expected value per dollar at risk. One play per stock, two per category, and no direction (bullish,
+bearish, neutral, big move) above 60% of the total. Each pick gets as many contracts as its per-play limit allows
+within what remains. The summary gives the money at risk, the cash tied up (a sold play's worst case is held as
+collateral; a cash-secured put ties up the cash for the shares), what happens if every take-profit or every stop
+hits, and KESTREL's expected value. With an amount saved, every other card shows how many of that play fit it. When
+nothing fits, the page names the cheapest qualifying play's risk.
+
 ## Three chances, side by side
 
 | View | What it is |

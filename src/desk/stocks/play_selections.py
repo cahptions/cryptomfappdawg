@@ -392,6 +392,20 @@ def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: b
     from desk.stocks.play_history import valuation_status
 
     chart["freshness"] = valuation_status(research,legs,now,chart["exits"],finished=closed is not None)
+    if personal and not closed:
+        from desk.stocks import play_plan as pp
+
+        steps = sorted([*daily, *intraday], key=lambda point: point["at"])
+        ivs = [float(row["iv"]) for row in latest.values() if row.get("iv")]
+        exit_plan = play.get("exit_plan") or pp.exit_plan(play, found["category"], None, 0.04,
+                                                           date.fromordinal(found["session"]))
+        chart["exit_plan"] = exit_plan
+        entered = None
+        if entry and entry.get("quotes") and entry["quotes"][0].get("underlying"):
+            entered = (float(entry["quotes"][0]["underlying"]),
+                       cal.new_york(datetime.fromisoformat(entry["at"])).date())
+        chart["exit_status"] = pp.status(play, exit_plan, price, steps[-1] if steps else None, ivs,
+                                         cal.new_york(now).date(), entered)
     return {"idea": found, "tracking": current, "plan": prepared, "chart": chart}
 
 

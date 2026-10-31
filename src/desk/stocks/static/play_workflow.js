@@ -284,6 +284,13 @@ const KestrelPlayWorkflow = (() => {
     pages.append(el("span", `${data.total} selections`));
     app.append(pages);
   }
+  const exitTitle = {
+    take_profit: "TAKE PROFIT",
+    stop: "STOP: EXIT",
+    time_exit: "TIME TO LEAVE",
+    add: "ODDS IMPROVED: ADD IS ALLOWED",
+    hold: "HOLD",
+  };
   async function detail(ticket, id, personal = false) {
     clearInterval(watcher);
     const serial = ++viewSerial;
@@ -358,6 +365,20 @@ const KestrelPlayWorkflow = (() => {
         status.append(b);
       }
       app.append(status);
+      const exit = data.chart?.exit_status,
+        plan = data.chart?.exit_plan || play.exit_plan;
+      if (exit || plan) {
+        const box = panel(
+          exit ? exitTitle[exit.state] : "Exit plan",
+          exit
+            ? `${exit.text}. Now ${exit.return >= 0 ? "+" : "−"}${Math.abs(100 * exit.return).toFixed(0)}% on the money at risk · ${exit.days_left} days to expiry${exit.chance_from_here == null ? "" : ` · chance of a profit from here ${Math.round(100 * exit.chance_from_here)}%${exit.chance_at_entry == null ? "" : ` (${Math.round(100 * exit.chance_at_entry)}% at entry)`}`}.`
+            : "The plan this play was identified with.",
+        );
+        box.classList.add("play-exit-status", `state-${exit?.state || "plan"}`);
+        const block = KestrelPlays.exitBlock(play, plan);
+        if (block) box.append(block);
+        app.append(box);
+      }
     }
     const chart = data.chart ? KestrelPlaysHistory.chart(data.chart) : null;
     if (chart) app.append(chart);

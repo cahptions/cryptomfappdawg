@@ -881,3 +881,164 @@
   border-color: var(--muted);
   color: var(--text);
 }
+
+/* Confidence: five checks as five segments; the tier colours the filled ones. */
+.play-confidence {
+  margin: 10px 0 2px;
+}
+.play-confidence summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.play-confidence summary::-webkit-details-marker {
+  display: none;
+}
+.play-confidence-label {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.play-confidence-bar {
+  display: inline-flex;
+  gap: 3px;
+}
+.play-confidence-bar i {
+  width: 18px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.play-confidence.tier-0 .play-confidence-bar i.on,
+.play-confidence.tier-1 .play-confidence-bar i.on,
+.play-confidence.tier-2 .play-confidence-bar i.on {
+  background: var(--down);
+}
+.play-confidence.tier-3 .play-confidence-bar i.on {
+  background: var(--warning);
+}
+.play-confidence.tier-4 .play-confidence-bar i.on,
+.play-confidence.tier-5 .play-confidence-bar i.on {
+  background: var(--up);
+}
+.play-confidence strong {
+  font-size: 13px;
+}
+.play-confidence ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.play-confidence li {
+  margin: 4px 0;
+}
+.play-confidence li.ok {
+  color: var(--up);
+}
+.play-confidence li.no {
+  color: var(--muted);
+}
+
+/* Exit plan and size: compact rows under the chances. */
+.play-size {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--accent);
+}
+.play-size.over {
+  color: var(--muted);
+}
+.play-exit {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.play-exit > strong {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.play-exit-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.play-exit-rows dt {
+  color: var(--muted);
+}
+.play-exit-rows dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.play-exit details {
+  font-size: 13px;
+}
+.play-exit summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.play-exit-status.state-take_profit,
+.play-exit-status.state-add {
+  border-color: var(--up-line);
+}
+.play-exit-status.state-stop,
+.play-exit-status.state-time_exit {
+  border-color: var(--down-line);
+}
+
+/* My bankroll: the amount and level in one row, the totals as a strip, each pick's size above its card. */
+.bankroll-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.bankroll-prefix {
+  color: var(--muted);
+  font-size: 20px;
+}
+.bankroll-form input {
+  width: 9em;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.bankroll-form select,
+.bankroll-form input {
+  margin: 0;
+}
+.bankroll-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.bankroll-summary dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.bankroll-summary dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bankroll-note {
+  color: var(--warning);
+}
+.bankroll-pick-head {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--accent);
+}

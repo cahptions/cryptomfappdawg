@@ -60,9 +60,10 @@ try {
     assert.equal(data.categories.length, 17);
     assert.equal(
       await tabs.count(),
-      data.categories.length,
-      "one tab per category",
+      data.categories.length + 1,
+      "my bankroll, then one tab per category",
     );
+    assert.equal(await tabs.first().innerText(), "💼 My bankroll");
     const rankedCategory = data.categories.find((c) => c.id === "likely_itm");
     // A render-only synthetic expensive play verifies All prices has no ceiling; actual pricing has Python coverage.
     const expensive = structuredClone(rankedCategory.plays[0]);

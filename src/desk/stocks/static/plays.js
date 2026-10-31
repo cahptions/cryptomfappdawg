@@ -87,7 +87,9 @@ const KestrelPlays = (() => {
 
   // A spread names both strikes ("$49.00 / $53.00 strikes"); one contract or a straddle names one.
   function strikeList(play) {
-    const all = [...new Set((play.legs || []).map((l) => l.strike))];
+    const all = [...new Set((play.legs || []).map((l) => l.strike))].sort(
+      (a, b) => a - b,
+    );
     return all.length > 1 ? all.map(money).join(" / ") : money(play.strike);
   }
   const strikeLabel = (play) =>
@@ -108,6 +110,108 @@ const KestrelPlays = (() => {
       `Net ${play.action === "SELL" ? "credit" : "debit"} (natural / mid)`,
       `${money(play.entry)} / ${money(mid)} (widest leg ${pct(play.spread_pct, 1)})`,
     ];
+  }
+
+  // Confidence: five plain checks; the meter is how many pass, and each check says why (never a disguised chance).
+  function confidenceMeter(play) {
+    const c = play.confidence;
+    if (!c) return null;
+    const box = el("details", undefined, `play-confidence tier-${c.score}`),
+      summary = el("summary"),
+      bar = el("span", undefined, "play-confidence-bar");
+    for (let i = 0; i < c.of; i += 1)
+      bar.append(el("i", undefined, i < c.score ? "on" : ""));
+    bar.setAttribute("role", "img");
+    bar.setAttribute(
+      "aria-label",
+      `Confidence ${c.score} of ${c.of}: ${c.label}`,
+    );
+    summary.append(
+      el("span", "Confidence", "play-confidence-label"),
+      bar,
+      el("strong", `${c.label} · ${c.score}/${c.of}`),
+    );
+    const list = el("ul");
+    for (const check of c.checks)
+      list.append(
+        el(
+          "li",
+          `${check.ok ? "✓" : "✗"} ${check.title}: ${check.detail}`,
+          check.ok ? "ok" : "no",
+        ),
+      );
+    box.append(summary, list);
+    return box;
+  }
+
+  const day = (iso) =>
+    new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+
+  // The plan to leave: take profit and stop as P/L and as stock prices for a move today (or the day time alone gets
+  // there if the stock stays put), and a date to be out by.
+  function exitBlock(play, plan = play.exit_plan) {
+    if (!plan) return null;
+    const box = el("div", undefined, "play-exit"),
+      rows = el("dl", undefined, "play-exit-rows");
+    const line = (level) => {
+      if (!level) return null;
+      const stock = level.stock || {},
+        prices = [
+          stock.above != null ? `${play.symbol} ≥ ${money(stock.above)}` : null,
+          stock.below != null ? `${play.symbol} ≤ ${money(stock.below)}` : null,
+        ].filter(Boolean);
+      return [
+        `${signed(100 * level.return, 0)}% (${level.pnl >= 0 ? "+" : "−"}${money(Math.abs(level.pnl))})`,
+        prices.length ? `${prices.join(" or ")} today` : null,
+        level.by_time
+          ? `${prices.length ? "or " : ""}by ${day(level.by_time)} if it stays put`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    };
+    for (const [label, value] of [
+      ["Take profit", line(plan.take_profit) || "Hold to expiry"],
+      ["Stop", line(plan.stop) || "None: sized so losing it all is fine"],
+      ["Leave by", plan.leave_by ? day(plan.leave_by) : "Hold to expiry"],
+    ])
+      rows.append(el("dt", label), el("dd", value));
+    const more = el("details");
+    more.append(
+      el("summary", "Adding more, and why these levels"),
+      el("p", plan.add),
+      el("p", plan.why, "muted"),
+      el("p", plan.note, "caption muted"),
+    );
+    box.append(
+      el(
+        "strong",
+        plan.source === "learned" ? "Exit plan · learned" : "Exit plan",
+      ),
+      rows,
+      more,
+    );
+    return box;
+  }
+
+  // With a bankroll saved: how many of this play fit its per-play limit.
+  const LEVELS = { careful: 0.05, balanced: 0.1, bold: 0.2 };
+  function yourSize(play) {
+    const b = typeof snapshot !== "undefined" ? snapshot?.ui?.bankroll : null;
+    if (!b || !play.max_loss) return null;
+    const cap = b.amount * LEVELS[b.level],
+      qty = Math.floor(cap / play.max_loss),
+      title = `For your ${money(b.amount)} (${b.level})`;
+    return el(
+      "p",
+      qty >= 1
+        ? `${title}: up to ${qty} · worst case ${money(qty * play.max_loss)} (${pct((qty * play.max_loss) / b.amount, 1)})`
+        : `${title}: above your ${money(cap)} per-play limit`,
+      `play-size ${qty >= 1 ? "" : "over"}`,
+    );
   }
 
   function legsLine(play) {
@@ -145,6 +249,8 @@ const KestrelPlays = (() => {
     const legs = legsLine(play);
     if (legs) c.append(legs);
     c.append(chanceMeter(play));
+    for (const part of [confidenceMeter(play), yourSize(play), exitBlock(play)])
+      if (part) c.append(part);
     c.append(KestrelPlayWorkflow.targets(play));
     const metrics = el("dl", undefined, "setup-metrics play-metrics");
     const cost =
@@ -230,6 +336,7 @@ const KestrelPlays = (() => {
         "Cost/credit",
         "Chance ITM",
         "Profit",
+        "Confidence",
         "Δ",
         "Θ/day",
         "IV",
@@ -252,6 +359,7 @@ const KestrelPlays = (() => {
         p.action === "SELL" ? `+${money(p.credit)}` : money(p.cost),
         pct(p.itm_kestrel),
         pct(p.profit_kestrel),
+        p.confidence ? `${p.confidence.score}/${p.confidence.of}` : "—",
         greek(p.delta, 2),
         greek(p.theta, 2),
         pct(p.iv, 0),
@@ -259,6 +367,127 @@ const KestrelPlays = (() => {
         money(p.expected_value),
       ]),
     );
+  }
+
+  const LEVEL_LABELS = [
+    ["careful", "Careful · 5% a play, 20% in all"],
+    ["balanced", "Balanced · 10% a play, 35% in all"],
+    ["bold", "Bold · 20% a play, 60% in all"],
+  ];
+  function bankrollView(body) {
+    const saved = (typeof snapshot !== "undefined" &&
+      snapshot?.ui?.bankroll) || { amount: 1000, level: "balanced" };
+    const head = el("div", undefined, "section-heading"),
+      text = el("div");
+    text.append(
+      el("h2", "💼 My bankroll"),
+      el(
+        "p",
+        "Enter what you've set aside for options. KESTREL picks today's plays from every category and sizes them so no single play can lose more than a set share of it and the total at risk stays capped. Research picks for PAPER, not orders.",
+        "muted",
+      ),
+    );
+    head.append(text);
+    const form = el("form", undefined, "bankroll-form"),
+      amount = el("input"),
+      level = el("select"),
+      go = el("button", "Pick my plays", "primary"),
+      out = el("div", undefined, "bankroll-out");
+    amount.type = "number";
+    amount.min = "1";
+    amount.step = "any";
+    amount.inputMode = "decimal";
+    amount.value = String(saved.amount);
+    amount.setAttribute("aria-label", "Bankroll in dollars");
+    for (const [id, label] of LEVEL_LABELS) {
+      const o = el("option", label);
+      o.value = id;
+      level.append(o);
+    }
+    level.value = saved.level;
+    level.setAttribute("aria-label", "Risk level");
+    form.append(el("span", "$", "bankroll-prefix"), amount, level, go);
+    body.append(head, form, out);
+    async function run() {
+      const value = Number(amount.value);
+      if (!(value >= 1)) {
+        out.replaceChildren(
+          el("p", "Enter an amount of at least $1.", "screen-empty"),
+        );
+        return;
+      }
+      go.disabled = true;
+      out.replaceChildren(el("p", "Choosing plays…", "muted"));
+      const choice = { amount: value, level: level.value };
+      api("ui", { bankroll: choice })
+        .then((ui) => {
+          if (typeof snapshot !== "undefined" && snapshot) snapshot.ui = ui;
+        })
+        .catch(() => {});
+      try {
+        draw(
+          await api(
+            `plays/bankroll?amount=${encodeURIComponent(value)}&level=${level.value}`,
+          ),
+        );
+      } catch (error) {
+        out.replaceChildren(el("p", error.message, "screen-empty"));
+      } finally {
+        go.disabled = false;
+      }
+    }
+    function draw(data) {
+      const s = data.summary,
+        stats = el("dl", undefined, "bankroll-summary");
+      for (const [label, value] of [
+        ["Plays", String(s.plays)],
+        [
+          "At risk",
+          `${money(s.risk)} of ${money(data.amount)} (${pct(s.share, 0)})`,
+        ],
+        ["Cash tied up", money(s.cash)],
+        ["If every take-profit hits", `+${money(s.at_take_profit)}`],
+        ["If every stop hits", money(s.at_stop)],
+        [
+          "KESTREL expects",
+          `${s.expected_value >= 0 ? "+" : "−"}${money(Math.abs(s.expected_value))}`,
+        ],
+      ]) {
+        const pair = el("div");
+        pair.append(el("dt", label), el("dd", value));
+        stats.append(pair);
+      }
+      const parts = [stats];
+      if (data.message) parts.push(el("p", data.message, "bankroll-note"));
+      const grid = el("div", undefined, "setup-grid play-grid");
+      for (const pick of data.picks) {
+        const wrap = el("div", undefined, "bankroll-pick"),
+          verb = pick.play.action === "SELL" ? "Sell" : "Buy";
+        wrap.append(
+          el(
+            "p",
+            `${verb} ${pick.quantity} × · risk ${money(pick.risk)} (${pct(pick.share, 1)}) · cash ${money(pick.cash)} · ${pick.play.category_title}`,
+            "bankroll-pick-head",
+          ),
+          card(pick.play),
+        );
+        grid.append(wrap);
+      }
+      if (data.picks.length) parts.push(grid);
+      parts.push(
+        el(
+          "p",
+          `Limits: no play's worst case above ${money(data.per_play_cap)}; all plays together at most ${money(data.risk_cap)}; one play per stock, two per category, and no direction (bullish, bearish, neutral, big-move) above 60% of the total. Plays need 3 of 5 confidence checks (2 when few qualify), most confident first. Sold plays tie up their worst case as collateral; a cash-secured put ties up the cash to buy the shares.`,
+          "caption muted",
+        ),
+      );
+      out.replaceChildren(...parts);
+    }
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      run();
+    };
+    run();
   }
 
   function record(cat) {
@@ -655,12 +884,40 @@ const KestrelPlays = (() => {
       summary = el("p", undefined, "play-filter-summary");
     summary.setAttribute("role", "status");
     summary.setAttribute("aria-atomic", "true");
-    const ids = data.categories.map((c) => c.id);
-    if (!ids.includes(state.category)) state.category = ids[0];
+    const ids = ["bankroll", ...data.categories.map((c) => c.id)];
+    if (!ids.includes(state.category)) state.category = data.categories[0].id;
     function draw() {
       controls.sync();
       const rules = filterRules();
       tabs.replaceChildren();
+      const mine = el("button", "💼 My bankroll", "play-tab play-tab-bankroll");
+      mine.setAttribute("role", "tab");
+      mine.setAttribute("aria-selected", String(state.category === "bankroll"));
+      mine.onclick = () => {
+        state.category = "bankroll";
+        remember();
+        draw();
+      };
+      tabs.append(mine);
+      const bank = state.category === "bankroll";
+      for (const part of [controls.element, controls.budgets, summary])
+        part.style.display = bank ? "none" : "";
+      if (bank) {
+        body.replaceChildren();
+        for (const cat of data.categories) {
+          const b = el("button", `${cat.emoji} ${cat.title}`, "play-tab");
+          b.setAttribute("role", "tab");
+          b.setAttribute("aria-selected", "false");
+          b.onclick = () => {
+            state.category = cat.id;
+            remember();
+            draw();
+          };
+          tabs.append(b);
+        }
+        bankrollView(body);
+        return;
+      }
       for (const cat of data.categories) {
         const picked = selection(cat, rules);
         const b = el(
@@ -898,5 +1155,5 @@ const KestrelPlays = (() => {
       );
     return wrap;
   }
-  return { show, tracking, card };
+  return { show, tracking, card, exitBlock, confidenceMeter };
 })();
