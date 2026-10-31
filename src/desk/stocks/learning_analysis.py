@@ -13,10 +13,11 @@ import json
 import math
 import sqlite3
 from collections import defaultdict
-from datetime import date, datetime
-from statistics import fmean, stdev
+from datetime import date, datetime, timedelta
+from statistics import fmean, median, stdev
 from typing import Any
 
+from desk.stocks import calendar as cal
 from desk.stocks.learning import ACCOUNTS, REFERENCE, RESEARCH, state
 from desk.stocks.paper.book import MICRO, PaperBook
 
@@ -34,7 +35,8 @@ def _positions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         out.append({"id": r["id"], "account": r["account"], "symbol": r["symbol"], "structure": r["structure"],
                     "experiment": plan.get("experiment_id"), "hold_minutes": plan.get("hold_minutes"),
                     "target": plan.get("target_debit"), "closed": r["state"] == "CLOSED", "cost": cost, "pnl": pnl,
-                    "net_return": pnl / cost if cost > 0 else 0.0, "day": r["entry_day"]})
+                    "net_return": pnl / cost if cost > 0 else 0.0, "day": r["entry_day"],
+                    "opened_at": r["opened_at"], "closed_at": r["closed_at"]})
     return out
 
 
@@ -67,6 +69,25 @@ def _daily_t(rows: list[dict[str, Any]]) -> dict[str, Any]:
         return {"days": len(days), "mean": fmean(days) if days else None, "t": None}
     sd = stdev(days)
     return {"days": len(days), "mean": fmean(days), "t": None if sd == 0 else fmean(days) / (sd / math.sqrt(len(days)))}
+
+
+def _holding(rows: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
+    """Did "held 2 h" mean two hours? Closed trades' actual holds, and open ones already past their planned exit,
+    split by whether they were opened too late in the day to finish before the close."""
+    held: dict[int, list[float]] = defaultdict(list)
+    overdue = late = 0
+    for r in rows:
+        plan = r["hold_minutes"]
+        if not plan:
+            continue
+        opened = datetime.fromisoformat(r["opened_at"])
+        if r["closed"] and r["closed_at"]:
+            held[plan].append((datetime.fromisoformat(r["closed_at"]) - opened).total_seconds() / 60)
+        elif now - opened > timedelta(minutes=plan):
+            overdue += 1
+            late += opened + timedelta(minutes=plan) > cal.session_close(cal.new_york(opened).date())
+    return {"planned": {plan: {"trades": len(v), "median_minutes": median(v)} for plan, v in sorted(held.items())},
+            "open_past_plan": overdue, "opened_too_late": late}
 
 
 def _pairs(conn: sqlite3.Connection, pnl: dict[str, float]) -> dict[str, Any]:
@@ -134,6 +155,9 @@ def analyse(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]:
                                            "day": date.fromordinal(r["day"]).isoformat()} for r in top],
                           "without_top5": realized - sum(r["pnl"] for r in top)},
         "daily": _daily_t(research),
+        "days": sorted(({"day": date.fromordinal(g["key"]).isoformat(), "trades": g["trades"], "open": g["open"],
+                         "pnl": g["pnl"]} for g in _groups(research, "day")), key=lambda d: d["day"]),
+        "holding": _holding(research, now),
         "pairs": _pairs(conn, {r["id"]: r["pnl"] for r in rows}),
         "funding": {"deposits": len(deposits), "deposited": sum(d["amount_micros"] for d in deposits) / MICRO,
                     "cap": cap, "pnl_since_cap": since_cap},
@@ -170,8 +194,11 @@ def render(a: dict[str, Any]) -> str:
              + p["buckets"]["skipped"]["research_pnl"])
     out.append(f"  Gap {_money(gap)}; of it {_money(extra)} comes from size the reference could not afford "
                f"({p['reference_short_of_cash']} reference orders cut short of cash).")
-    out += ["", "Research account by recipe (structure, size, holding time):"]
-    for g in a["recipes"][:10]:
+    out += ["", "Research account by structure: " + " · ".join(
+        f"{g['key'].replace('_', ' ')} {_money(g['pnl'])} ({g['trades']} closed, {g['open']} open, wins "
+        f"{_share(g['win_rate'])})" for g in a["structures"])]
+    out += ["", "Research account by recipe (structure, size, holding time), best to worst:"]
+    for g in a["recipes"]:
         out.append(f"  {g['key']:<42} {g['trades']:>5} closed · wins "
                    f"{_share(g['win_rate'])} · avg {_pct(g['mean_return'])} · "
                    f"P/L {_money(g['pnl'])}")
@@ -186,6 +213,13 @@ def render(a: dict[str, Any]) -> str:
     elif sym:
         out.append("  Best stocks: " + ", ".join(f"{g['key']} {_money(g['pnl'])}" for g in sym[:5]))
         out.append("  Worst stocks: " + ", ".join(f"{g['key']} {_money(g['pnl'])}" for g in sym[-5:][::-1]))
+    out += ["", "By entry day: " + " · ".join(f"{d['day']} {_money(d['pnl'])} ({d['trades']} closed, {d['open']} open)"
+                                               for d in a["days"])]
+    h = a["holding"]
+    out.append("Holding: " + " · ".join(f"planned {plan / 60:g} h → median {v['median_minutes'] / 60:.1f} h over "
+                                         f"{v['trades']} closed" for plan, v in h["planned"].items())
+               + f" · {h['open_past_plan']} open past their planned exit, {h['opened_too_late']} of them opened too "
+                 "late to finish before that day's close")
     d = a["daily"]
     out += ["", f"Per entry day: {d['days']} days, average trade {_pct(d['mean'])}"
                 + ("" if d["t"] is None else f", t = {d['t']:.2f} "

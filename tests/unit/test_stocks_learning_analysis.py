@@ -40,6 +40,11 @@ def test_the_gap_to_the_reference_splits_into_shared_trades_and_size_it_could_no
         text = render(a)
         assert "Research against the $500,000 reference, on the same orders:" in text
         assert "comes from size the reference could not afford" in text and "Research account by recipe" in text
+        assert len(text.split("by recipe")[1].split("Concentration")[0].strip().splitlines()) - 1 == len(a["recipes"])
+        assert "Research account by structure: long" in text and "By entry day: 2026-10-21" in text
+        h = a["holding"]
+        assert sum(v["trades"] for v in h["planned"].values()) == research["trades"]
+        assert all(v["median_minutes"] >= 30 for v in h["planned"].values())       # never sold before its time
     finally:
         conn.close()
         world.close()
