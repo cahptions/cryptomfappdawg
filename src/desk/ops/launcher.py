@@ -412,6 +412,7 @@ COMMAND = """#!/bin/sh
 #   kestrel signin    the weekly Schwab sign-in from this terminal, over SSH too: open the printed link in any
 #                     browser, log in, then paste the final address (it may fail to load) at the hidden prompt
 #   kestrel restart   restart the app in the background
+#   kestrel learning  what the Learning research account is doing, and why it reads better or worse
 cd {repo} || exit 1
 case "${{1:-status}}" in
   status) exec {uv} run desk stocks status ;;
@@ -419,22 +420,29 @@ case "${{1:-status}}" in
   open) exec {uv} run desk open --desk stocks ;;
   signin) exec {uv} run desk stocks connect --manual ;;
   restart) exec {uv} run desk stocks restart ;;
-  *) echo "usage: kestrel [status | update | open | signin | restart]"; exit 2 ;;
+  learning) exec {uv} run desk stocks learning-report ;;
+  *) echo "usage: kestrel [status | update | open | signin | restart | learning]"; exit 2 ;;
 esac
 """
 REMOTE_COMMAND = """#!/bin/sh
 # KESTREL Stocks on {host}, used from this computer. Written by
 # `uv run desk open --desk stocks --install --remote {host}`; `--remote off` brings back this computer's own.
 #   kestrel           health of the KESTREL on {host}
-#   kestrel update    update it there and restart it
+#   kestrel update    update it there and restart it, then update this computer's copy and this command
 #   kestrel signin    its weekly Schwab sign-in, from this terminal
-#   kestrel restart   restart it there
+#   kestrel learning  what its Learning research account is doing
 #   kestrel open      open it in a window here
+# Any other word runs as `kestrel <word>` there, so new subcommands work here without reinstalling.
 action="${{1:-status}}"
 case "$action" in
-  status|update|signin|restart) exec ssh -t {host} "~/.local/bin/kestrel $action" ;;
   open) cd {repo} || exit 1; exec {uv} run desk open --desk stocks ;;
-  *) echo "usage: kestrel [status | update | signin | restart | open]  (runs on {host})"; exit 2 ;;
+  update)
+    ssh -t {host} "~/.local/bin/kestrel update"; result=$?
+    cd {repo} && git pull -q --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync -q \
+      && {uv} run desk stocks command >/dev/null
+    exit $result ;;
+  *[!a-z-]*) echo "usage: kestrel [status | update | signin | learning | restart | open]  (runs on {host})"; exit 2 ;;
+  *) exec ssh -t {host} "~/.local/bin/kestrel $action" ;;
 esac
 """
 

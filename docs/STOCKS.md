@@ -130,7 +130,11 @@ folder, over SSH too:
   at the hidden prompt and press Enter within about 30 seconds.
 
 `kestrel update` also refreshes the `kestrel` command itself, so new subcommands arrive with updates.
-`kestrel restart` restarts the app in the background.
+`kestrel restart` restarts the app in the background. **`kestrel learning`** prints, read-only, what the Learning
+research account is doing: every book's P/L on the money put in, the research account against the $500,000 reference
+on the very same orders (split into trades both made, trades the reference could only partly afford, and trades it
+could not afford at all), the research account's results by recipe (structure, size, holding time), how much of its
+profit came from its best five trades, and whether its per-day average is distinguishable from luck.
 
 ### Using another computer's KESTREL Stocks
 
@@ -146,8 +150,8 @@ Stocks app (its data is kept), and from then on:
 
 - the **KESTREL Stocks** menu launcher opens that computer's app in its own window, through an SSH tunnel on local
   port 18767 that is started once and reused (if the app is not running there, it is started there);
-- `kestrel`, `kestrel update`, `kestrel signin` and `kestrel restart` run on that computer; `kestrel open` opens the
-  window here.
+- `kestrel`, `kestrel signin`, `kestrel learning`, `kestrel restart` and any newer subcommand run on that computer;
+  `kestrel open` opens the window here; `kestrel update` updates that computer and then this one's copy and command.
 
 `--remote off` brings back this computer's own Stocks app.
 

@@ -63,13 +63,14 @@ def test_remote_kestrel_runs_each_command_on_the_other_computer(tmp_path: Path) 
     (fake / "ssh").write_text('#!/bin/sh\necho "$@"\n')
     (fake / "ssh").chmod(0o700)
     env = {**os.environ, "PATH": f"{fake}:/usr/bin:/bin"}
-    for action in ("update", "signin", "restart"):
+    for action in ("update", "signin", "restart", "learning", "some-future-word"):
         ran = subprocess.run(["sh", str(script), action], capture_output=True, text=True, check=False, env=env)
         assert ran.stdout.strip() == f"-t {HP} ~/.local/bin/kestrel {action}"
     ran = subprocess.run(["sh", str(script)], capture_output=True, text=True, check=False, env=env)
     assert ran.stdout.strip() == f"-t {HP} ~/.local/bin/kestrel status"
     assert "run desk open --desk stocks" in script.read_text()
-    assert subprocess.run(["sh", str(script), "nonsense"], capture_output=True, check=False, env=env).returncode == 2
+    assert subprocess.run(["sh", str(script), "a;rm"], capture_output=True, check=False, env=env).returncode == 2
+    assert "run desk stocks command" in script.read_text()               # update refreshes this computer's copy too
 
 
 def _world(monkeypatch: pytest.MonkeyPatch, *, answering: set[int] = frozenset(), listening: set[int] = frozenset(),

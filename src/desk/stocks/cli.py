@@ -66,6 +66,9 @@ def add_parser(sub: Any) -> None:
     status.set_defaults(func=run)
     commands.add_parser("restart", help="restart the Stocks app in the background (after an update); no window"
                         ).set_defaults(func=run)
+    commands.add_parser("learning-report", help="read-only: what the Learning research account is doing and why it "
+                        "reads better or worse than the reference").set_defaults(func=run)
+    commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
     dash = commands.add_parser("dashboard", help="local Stocks dashboard with private Settings")
     dash.add_argument("--port", type=int)
     dash.add_argument("--open", action="store_true")
@@ -104,6 +107,27 @@ def run(args: argparse.Namespace) -> int:
 
         now = utc_now()
         print(status.render(status.lines(paths, loaded, now, online=not args.offline), now))
+        return 0
+    if action == "learning-report":
+        from desk.core.clock import utc_now
+        from desk.stocks import learning
+        from desk.stocks.learning_analysis import analyse, render
+
+        conn = learning.open_book(paths)
+        try:
+            print(render(analyse(conn, utc_now())))
+        finally:
+            conn.close()
+        return 0
+    if action == "command":
+        import os
+        from pathlib import Path
+
+        from desk.core.paths import REPO_ROOT
+        from desk.ops.launcher import install_command, remote_host
+
+        print(install_command(REPO_ROOT, Path.home() / ".local" / "bin", uv=os.environ.get("UV"),
+                              remote=remote_host(paths)))
         return 0
     if action == "restart":
         import os

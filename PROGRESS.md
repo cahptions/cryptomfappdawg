@@ -17,6 +17,16 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-31 — `kestrel learning`: why the research account reads better
+
+- `learning_analysis.py` (read-only): each book's P/L on the money put in; the research account against the $500,000
+  reference on the same intents (both full size / reference smaller for cash / reference none), so the gap splits
+  into shared trades and size only the topped-up research account could afford; results by recipe; best-five
+  concentration; per-entry-day t-statistic; funding and P/L since the cap. `desk stocks learning-report`,
+  `kestrel learning`.
+- The Dell's `kestrel` passes any lowercase subcommand to the HP, and `kestrel update` there also updates the Dell's
+  own copy and command, so new subcommands never need a reinstall.
+
 ## 2026-10-31 — Confidence, exit plans and My bankroll
 
 - `play_plan.py`: **confidence** (five plain checks, the meter is the count: odds, KESTREL's expected value, the
