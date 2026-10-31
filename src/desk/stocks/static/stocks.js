@@ -291,7 +291,7 @@ function sourceSetup() {
       "massive-key",
       "MASSIVE_API_KEY",
       "1. Broad-market history · Massive",
-      "Create a free account, choose Stocks Basic ($0), then copy the API key from your account dashboard. End-of-day prices, not live quotes. A recent-close 403 can mean publication delay or missing plan entitlement; the app retries and keeps downloading accessible older dates. Check your plan access before replacing a working key. Options chains use their own connection.",
+      "Create a free account, choose Stocks Basic ($0) and Options Basic ($0; past option prices for historical option tests), then copy the API key from your account dashboard. One key covers every plan on the account. End-of-day prices, not live quotes. A recent-close 403 can mean publication delay or missing plan entitlement; the app retries and keeps downloading accessible older dates. Check your plan access before replacing a working key. Options chains use their own connection.",
       "password",
       "https://massive.com/",
       "Open Massive signup ↗",
