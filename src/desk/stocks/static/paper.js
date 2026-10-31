@@ -616,6 +616,19 @@ const KestrelPaper = (() => {
           "muted caption",
         ),
       );
+      const mix = record === "live" ? null : account.option_prices;
+      if (mix) {
+        const days = mix.real + mix.real_iv + mix.model;
+        app.append(
+          el(
+            "p",
+            days
+              ? `Option prices across these trades' held days: ${Math.round((100 * mix.real) / days)}% real closing trades from Massive, ${Math.round((100 * mix.real_iv) / days)}% from a real trade earlier that week, ${Math.round((100 * mix.model) / days)}% modeled from the stock's own volatility. Real prices fill in as they download; each replay uses all downloaded so far.`
+              : "No option trades in this replay yet.",
+            "muted caption",
+          ),
+        );
+      }
       const section = el("section", undefined, "paper-trades"),
         sectionHead = el("div", undefined, "section-heading"),
         search = el("input");

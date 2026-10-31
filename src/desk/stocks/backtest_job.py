@@ -13,11 +13,12 @@ from desk.core.config import load_config
 from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
 from desk.core.worker_lock import WorkerLock
+from desk.stocks import options_history
 from desk.stocks.analysis import MIN_BARS
 from desk.stocks.backtest import VERSION, replay
 from desk.stocks.connection import _atomic_private
 from desk.stocks.evidence_job import EvidenceWorker, publish
-from desk.stocks.repo import MARKET_FILE
+from desk.stocks.repo import MARKET_FILE, StocksMarket
 from desk.stocks.runner import _memory_guard
 
 
@@ -63,6 +64,11 @@ class BacktestWorker(EvidenceWorker):
         conn = sqlite3.connect((self.paths.db_dir / MARKET_FILE).as_uri() + "?mode=ro", uri=True, timeout=2)
         try:
             row = conn.execute("SELECT COUNT(*),MAX(day),MIN(day),SUM(rows) FROM stk_bar_days WHERE rows>0").fetchone()
+            try:  # a finished batch of real option prices refreshes the replay once, never mid-download
+                prices = options_history.progress(StocksMarket(conn), options_history.wanted(self.paths))
+                option_prices: int | str = "downloading" if prices["left"] else prices["asked"]
+            except sqlite3.OperationalError:
+                option_prices = 0
             return {
                 "sessions": row[0],
                 "latest": date.fromordinal(row[1]).isoformat() if row[1] else None,
@@ -70,6 +76,7 @@ class BacktestWorker(EvidenceWorker):
                 "eligible_sessions": max(0, row[0] - MIN_BARS),
                 "earliest": date.fromordinal(row[2]).isoformat() if row[2] else None,
                 "rows": row[3] or 0,
+                "option_prices": option_prices,
             }
         finally:
             conn.close()
@@ -163,7 +170,8 @@ class BacktestWorker(EvidenceWorker):
 
     @staticmethod
     def input_key(sessions: int, coverage: dict[str, Any]) -> str:
-        return f"{VERSION}:{sessions}:{coverage['latest']}:{coverage['sessions']}:{coverage['rows']}"
+        return (f"{VERSION}:{sessions}:{coverage['latest']}:{coverage['sessions']}:{coverage['rows']}:"
+                f"{coverage.get('option_prices', 0)}")
 
 
 def run(paths: DeskPaths, sessions: int) -> None:

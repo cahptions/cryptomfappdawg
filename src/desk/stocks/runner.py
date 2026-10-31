@@ -145,7 +145,8 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     # Receipts change as history arrives; successful source jobs can add new fundamentals/options/crowd data.
     receipts = [tuple(r) for r in market.conn.execute(
         "SELECT day, rows, received_at FROM stk_bar_days WHERE day<=? ORDER BY day", (target.toordinal(),))]
-    jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k != "prices"}
+    # Real option prices only feed historical replays, never today's research.
+    jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k not in ("prices", "option_bars")}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
                                          "config": loaded.snapshot_hash, "preview_version": 5,
@@ -350,6 +351,15 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             log.warning("market events failed", extra={"error": str(exc)[:200]})
             market.job("market_events", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
             events = {"ok": False, "error": str(exc)[:300]}
+        if suite.massive.configured:
+            from desk.stocks import options_history
+
+            try:
+                jobs["option_bars"] = await run_job("option_bars", options_history.download(
+                    suite.massive, market, paths, utc_now()))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("option prices failed", extra={"error": str(exc)[:200]})
+                market.job("option_bars", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",
                   "research_only": research_only, "options_provider": suite.option_source,
                   "problems": suite.problems, "jobs": jobs, "market_events": events,

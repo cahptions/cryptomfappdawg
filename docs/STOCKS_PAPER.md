@@ -23,7 +23,34 @@ Completed stock replays use the same session/trade thresholds, daily baseline co
 Holm correction as the forward grader, using the replay's own sessions. The result is stored in its retained archive
 with the strategy specification, date range and tested family. An older specification is labeled outdated; use
 **Run replay** to open the existing controls. Automatic replay also refreshes older report versions when enabled.
-Options and rules needing unavailable publication-timed inputs remain explicitly unsupported by the stock-price replay.
+Rules needing unavailable publication-timed inputs (short interest) remain explicitly unsupported.
+
+### Option strategies in the historical replay
+
+The option strategies whose signal comes from the stock (**Random calls**, **Momentum call spreads**, **Bear put
+spreads**) replay as far back as stock prices go, through the same PAPER engine, fills, limits and exits as forward
+trading (`desk.stocks.option_model`):
+
+- **Real prices first.** Massive's free Options Basic plan has every contract's daily closing trade for the last 2
+  years. On a day a held contract traded, that is its price. On a quiet day, its last trade's implied volatility (within
+  a week) prices it at that day's stock price.
+- **The model everywhere else.** Before Massive's window, or for a contract that never traded, the price is
+  Black-Scholes at the stock's realized volatility (half 20-day, half 60-day) times how options on that stock have been
+  priced against it, with a put skew and the stock's typical quoted spread. All three are calibrated on every replay
+  from the chains this app collected and from Massive's real prices, falling back to stated market-wide values.
+- **Listings.** Monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid stand in for
+  the real listings. Open interest and dividends are not modeled.
+- **Choosing never follows a real price.** Contracts are chosen from the model's prices, so one contract's real price
+  can't pull a rule toward it; the decision then sees that day's real price where there is one.
+- **Downloading.** Each collection pass fetches up to 12 of the contracts the latest replay traded (about 2½ minutes at
+  Massive's 5 requests a minute), so all of a replay's contracts arrive within hours. When a batch finishes, the
+  automatic replay runs once more to use them (never mid-download). Nothing else in the app uses Massive's option data. `kestrel options-history` shows how many are downloaded and how long the
+  rest will take; each option account's replay view shows what share of its held days were priced by real trades.
+
+Strategies whose signal is option data itself are not replayed: **Calls when IV is cheap** (a model built from the
+stock's movement can't show options priced cheaply against it), **Cheap earnings straddles** (needs the move options
+priced before each report), **Follow unusual call buying** (needs each day's real volume) and **Squeeze calls** (needs
+short interest as published). They are tested forward on collected chains.
 
 Historical rules were designed with knowledge of past data, and the stored listing universe/filing history can be
 incomplete. A favorable replay is exploratory reconstruction, not fresh prospective evidence. Replayed days never

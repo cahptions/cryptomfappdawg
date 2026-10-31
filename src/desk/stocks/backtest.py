@@ -1,7 +1,9 @@
-"""Chronological stock-strategy replay in isolated books. No provider calls or forward-ledger writes.
+"""Chronological strategy replay in isolated books. No provider calls or forward-ledger writes.
 
 Historical reconstruction is conditional on the stored/current listing universe and available filing history;
-it is not a survivor-bias-free archival experiment. Options/social/non-vintage macro inputs are excluded.
+it is not a survivor-bias-free archival experiment. Social and non-vintage macro inputs are excluded. Option strategies
+whose signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option
+prices replacing the model where they exist (``desk.stocks.option_model``).
 """
 
 from __future__ import annotations
@@ -19,25 +21,37 @@ from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
 from desk.stats.core import max_drawdown
 from desk.stocks import calendar as cal
+from desk.stocks import option_model
 from desk.stocks.analysis import MIN_BARS, Analyzer, Day
-from desk.stocks.contracts import Bar, Split
+from desk.stocks.contracts import Bar, OptionQuote, Split
 from desk.stocks.desks import DEFAULT_WEIGHTS
 from desk.stocks.fundamentals import Fundamentals
+from desk.stocks.option_model import ModeledOptions
 from desk.stocks.paper.book import PaperBook, Position
 from desk.stocks.paper.engine import PaperEngine, StepReport
+from desk.stocks.paper.fills import fair_spread, index_chain
 from desk.stocks.paper.report import daily_returns, trade_stats
-from desk.stocks.paper.strategies import STRATEGIES, Strategy
+from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
 from desk.stocks.repo import MARKET_FILE, StocksMarket, StocksResearch
 from desk.storage.db import DbKind, migrate
 
-VERSION = 3
+VERSION = 4
 
 
 class HistoricalMarket(StocksMarket):
+    options: ModeledOptions | None = None
+
     def register_spec(self, name: str, version: int, content: dict[str, Any], at: datetime) -> str:
         # Engine specifications are saved in this run's manifest, never registered in the live source DB.
         return sha256_hex(canonical_json(content))
+
+    def option_chain(self, underlying: str, day: date | None = None, *, observed_by: datetime | None = None
+                     ) -> tuple[date | None, dict[date, list[OptionQuote]]]:
+        """The replay session's rebuilt chain (real prices where Massive has them), never a stored later one."""
+        if self.options is None or day is None or day != self.options.asof:
+            return None, {}
+        return day, self.options.chain(underlying)
 
 
 class ReplayAnalyzer(Analyzer):
@@ -53,6 +67,25 @@ class ReplayEngine(PaperEngine):
     previous: Day | None = None
     previous_bars: dict[str, Bar]
     executing = False
+    options: ModeledOptions | None = None
+
+    def _structure(self, structure: str, symbol: str, asof: date, s: float, p: dict[str, Any],
+                   evidence: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """Contracts are chosen from the model's prices, so one contract's real price never pulls the pick toward it;
+        the decision then sees the day's real price where there is one."""
+        if self.options is None:
+            return super()._structure(structure, symbol, asof, s, p, evidence)
+        chains = self.options.chain(symbol, real=False)
+        legs = build_structure(structure, chains, s, asof, self.rate, p, evidence) if chains else None
+        if not legs:
+            return None
+        self.options.remember(symbol, legs)
+        quotes = index_chain(self.options.chain(symbol))
+        for leg in legs:
+            q = quotes.get(leg["occ"])
+            if q is not None and fair_spread(q):
+                leg.update(decision_price=q.ask if leg["quantity"] > 0 else q.bid, decision_mid=q.mid)
+        return legs
 
     def __init__(self, market: StocksMarket, book: PaperBook, settings: StocksSection, strategies: tuple[Strategy, ...]) -> None:
         super().__init__(market, book, settings, strategies)
@@ -221,7 +254,7 @@ def replay(
             raise DeskError("SPY closing history is needed for the benchmark before replay can start")
         if raw.day_index(selected[0]) < MIN_BARS:
             raise DeskError("The selected replay window does not have enough earlier warm-up history")
-        strategies = tuple(s for s in STRATEGIES if s.asset == "stock")
+        strategies = tuple(s for s in STRATEGIES if s.asset == "stock" or s.id in option_model.REPLAYED)
         # Squeeze rules require a properly archived/publication-timed short-interest history; unavailable here.
         strategies = tuple(s for s in strategies if s.id != "squeeze_runner")
         ledger.execute("INSERT INTO replay_meta VALUES ('manifest',?)", (canonical_json({
@@ -234,6 +267,10 @@ def replay(
         analyzer = ReplayAnalyzer(market, StocksResearch(research_db), settings)
         engine = ReplayEngine(market, book, settings, strategies)
         splits = market.splits()
+        real = option_model.RealBars.load(source)
+        calibration = option_model.calibrate(market, historical_panel(raw, days[-1], splits), real, engine._rate(days[-1]))
+        modeled = ModeledOptions(calibration, real, market.optioned_symbols() & set(raw.symbols))
+        market.options = engine.options = modeled
         skipped = []
         drawdowns: dict[str, tuple[float, float]] = {}
         for index, asof in enumerate(selected):
@@ -250,6 +287,9 @@ def replay(
             day.committee = {
                 s: committee({d: rows.get(s) for d, rows in day.results.items()}, day.weights) for s in day.ctx.symbols
             }
+            # Option rules see a modeled implied volatility only after the desks have scored without option data.
+            modeled.session(asof, panel, engine._rate(asof))
+            day.ctx.options = {s: o for s in sorted(modeled.optioned) if (o := modeled.summary(s))}
             result = engine.step(asof, cal.session_close(asof) + timedelta(minutes=1), day)
             if result.skipped:
                 skipped.append({"day": asof.isoformat(), "reason": result.skipped})
@@ -258,6 +298,12 @@ def replay(
             engine.previous = day
             engine.previous_bars = engine._bars(asof)
         accounts = account_views(book, strategies)
+        held = book.positions(state=None)
+        mix = modeled.price_mix(held, selected[-1])
+        for account in accounts:
+            if account["asset"] == "option":
+                account["option_prices"] = mix.get(account["id"], {"real": 0, "real_iv": 0, "model": 0})
+        contracts = option_model.wanted(held, selected[-1])
         from desk.stocks import replay_grades
 
         grades = replay_grades.compute(book,market,strategies)
@@ -294,12 +340,27 @@ def replay(
             "settings": settings.model_dump(mode="json"),
             "committee_weights": dict(DEFAULT_WEIGHTS),
             "advisory_only": True,
-            "source": "Stored bulk closing-price history and dated filings",
+            "source": "Stored bulk closing-price history and dated filings; option prices rebuilt from stock history, "
+                      "with Massive's real daily option prices where they exist",
+            "option_pricing": {
+                "calibration": calibration.as_json(),
+                "real_from": (selected[-1] - timedelta(days=option_model.MASSIVE_DAYS)).isoformat(),
+                "contracts": len(contracts),
+                "with_real_prices": sum(1 for c in contracts if c["occ"] in real.series),
+                "not_replayed": dict(option_model.NOT_REPLAYED),
+            },
+            "option_contracts": contracts,
             "limitations": [
                 "Reconstructed using today's stored listing universe; delisted companies may be missing.",
                 "Later restatements/data revisions may be absent from the available filing history.",
-                "Options, crowd, short-interest and non-vintage macro inputs are excluded; historical option quotes "
-                "cannot be invented from stock candles.",
+                "Option prices: Massive's real daily closing trades where it has them (the last 2 years), a recent "
+                "trade's implied volatility on a quiet day, and otherwise Black-Scholes at the stock's realized "
+                "volatility times how options on it have been priced against it (calibrated on collected chains and "
+                "Massive's prices), with a put skew and the typical quoted spread. Monthly expiries and a listing-style "
+                "strike grid stand in for the real listings; open interest and dividends are not modeled.",
+                "Option strategies whose signal is option data itself (cheap implied volatility, earnings straddles, "
+                "unusual activity) and short-interest rules are not replayed.",
+                "Crowd, short-interest and non-vintage macro inputs are excluded.",
                 "Signals use only data through each decision date. Fills occur at the next available open with the "
                 "existing stock spread/slippage/fee model and prior-session liquidity.",
                 "Open positions at the end remain marked, not fictitiously closed. Each strategy has its own capital.",

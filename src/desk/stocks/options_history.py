@@ -1,16 +1,24 @@
-"""Can this computer read historical option prices? A small read-only probe of Massive's free Options Basic plan
-(2 years of daily option bars and the contracts listed on any past day, at 5 requests a minute), made before any
-historical option replay depends on it. Two requests: one past SPY expiry's calls near the money, then one of those
-contracts' daily bars over its life."""
+"""Real historical option prices from Massive's free Options Basic plan (2 years of daily option bars, 5 requests a
+minute).
+
+``check`` is a small read-only probe (two requests: one past SPY expiry's calls near the money, then one of those
+contracts' daily bars). ``download`` runs with each collection pass: it fetches the real daily prices of the contracts
+the latest historical replay traded, a few at a time, so the next replay uses them in place of modeled prices."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+import json
+import math
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from desk.core.errors import DeskError, ProviderError
+from desk.core.paths import DeskPaths
 from desk.stocks import calendar as cal
 from desk.stocks.repo import StocksMarket, day_of
+
+PER_PASS = 12                   # about two and a half minutes at 5 requests a minute
+REPORT = "stocks-backtest-report.json"
 
 
 async def check(massive: Any, market: StocksMarket, today: date) -> dict[str, Any]:
@@ -56,4 +64,68 @@ async def check(massive: Any, market: StocksMarket, today: date) -> dict[str, An
         f"${last['close']:.2f}). Historical option replays can use real prices (daily last trades, 2 years back).")}
 
 
-__all__ = ["check"]
+def wanted(paths: DeskPaths) -> list[dict[str, str]]:
+    """The contracts the latest replay traded inside Massive's window (empty without a replay)."""
+    try:
+        value = json.loads((paths.home / REPORT).read_text())
+    except (OSError, ValueError):
+        return []
+    rows = value.get("option_contracts") if isinstance(value, dict) else None
+    return [r for r in rows if isinstance(r, dict) and {"occ", "first", "last"} <= r.keys()] if isinstance(rows, list) else []
+
+
+def progress(market: StocksMarket, items: list[dict[str, str]]) -> dict[str, Any]:
+    fetched = market.option_bar_fetches()
+    left = sum(1 for w in items if fetched.get(w["occ"], date.min) < date.fromisoformat(w["last"]))
+    asked, priced = market.option_bar_counts()
+    return {"wanted": len(items), "left": left, "asked": asked, "with_prices": priced,
+            "minutes_left": math.ceil(left / 5)}
+
+
+async def download(massive: Any, market: StocksMarket, paths: DeskPaths, now: datetime) -> dict[str, Any]:
+    """Fetch up to ``PER_PASS`` contracts' real daily prices; a contract still held at the replay's end is asked
+    again once its replay window reaches past what was fetched."""
+    items = wanted(paths)
+    fetched = market.option_bar_fetches()
+    todo = [w for w in items if fetched.get(w["occ"], date.min) < date.fromisoformat(w["last"])]
+    if not todo:
+        return {"ok": True, **progress(market, items)}
+    done, problem = 0, None
+    for w in todo[:PER_PASS]:
+        first, last = date.fromisoformat(w["first"]), date.fromisoformat(w["last"])
+        try:
+            bars = await massive.option_bars(w["occ"], first, last)
+        except ProviderError as exc:
+            if exc.status_code == 404:
+                bars = []
+            elif exc.status_code in (401, 403):
+                problem = (f"Massive refused option prices (HTTP {exc.status_code}). Add the free Options Basic plan to the "
+                           "account that owns MASSIVE_API_KEY.")
+                break
+            else:
+                problem = f"Massive could not answer: {str(exc)[:160]}"
+                break
+        except DeskError as exc:
+            problem = f"Massive's answer could not be read: {str(exc)[:160]}"
+            break
+        market.save_option_bars(w["occ"], first, last, bars, now)
+        done += 1
+    detail = {"fetched_now": done, **progress(market, items)}
+    market.job("option_bars", now, error=problem, detail=detail)
+    return {"ok": problem is None, **detail, **({"error": problem} if problem else {})}
+
+
+def describe(market: StocksMarket, paths: DeskPaths) -> str:
+    """One line on the real option prices the replay has, for ``kestrel options-history``."""
+    items = wanted(paths)
+    if not items:
+        return "Replay option prices: no replay has traded options yet; the next historical replay will."
+    p = progress(market, items)
+    text = (f"Replay option prices: {p['wanted'] - p['left']} of {p['wanted']} traded contracts downloaded from Massive "
+            f"({p['with_prices']} had real trades)")
+    minutes = p["minutes_left"]
+    return text + (f"; about {minutes} minute{'' if minutes == 1 else 's'} of downloading left." if p["left"]
+                   else "; all downloaded.")
+
+
+__all__ = ["PER_PASS", "check", "describe", "download", "progress", "wanted"]

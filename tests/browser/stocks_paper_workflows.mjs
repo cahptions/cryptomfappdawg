@@ -201,7 +201,19 @@ try {
       .click();
     assert.match(
       await page.locator("#app").innerText(),
-      /historical option quotes cannot be invented/,
+      /Massive's real daily closing trades where it has them/,
+    );
+    const replayed = (
+      await (await page.request.get(`${base}/api/stocks/backtest`)).json()
+    ).report;
+    assert.deepEqual(
+      replayed.accounts
+        .filter((a) => a.asset === "option")
+        .map((a) => [a.id, Object.keys(a.option_prices)])
+        .sort(),
+      ["bear_put_spreads", "momentum_call_spreads", "random_calls"].map(
+        (id) => [id, ["real", "real_iv", "model"]],
+      ),
     );
     assert.equal(
       await page.evaluate(

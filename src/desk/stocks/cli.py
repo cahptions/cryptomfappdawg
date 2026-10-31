@@ -141,6 +141,13 @@ def run(args: argparse.Namespace) -> int:
         finally:
             dbs.close()
         print(("✓ " if result["ok"] else "✗ ") + result["text"])
+        from desk.stocks.options_history import describe
+
+        dbs = StocksDatabases.open(paths)
+        try:
+            print(describe(StocksMarket(dbs.market), paths))
+        finally:
+            dbs.close()
         return 0 if result["ok"] else 1
     if action == "command":
         import os

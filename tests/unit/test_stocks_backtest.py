@@ -25,7 +25,10 @@ def test_replay_records_actual_simulated_positions_without_mutating_source_resea
         assert result["first_day"] == world.days[-63].isoformat() and result["last_day"] == world.days[-1].isoformat()
         assert result["trades"] and result["walk_forward"]["windows"]
         assert all(p["entry_reason"] for p in result["trades"])
-        assert all(a["sessions"] == 63 and a["asset"] == "stock" for a in result["accounts"])
+        assert all(a["sessions"] == 63 for a in result["accounts"])
+        from desk.stocks.option_model import REPLAYED
+
+        assert {a["id"] for a in result["accounts"] if a["asset"] == "option"} == set(REPLAYED)
         from desk.stocks.replay_archive import reader as archive_reader
         from desk.stocks.replay_archive import session
 

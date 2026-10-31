@@ -485,10 +485,7 @@ class PaperEngine:
                 break
             if c.symbol in held or c.symbol in entering or c.symbol not in bars:
                 continue
-            chains = self._chain_full(c.symbol, asof)
-            if not chains:
-                continue
-            legs = build_structure(p["structure"], chains, bars[c.symbol].close, asof, self.rate, p, c.evidence)
+            legs = self._structure(p["structure"], c.symbol, asof, bars[c.symbol].close, p, c.evidence)
             if not legs:
                 continue
             unit = sum(leg["quantity"] * (leg["decision_price"] or 0) * fills.CONTRACT for leg in legs)
@@ -521,6 +518,11 @@ class PaperEngine:
             at_risk += max_debit
             available -= max_debit
             room -= 1
+
+    def _structure(self, structure: str, symbol: str, asof: date, s: float, p: dict[str, Any],
+                   evidence: dict[str, Any]) -> list[dict[str, Any]] | None:
+        chains = self._chain_full(symbol, asof)
+        return build_structure(structure, chains, s, asof, self.rate, p, evidence) if chains else None
 
     def _enter_stock(self, st: Strategy, c: Candidate, asof: date, now: datetime, notional: float, plan: dict[str, Any],
                      rep: StepReport) -> None:

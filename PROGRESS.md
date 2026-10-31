@@ -17,6 +17,22 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-31 — Option strategies in the historical replay, as far back as stock prices go
+
+- The user's call: replay option trades as far back as possible; Massive's option data may be used as much as needed
+  (nothing else uses it). `option_model.py` rebuilds each past day's chain (monthly expiries, listing-style strikes,
+  Black-Scholes at realized volatility × each stock's calibrated IV/RV ratio, put skew, typical spread) and lays
+  Massive's real daily closing trades over it (a quiet day keeps the last trade's IV for a week). Calibration reads the
+  collected chains and Massive's prices on every replay. Contracts are chosen from model prices so one contract's real
+  price never pulls a rule toward it.
+- Replayed: Random calls, Momentum call spreads, Bear put spreads, through the unchanged PAPER engine (one `_structure`
+  hook). Not replayed, with reasons shown: cheap-IV calls, earnings straddles, unusual-activity follows, squeeze calls.
+- Each collection pass downloads up to 12 traded contracts' real bars (`stk_option_bars`, migration 0008); the
+  automatic replay re-runs once a batch finishes. `kestrel options-history` reports download progress; each option
+  account's replay shows its real/recent-trade/modeled price mix. Replay report v4.
+- Next: research-backed option strategies (volatility-gap straddles, index put-writing, put-call IV spread, regime
+  chooser) — those whose signals need real IV are forward-only or wait for enough downloaded history.
+
 ## 2026-10-31 — Which version am I on? Can option history be real?
 
 - `kestrel` prints the installed commit and time, whether the running app is on it, and whether GitHub has newer; the

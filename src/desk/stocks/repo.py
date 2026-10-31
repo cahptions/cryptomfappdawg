@@ -488,6 +488,39 @@ class StocksMarket:
         row = self.conn.execute("SELECT MAX(day) AS d FROM stk_option_daily").fetchone()
         return None if row is None or row["d"] is None else date_of(row["d"])
 
+    def optioned_symbols(self) -> set[str]:
+        """Every stock whose option chain has ever been collected."""
+        return {r[0] for r in self.conn.execute("SELECT DISTINCT underlying FROM stk_option_daily")}
+
+    def chain_rows(self, day: date, lo: int, hi: int) -> Iterable[tuple[str, date, float | None, list[OptionQuote]]]:
+        """One stored expiry at a time for ``day`` (``lo``..``hi`` days out), so a full day never sits in memory."""
+        for r in self.conn.execute("SELECT underlying, expiration, underlying_price, chain_zlib FROM stk_option_chains "
+                                   "WHERE day=? AND expiration BETWEEN ? AND ?", (day_of(day), day_of(day) + lo,
+                                                                                 day_of(day) + hi)):
+            expiration = date_of(r[1])
+            yield r[0], expiration, r[2], [
+                OptionQuote(q[0], r[0], q[1], q[2], expiration, q[3], q[4], q[5], q[6], q[7], q[8],
+                            datetime.fromisoformat(q[9]) if q[9] else None) for q in _unpack(r[3])]
+
+    # real daily option prices (Massive) ────────────────────────────────────────────────────────────
+    def save_option_bars(self, occ: str, first: date, last: date, bars: Sequence[dict[str, Any]], at: datetime) -> None:
+        with transaction(self.conn):
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO stk_option_bars(occ, day, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?)",
+                [(occ, day_of(b["day"]), b["open"], b["high"], b["low"], b["close"], b["volume"]) for b in bars])
+            self.conn.execute(
+                "INSERT OR REPLACE INTO stk_option_bar_fetches(occ, first, last, bars, fetched_at) VALUES (?,?,?,?,?)",
+                (occ, day_of(first), day_of(last), len(bars), to_iso(at)))
+
+    def option_bar_fetches(self) -> dict[str, date]:
+        """Each asked-for contract and the last day asked for."""
+        return {r[0]: date_of(r[1]) for r in self.conn.execute("SELECT occ, last FROM stk_option_bar_fetches")}
+
+    def option_bar_counts(self) -> tuple[int, int]:
+        """(contracts asked for, contracts with at least one real price)."""
+        row = self.conn.execute("SELECT COUNT(*), COALESCE(SUM(bars > 0), 0) FROM stk_option_bar_fetches").fetchone()
+        return int(row[0]), int(row[1])
+
     # jobs and specs ───────────────────────────────────────────────────────────────────────────────
     def job(self, name: str, at: datetime, *, error: str | None = None, detail: dict[str, Any] | None = None) -> None:
         self.conn.execute(
