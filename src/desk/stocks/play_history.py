@@ -19,7 +19,7 @@ from desk.stocks import calendar as cal
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.play_marks import profit, settle_day
 from desk.stocks.play_tracking import get_state, legs_key, tick_time, unpack
-from desk.stocks.plays import BY_CATEGORY, CATEGORIES, TYPES
+from desk.stocks.plays import BY_CATEGORY, CATEGORIES, TYPES, spread_width
 from desk.stocks.repo import day_of
 
 VERSION = 1
@@ -38,8 +38,7 @@ def sessions(research: sqlite3.Connection) -> dict[str, Any]:
 
 # ── values and P/L ───────────────────────────────────────────────────────────────────────────────
 def _width(legs: list[dict[str, Any]]) -> float:
-    strikes = [leg["strike"] for leg in legs]
-    return max(strikes) - min(strikes) if len(legs) == 2 and legs[0]["kind"] == legs[1]["kind"] else 0.0
+    return spread_width(legs)
 
 
 def basis_loss(action: str, entry: float, legs: list[dict[str, Any]]) -> float:

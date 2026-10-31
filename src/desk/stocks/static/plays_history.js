@@ -901,7 +901,7 @@ const KestrelPlaysHistory = (() => {
       ),
       el(
         "p",
-        `${p.action === "SELL" ? "Credit" : "Cost"} ${price(p.action === "SELL" ? p.credit : p.cost)} · worst case ${price(p.max_loss)} · break-even ${price(p.breakeven)} · expected value ${usd(p.expected_value)} · stock ${price(p.underlying_price)} when picked`,
+        `${p.action === "SELL" ? "Credit" : "Cost"} ${price(p.action === "SELL" ? p.credit : p.cost)} · worst case ${price(p.max_loss)} · break-even ${p.breakevens ? p.breakevens.map(price).join(" / ") : price(p.breakeven)} · expected value ${usd(p.expected_value)} · stock ${price(p.underlying_price)} when picked`,
         "caption muted",
       ),
     );

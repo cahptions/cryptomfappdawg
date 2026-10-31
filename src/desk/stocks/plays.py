@@ -105,6 +105,13 @@ CATEGORIES: tuple[Category, ...] = (
              "Results window estimated from past report dates, starting within 21 days; first expiry after it (≤ 45 "
              "days); at least four past results-day moves. Ranked by usual move ÷ priced move.",
              "No collected underlying has results due within three weeks.", paper="earnings_straddles"),
+    Category("strangles", "Strangles", "🎢",
+             "Buy an out-of-the-money call and put together: pays if the stock moves a long way either way, for "
+             "less money than a straddle.",
+             "Options not pricing more movement than the stock makes (IV30 ≤ realized volatility, or IV rank ≤ 25). "
+             "Call and put each nearest 0.30 |delta|, same expiry 21–60 days, spread ≤ 15%, open interest ≥ 100. "
+             "The chance shown is of a move past either break-even. Ranked by KESTREL's expected value per dollar.",
+             "No collected underlying has options cheap enough against its own movement today."),
     Category("trend_calls", "Trend calls", "🚀",
              "Calls on the strongest trends, bought with time to work.",
              "Momentum desk ≥ 75 and above the 200-day average; call nearest 0.60 delta, 30–75 days.",
@@ -132,6 +139,30 @@ CATEGORIES: tuple[Category, ...] = (
              "(committee ≤ 45): short leg nearest 0.25 delta, long leg about 5% further out, 21–60 days, credit ≥ 10% "
              "of the width. Never an uncovered short.",
              "No collected underlying has rich enough premium to sell today."),
+    Category("iron_condors", "Iron condors", "🦅",
+             "Sell a put spread below the price and a call spread above it: keep the credit if the stock stays in "
+             "between. The risk is fixed on both sides.",
+             "Rich premium (IV rank ≥ 50 or IV30 ≥ 1.2× realized) and no strong committee lean (42–58, or no view). "
+             "Sold put and call each nearest 0.20 |delta|, bought wings about 5% of the price further out, same "
+             "expiry 21–60 days, every leg's spread ≤ 20% and open interest ≥ 50, credit ≥ 20% of the wider wing. "
+             "The chance shown is of finishing between the break-evens. Ranked by KESTREL's expected value per dollar "
+             "at risk.",
+             "No quiet stock has rich enough premium for a condor today."),
+    Category("iron_butterflies", "Iron butterflies", "🦋",
+             "Sell the at-the-money call and put and buy wings either side: the biggest credit of the range trades, "
+             "with profit anywhere between the break-evens and the most at the strike itself.",
+             "Rich premium and no strong committee lean, as for iron condors. Sold call and put at the strike nearest "
+             "the price, bought wings about 5% of the price either side, same expiry 21–60 days, every leg's spread "
+             "≤ 20% and open interest ≥ 50, credit ≥ 40% of the wider wing. Ranked by KESTREL's expected value per "
+             "dollar at risk.",
+             "No quiet stock has rich enough premium for a butterfly today."),
+    Category("cash_secured_puts", "Cash-secured puts", "💵",
+             "Sell a put on a stock you would be glad to own, with the cash to buy it set aside: paid now, and you "
+             "buy below today's price if it falls. The same payoff as a covered call at that strike.",
+             "Committee ≥ 50 or a broad ETF. Put nearest 0.25 delta below the price, 21–45 days, spread ≤ 15%, open "
+             "interest ≥ 100, premium ≥ 0.5% of the strike. The risk shown is the cash set aside less the premium "
+             "(the stock going to zero). Ranked by KESTREL's expected value per dollar set aside.",
+             "No liked stock has a liquid put in range today."),
     Category("lottos", "Lottos", "🎰",
              "Cheap, short-dated, out-of-the-money contracts with the biggest payoff if the stock makes a normal-sized "
              "move. Most expire worthless — the chance is shown.",
@@ -781,12 +812,141 @@ def sell_premium(tb: Table, ctx: Context) -> list[Candidate]:
     expected = tb.payoff[short] - tb.payoff[long]
     max_loss = (width - credit) * 100 + 2 * FEE
     ev = (credit - expected) * 100 - 2 * FEE
-    why = [f"IV rank {u.iv_rank:.0f}" if u.iv_rank is not None else f"IV30 {u.iv30:.0%} vs realized {u.rv:.0%}",
-           f"{u.symbol}: {_view(u)}",
+    why = [_richness(u, 60), f"{u.symbol}: {_view(u)}",
            f"Collect ${credit * 100:,.0f}, risk ${max_loss:,.0f}; KESTREL expects {'+' if ev >= 0 else '−'}${abs(ev):,.0f} "
            "per spread"]
     structure = "bear_call_credit" if is_call else "bull_put_credit"
     return [Candidate("sell_premium", tb, structure, [(short, "sell"), (long, "buy")], ev / max_loss, why)]
+
+
+def _in_budget(ctx: Context, risk: float) -> bool:
+    return ctx.budget_range is None or ctx.budget_range[0] < risk <= ctx.budget_range[1]
+
+
+def _richness(u: Underlying, rank: float) -> str:
+    """The reason premium counts as rich: the IV rank when it qualified, otherwise IV against realized movement."""
+    if u.iv_rank is not None and u.iv_rank >= rank:
+        return f"IV rank {u.iv_rank:.0f}"
+    return f"IV30 {u.iv30:.0%} vs realized {u.rv:.0%}" if u.iv30 and u.rv else "Options priced rich"
+
+
+def _rich(u: Underlying) -> bool:
+    return bool((u.iv_rank is not None and u.iv_rank >= 50) or (u.iv30 and u.rv and u.iv30 / u.rv >= 1.2))
+
+
+def _signed_payoff(tb: Table, chosen: Sequence[tuple[int, str]]) -> float:
+    """KESTREL's expected value at expiry of the legs as held (bought +, sold −), per share."""
+    return float(sum(tb.payoff[i] if side == "buy" else -tb.payoff[i] for i, side in chosen))
+
+
+def strangles(tb: Table, ctx: Context) -> list[Candidate]:
+    u = tb.u
+    cheap = (u.iv_rank is not None and u.iv_rank <= 25) or bool(u.iv30 and u.rv and u.iv30 <= u.rv)
+    if not cheap:
+        return []
+    ok = _liquid(tb, 0.15, 100) & (tb.dte >= 21) & (tb.dte <= 60) & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.40)
+    pairs = []
+    for c in np.where(ok & tb.call & (tb.k > u.price))[0]:
+        for q in np.where(ok & ~tb.call & (tb.k < u.price) & (tb.dte == tb.dte[c]))[0]:
+            cost = float(tb.ask[c] + tb.ask[q]) * 100 + 2 * FEE
+            if _in_budget(ctx, cost):
+                pairs.append((abs(float(tb.dte[c]) - 40.5), abs(tb.delta[c] - 0.30) + abs(abs(tb.delta[q]) - 0.30),
+                              int(c), int(q)))
+    if not pairs:
+        return []
+    *_, c, q = min(pairs)
+    debit = float(tb.ask[c] + tb.ask[q])
+    chosen = [(c, "buy"), (q, "buy")]
+    cost = debit * 100 + 2 * FEE
+    ev = (_signed_payoff(tb, chosen) - debit) * 100 - 2 * FEE
+    why = [f"IV rank {u.iv_rank:.0f}" if u.iv_rank is not None and u.iv_rank <= 25 else
+           f"IV30 {u.iv30:.0%} vs realized {u.rv:.0%}",
+           f"Pays if {u.symbol} finishes above ${tb.k[c] + debit:,.2f} or below ${tb.k[q] - debit:,.2f}",
+           f"KESTREL expects {'+' if ev >= 0 else '−'}${abs(ev):,.0f} per strangle"]
+    return [Candidate("strangles", tb, "long_strangle", chosen, ev / cost, why)]
+
+
+def _iron(tb: Table, ctx: Context, category: str) -> list[Candidate]:
+    """Iron condor (sold strikes near 0.20 delta) or iron butterfly (sold at the money), wings bought further out."""
+    u = tb.u
+    if not _rich(u) or _direction(u) is not None:
+        return []
+    butterfly = category == "iron_butterflies"
+    ok = _liquid(tb, 0.20, 50) & (tb.dte >= 21) & (tb.dte <= 60)
+    found = []
+    for days in sorted({float(d) for d in tb.dte[ok]}, key=lambda d: abs(d - 40.5)):
+        on = ok & (tb.dte == days)
+        calls, puts = np.where(on & tb.call)[0], np.where(on & ~tb.call)[0]
+        if butterfly:
+            both = sorted({float(tb.k[i]) for i in calls} & {float(tb.k[i]) for i in puts}, key=lambda k: abs(k - u.price))
+            if not both:
+                continue
+            sc = int(next(i for i in calls if tb.k[i] == both[0]))
+            sp = int(next(i for i in puts if tb.k[i] == both[0]))
+        else:
+            near_c = [i for i in calls if tb.k[i] > u.price and 0.10 <= tb.delta[i] <= 0.30]
+            near_p = [i for i in puts if tb.k[i] < u.price and 0.10 <= -tb.delta[i] <= 0.30]
+            if not near_c or not near_p:
+                continue
+            sc = int(min(near_c, key=lambda i: abs(tb.delta[i] - 0.20)))
+            sp = int(min(near_p, key=lambda i: abs(-tb.delta[i] - 0.20)))
+        for wing in (0.05, 0.075, 0.10, 0.025):
+            above = [i for i in calls if tb.k[i] > tb.k[sc]]
+            below = [i for i in puts if tb.k[i] < tb.k[sp]]
+            if not above or not below:
+                break
+            lc = int(min(above, key=lambda i: abs(tb.k[i] - (tb.k[sc] + wing * u.price))))
+            lp = int(min(below, key=lambda i: abs(tb.k[i] - (tb.k[sp] - wing * u.price))))
+            credit = float(tb.bid[sp] + tb.bid[sc] - tb.ask[lp] - tb.ask[lc])
+            width = float(max(tb.k[sp] - tb.k[lp], tb.k[lc] - tb.k[sc]))
+            risk = (width - credit) * 100 + 4 * FEE
+            if (credit >= (0.40 if butterfly else 0.20) * width and credit * 100 > 4 * FEE and risk > 0
+                    and _in_budget(ctx, risk)):
+                found.append((sp, lp, sc, lc, credit, width, risk))
+                break
+        if found:
+            break
+    if not found:
+        return []
+    sp, lp, sc, lc, credit, width, risk = found[0]
+    chosen = [(sp, "sell"), (lp, "buy"), (sc, "sell"), (lc, "buy")]
+    ev = (credit + _signed_payoff(tb, chosen)) * 100 - 4 * FEE
+    why = [_richness(u, 50), f"{u.symbol}: {_view(u)}",
+           f"Collect ${credit * 100 - 4 * FEE:,.0f}, risk ${risk:,.0f}; profit between "
+           f"${tb.k[sp] - credit:,.2f} and ${tb.k[sc] + credit:,.2f} at expiry",
+           f"KESTREL expects {'+' if ev >= 0 else '−'}${abs(ev):,.0f} per {'butterfly' if butterfly else 'condor'}"]
+    return [Candidate(category, tb, "iron_butterfly" if butterfly else "iron_condor", chosen, ev / risk, why)]
+
+
+def iron_condors(tb: Table, ctx: Context) -> list[Candidate]:
+    return _iron(tb, ctx, "iron_condors")
+
+
+def iron_butterflies(tb: Table, ctx: Context) -> list[Candidate]:
+    return _iron(tb, ctx, "iron_butterflies")
+
+
+def cash_secured_puts(tb: Table, ctx: Context) -> list[Candidate]:
+    u = tb.u
+    liked = u.committee if u.committee is not None else (60.0 if u.symbol in ETFS else None)
+    if liked is None or liked < 50:
+        return []
+    m = (~tb.call & (tb.k < u.price) & _liquid(tb, 0.15, 100) & (tb.dte >= 21) & (tb.dte <= 45)
+         & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.35) & (tb.bid >= 0.005 * tb.k))
+    rows = [int(i) for i in np.where(m)[0] if _in_budget(ctx, float(tb.k[i] - tb.bid[i]) * 100 + FEE)]
+    if not rows:
+        return []
+    i = min(rows, key=lambda r: (abs(float(tb.dte[r]) - 33), abs(abs(tb.delta[r]) - 0.25)))
+    k, premium, days = float(tb.k[i]), float(tb.bid[i]), int(tb.dte[i])
+    risk = (k - premium) * 100 + FEE
+    ev = (premium - float(tb.payoff[i])) * 100 - FEE
+    why = [f"{u.symbol}: {_view(u)}" if u.committee is not None else f"{u.symbol}: broad-market ETF",
+           f"Collect ${premium * 100 - FEE:,.0f} now; if {u.symbol} finishes below ${k:g} you buy 100 shares at an "
+           f"effective ${k - premium:,.2f} ({1 - (k - premium) / u.price:.1%} below today)",
+           f"Cash set aside ${k * 100:,.0f}: {(premium * 100 - FEE) / (k * 100) * 365 / days:.1%} a year on it if the "
+           "put expires worthless",
+           f"KESTREL expects {'+' if ev >= 0 else '−'}${abs(ev):,.0f} per put"]
+    return [Candidate("cash_secured_puts", tb, "cash_secured_put", [(i, "sell")], ev / risk, why)]
 
 
 def lottos(tb: Table, ctx: Context) -> list[Candidate]:
@@ -843,14 +1003,60 @@ def watchlist(tb: Table, ctx: Context) -> list[Candidate]:
 
 SELECTORS: dict[str, Callable[[Table, Context], list[Candidate]]] = {
     "likely_itm": likely_itm, "edge": edge, "unusual": unusual, "cheap_vol": cheap_vol, "earnings": earnings,
-    "trend_calls": trend_calls, "bear_puts": bear_puts, "squeeze": squeeze, "debit_spreads": debit_spreads,
-    "sell_premium": sell_premium, "lottos": lottos, "leaps": leaps, "watchlist": watchlist}
+    "strangles": strangles, "trend_calls": trend_calls, "bear_puts": bear_puts, "squeeze": squeeze,
+    "debit_spreads": debit_spreads, "sell_premium": sell_premium, "iron_condors": iron_condors,
+    "iron_butterflies": iron_butterflies, "cash_secured_puts": cash_secured_puts, "lottos": lottos, "leaps": leaps,
+    "watchlist": watchlist}
 
 
 # ── a candidate becomes a play ───────────────────────────────────────────────────────────────────
 TYPES = {"long_call": ("BUY", "CALL"), "long_put": ("BUY", "PUT"), "long_straddle": ("BUY", "STRADDLE"),
          "bull_put_credit": ("SELL", "PUT CREDIT SPREAD"), "bear_call_credit": ("SELL", "CALL CREDIT SPREAD"),
-         "bull_call_debit": ("BUY", "CALL DEBIT SPREAD"), "bear_put_debit": ("BUY", "PUT DEBIT SPREAD")}
+         "bull_call_debit": ("BUY", "CALL DEBIT SPREAD"), "bear_put_debit": ("BUY", "PUT DEBIT SPREAD"),
+         "long_strangle": ("BUY", "STRANGLE"), "iron_condor": ("SELL", "IRON CONDOR"),
+         "iron_butterfly": ("SELL", "IRON BUTTERFLY"), "cash_secured_put": ("SELL", "CASH-SECURED PUT")}
+# Two-sided structures: their chance is of the stock finishing beyond (bought) or between (sold) two break-evens.
+# Stored as a "move" event of kind "straddle" (the schema's two-sided kind): centre ± width; the shape is the structure.
+MOVES = frozenset({"long_straddle", "long_strangle", "iron_condor", "iron_butterfly"})
+
+
+def spread_width(legs: Sequence[Mapping[str, Any]]) -> float:
+    """Per share, what a sold structure can lose before its credit: a vertical's strike gap, the wider wing of a
+    condor or butterfly, or a cash-secured put's strike (the stock going to zero)."""
+    if len(legs) == 1 and legs[0]["side"] == "sell" and legs[0]["kind"] == "put":
+        return float(legs[0]["strike"])
+    strikes: dict[str, list[float]] = defaultdict(list)
+    for leg in legs:
+        strikes[leg["kind"]].append(float(leg["strike"]))
+    return max((max(k) - min(k) for k in strikes.values() if len(k) == 2), default=0.0)
+
+
+def structure_of(legs: Sequence[Mapping[str, Any]]) -> str:
+    """Name a saved set of legs (one expiry); ValueError for anything Plays does not offer."""
+    calls = sorted((leg for leg in legs if leg["kind"] == "call"), key=lambda leg: leg["strike"])
+    puts = sorted((leg for leg in legs if leg["kind"] == "put"), key=lambda leg: leg["strike"])
+    sides = [leg["side"] for leg in legs]
+    if len(legs) == 1:
+        if sides == ["buy"]:
+            return "long_" + str(legs[0]["kind"])
+        if legs[0]["kind"] == "put":
+            return "cash_secured_put"
+    elif len(legs) == 2 and len(calls) == 1 and sides == ["buy", "buy"]:
+        if calls[0]["strike"] == puts[0]["strike"]:
+            return "long_straddle"
+        if calls[0]["strike"] > puts[0]["strike"]:
+            return "long_strangle"
+    elif len(legs) == 2 and set(sides) == {"buy", "sell"} and (len(calls) == 2 or len(puts) == 2):
+        low, high = calls or puts
+        if calls:
+            return "bear_call_credit" if low["side"] == "sell" else "bull_call_debit"
+        return "bear_put_debit" if high["side"] == "buy" else "bull_put_credit"
+    elif len(legs) == 4 and len(calls) == len(puts) == 2:
+        (lp, sp), (sc, lc) = puts, calls
+        if ([lp["side"], sp["side"], sc["side"], lc["side"]] == ["buy", "sell", "sell", "buy"]
+                and lp["strike"] < sp["strike"] <= sc["strike"] < lc["strike"]):
+            return "iron_butterfly" if sp["strike"] == sc["strike"] else "iron_condor"
+    raise ValueError("Unsupported saved structure")
 
 
 def _sessions_to(session: date, expiration: date) -> int:
@@ -894,47 +1100,52 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
     def view(kind: str, buyer: bool, k: float, iv: float, premium: float, cal: od.Calibration | None = None) -> od.Odds:
         return od.odds(kind=kind, action="buy" if buyer else "sell", s=u.price, k=k, t=t, iv=iv, rv=u.rv, r=ctx.rate,
                        premium=premium, history=history, ic=ctx.ic, ic_months=ctx.ic_months, z=u.z, calibration=cal)
-    if c.structure == "long_straddle":
-        k, iv = first.strike, float((tb.iv[c.legs[0][0]] + tb.iv[c.legs[1][0]]) / 2)
-        up = view("call", True, k + entry, iv, 0.0)
-        down = view("put", True, k - entry, iv, 0.0)
+    breakevens: list[float] | None = None
+    if c.structure in MOVES:
+        # Two break-evens around the held strikes; bought: chance of finishing beyond either, sold: between them.
+        body = [i for i, side in c.legs if side == ("buy" if action == "BUY" else "sell")]
+        upper = max(tb.quotes[i].strike for i in body if tb.quotes[i].kind == "call") + entry
+        lower = min(tb.quotes[i].strike for i in body if tb.quotes[i].kind == "put") - entry
+        iv = float(np.mean([tb.iv[i] for i in body]))
+        up = view("call", True, upper, iv, 0.0)
+        down = view("put", True, lower, iv, 0.0)
         raw = up.itm_kestrel_raw + down.itm_kestrel_raw
+        beyond = move_cal.apply(raw)
         chance = {"itm_market": up.itm_market + down.itm_market,
                   "itm_history": None if up.itm_history is None or down.itm_history is None
                   else up.itm_history + down.itm_history,
-                  "itm_kestrel_raw": raw, "itm_kestrel": move_cal.apply(raw),
-                  "touch_kestrel": min(1.0, od.touch(u.price, k + entry, t, up.sigma, up.drift)
-                                       + od.touch(u.price, k - entry, t, up.sigma, up.drift))}
-        chance["profit_kestrel"] = chance["itm_kestrel"]
-        payoff = (od.expected_payoff("call", u.price, k, t, up.sigma, up.drift)
-                  + od.expected_payoff("put", u.price, k, t, up.sigma, up.drift))
-        breakeven, breakeven_move = k + entry, entry / u.price
-        event, event_kind, event_strike, event_width, label = "move", "straddle", k, entry, "Chance of a move past break-even"
-        sigma = up.sigma
-        max_gain = None
+                  "itm_kestrel_raw": raw, "itm_kestrel": beyond,
+                  "profit_kestrel": beyond if action == "BUY" else 1.0 - beyond,
+                  "touch_kestrel": min(1.0, od.touch(u.price, upper, t, up.sigma, up.drift)
+                                       + od.touch(u.price, lower, t, up.sigma, up.drift))}
+        breakevens = [round(lower, 2), round(upper, 2)]
+        event, event_kind, event_strike, event_width = "move", "straddle", (upper + lower) / 2, (upper - lower) / 2
+        breakeven, breakeven_move = upper, event_width / u.price
+        label = "Chance of a move past break-even" if action == "BUY" else "Chance it finishes between the break-evens"
+        sigma, drift = up.sigma, up.drift
+        max_gain = None if action == "BUY" else entry * 100 - fees
     else:
-        short_leg = c.structure.endswith("credit")
-        ref = c.legs[0][0]                       # the long leg of a purchase; the short leg of a credit spread
+        ref = c.legs[0][0]                       # the bought leg of a purchase; the sold leg of a sale
         q = tb.quotes[ref]
         o = view(q.kind, action == "BUY", q.strike, float(tb.iv[ref]), entry, itm_cal)
         already = u.price > q.strike if q.kind == "call" else u.price < q.strike
         chance = {"itm_market": o.itm_market, "itm_history": o.itm_history, "itm_kestrel_raw": o.itm_kestrel_raw,
                   "itm_kestrel": o.itm_kestrel, "profit_kestrel": o.profit_kestrel,
                   "touch_kestrel": None if already else o.touch_kestrel}
-        payoff = sum((1 if side == "buy" else -1) * od.expected_payoff(tb.quotes[i].kind, u.price, tb.quotes[i].strike, t,
-                                                                         o.sigma, o.drift) for i, side in c.legs)
         breakeven = q.strike + entry if q.kind == "call" else q.strike - entry
         breakeven_move = breakeven / u.price - 1
         event, event_kind, event_strike, event_width = "itm", q.kind, q.strike, 0.0
-        label = "Chance it expires worthless" if short_leg else "Chance in the money"
-        sigma = o.sigma
-        if short_leg:
-            width = abs(tb.quotes[c.legs[1][0]].strike - q.strike)
+        label = "Chance it expires worthless" if action == "SELL" else "Chance in the money"
+        sigma, drift = o.sigma, o.drift
+        if action == "SELL":
             max_gain = entry * 100 - fees
         elif c.structure.endswith("debit"):         # capped at the sold strike: the width less the debit
             max_gain = (abs(tb.quotes[c.legs[1][0]].strike - q.strike) - entry) * 100 - fees
         else:
             max_gain = None if q.kind == "call" else (q.strike - entry) * 100 - fees
+    payoff = sum((1 if side == "buy" else -1) * od.expected_payoff(tb.quotes[i].kind, u.price, tb.quotes[i].strike, t,
+                                                                     sigma, drift) for i, side in c.legs)
+    width = spread_width(legs)
     if action == "BUY":
         cost = entry * 100 + fees
         max_loss, credit = cost, None
@@ -966,18 +1177,18 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         "vega": round(net_vega, 4), "entry": round(entry, 4), "cost": None if cost is None else round(cost, 2),
         "credit": None if credit is None else round(credit, 2), "max_loss": round(max_loss, 2),
         "max_gain": None if max_gain is None else round(max_gain, 2), "breakeven": round(breakeven, 2),
+        "breakevens": breakevens,
         "breakeven_move": round(breakeven_move, 4), "expected_value": round(ev, 2),
         "expected_move": round(sigma * math.sqrt(t), 4), "chance_label": label, "event": event,
         "event_kind": event_kind, "event_strike": event_strike, "event_width": round(event_width, 4),
         **{k: (None if v is None else round(float(v), 4)) for k, v in chance.items()},
-        "in_the_money": c.structure != "long_straddle" and (
-            u.price > event_strike if event_kind == "call" else u.price < event_strike),
+        "in_the_money": event == "itm" and (u.price > event_strike if event_kind == "call" else u.price < event_strike),
         "earnings": earnings, "liquidity": grade, "score": round(c.score, 4), "reasons": c.reasons, "flags": flags,
         "unusual": c.unusual, "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source,
-        "calibration": move_level if c.structure == "long_straddle" else itm_level, "odds_version": od.MODEL_VERSION}
+        "calibration": move_level if event == "move" else itm_level, "odds_version": od.MODEL_VERSION}
     from desk.stocks.play_targets import build as target_probabilities
 
-    play["probability_targets"] = target_probabilities(play, sigma, up.drift if c.structure == "long_straddle" else o.drift, t)
+    play["probability_targets"] = target_probabilities(play, sigma, drift, t)
     return play
 
 
@@ -1079,6 +1290,25 @@ def _twin_leg(tb: Table, i: int, side: str) -> dict[str, Any]:
             "iv": round(float(tb.iv[i]), 4), "delta": round(float(tb.delta[i]), 4), "underlying": tb.u.price}
 
 
+def _matched(tb: Table, on: Array, legs: Sequence[Mapping[str, Any]]) -> list[tuple[int, str]] | None:
+    """Each leg by its own delta on this stock (a strike shared by two legs stays shared), keeping the strikes in the
+    same order as the original; None when the chain cannot reproduce the shape."""
+    chosen: list[tuple[int, str]] = []
+    for n, leg in enumerate(legs):
+        rows = np.where(on & (tb.call == (leg["kind"] == "call")))[0]
+        shared = next((chosen[m][0] for m, other in enumerate(legs[:n]) if other["strike"] == leg["strike"]), None)
+        if shared is not None:
+            rows = rows[tb.k[rows] == tb.k[shared]]
+        if not len(rows):
+            return None
+        chosen.append((int(min(rows, key=lambda r: abs(abs(tb.delta[r]) - abs(leg.get("delta", 0.5))))), leg["side"]))
+    for a in range(len(legs)):
+        for b in range(a + 1, len(legs)):
+            if np.sign(legs[a]["strike"] - legs[b]["strike"]) != np.sign(tb.k[chosen[a][0]] - tb.k[chosen[b][0]]):
+                return None
+    return chosen
+
+
 def twin(play: dict[str, Any], tables: Sequence[Table], session: date) -> dict[str, Any] | None:
     """A random contract on another stock with the same structure, expiry (or the nearest within a week) and delta.
     Seeded by the play's identity, so the same record always draws the same twin."""
@@ -1111,6 +1341,8 @@ def twin(play: dict[str, Any], tables: Sequence[Table], session: date) -> dict[s
                 puts = np.where(on & ~tb.call & (tb.k == tb.k[c]))[0]
                 if len(puts):
                     chosen = [(c, "buy"), (int(puts[0]), "buy")]
+        elif structure in ("long_strangle", "iron_condor", "iron_butterfly", "cash_secured_put"):
+            chosen = _matched(tb, on, legs) or []
         else:                       # spreads: the first leg (credit: sold, debit: bought), then one further out
             short, long_ = legs[0], legs[1]
             kind = short["kind"]
@@ -1131,8 +1363,7 @@ def twin(play: dict[str, Any], tables: Sequence[Table], session: date) -> dict[s
             max_loss = entry * 100 + FEE * len(twin_legs)
         else:
             entry = sum(leg["bid"] if leg["side"] == "sell" else -leg["ask"] for leg in twin_legs)
-            width = abs(twin_legs[1]["strike"] - twin_legs[0]["strike"])
-            max_loss = (width - entry) * 100 + FEE * len(twin_legs)
+            max_loss = (spread_width(twin_legs) - entry) * 100 + FEE * len(twin_legs)
         if entry <= 0 or max_loss <= 0:
             continue
         return {"symbol": tb.u.symbol, "action": play["action"], "structure": structure,

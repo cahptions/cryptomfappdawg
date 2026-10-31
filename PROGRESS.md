@@ -17,6 +17,19 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-31 — The main option strategies in Plays and on the Options page
+
+- New categories: 🎢 **Strangles**, 🦅 **Iron condors**, 🦋 **Iron butterflies**, 💵 **Cash-secured puts** (with
+  🪜 **Debit spreads** below): 17 categories, every one defined risk. Two-sided plays share one pricing path (two
+  break-evens; bought: chance of a move past either, sold: chance of finishing between), stored as the schema's
+  two-sided `move` event, so grading needed no table rebuild. `structure_of` names any saved leg set (and refuses
+  undefined risk); `spread_width` is the one definition of a sold structure's risk width.
+- Cards: both break-evens, the net natural/mid price for multi-leg plays, "touch a break-even", and premium
+  richness named by whichever test it passed.
+- The Options page's Calls/Puts menu now lists the strategies, showing the Plays picks of that shape.
+- Left out on purpose: covered calls (≡ cash-secured puts), protective puts/collars (shares), calendars/diagonals
+  (two expiries; grading would need model prices), naked/short straddles/strangles/ratios (undefined risk).
+
 ## 2026-10-31 — Debit spreads in Plays
 
 - New 🪜 **Debit spreads** category: a bull call or bear put spread in the committee's direction (bought leg near

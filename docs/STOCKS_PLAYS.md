@@ -167,14 +167,28 @@ before expiry (reflection formula for geometric Brownian motion; "already in the
 | 🐋 **Unusual activity** | See below. |
 | 🏷️ **Cheap volatility** | At-the-money straddle (~30 days) where IV30 ≤ 0.9× realized volatility or IV rank ≤ 20. Chance shown: a move past either break-even. |
 | 📅 **Earnings plays** | Results window (estimated from past report dates) starting within 21 days; straddle on the first expiry after it; ranked by the stock's median results-day move ÷ the move options price. |
+| 🎢 **Strangles** | Options not pricing more movement than the stock makes (IV30 ≤ realized, or IV rank ≤ 25): **buy** a call and a put each near 0.30 \|Δ\|, same expiry 21–60 days. Pays on a big move either way for less than a straddle; the chance shown is of finishing past either break-even. |
 | 🚀 **Trend calls** | Momentum ≥ 75 and above the 200-day average: call near 0.60 Δ, 30–75 days. |
 | 🐻 **Bearish puts** | Valuation ≤ 30, momentum ≤ 35 and below the 200-day, or a red-flag filing: put near 0.45 Δ, 30–75 days. |
 | 🔥 **Squeeze calls** | Squeeze score ≥ 60: call near 0.30 Δ, 14–45 days. |
 | 🪜 **Debit spreads** | **Buy** a bull call spread where the committee leans bullish (≥ 58), a bear put spread where it leans bearish (< 42): bought leg near 0.55 Δ, sold leg further out near 0.30 Δ, same expiry 21–60 days, paying at most 60% of the width. Less money down than the single contract; the most it can make (the width less the debit) and lose (the debit) are both fixed. Ranked by KESTREL's expected value per dollar at risk; the card shows both strikes and the chance of the maximum gain at expiry. |
 | 💰 **Sell rich premium** | IV rank ≥ 60 or IV ≥ 1.3× realized: **sell** a bull put spread (committee ≥ 50) or bear call spread (≤ 45). Short leg near 0.25 Δ, long leg ~5% further out, 21–60 days, credit ≥ 10% of the width. Shows the credit, the worst case and the chance it expires worthless. |
+| 🦅 **Iron condors** | Rich premium (IV rank ≥ 50 or IV ≥ 1.2× realized) on a stock without a strong committee lean (42–58): **sell** a put spread below and a call spread above (sold strikes near 0.20 Δ, wings ~5% further out), 21–60 days, credit ≥ 20% of the wider wing. The chance shown is of finishing between the break-evens. |
+| 🦋 **Iron butterflies** | The same conditions, sold at the money: **sell** the call and put at the strike nearest the price, buy wings ~5% either side, credit ≥ 40% of the wider wing. The largest credit of the range trades; the full credit needs a finish right at the strike, partial profit anywhere between the break-evens. |
+| 💵 **Cash-secured puts** | Committee ≥ 50 or a broad ETF: **sell** a put near 0.25 Δ below the price, 21–45 days, premium ≥ 0.5% of the strike, with the cash to buy 100 shares set aside. The risk shown is that cash less the premium (the stock going to zero). The card shows the effective purchase price and the yield on the cash if the put expires worthless. A covered call at the same strike has the same payoff. |
 | 🎰 **Lottos** | Ask $0.05–$0.50, 1–14 days, ≥ 3% out of the money: the most payoff for a one-standard-deviation move, times the chance in the money. Most expire worthless, and the card says so. |
 | 🏛️ **LEAPS** | 180+ days, call near 0.75 Δ, on committee ≥ 60 names or broad ETFs: stock-like exposure for less money down. Collection now adds the expiry nearest a year out for this. |
 | ⭐ **Your watchlist** | The best-valued contract for each starred stock, in the committee's direction. |
+
+Every structure is **defined risk**: the most it can lose is known when it is shown. Strategies left out, and why:
+covered calls (the same payoff as a cash-secured put at that strike, which is offered), protective puts and collars
+(they need shares, and Plays holds options only), calendars and diagonals (two expiries: grading them would need a
+model price for the later option at the first expiry, and Plays grades only on real closes), and naked calls, short
+straddles, short strangles and ratio spreads (undefined risk; never shown). Two-sided plays (straddles, strangles,
+condors, butterflies) are graded as a move past, or a finish between, their two break-evens.
+
+The **Options** page's contract-shortlist menu lists the same strategies: choosing one shows that shape's Plays
+picks across categories, ranked by KESTREL's expected value per dollar at risk, with a money-at-risk limit.
 
 Each category shows its **track record** (plays resolved, how often they finished in the money against what KESTREL
 predicted, median return at expiry) and, where a PAPER strategy trades the same idea, that strategy's closed-trade

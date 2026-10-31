@@ -91,8 +91,9 @@ VARIANTS: tuple[Variant, ...] = (
     Variant("no_results", "No results before expiry",
             "skip plays with a results window before expiry (Earnings plays excepted)",
             keep=lambda p, _: not p.get("earnings"),
-            categories=("likely_itm", "edge", "unusual", "cheap_vol", "trend_calls", "bear_puts", "squeeze",
-                        "debit_spreads", "sell_premium", "lottos", "leaps", "watchlist")),
+            categories=("likely_itm", "edge", "unusual", "cheap_vol", "strangles", "trend_calls", "bear_puts",
+                        "squeeze", "debit_spreads", "sell_premium", "iron_condors", "iron_butterflies",
+                        "cash_secured_puts", "lottos", "leaps", "watchlist")),
 )
 BY_VARIANT = {v.id: v for v in VARIANTS}
 

@@ -93,6 +93,23 @@ const KestrelPlays = (() => {
   const strikeLabel = (play) =>
     `${strikeList(play)} ${strikeList(play).includes(" / ") ? "strikes" : "strike"}`;
 
+  // One contract: its own bid/ask. Several legs: the net price at the quotes (natural) and at the mids, the range a
+  // limit order works in; the widest leg's spread says how much that range costs.
+  function netPrice(play) {
+    if (play.legs.length === 1)
+      return [
+        "Bid / ask (spread)",
+        `${money(play.bid)} / ${money(play.ask)} (${pct(play.spread_pct, 1)})`,
+      ];
+    const sign = (l) =>
+        (l.side === "buy" ? 1 : -1) * (play.action === "SELL" ? -1 : 1),
+      mid = play.legs.reduce((sum, l) => sum + sign(l) * l.mid, 0);
+    return [
+      `Net ${play.action === "SELL" ? "credit" : "debit"} (natural / mid)`,
+      `${money(play.entry)} / ${money(mid)} (widest leg ${pct(play.spread_pct, 1)})`,
+    ];
+  }
+
   function legsLine(play) {
     if (!play.legs || play.legs.length < 2) return null;
     return el(
@@ -141,14 +158,13 @@ const KestrelPlays = (() => {
       cost,
       ["Max gain", play.max_gain === null ? "Unlimited" : money(play.max_gain)],
       [
-        "Break-even",
-        `${money(play.breakeven)} (${signed(100 * (play.breakeven_move ?? 0), 1)}%)`,
+        play.breakevens ? "Break-evens" : "Break-even",
+        play.breakevens
+          ? `${play.breakevens.map(money).join(" / ")} (±${(100 * (play.breakeven_move ?? 0)).toFixed(1)}%)`
+          : `${money(play.breakeven)} (${signed(100 * (play.breakeven_move ?? 0), 1)}%)`,
       ],
       ["Expected value", `${money(play.expected_value)} per contract`],
-      [
-        "Bid / ask (spread)",
-        `${money(play.bid)} / ${money(play.ask)} (${pct(play.spread_pct, 1)})`,
-      ],
+      [...netPrice(play)],
       [
         "IV (rank)",
         `${pct(play.iv, 1)}${play.iv_rank === null || play.iv_rank === undefined ? "" : ` (${Math.round(play.iv_rank)})`}`,
@@ -162,7 +178,9 @@ const KestrelPlays = (() => {
         `${number(play.volume)} / ${number(play.open_interest)}${play.vol_oi ? ` (${play.vol_oi.toFixed(1)}×)` : ""}`,
       ],
       [
-        "Touch strike before expiry",
+        play.breakevens
+          ? "Touch a break-even before expiry"
+          : "Touch strike before expiry",
         play.in_the_money ? "Already in the money" : pct(play.touch_kestrel),
       ],
       [

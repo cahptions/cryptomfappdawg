@@ -50,18 +50,29 @@ def chance(play: dict[str, Any], target: float, sigma: float, drift: float, year
     return max(0.0, min(1.0, result))
 
 
+MAX_GAIN_NOTES = {
+    "bull_put_credit": "Maximum expiry gain occurs when the spread expires worthless.",
+    "bear_call_credit": "Maximum expiry gain occurs when the spread expires worthless.",
+    "bull_call_debit": "Maximum expiry gain occurs when the stock finishes beyond the sold strike.",
+    "bear_put_debit": "Maximum expiry gain occurs when the stock finishes beyond the sold strike.",
+    "iron_condor": "Maximum expiry gain occurs when the stock finishes between the two sold strikes.",
+    "iron_butterfly": "Maximum expiry gain needs the stock to finish exactly at the sold strike; profit is partial "
+                      "anywhere between the break-evens.",
+    "cash_secured_put": "Maximum expiry gain (the premium) occurs when the stock finishes above the strike.",
+}
+
+
 def build(play: dict[str, Any], sigma: float, drift: float, years: float) -> dict[str, Any]:
     targets = {str(int(target * 100)): round(chance(play, target, sigma, drift, years), 4)
                for target in (0.0, 0.25, 0.5, 1.0)}
-    credit = play["action"] == "SELL" and play["structure"].endswith("credit")
-    debit = play["structure"].endswith("debit")
-    maximum = (chance(play, play["max_gain"] / play["max_loss"], sigma, drift, years) if credit or debit else None)
+    structure = play["structure"]
+    capped = play["action"] == "SELL" or structure.endswith("debit")
+    maximum = chance(play, play["max_gain"] / play["max_loss"], sigma, drift, years) if capped else None
     return {"version": 1, "horizon": "At expiry", "returns": targets,
             "max_gain_probability": None if maximum is None else round(maximum, 4),
-            "max_gain_note": "Maximum expiry gain occurs when the spread expires worthless." if credit else
-                "Maximum expiry gain occurs when the stock finishes beyond the sold strike." if debit else
+            "max_gain_note": MAX_GAIN_NOTES.get(structure) or (
                 "The theoretical maximum requires the underlying to reach $0; no useful maximum-gain probability "
-                "is estimated." if play["structure"] == "long_put" else
-                "The theoretical maximum gain is unlimited; use a practical profit target instead.",
+                "is estimated." if structure == "long_put" else
+                "The theoretical maximum gain is unlimited; use a practical profit target instead."),
             "note": "Model estimates of profit at expiration after opening fees, not the chance of hitting a "
                     "sale target earlier. These target probabilities have not been empirically calibrated."}

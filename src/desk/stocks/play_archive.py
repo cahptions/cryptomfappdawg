@@ -18,7 +18,7 @@ from desk.stocks import calendar as cal
 from desk.stocks import play_history as ph
 from desk.stocks import play_selections as ps
 from desk.stocks.play_tracking import get_state, legs_key
-from desk.stocks.plays import CATEGORIES, TYPES
+from desk.stocks.plays import CATEGORIES, TYPES, structure_of
 from desk.storage.db import transaction
 
 ARCHIVE_CATEGORY = "archive_"
@@ -40,32 +40,14 @@ def recovered_play(row: sqlite3.Row) -> dict[str, Any]:
     from desk.stocks.play_tracking import parse_occ
 
     legs = json.loads(row["legs_json"])
-    if not 1 <= len(legs) <= 2:
+    if len(legs) not in (1, 2, 4):
         raise ValueError("Unsupported saved structure")
     for leg in legs:
         symbol, kind, strike, expiration = parse_occ(leg["occ"])
         if (symbol != row["symbol"] or kind != leg["kind"] or strike != leg["strike"]
                 or expiration.isoformat() != leg["expiration"] or leg["side"] not in {"buy", "sell"}):
             raise ValueError("Saved contract identity mismatch")
-    if len(legs) == 1 and legs[0]["side"] == "buy":
-        structure = "long_" + legs[0]["kind"]
-    elif (len(legs) == 2 and {leg["kind"] for leg in legs} == {"call", "put"}
-          and all(leg["side"] == "buy" for leg in legs) and legs[0]["strike"] == legs[1]["strike"]):
-        structure = "long_straddle"
-    elif len(legs) == 2 and {leg["side"] for leg in legs} == {"buy", "sell"} and legs[0]["kind"] == legs[1]["kind"]:
-        long, short = next(leg for leg in legs if leg["side"] == "buy"), next(leg for leg in legs if leg["side"] == "sell")
-        if (short["kind"] == "put" and short["strike"] > long["strike"]):
-            structure = "bull_put_credit"
-        elif (short["kind"] == "call" and short["strike"] < long["strike"]):
-            structure = "bear_call_credit"
-        elif short["kind"] == "call":
-            structure = "bull_call_debit"
-        elif short["strike"] < long["strike"]:
-            structure = "bear_put_debit"
-        else:
-            raise ValueError("Unsupported saved spread")
-    else:
-        raise ValueError("Unsupported saved structure")
+    structure = structure_of(legs)
     action, kind_label = TYPES[structure]
     entry = float(row["entry"])
     if not math.isfinite(entry) or entry <= 0 or len({leg["expiration"] for leg in legs}) != 1:

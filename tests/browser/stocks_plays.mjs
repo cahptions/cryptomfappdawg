@@ -57,7 +57,7 @@ try {
     const data = await (
       await page.request.get(`${base}/api/stocks/plays`)
     ).json();
-    assert.equal(data.categories.length, 13);
+    assert.equal(data.categories.length, 17);
     assert.equal(
       await tabs.count(),
       data.categories.length,

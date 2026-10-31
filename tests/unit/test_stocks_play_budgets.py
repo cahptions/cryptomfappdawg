@@ -24,7 +24,7 @@ def context():
     return pl.Context(AT.date(),AT,.04,None,0,None,{"itm":odds.Calibration(),"move":odds.Calibration()},[])
 
 
-def chain_table(spot=1000., symbol="TEST"):
+def chain_table(spot=1000., symbol="TEST", vol=.1):
     chains = {}
     for days in (7,30,60):
         expiry = AT.date()+timedelta(days=days)
@@ -32,7 +32,7 @@ def chain_table(spot=1000., symbol="TEST"):
         for kind in ("call","put"):
             for multiple in (.95,.96,.97,.98,.99,1.,1.005,1.01,1.015,1.02,1.03,1.04,1.05):
                 strike = round(spot*multiple,3)
-                mid = options.bs_price(kind,spot,strike,days/365,.1,.04)
+                mid = options.bs_price(kind,spot,strike,days/365,vol,.04)
                 if mid<.08:
                     continue
                 quotes.append(OptionQuote(occ(symbol,expiry,kind,strike),symbol,kind,strike,expiry,
@@ -41,7 +41,7 @@ def chain_table(spot=1000., symbol="TEST"):
     u = pl.Underlying(symbol,spot,AT.isoformat(),"synthetic_budget_fixture",chains,
         detail={"committee":{"score":65,"label":"Bullish lean"},
                 "desks":{"momentum":{"score":80}},"price":{"above_sma200":.1}},
-        committee=65,rv=.1,iv30=.1)
+        committee=65,rv=vol,iv30=vol)
     tb = pl.table(u,context())
     assert tb is not None
     return tb
@@ -119,6 +119,60 @@ def test_debit_spread_budget_is_the_debit_paid_and_the_gain_is_capped_at_the_wid
         assert p["cost"]==pytest.approx(debit*100+1.30,abs=.01)==p["max_loss"]
         assert p["max_gain"]==pytest.approx((sold["strike"]-bought["strike"]-debit)*100-1.30,abs=.01)
         assert p["budget_band"][0]<p["cost"]<=p["budget_band"][1]
+
+
+def _legs(*spec):
+    expiry=AT.date()+timedelta(days=30)
+    return [{"occ":occ("TEST",expiry,kind,strike),"kind":kind,"side":side,"strike":strike,
+             "expiration":expiry.isoformat()} for kind,strike,side in spec]
+
+
+@pytest.mark.parametrize("spec,structure,width",[
+    ((("call",100.,"buy"),),"long_call",0.),
+    ((("put",95.,"sell"),),"cash_secured_put",95.),
+    ((("call",100.,"buy"),("put",100.,"buy")),"long_straddle",0.),
+    ((("call",105.,"buy"),("put",95.,"buy")),"long_strangle",0.),
+    ((("call",100.,"buy"),("call",105.,"sell")),"bull_call_debit",5.),
+    ((("put",100.,"buy"),("put",95.,"sell")),"bear_put_debit",5.),
+    ((("put",100.,"sell"),("put",95.,"buy")),"bull_put_credit",5.),
+    ((("call",100.,"sell"),("call",105.,"buy")),"bear_call_credit",5.),
+    ((("put",95.,"sell"),("put",90.,"buy"),("call",105.,"sell"),("call",112.5,"buy")),"iron_condor",7.5),
+    ((("put",100.,"sell"),("put",95.,"buy"),("call",100.,"sell"),("call",105.,"buy")),"iron_butterfly",5.),
+])
+def test_every_offered_shape_is_named_with_its_risk_width(spec,structure,width):
+    legs=_legs(*spec)
+    assert pl.structure_of(legs)==structure and pl.spread_width(legs)==width
+    assert pl.TYPES[structure][0]==("SELL" if structure in ("cash_secured_put","bull_put_credit","bear_call_credit",
+                                                            "iron_condor","iron_butterfly") else "BUY")
+
+
+@pytest.mark.parametrize("spec",[
+    (("call",100.,"sell"),),                                             # naked call: never offered
+    (("call",100.,"sell"),("put",100.,"sell")),                          # short straddle: undefined risk
+    (("call",95.,"buy"),("put",105.,"buy")),                             # call strike below the put: not a strangle
+    (("put",95.,"buy"),("put",90.,"sell"),("call",105.,"sell"),("call",112.5,"buy")),   # wings the wrong way round
+])
+def test_undefined_risk_or_unknown_shapes_are_refused(spec):
+    with pytest.raises(ValueError):
+        pl.structure_of(_legs(*spec))
+
+
+@pytest.mark.parametrize("category,structure",[("iron_condors","iron_condor"),("iron_butterflies","iron_butterfly"),
+                                               ("strangles","long_strangle"),("cash_secured_puts","cash_secured_put")])
+def test_new_strategies_budget_by_their_money_at_risk(category,structure):
+    # cash set aside must fit a band (≤ $1,000): a $9 stock with real volatility; the others on a $40 one
+    tb=chain_table(9.,vol=.5) if category=="cash_secured_puts" else chain_table(40.)
+    tb.u.committee=50. if category!="cash_secured_puts" else 65.        # a quiet stock; a liked one for puts
+    tb.u.iv_rank=80. if category.startswith("iron") else 10.
+    picks=pl.budget_plays(category,[tb],context(),None)
+    assert picks and all(p["structure"]==structure for p in picks)
+    for p in picks:
+        risk=p["max_loss"]
+        assert p["budget_band"][0]<risk<=p["budget_band"][1]
+        if p["action"]=="SELL":
+            assert risk==pytest.approx((pl.spread_width(p["legs"])-p["entry"])*100+.65*len(p["legs"]),abs=.02)
+        else:
+            assert risk==p["cost"]
 
 
 def test_saved_debit_spreads_are_recognised_in_the_archive():

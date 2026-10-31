@@ -84,7 +84,7 @@ def test_every_category_is_built_with_consistent_prices_odds_and_greeks(world: S
                 assert p["cost"] == pytest.approx(debit * 100 + fees, abs=0.01) and p["max_loss"] == p["cost"]
             else:
                 credit = sum(leg["bid"] if leg["side"] == "sell" else -leg["ask"] for leg in legs)
-                width = abs(legs[0]["strike"] - legs[1]["strike"])
+                width = pl.spread_width(legs)
                 assert p["credit"] == pytest.approx(credit * 100 - fees, abs=0.01)
                 assert p["max_loss"] == pytest.approx((width - credit) * 100 + fees, abs=0.01)
                 assert p["max_gain"] == p["credit"]
@@ -119,6 +119,34 @@ def test_every_category_is_built_with_consistent_prices_odds_and_greeks(world: S
                                                else bought["strike"] - debit, abs=0.01)
         assert 0 < p["probability_targets"]["max_gain_probability"] <= p["probability_targets"]["returns"]["0"]
     assert [p["score"] for p in debits] == sorted((p["score"] for p in debits), reverse=True)
+    for p in (p for cat in out["categories"] for p in cat["plays"]):
+        assert pl.structure_of(p["legs"]) == p["structure"]                # every play names its own shape
+        assert len({leg["expiration"] for leg in p["legs"]}) == 1
+        if p["breakevens"]:
+            lower, upper = p["breakevens"]
+            assert lower < upper and p["event"] == "move"
+            assert p["event_strike"] == pytest.approx((lower + upper) / 2, abs=0.01)
+    built = {p["structure"] for cat in out["categories"] for p in cat["plays"]}
+    assert {"long_strangle", "iron_condor", "iron_butterfly", "cash_secured_put"} <= built
+    for p in by["iron_condors"]["plays"] + by["iron_butterflies"]["plays"]:
+        lp, sp, sc, lc = sorted(p["legs"], key=lambda leg: (leg["kind"] == "call", leg["strike"]))
+        assert [lp["side"], sp["side"], sc["side"], lc["side"]] == ["buy", "sell", "sell", "buy"]
+        assert (sp["strike"] == sc["strike"]) == (p["structure"] == "iron_butterfly")
+        credit = sp["bid"] + sc["bid"] - lp["ask"] - lc["ask"]
+        assert p["breakevens"] == pytest.approx([sp["strike"] - credit, sc["strike"] + credit], abs=0.01)
+        assert p["chance_label"] == "Chance it finishes between the break-evens"
+        assert p["profit_kestrel"] == pytest.approx(1 - p["itm_kestrel"], abs=1e-3)
+        top = p["probability_targets"]["max_gain_probability"]
+        assert (top == 0) if p["structure"] == "iron_butterfly" else 0 < top <= p["profit_kestrel"] + 1e-3
+    for p in by["strangles"]["plays"]:
+        call, put = sorted(p["legs"], key=lambda leg: leg["kind"])
+        assert call["strike"] > p["underlying_price"] > put["strike"] and p["max_gain"] is None
+        assert p["profit_kestrel"] == pytest.approx(p["itm_kestrel"], abs=1e-3)
+    for p in by["cash_secured_puts"]["plays"]:
+        [leg] = p["legs"]
+        assert leg["side"] == "sell" and leg["kind"] == "put" and leg["strike"] < p["underlying_price"]
+        assert p["max_loss"] == pytest.approx((leg["strike"] - leg["bid"]) * 100 + OPTION_FEE_PER_CONTRACT, abs=0.01)
+        assert p["chance_label"] == "Chance it expires worthless" and 21 <= p["dte"] <= 45
     leaps = by["leaps"]["plays"]
     assert leaps and leaps[0]["symbol"] == "SPY" and leaps[0]["dte"] >= 180 and leaps[0]["delta"] >= 0.6
     assert [p["symbol"] for p in by["watchlist"]["plays"]] == ["S12"]

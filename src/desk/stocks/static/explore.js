@@ -67,6 +67,16 @@ const KestrelExplore = (() => {
     section.append(footer);
     return section;
   }
+  // Multi-leg strategies on the Options page are the Plays picks of that shape.
+  const STRATEGIES = [
+    ["debit", "Debit spreads", ["bull_call_debit", "bear_put_debit"]],
+    ["credit", "Credit spreads", ["bull_put_credit", "bear_call_credit"]],
+    ["condor", "Iron condors", ["iron_condor"]],
+    ["butterfly", "Iron butterflies", ["iron_butterfly"]],
+    ["straddle", "Straddles", ["long_straddle"]],
+    ["strangle", "Strangles", ["long_strangle"]],
+    ["csp", "Cash-secured puts", ["cash_secured_put"]],
+  ];
   function setups(data, options = {}) {
     const section = el("section", undefined, "option-research-section"),
       head = el("div", undefined, "section-heading"),
@@ -92,7 +102,11 @@ const KestrelExplore = (() => {
       kind = el("select"),
       budget = el("input"),
       content = el("div");
-    kind.setAttribute("aria-label", "Option type");
+    kind.setAttribute("aria-label", "Option type or strategy");
+    const single = el("optgroup"),
+      multi = el("optgroup");
+    single.label = "Single contracts";
+    multi.label = "Strategies (from Plays)";
     for (const [id, label] of [
       ["all", "Calls & puts"],
       ["call", "Calls"],
@@ -100,8 +114,14 @@ const KestrelExplore = (() => {
     ]) {
       const o = el("option", label);
       o.value = id;
-      kind.append(o);
+      single.append(o);
     }
+    for (const [id, label] of STRATEGIES) {
+      const o = el("option", label);
+      o.value = id;
+      multi.append(o);
+    }
+    kind.append(single, multi);
     kind.value = options.kind || "all";
     budget.type = "number";
     budget.min = "0";
@@ -109,8 +129,108 @@ const KestrelExplore = (() => {
     budget.setAttribute("aria-label", "Maximum option entry cost");
     controls.append(kind, budget);
     section.append(controls, content);
+    let plays = null;
+    function drawStrategy() {
+      const [, label, shapes] = STRATEGIES.find(([id]) => id === kind.value);
+      if (!plays) {
+        content.replaceChildren(
+          el("p", `Loading ${label.toLowerCase()}…`, "muted"),
+        );
+        api("plays")
+          .then((board) => {
+            plays = board.categories.flatMap((c) => c.plays);
+            draw();
+          })
+          .catch((error) =>
+            content.replaceChildren(el("p", error.message, "screen-empty")),
+          );
+        return;
+      }
+      const seen = new Set(),
+        picks = plays
+          .filter((p) => shapes.includes(p.structure))
+          .filter((p) => !budget.value || p.max_loss <= Number(budget.value))
+          .sort(
+            (a, b) =>
+              b.expected_value / b.max_loss - a.expected_value / a.max_loss,
+          )
+          .filter((p) => {
+            const key = p.legs.map((l) => l.occ).join("|");
+            return !seen.has(key) && seen.add(key);
+          })
+          .slice(0, 9);
+      if (!picks.length) {
+        content.replaceChildren(
+          el(
+            "p",
+            plays.some((p) => shapes.includes(p.structure))
+              ? `No ${label.toLowerCase()} fit this money-at-risk limit. Raise it to see more.`
+              : `No ${label.toLowerCase()} qualify today. Plays explains each strategy's rules.`,
+            "screen-empty",
+          ),
+          link("Open Plays ↗", "#plays"),
+        );
+        return;
+      }
+      const grid = el("div", undefined, "setup-grid");
+      for (const p of picks) {
+        const card = el("article", undefined, "setup-card"),
+          title = el("div", undefined, "setup-heading"),
+          metrics = el("dl", undefined, "setup-metrics");
+        title.append(
+          link(p.symbol, `#stock/${encodeURIComponent(p.symbol)}`),
+          el("span", p.type, "research-badge quiet"),
+        );
+        for (const [name, value] of [
+          ["Expiry", `${p.expiration} (${p.dte}d)`],
+          p.action === "SELL"
+            ? ["Credit / max loss", `${money(p.credit)} / ${money(p.max_loss)}`]
+            : ["Cost / max loss", `${money(p.cost)} / ${money(p.max_loss)}`],
+          ["Max gain", p.max_gain == null ? "Unlimited" : money(p.max_gain)],
+          [
+            p.breakevens ? "Break-evens" : "Break-even",
+            (p.breakevens || [p.breakeven]).map(money).join(" / "),
+          ],
+          ["Chance of profit", `${Math.round(100 * p.profit_kestrel)}%`],
+          ["Expected value", `${money(p.expected_value)} per position`],
+        ])
+          metrics.append(el("dt", name), el("dd", value));
+        card.append(
+          title,
+          metrics,
+          el(
+            "small",
+            p.legs
+              .map(
+                (l) =>
+                  `${l.side === "sell" ? "Sell" : "Buy"} ${money(l.strike)} ${l.kind}`,
+              )
+              .join(" · "),
+          ),
+          link(
+            "Open in Plays ↗",
+            p.idea_id ? `#plays/idea/${p.idea_id}` : "#plays",
+          ),
+        );
+        grid.append(card);
+      }
+      content.replaceChildren(
+        grid,
+        el(
+          "p",
+          "Ranked by KESTREL's expected value per dollar at risk, one position per leg set, fees included. The limit above is the money at risk (the most it can lose).",
+          "muted caption",
+        ),
+      );
+    }
     function draw() {
       content.replaceChildren();
+      if (STRATEGIES.some(([id]) => id === kind.value)) {
+        budget.placeholder = "Max money at risk ($)";
+        drawStrategy();
+        return;
+      }
+      budget.placeholder = "Max cost per contract ($)";
       const rows = data.rows
         .filter(
           (row) =>

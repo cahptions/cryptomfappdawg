@@ -359,6 +359,16 @@ def test_twins_match_structure_expiry_and_delta_on_another_stock_reproducibly() 
     assert d is not None and [x["side"] for x in d["legs"]] == ["buy", "sell"]       # bought first, sold further out
     assert d["legs"][1]["strike"] > d["legs"][0]["strike"] and d["entry"] > 0
     assert d["max_loss"] == pytest.approx(d["entry"] * 100 + 2 * FEE, abs=0.01)
+    condor = {**play, "action": "SELL", "structure": "iron_condor",
+              "legs": [{**leg("AAL", "put", 11, "sell"), "delta": -0.2}, {**leg("AAL", "put", 10, "buy"), "delta": -0.08},
+                       {**leg("AAL", "call", 13, "sell"), "delta": 0.2}, {**leg("AAL", "call", 14, "buy"), "delta": 0.08}]}
+    ic = pl.twin(condor, tables, D0)
+    assert ic is not None and pl.structure_of(ic["legs"]) == "iron_condor"      # same shape, sides and order
+    assert ic["max_loss"] == pytest.approx((pl.spread_width(ic["legs"]) - ic["entry"]) * 100 + 4 * FEE, abs=0.01)
+    strangle = {**play, "structure": "long_strangle",
+                "legs": [{**leg("AAL", "call", 13), "delta": 0.3}, {**leg("AAL", "put", 11), "delta": -0.3}]}
+    st = pl.twin(strangle, tables, D0)
+    assert st is not None and pl.structure_of(st["legs"]) == "long_strangle"
     lonely = {**play, "expiration": date(2028, 1, 21).isoformat()}
     assert pl.twin(lonely, tables, D0) is None                                     # nothing within a week: no twin
     assert math.isfinite(t["entry"])
