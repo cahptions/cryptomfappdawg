@@ -117,6 +117,14 @@ CATEGORIES: tuple[Category, ...] = (
              "Out-of-the-money calls on heavily shorted stocks already moving against the shorts.",
              "Squeeze score ≥ 60; call nearest 0.30 delta, 14–45 days.",
              "No collected underlying has a squeeze score of 60 or more today.", paper="squeeze_calls"),
+    Category("debit_spreads", "Debit spreads", "🪜",
+             "Buy a call or put in the committee's direction and sell a further one against it: less money down "
+             "than the single contract, with the most you can make and the most you can lose both fixed.",
+             "Bull call spread at a bullish committee lean (≥ 58), bear put spread at a bearish lean (< 42). Bought "
+             "leg nearest 0.55 delta (spread ≤ 15%, open interest ≥ 100), sold leg further out nearest 0.30 delta "
+             "(spread ≤ 25%, open interest ≥ 50), same expiry 21–60 days, paying at most 60% of the width. Ranked by "
+             "KESTREL's expected value per dollar at risk.",
+             "No stock with a committee lean has a liquid spread in range today."),
     Category("sell_premium", "Sell rich premium", "💰",
              "Credit spreads (defined risk) where options are expensive: collect premium, keep it if the stock stays "
              "on the right side of the short strike.",
@@ -693,6 +701,42 @@ def squeeze(tb: Table, ctx: Context) -> list[Candidate]:
                        f"{u.symbol}: {_view(u)}"])]
 
 
+def debit_spreads(tb: Table, ctx: Context) -> list[Candidate]:
+    """Bull call or bear put spread in the committee's direction. One canonical spread per stock (expiry nearest the
+    middle of 21–60 days, legs nearest 0.55 and 0.30 delta), then ranked by KESTREL's value per dollar at risk."""
+    u = tb.u
+    d = _direction(u)
+    if d is None:
+        return []
+    is_call = d == "call"
+    on_side = (tb.call == is_call) & (tb.dte >= 21) & (tb.dte <= 60)
+    bought = np.where(on_side & _liquid(tb, 0.15, 100) & (np.abs(tb.delta) >= 0.40) & (np.abs(tb.delta) <= 0.70))[0]
+    sellable = on_side & _liquid(tb, 0.25, 50) & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.40)
+    pairs = []
+    for b in bought:
+        for s in np.where(sellable & (tb.dte == tb.dte[b]) & ((tb.k > tb.k[b]) if is_call else (tb.k < tb.k[b])))[0]:
+            debit, width = float(tb.ask[b] - tb.bid[s]), float(abs(tb.k[s] - tb.k[b]))
+            risk = debit * 100 + 2 * FEE
+            if debit <= 0 or debit > 0.6 * width:
+                continue
+            if ctx.budget_range is not None and not ctx.budget_range[0] < risk <= ctx.budget_range[1]:
+                continue
+            pairs.append((abs(float(tb.dte[b]) - 40.5), abs(abs(tb.delta[b]) - 0.55) + abs(abs(tb.delta[s]) - 0.30),
+                          float(tb.spread[b] + tb.spread[s]), int(b), int(s)))
+    if not pairs:
+        return []
+    *_, b, s = min(pairs)
+    debit, width = float(tb.ask[b] - tb.bid[s]), float(abs(tb.k[s] - tb.k[b]))
+    risk, most = debit * 100 + 2 * FEE, (width - debit) * 100 - 2 * FEE
+    ev = float(tb.payoff[b] - tb.payoff[s] - debit) * 100 - 2 * FEE
+    why = [f"{u.symbol}: {_view(u)}",
+           f"Pay ${risk:,.0f} to make up to ${most:,.0f} if {u.symbol} finishes {'above' if is_call else 'below'} "
+           f"${tb.k[s]:g}",
+           f"KESTREL expects {'+' if ev >= 0 else '−'}${abs(ev):,.0f} per spread"]
+    return [Candidate("debit_spreads", tb, "bull_call_debit" if is_call else "bear_put_debit", [(b, "buy"), (s, "sell")],
+                      ev / risk, why)]
+
+
 def sell_premium(tb: Table, ctx: Context) -> list[Candidate]:
     u = tb.u
     rich = (u.iv_rank is not None and u.iv_rank >= 60) or (u.iv30 and u.rv and u.iv30 / u.rv >= 1.3)
@@ -799,13 +843,14 @@ def watchlist(tb: Table, ctx: Context) -> list[Candidate]:
 
 SELECTORS: dict[str, Callable[[Table, Context], list[Candidate]]] = {
     "likely_itm": likely_itm, "edge": edge, "unusual": unusual, "cheap_vol": cheap_vol, "earnings": earnings,
-    "trend_calls": trend_calls, "bear_puts": bear_puts, "squeeze": squeeze, "sell_premium": sell_premium,
-    "lottos": lottos, "leaps": leaps, "watchlist": watchlist}
+    "trend_calls": trend_calls, "bear_puts": bear_puts, "squeeze": squeeze, "debit_spreads": debit_spreads,
+    "sell_premium": sell_premium, "lottos": lottos, "leaps": leaps, "watchlist": watchlist}
 
 
 # ── a candidate becomes a play ───────────────────────────────────────────────────────────────────
 TYPES = {"long_call": ("BUY", "CALL"), "long_put": ("BUY", "PUT"), "long_straddle": ("BUY", "STRADDLE"),
-         "bull_put_credit": ("SELL", "PUT CREDIT SPREAD"), "bear_call_credit": ("SELL", "CALL CREDIT SPREAD")}
+         "bull_put_credit": ("SELL", "PUT CREDIT SPREAD"), "bear_call_credit": ("SELL", "CALL CREDIT SPREAD"),
+         "bull_call_debit": ("BUY", "CALL DEBIT SPREAD"), "bear_put_debit": ("BUY", "PUT DEBIT SPREAD")}
 
 
 def _sessions_to(session: date, expiration: date) -> int:
@@ -886,6 +931,8 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         if short_leg:
             width = abs(tb.quotes[c.legs[1][0]].strike - q.strike)
             max_gain = entry * 100 - fees
+        elif c.structure.endswith("debit"):         # capped at the sold strike: the width less the debit
+            max_gain = (abs(tb.quotes[c.legs[1][0]].strike - q.strike) - entry) * 100 - fees
         else:
             max_gain = None if q.kind == "call" else (q.strike - entry) * 100 - fees
     if action == "BUY":
@@ -1064,7 +1111,7 @@ def twin(play: dict[str, Any], tables: Sequence[Table], session: date) -> dict[s
                 puts = np.where(on & ~tb.call & (tb.k == tb.k[c]))[0]
                 if len(puts):
                     chosen = [(c, "buy"), (int(puts[0]), "buy")]
-        else:                                                   # credit spreads: short leg first
+        else:                       # spreads: the first leg (credit: sold, debit: bought), then one further out
             short, long_ = legs[0], legs[1]
             kind = short["kind"]
             rows = np.where(on & (tb.call == (kind == "call")))[0]
@@ -1075,7 +1122,7 @@ def twin(play: dict[str, Any], tables: Sequence[Table], session: date) -> dict[s
                 further = rows[(tb.k[rows] > tb.k[i]) if kind == "call" else (tb.k[rows] < tb.k[i])]
                 if len(further):
                     j = int(min(further, key=lambda r: abs(tb.k[r] - target)))
-                    chosen = [(i, "sell"), (j, "buy")]
+                    chosen = [(i, short["side"]), (j, long_["side"])]
         if not chosen:
             continue
         twin_legs = [_twin_leg(tb, i, side) for i, side in chosen]

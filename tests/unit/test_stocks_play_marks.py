@@ -353,6 +353,12 @@ def test_twins_match_structure_expiry_and_delta_on_another_stock_reproducibly() 
     assert c["legs"][1]["strike"] < c["legs"][0]["strike"] and c["entry"] > 0
     width = c["legs"][0]["strike"] - c["legs"][1]["strike"]
     assert c["max_loss"] == pytest.approx((width - c["entry"]) * 100 + 2 * FEE, abs=0.01)
+    debit = {**play, "structure": "bull_call_debit",
+             "legs": [{**leg("AAL", "call", 12, "buy"), "delta": 0.55}, {**leg("AAL", "call", 13, "sell"), "delta": 0.3}]}
+    d = pl.twin(debit, tables, D0)
+    assert d is not None and [x["side"] for x in d["legs"]] == ["buy", "sell"]       # bought first, sold further out
+    assert d["legs"][1]["strike"] > d["legs"][0]["strike"] and d["entry"] > 0
+    assert d["max_loss"] == pytest.approx(d["entry"] * 100 + 2 * FEE, abs=0.01)
     lonely = {**play, "expiration": date(2028, 1, 21).isoformat()}
     assert pl.twin(lonely, tables, D0) is None                                     # nothing within a week: no twin
     assert math.isfinite(t["entry"])

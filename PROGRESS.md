@@ -17,6 +17,15 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-31 — Debit spreads in Plays
+
+- New 🪜 **Debit spreads** category: a bull call or bear put spread in the committee's direction (bought leg near
+  0.55 Δ, sold leg further out near 0.30 Δ, 21–60 days, at most 60% of the width paid), one canonical spread per
+  stock, ranked by KESTREL's expected value per dollar at risk. It runs through the whole Plays pipeline: budget
+  bands by the debit paid, capped maximum gain and its probability at expiry, twins, saved-sighting recovery,
+  tracking, marks and grading. Adding it is a new rule version, so its record starts on its own.
+- Spread cards and tables name both strikes ("$49.00 / $53.00 strikes"), credit spreads included.
+
 ## 2026-10-30 — One Schwab sign-in, two computers
 
 - **Why the sign-in kept "expiring":** the Dell and the HP each had their own Schwab sign-in from the same Schwab app.

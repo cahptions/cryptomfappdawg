@@ -54,10 +54,15 @@ try {
       continue;
     }
     const tabs = page.getByRole("tab");
-    assert.equal(await tabs.count(), 12, "one tab per category");
     const data = await (
       await page.request.get(`${base}/api/stocks/plays`)
     ).json();
+    assert.equal(data.categories.length, 13);
+    assert.equal(
+      await tabs.count(),
+      data.categories.length,
+      "one tab per category",
+    );
     const rankedCategory = data.categories.find((c) => c.id === "likely_itm");
     // A render-only synthetic expensive play verifies All prices has no ceiling; actual pricing has Python coverage.
     const expensive = structuredClone(rankedCategory.plays[0]);

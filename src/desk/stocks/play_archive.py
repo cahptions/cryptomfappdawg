@@ -58,6 +58,10 @@ def recovered_play(row: sqlite3.Row) -> dict[str, Any]:
             structure = "bull_put_credit"
         elif (short["kind"] == "call" and short["strike"] < long["strike"]):
             structure = "bear_call_credit"
+        elif short["kind"] == "call":
+            structure = "bull_call_debit"
+        elif short["strike"] < long["strike"]:
+            structure = "bear_put_debit"
         else:
             raise ValueError("Unsupported saved spread")
     else:

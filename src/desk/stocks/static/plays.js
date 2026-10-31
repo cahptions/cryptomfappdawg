@@ -85,6 +85,14 @@ const KestrelPlays = (() => {
     return box;
   }
 
+  // A spread names both strikes ("$49.00 / $53.00 strikes"); one contract or a straddle names one.
+  function strikeList(play) {
+    const all = [...new Set((play.legs || []).map((l) => l.strike))];
+    return all.length > 1 ? all.map(money).join(" / ") : money(play.strike);
+  }
+  const strikeLabel = (play) =>
+    `${strikeList(play)} ${strikeList(play).includes(" / ") ? "strikes" : "strike"}`;
+
   function legsLine(play) {
     if (!play.legs || play.legs.length < 2) return null;
     return el(
@@ -113,7 +121,7 @@ const KestrelPlays = (() => {
     c.append(
       el(
         "p",
-        `${money(play.strike)} strike · ${play.expiration} (${play.dte}d)`,
+        `${strikeLabel(play)} · ${play.expiration} (${play.dte}d)`,
         "play-contract",
       ),
     );
@@ -221,7 +229,7 @@ const KestrelPlays = (() => {
           );
           return a;
         })(),
-        `${money(p.strike)} · ${p.expiration} (${p.dte}d)`,
+        `${strikeList(p)} · ${p.expiration} (${p.dte}d)`,
         money(p.underlying_price),
         p.action === "SELL" ? `+${money(p.credit)}` : money(p.cost),
         pct(p.itm_kestrel),
@@ -544,7 +552,7 @@ const KestrelPlays = (() => {
             "strong",
             `${money(playRisk(p))} ${p.action === "SELL" ? "max risk" : "cost"}`,
           ),
-          el("small", `${money(p.strike)} strike · ${p.expiration}`),
+          el("small", `${strikeLabel(p)} · ${p.expiration}`),
           el(
             "small",
             `Profit at expiry ${pct(p.profit_kestrel)} · liquidity ${p.liquidity}`,

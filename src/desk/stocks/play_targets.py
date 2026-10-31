@@ -54,10 +54,12 @@ def build(play: dict[str, Any], sigma: float, drift: float, years: float) -> dic
     targets = {str(int(target * 100)): round(chance(play, target, sigma, drift, years), 4)
                for target in (0.0, 0.25, 0.5, 1.0)}
     credit = play["action"] == "SELL" and play["structure"].endswith("credit")
-    maximum = (chance(play, play["max_gain"] / play["max_loss"], sigma, drift, years) if credit else None)
+    debit = play["structure"].endswith("debit")
+    maximum = (chance(play, play["max_gain"] / play["max_loss"], sigma, drift, years) if credit or debit else None)
     return {"version": 1, "horizon": "At expiry", "returns": targets,
             "max_gain_probability": None if maximum is None else round(maximum, 4),
             "max_gain_note": "Maximum expiry gain occurs when the spread expires worthless." if credit else
+                "Maximum expiry gain occurs when the stock finishes beyond the sold strike." if debit else
                 "The theoretical maximum requires the underlying to reach $0; no useful maximum-gain probability "
                 "is estimated." if play["structure"] == "long_put" else
                 "The theoretical maximum gain is unlimited; use a practical profit target instead.",

@@ -107,6 +107,37 @@ def test_selling_budget_means_maximum_loss_not_the_small_credit_received():
         assert p["budget_band"][0]<p["max_loss"]<=p["budget_band"][1]
 
 
+def test_debit_spread_budget_is_the_debit_paid_and_the_gain_is_capped_at_the_width():
+    tb=chain_table(100.)                                         # committee 65: bull call spreads
+    picks=pl.budget_plays("debit_spreads",[tb],context(),None)
+    assert picks
+    for p in picks:
+        bought,sold=p["legs"]
+        assert p["structure"]=="bull_call_debit" and (bought["side"],sold["side"])==("buy","sell")
+        assert sold["strike"]>bought["strike"] and bought["expiration"]==sold["expiration"]
+        debit=bought["ask"]-sold["bid"]
+        assert p["cost"]==pytest.approx(debit*100+1.30,abs=.01)==p["max_loss"]
+        assert p["max_gain"]==pytest.approx((sold["strike"]-bought["strike"]-debit)*100-1.30,abs=.01)
+        assert p["budget_band"][0]<p["cost"]<=p["budget_band"][1]
+
+
+def test_saved_debit_spreads_are_recognised_in_the_archive():
+    from desk.stocks.play_archive import recovered_play
+
+    expiry=AT.date()+timedelta(days=30)
+    def leg(kind,strike,side):
+        return {"occ":occ("TEST",expiry,kind,strike),"kind":kind,"side":side,"strike":strike,
+                "expiration":expiry.isoformat()}
+    for legs,structure in (([leg("call",100.,"buy"),leg("call",105.,"sell")],"bull_call_debit"),
+                           ([leg("put",100.,"buy"),leg("put",95.,"sell")],"bear_put_debit"),
+                           ([leg("put",100.,"sell"),leg("put",95.,"buy")],"bull_put_credit")):
+        conn=sqlite3.connect(":memory:")
+        conn.row_factory=sqlite3.Row
+        row=conn.execute("SELECT ? AS symbol, ? AS legs_json, 2.0 AS entry",("TEST",json.dumps(legs))).fetchone()
+        play=recovered_play(row)
+        assert play["structure"]==structure and play["max_loss"]==(200+1.30 if play["action"]=="BUY" else 300+1.30)
+
+
 def test_budget_picks_are_automatically_archived_and_tracked_without_entering_closing_cohorts(tmp_path):
     w=make_world(tmp_path,n=12)
     try:

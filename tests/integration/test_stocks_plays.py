@@ -93,7 +93,8 @@ def test_every_category_is_built_with_consistent_prices_odds_and_greeks(world: S
                 t = (date.fromisoformat(leg["expiration"]) - ASOF).days / 365
                 market = od.finishes_beyond(leg["kind"], p["underlying_price"], leg["strike"], t, leg["iv"], out["model"]["rate"])
                 assert p["itm_market"] == pytest.approx(market, abs=2e-3)   # vectorized and scalar math agree
-                assert p["delta"] == pytest.approx(leg["delta"])
+            assert p["delta"] == pytest.approx(sum((1 if leg["side"] == "buy" else -1) * leg["delta"] for leg in legs),
+                                               abs=2e-4)                   # a spread's delta is its legs' net
     likely = by["likely_itm"]["plays"]
     assert likely and all(p["action"] == "BUY" and 0.25 <= abs(p["delta"]) <= 0.56 and 7 <= p["dte"] <= 60 for p in likely)
     assert [p["itm_kestrel"] for p in likely] == sorted((p["itm_kestrel"] for p in likely), reverse=True)
@@ -101,6 +102,23 @@ def test_every_category_is_built_with_consistent_prices_odds_and_greeks(world: S
     assert sells and all(p["type"].endswith("CREDIT SPREAD") and p["chance_label"] == "Chance it expires worthless"
                          for p in sells)                                  # rich IV (S10, S11): defined-risk sells only
     assert all(p["action"] == "SELL" for p in sells) and all(p["action"] == "BUY" for p in by["lottos"]["plays"])
+    debits = by["debit_spreads"]["plays"]
+    assert debits                                                         # committee leans in the world have spreads
+    for p in debits:
+        bought, sold = p["legs"]
+        debit = bought["ask"] - sold["bid"]
+        width = abs(sold["strike"] - bought["strike"])
+        fees = OPTION_FEE_PER_CONTRACT * 2
+        assert p["structure"] in ("bull_call_debit", "bear_put_debit") and p["action"] == "BUY"
+        assert (bought["side"], sold["side"]) == ("buy", "sell") and bought["kind"] == sold["kind"]
+        assert bought["expiration"] == sold["expiration"] and 21 <= p["dte"] <= 60
+        assert (sold["strike"] > bought["strike"]) == (p["structure"] == "bull_call_debit")   # sold leg further out
+        assert 0 < debit <= 0.6 * width + 1e-9 and p["type"].endswith("DEBIT SPREAD")
+        assert p["max_gain"] == pytest.approx((width - debit) * 100 - fees, abs=0.01)
+        assert p["breakeven"] == pytest.approx(bought["strike"] + debit if bought["kind"] == "call"
+                                               else bought["strike"] - debit, abs=0.01)
+        assert 0 < p["probability_targets"]["max_gain_probability"] <= p["probability_targets"]["returns"]["0"]
+    assert [p["score"] for p in debits] == sorted((p["score"] for p in debits), reverse=True)
     leaps = by["leaps"]["plays"]
     assert leaps and leaps[0]["symbol"] == "SPY" and leaps[0]["dte"] >= 180 and leaps[0]["delta"] >= 0.6
     assert [p["symbol"] for p in by["watchlist"]["plays"]] == ["S12"]
