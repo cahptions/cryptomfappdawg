@@ -549,6 +549,18 @@ status = "to_verify"
 notes = "display only: a viewed stock's latest headlines, and headlines between the previous close and the end of the day for a logged big stock move (published_utc.gte/lte); all Stocks plans"
 verified_fields = ["results[].{id,title,description,article_url,published_utc,author,tickers,publisher.name,insights}"]
 
+[providers.massive.endpoints.option_contracts]
+path = "/v3/reference/options/contracts"
+status = "to_verify"
+notes = "historical option research: the contracts listed on a past day (as_of), by expiry window; Options Basic $0 (reference data, 2 years; massive.com/options 2026-10-31)"
+verified_fields = ["results[].{ticker,contract_type,strike_price,expiration_date,underlying_ticker,shares_per_contract}", "next_url"]
+
+[providers.massive.endpoints.option_bars]
+path = "/v2/aggs/ticker/{ticker}/range/1/day/{from}/{to}"
+status = "to_verify"
+notes = "historical option research: one contract's daily bars (last trades, not bid/ask); Options Basic $0 (end of day, 2 years; massive.com/options 2026-10-31)"
+verified_fields = ["results[].{o,h,l,c,v,t}"]
+
 [providers.massive.endpoints.branding]
 path = "/v1/reference/company-branding/{id}/images/{file}"
 status = "to_verify"

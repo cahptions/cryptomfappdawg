@@ -23,6 +23,7 @@ def test_kestrel_command_is_a_private_valid_script_with_status_update_and_open(t
     assert "run desk stocks restart" in text and "run desk open --desk stocks" in text
     assert "signin) exec /home/neo/.local/bin/uv run desk stocks connect --manual" in text
     assert "learning) exec /home/neo/.local/bin/uv run desk stocks learning-report" in text
+    assert "options-history) exec /home/neo/.local/bin/uv run desk stocks options-history" in text
     assert not (tmp_path / "bin" / ".kestrel.new").exists()
     assert install_command(Path("/home/neo/kestrel"), tmp_path / "bin", uv="uv") == path     # rewritten in place
     assert subprocess.run(["sh", "-n", str(path)], check=False).returncode == 0       # parses as POSIX sh
@@ -41,6 +42,7 @@ def test_status_reads_this_desk_in_plain_words(tmp_path: Path) -> None:
         assert by["Prices"][0] and by["Prices"][1].startswith("through Wed Oct 21")
         assert by["Schwab"] == (False, "not signed in · sign in again: KESTREL → Settings → Start browser authorization")
         assert by["Last close"] == (False, "nothing analysed yet")
+        assert by["Version"][0] and " from " in by["Version"][1]           # the installed commit and its time
         assert "Live quote" not in by
         text = status.render(found, NOW)
         assert text.splitlines()[0].startswith("KESTREL · ") and "✗ App" in text

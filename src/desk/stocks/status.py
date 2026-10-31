@@ -70,6 +70,41 @@ def _schwab(schwab: dict[str, Any]) -> Line:
     return False, "Schwab", f"not signed in · {fix}"
 
 
+def _version(port: int, online: bool) -> Line:
+    """Which code is installed, whether the running app is on it, and (online) whether GitHub has newer."""
+    import json
+    import subprocess
+    import urllib.request
+
+    from desk.core.paths import REPO_ROOT
+    from desk.ops.launcher import UPDATE_BRANCH
+    from desk.stocks.runtime import code_version
+
+    here = code_version()
+    if here is None:
+        return False, "Version", "unknown (not a git checkout)"
+    text = f"{here['commit']} from {_time(here['at'])}"
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/stocks/runtime", timeout=2) as response:
+            running = json.loads(response.read(4096))
+        if running.get("restart_required"):
+            return False, "Version", f"{text} installed, but the app runs an older copy · kestrel restart"
+    except (OSError, ValueError):
+        pass                                                   # the App line already says it is not running
+    if not online:
+        return True, "Version", text
+    try:
+        remote = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-remote", "origin", f"refs/heads/{UPDATE_BRANCH}"],  # noqa: S603,S607
+                                capture_output=True, text=True, timeout=10, check=False).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        remote = []
+    if not remote:
+        return True, "Version", f"{text} · could not check GitHub for newer"
+    if remote[0] == here["full"]:
+        return True, "Version", f"{text} · the latest"
+    return False, "Version", f"{text} · a newer version is available: kestrel update"
+
+
 def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool = True) -> list[Line]:
     from desk.stocks.connection import connection_status
 
@@ -80,6 +115,7 @@ def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool
         (up, "App", f"running · http://127.0.0.1:{port}" if up else "not running · start it with: kestrel open"),
         (held := WorkerLock(paths, "stocks-worker").held(), "Collector",
          "running" if held else "paused · use Start PAPER in the app"),
+        _version(port, online),
     ]
     dbs = StocksDatabases.open(paths)
     try:

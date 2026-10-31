@@ -129,6 +129,13 @@ folder, over SSH too:
   Open the printed link in any browser, log in, then paste the final address (it fails to load; that is expected)
   at the hidden prompt and press Enter within about 30 seconds.
 
+`kestrel` also prints a **Version** line: the installed commit and its time, whether the running app is on it
+(otherwise `kestrel restart`), and whether GitHub has a newer one (then `kestrel update`). The System page shows the
+version too. **`kestrel options-history`** makes two read-only requests to check whether the Massive key reads
+historical option prices (Massive's free Options Basic plan lists 2 years of daily option bars at 5 requests a minute);
+it says what to add if the key covers stocks only. Installing the launchers also refreshes the desktop's icon cache and
+menu database, so a recoloured icon shows without logging out (a panel pinned before may still need restarting).
+
 `kestrel update` also refreshes the `kestrel` command itself, so new subcommands arrive with updates.
 `kestrel restart` restarts the app in the background. **`kestrel learning`** prints, read-only, what the Learning
 research account is doing: every book's P/L on the money put in, the research account against the $500,000 reference

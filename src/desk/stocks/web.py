@@ -42,7 +42,7 @@ from desk.stocks.paper.book import PaperBook
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE, StocksDatabases, StocksMarket, StocksResearch
 from desk.stocks.research_worker import ResearchWorker
 from desk.stocks.runner import saved
-from desk.stocks.runtime import UI_PROTOCOL, source_revision
+from desk.stocks.runtime import UI_PROTOCOL, code_version, source_revision
 from desk.storage.db import DbKind
 from desk.storage.db import connect as open_database
 from desk.web.app import install_browser_boundary
@@ -246,6 +246,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     # A running Python server must not start serving a newer interface after an in-place git pull.
     assets = {path.name: path.read_bytes() for path in STATIC.iterdir() if path.is_file()}
     running_revision = source_revision()
+    running_version = code_version()
     csrf = secrets.token_urlsafe(32)
     attempt: LoginAttempt | None = None
     login_lock = asyncio.Lock()
@@ -426,11 +427,12 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def runtime() -> dict[str, Any]:
         installed = source_revision()
         return {"application": "kestrel-stocks", "protocol": UI_PROTOCOL, "running_revision": running_revision,
-                "installed_revision": installed, "restart_required": installed != running_revision}
+                "installed_revision": installed, "restart_required": installed != running_revision,
+                "version": running_version}
 
     @app.get("/api/stocks/snapshot")
     def overview() -> dict[str, Any]:
-        return {**snapshot(paths, config), "collection": collector.status()}
+        return {**snapshot(paths, config), "collection": collector.status(), "version": running_version}
 
     @app.get("/api/stocks/plays")
     def plays_view() -> dict[str, Any]:

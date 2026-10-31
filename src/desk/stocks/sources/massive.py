@@ -12,6 +12,8 @@ never silently rewrites history already used for a decision.
 
 from __future__ import annotations
 
+import json
+import math
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
@@ -184,6 +186,38 @@ def _cursor(next_url: str | None) -> str | None:
     return values[0] if values else None
 
 
+def parse_option_contracts(body: bytes) -> tuple[list[dict[str, Any]], str | None]:
+    """Contracts listed on a past day: OCC ticker (without the ``O:`` prefix), call/put, strike, expiry."""
+    try:
+        value = json.loads(body)
+        out = []
+        for r in value.get("results") or []:
+            if r.get("shares_per_contract", 100) != 100 or r.get("contract_type") not in ("call", "put"):
+                continue
+            out.append({"ticker": str(r["ticker"]).removeprefix("O:"), "underlying": r.get("underlying_ticker"),
+                        "kind": r["contract_type"], "strike": float(r["strike_price"]),
+                        "expiration": date.fromisoformat(r["expiration_date"])})
+        return out, _cursor(value.get("next_url"))
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise SchemaError("massive option contracts: invalid response (details suppressed)") from exc
+
+
+def parse_option_bars(body: bytes) -> list[dict[str, Any]]:
+    """One contract's daily bars: the New York trading day and its open, high, low, close (last trades) and volume."""
+    try:
+        value = json.loads(body)
+        out = []
+        for r in value.get("results") or []:
+            close = float(r["c"])
+            if not math.isfinite(close) or close < 0:
+                continue
+            out.append({"day": _market_day(int(r["t"])), "open": float(r["o"]), "high": float(r["h"]),
+                        "low": float(r["l"]), "close": close, "volume": float(r.get("v") or 0)})
+        return out
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise SchemaError("massive option bars: invalid response (details suppressed)") from exc
+
+
 class MassiveClient:
     def __init__(self, http: ProviderHttp) -> None:
         self.http = http
@@ -228,6 +262,25 @@ class MassiveClient:
         body = await self._get("branding", path=path)
         return icon_type(body), body
 
+    async def option_contracts(self, underlying: str, as_of: date, first: date, last: date, *, kind: str | None = None,
+                               strikes: tuple[float, float] | None = None) -> list[dict[str, Any]]:
+        """The ``underlying``'s contracts as listed on ``as_of`` (expired ones included), expiring ``first``..``last``,
+        optionally only calls or puts and only strikes in a range (fewer pages at 5 requests a minute)."""
+        params: dict[str, Any] = {"underlying_ticker": underlying, "as_of": as_of.isoformat(), "expired": "true",
+                                  "expiration_date.gte": first.isoformat(), "expiration_date.lte": last.isoformat(),
+                                  "limit": 1000}
+        if kind:
+            params["contract_type"] = kind
+        if strikes:
+            params.update({"strike_price.gte": round(strikes[0], 2), "strike_price.lte": round(strikes[1], 2)})
+        return await self._paged("option_contracts", parse_option_contracts, params)
+
+    async def option_bars(self, ticker: str, first: date, last: date) -> list[dict[str, Any]]:
+        """Daily bars for one contract (OCC ticker, no ``O:`` prefix) from ``first`` to ``last``."""
+        path = f"/v2/aggs/ticker/O:{quote(ticker, safe='')}/range/1/day/{first.isoformat()}/{last.isoformat()}"
+        return parse_option_bars(await self._get("option_bars", path=path, params={"adjusted": "true",
+                                                                                   "sort": "asc", "limit": 5000}))
+
     async def _paged(self, endpoint: str, parse: Any, params: dict[str, Any]) -> list[Any]:
         out: list[Any] = []
         cursor: str | None = None
@@ -243,5 +296,5 @@ class MassiveClient:
         raise SchemaError(f"massive {endpoint}: page limit reached; history remains incomplete")
 
 
-__all__ = ["MassiveClient", "icon_path", "icon_type", "parse_dividends", "parse_grouped", "parse_news", "parse_splits",
-           "parse_ticker_details"]
+__all__ = ["MassiveClient", "icon_path", "icon_type", "parse_dividends", "parse_grouped", "parse_news",
+           "parse_option_bars", "parse_option_contracts", "parse_splits", "parse_ticker_details"]

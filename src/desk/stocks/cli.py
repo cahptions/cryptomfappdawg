@@ -69,6 +69,8 @@ def add_parser(sub: Any) -> None:
     commands.add_parser("learning-report", help="read-only: what the Learning research account is doing and why it "
                         "reads better or worse than the reference").set_defaults(func=run)
     commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
+    commands.add_parser("options-history", help="read-only: can the Massive key read historical option prices? "
+                        "(two requests)").set_defaults(func=run)
     dash = commands.add_parser("dashboard", help="local Stocks dashboard with private Settings")
     dash.add_argument("--port", type=int)
     dash.add_argument("--open", action="store_true")
@@ -119,6 +121,27 @@ def run(args: argparse.Namespace) -> int:
         finally:
             conn.close()
         return 0
+    if action == "options-history":
+        from desk.core.clock import utc_now
+        from desk.stocks import calendar as cal
+        from desk.stocks.options_history import check as history_check
+        from desk.stocks.suite import build_stocks_suite
+
+        dbs = StocksDatabases.open(paths)
+        suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), dbs.runtime)
+
+        async def ask() -> dict[str, Any]:
+            try:
+                return await history_check(suite.massive, StocksMarket(dbs.market), cal.new_york(utc_now()).date())
+            finally:
+                await suite.aclose()
+
+        try:
+            result = asyncio.run(ask())
+        finally:
+            dbs.close()
+        print(("✓ " if result["ok"] else "✗ ") + result["text"])
+        return 0 if result["ok"] else 1
     if action == "command":
         import os
         from pathlib import Path

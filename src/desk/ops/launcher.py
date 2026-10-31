@@ -15,6 +15,7 @@ Nothing here touches a wallet.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -104,6 +105,13 @@ def install_launchers(paths: DeskPaths, python_executable: str, *, port: int = 8
         icon = icons / f"{DESKS[desk]['icon']}.svg"
         icon.write_text(ICON.format(bg=colours[desk][0], fg=colours[desk][1]), encoding="utf-8")
         written += [entry, icon]
+    # Menus and docks keep showing a cached icon until the theme cache and the menu database are refreshed.
+    for command in (["gtk-update-icon-cache", "-f", "-t", "-q", str(home / "icons" / "hicolor")],
+                    ["update-desktop-database", "-q", str(apps)]):
+        if shutil.which(command[0]):           # a stale menu icon is cosmetic: never fail the install over it
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(command, check=False, timeout=30, stdin=subprocess.DEVNULL,  # noqa: S603
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return written
 
 
@@ -413,6 +421,7 @@ COMMAND = """#!/bin/sh
 #                     browser, log in, then paste the final address (it may fail to load) at the hidden prompt
 #   kestrel restart   restart the app in the background
 #   kestrel learning  what the Learning research account is doing, and why it reads better or worse
+#   kestrel options-history   can this computer's Massive key read historical option prices?
 cd {repo} || exit 1
 case "${{1:-status}}" in
   status) exec {uv} run desk stocks status ;;
@@ -421,7 +430,8 @@ case "${{1:-status}}" in
   signin) exec {uv} run desk stocks connect --manual ;;
   restart) exec {uv} run desk stocks restart ;;
   learning) exec {uv} run desk stocks learning-report ;;
-  *) echo "usage: kestrel [status | update | open | signin | restart | learning]"; exit 2 ;;
+  options-history) exec {uv} run desk stocks options-history ;;
+  *) echo "usage: kestrel [status | update | open | signin | restart | learning | options-history]"; exit 2 ;;
 esac
 """
 REMOTE_COMMAND = """#!/bin/sh

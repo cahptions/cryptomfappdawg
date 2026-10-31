@@ -25,6 +25,21 @@ def source_revision(root: Path = REPO_ROOT) -> str:
     return digest.hexdigest()
 
 
+def code_version(root: Path = REPO_ROOT) -> dict[str, str] | None:
+    """The installed code's git commit and its time, for people (the revision hash above is for machines)."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "-C", str(root), "log", "-1", "--format=%h|%H|%cI"], capture_output=True,  # noqa: S603,S607
+                             text=True, timeout=3, check=False).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.count("|") != 2:
+        return None
+    short, full, at = out.split("|")
+    return {"commit": short, "full": full, "at": at}
+
+
 def server_is_current(url: str, *, timeout: float = 2) -> bool:
     """Bounded read of the fixed loopback runtime endpoint; never read or transmit credentials."""
     try:

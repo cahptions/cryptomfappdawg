@@ -636,6 +636,13 @@ function systemPage() {
     ),
   );
   app.append(collectionControls());
+  if (snapshot.version)
+    app.append(
+      panel(
+        `Version ${snapshot.version.commit}`,
+        `Released ${new Date(snapshot.version.at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET. In a terminal, kestrel says whether a newer one is available and kestrel update installs it.`,
+      ),
+    );
   if (snapshot.progress)
     app.append(
       panel(

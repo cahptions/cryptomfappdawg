@@ -17,6 +17,19 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-31 — Which version am I on? Can option history be real?
+
+- `kestrel` prints the installed commit and time, whether the running app is on it, and whether GitHub has newer; the
+  System page shows the version. Launcher installs refresh the icon cache and menu database (the Dell kept showing the
+  old icon from cache).
+- `kestrel options-history`: two read-only Massive requests (a year-old SPY expiry's calls, then one contract's daily
+  bars) to see whether the key reads historical option prices. Massive lists 2 years of daily option bars on the free
+  Options Basic plan (massive.com/options, 2026-10-31); its flat-file docs say Basic excludes them, so the key decides.
+  New client methods `option_contracts` (as_of listings) and `option_bars`; endpoints registered in providers.toml.
+- Next, depending on the result: historical replay for the option strategies on real daily option prices (or modeled
+  prices, labelled so, where the key lacks them), and research-backed strategies (volatility-gap straddles, index
+  put-writing, put-call IV spread, a regime-aware structure chooser).
+
 ## 2026-10-31 — Learning trades every expiry and learns how long to hold
 
 - The user's call: 2-hour holds cannot judge 1-, 3-, 6-month options or LEAPS. `kestrel learning` showed the research
