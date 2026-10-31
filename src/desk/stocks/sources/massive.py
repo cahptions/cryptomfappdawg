@@ -264,9 +264,10 @@ class MassiveClient:
 
     async def option_contracts(self, underlying: str, as_of: date, first: date, last: date, *, kind: str | None = None,
                                strikes: tuple[float, float] | None = None) -> list[dict[str, Any]]:
-        """The ``underlying``'s contracts as listed on ``as_of`` (expired ones included), expiring ``first``..``last``,
-        optionally only calls or puts and only strikes in a range (fewer pages at 5 requests a minute)."""
-        params: dict[str, Any] = {"underlying_ticker": underlying, "as_of": as_of.isoformat(), "expired": "true",
+        """The ``underlying``'s contracts as listed on ``as_of`` (still trading that day, so ``expired`` stays at its
+        default), expiring ``first``..``last``, optionally only calls or puts and only strikes in a range (fewer pages
+        at 5 requests a minute)."""
+        params: dict[str, Any] = {"underlying_ticker": underlying, "as_of": as_of.isoformat(),
                                   "expiration_date.gte": first.isoformat(), "expiration_date.lte": last.isoformat(),
                                   "limit": 1000}
         if kind:

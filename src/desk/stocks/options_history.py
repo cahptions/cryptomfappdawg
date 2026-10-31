@@ -23,11 +23,18 @@ async def check(massive: Any, market: StocksMarket, today: date) -> dict[str, An
                               (day_of(as_of),)).fetchone()
     spot = float(row[0]) if row else None
     target = as_of + timedelta(days=30)
+    first, last = target - timedelta(days=3), target + timedelta(days=3)
     try:
-        listed = await massive.option_contracts("SPY", as_of, target - timedelta(days=3), target + timedelta(days=3),
-                                                kind="call", strikes=(spot * 0.97, spot * 1.03) if spot else None)
+        listed = await massive.option_contracts("SPY", as_of, first, last, kind="call",
+                                                strikes=(spot * 0.95, spot * 1.05) if spot else None)
+        if not listed and spot:                         # a stored price on another scale: ask without the strikes
+            listed = await massive.option_contracts("SPY", as_of, first, last, kind="call")
         if not listed:
-            return {"ok": False, "text": f"Massive answered but listed no SPY calls expiring near {target}."}
+            return {"ok": False, "text": (
+                f"Massive answered but listed no SPY calls as of {as_of} expiring {first} to {last}"
+                f"{f' (stored SPY close ${spot:,.2f})' if spot else ''}. The key reaches Massive; its plan may not "
+                "include option contract history. Sign in at massive.com and check that the free Options Basic plan "
+                "is on the same account.")}
         expiry = min({c["expiration"] for c in listed}, key=lambda e: abs((e - target).days))
         calls = [c for c in listed if c["expiration"] == expiry]
         middle = spot if spot else sorted(c["strike"] for c in calls)[len(calls) // 2]

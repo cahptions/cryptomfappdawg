@@ -71,3 +71,40 @@ def test_a_stocks_only_key_is_told_what_to_add(tmp_path):
         assert "No Massive key" in asyncio.run(check(nokey, world.market, TODAY))["text"]
     finally:
         world.close()
+
+
+def test_the_request_lists_contracts_trading_on_the_past_day_and_retries_without_strikes(tmp_path):
+    from desk.stocks.sources.massive import MassiveClient
+
+    sent = []
+
+    class Http:
+        has_key = True
+
+    client = MassiveClient(Http())
+
+    async def paged(endpoint, parse, params):
+        sent.append(params)
+        return []
+
+    client._paged = paged
+    asyncio.run(client.option_contracts("SPY", date(2025, 10, 31), date(2025, 11, 27), date(2025, 12, 3),
+                                        kind="call", strikes=(650.0, 700.0)))
+    assert "expired" not in sent[0]                     # contracts still trading that day, not already expired
+    assert sent[0]["as_of"] == "2025-10-31" and sent[0]["strike_price.gte"] == 650.0
+
+    class Empty(Massive):
+        async def option_contracts(self, underlying, as_of, first, last, *, kind=None, strikes=None):
+            self.calls.append(("contracts", strikes))
+            return []
+
+    world = make_world(tmp_path, n=12)
+    try:
+        close = world.market.conn.execute("SELECT close FROM stk_bars WHERE symbol='SPY' AND day<=? ORDER BY day "
+                                          "DESC LIMIT 1", (date(2025, 10, 30).toordinal(),)).fetchone()[0]
+        massive = Empty()
+        result = asyncio.run(check(massive, world.market, TODAY))
+        assert [c[1] is None for c in massive.calls] == [False, True]          # then without the strike filter
+        assert not result["ok"] and f"stored SPY close ${close:,.2f}" in result["text"]
+    finally:
+        world.close()
