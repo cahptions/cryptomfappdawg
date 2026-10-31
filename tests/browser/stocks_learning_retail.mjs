@@ -52,7 +52,7 @@ try {
         .waitFor();
       assert.match(
         await dialog.innerText(),
-        /Prior uncapped research: long_put/,
+        /Prior research: long_put/,
       );
       assert.match(await dialog.innerText(), /underlying\/day blocks/);
       await dialog.getByRole("button", { name: "Close", exact: true }).click();

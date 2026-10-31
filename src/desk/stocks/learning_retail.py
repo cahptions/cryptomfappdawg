@@ -35,7 +35,10 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
         "WHERE o.matured_at<? AND o.matured_at>=? GROUP BY o.experiment_id,o.block",
         (to_iso(now),to_iso(now-timedelta(days=LOOKBACK_DAYS)))).fetchall()
     groups: dict[tuple[str,int,int],dict[str,Any]] = {}
+    gone = lab.retired(conn)                    # retired minute-hold recipes are history, not something to copy
     for row in rows:
+        if row["experiment_id"] in gone:
+            continue
         cfg = json.loads(row["config_json"])
         key = (cfg["structure"],cfg["hold_minutes"],cfg.get("repeat_minutes",0))
         if key not in groups:
@@ -62,8 +65,7 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
         # A transparent fixed baseline while research matures, rather than pretending an untrained model learned it.
         seed = conn.execute("SELECT id,config_json FROM stk_learning_experiments "
             "WHERE created_at<=? AND json_extract(config_json,'$.structure')='long_call' "
-            "AND json_extract(config_json,'$.hold_minutes')=30 AND json_extract(config_json,'$.repeat_minutes')=30 "
-            "ORDER BY created_at,id LIMIT 1",(to_iso(now),)).fetchone()
+            "AND json_extract(config_json,'$.bucket')='1m' ORDER BY created_at,id LIMIT 1",(to_iso(now),)).fetchone()
         if seed:
             out.append({"config":json.loads(seed["config_json"]),"evidence":{"asof":to_iso(now),"mode":"starter",
                 "blocks":0,"days":0,"expected_net_return":None,"experiment_ids":[seed["id"]],"model_version":0,
@@ -158,7 +160,7 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
             "source_key":source,"transfer_policy":forecast,"comparison":"Independent finite-capital forward test",
             "target_debit":budget}
         reason = ("Untrained starter long-call policy; no learned edge claimed" if evidence["mode"]=="starter" else
-                  f"Prior uncapped research: {cfg['structure']} / {cfg['hold_minutes']} minutes; "
+                  f"Prior research: {cfg['structure']} / {cfg.get('label') or str(cfg['hold_minutes']) + ' minutes'}; "
                   f"{evidence['blocks']} underlying/day blocks, expected net return {evidence['expected_net_return']:.2%}")
         if unit>budget:
             reason += "; one whole contract exceeds the 25% sizing target but fits available cash"

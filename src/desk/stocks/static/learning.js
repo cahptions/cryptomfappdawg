@@ -160,7 +160,7 @@ const KestrelLearning = (() => {
         card.append(
           el(
             "h4",
-            `${f.structure.replaceAll("_", " ")} · ${f.hold_minutes}m hold`,
+            `${f.structure.replaceAll("_", " ")} · ${f.label || `${f.hold_minutes}m hold`}`,
           ),
           el(
             "p",
@@ -210,6 +210,72 @@ const KestrelLearning = (() => {
       research_champion: "Promoted research structure · small-account test",
       waiting: "Holding cash · waiting for supported findings",
     })[mode] || "Waiting for a policy decision";
+  // Does holding longer pay? One row per recipe (structure × expiry bucket), one column per checkpoint: the average
+  // return if every position that lived that long had been sold then, its win rate and how many positions.
+  function holding(recipes) {
+    const section = el("section", undefined, "panel learning-holding"),
+      days = [
+        ...new Set(recipes.flatMap((r) => r.checkpoints.map((c) => c.days))),
+      ].sort((a, b) => a - b),
+      wrap = el("div", undefined, "table-wrap"),
+      grid = el("table");
+    section.append(
+      el("h2", "Does holding longer pay?"),
+      el(
+        "p",
+        "Each position is bought once and valued at real quotes as it ages. A cell is the average return on the money paid if sold then (win rate; positions). Cells fill as positions live that long; a best holding time is named once a checkpoint has 10 positions.",
+        "muted caption",
+      ),
+    );
+    const head = el("tr");
+    head.append(el("th", "Recipe"));
+    for (const d of days) head.append(el("th", `${d}d`));
+    head.append(el("th", "Sold"), el("th", "Open"));
+    grid.append(head);
+    for (const r of recipes) {
+      const row = el("tr");
+      row.append(
+        el(
+          "th",
+          `${r.structure.replaceAll("_", " ")} · ${r.label}${r.best_so_far ? ` · best ${r.best_so_far}d` : ""}`,
+        ),
+      );
+      for (const d of days) {
+        const c = r.checkpoints.find((x) => x.days === d);
+        row.append(
+          el(
+            "td",
+            !c
+              ? ""
+              : c.n
+                ? `${percent(c.mean)} (${Math.round(100 * c.win_rate)}%; ${c.n})`
+                : "—",
+            !c || !c.n
+              ? "muted"
+              : c.mean > 0
+                ? "positive"
+                : c.mean < 0
+                  ? "negative"
+                  : "",
+          ),
+        );
+      }
+      row.append(
+        el(
+          "td",
+          r.final.n
+            ? `${percent(r.final.mean)} (${Math.round(100 * r.final.win_rate)}%; ${r.final.n})`
+            : "—",
+        ),
+        el("td", String(r.open)),
+      );
+      grid.append(row);
+    }
+    wrap.append(grid);
+    section.append(wrap);
+    return section;
+  }
+
   function comparisons(accounts, select) {
     const section = el("section", undefined, "learning-small-accounts"),
       grid = el("div", undefined, "learning-comparison-grid");
@@ -445,7 +511,7 @@ const KestrelLearning = (() => {
         el("h1", "PAPER Learning"),
         el(
           "p",
-          "Research tests sizing, structures and holding periods. The $1,000 and $5,000 accounts test whether its findings work with smaller balances.",
+          "Research buys calls, puts and straddles in every expiry, from weeklies to LEAPS, and values each one as it ages to learn which expiries pay and how long to hold. The $1,000 and $5,000 accounts test whether its findings work with smaller balances.",
           "muted",
         ),
       );
@@ -628,6 +694,7 @@ const KestrelLearning = (() => {
         profitChart(a, data.evidence),
       );
       app.append(learningEvidence(data));
+      if (data.lifecycle?.length) app.append(holding(data.lifecycle));
       const views = el("div", undefined, "research-tabs"),
         content = el("section", undefined, "paper-trades");
       for (const [id, title] of [
@@ -672,7 +739,7 @@ const KestrelLearning = (() => {
                 ),
                 el(
                   "small",
-                  `Entry ${money(p.entry_cost + p.entry_fees)} · ${p.plan.hold_minutes}-minute hypothesis`,
+                  `Entry ${money(p.entry_cost + p.entry_fees)} · ${p.plan.label || `${p.plan.hold_minutes}-minute hypothesis`}`,
                 ),
               );
               if (p.plan.transfer_policy)
@@ -887,7 +954,9 @@ const KestrelLearning = (() => {
             el("strong", e.configuration.structure.replaceAll("_", " ")),
             el(
               "p",
-              `${money(e.configuration.target_debit)} target · ${e.configuration.hold_minutes}-minute hold · ${e.configuration.repeat_minutes || 0}-minute entry spacing`,
+              e.configuration.label
+                ? `${money(e.configuration.target_debit)} an entry · ${e.configuration.label} · valued after ${e.configuration.checkpoints.join(", ")} days`
+                : `${money(e.configuration.target_debit)} target · ${e.configuration.hold_minutes}-minute hold · ${e.configuration.repeat_minutes || 0}-minute entry spacing`,
             ),
             el(
               "small",

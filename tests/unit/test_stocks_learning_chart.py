@@ -1,6 +1,6 @@
 """Historical chart context must be dated, bounded and read-only; funding cannot become a profit."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,7 +22,7 @@ def test_learning_chart_uses_dated_cash_positions_fees_and_keeps_accounts_separa
         later = AT + timedelta(minutes=1)
         chain(world, later)
         learning.tick(conn, world.market, later)
-        closed = later + timedelta(minutes=121)
+        closed = datetime(2026, 11, 17, 15, tzinfo=UTC)          # 3 days before expiry: the 1-month recipe sells
         chain(world, closed, bid=5.8, ask=6)
         learning.tick(conn, world.market, closed)
         before = list(conn.iterdump())

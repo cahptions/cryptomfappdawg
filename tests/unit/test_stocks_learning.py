@@ -79,11 +79,21 @@ def test_real_later_quotes_generate_partial_fills_funding_mature_outcomes_and_pr
         fills = conn.execute("SELECT COUNT(*) FROM stk_learning_fills").fetchone()[0]
         learning.tick(conn, world.market, later)
         assert conn.execute("SELECT COUNT(*) FROM stk_learning_fills").fetchone()[0] == fills
-        end = later + timedelta(minutes=121)
+        # A day later the option is worth more: a 1-day checkpoint is recorded at that real quote, nothing is sold.
+        day_one = later + timedelta(days=1)
+        chain(world, day_one, bid=5.8, ask=6.0)
+        assert learning.tick(conn, world.market, day_one)["closed"] == 0
+        checkpoints = conn.execute("SELECT days, net_return FROM stk_learning_checkpoints").fetchall()
+        assert checkpoints and all(r["days"] == 1 and r["net_return"] > 0 for r in checkpoints)
+        # With 3 days left before the 2026-11-20 expiry, the 1-month recipe sells instead of waiting out 30 days.
+        end = datetime(2026, 11, 17, 15, 0, tzinfo=UTC)
         chain(world, end, bid=5.8, ask=6.0)
         result = learning.tick(conn, world.market, end)
         assert result["closed"] > 0
         assert conn.execute("SELECT COUNT(*) FROM stk_learning_outcomes").fetchone()[0] > 0
+        assert {r[0] for r in conn.execute("SELECT exit_reason FROM stk_positions WHERE state='CLOSED'")} == {
+            "Expiry approaching: sold with 3 days left; later executable quote"}
+        assert {r[0] for r in conn.execute("SELECT DISTINCT days FROM stk_learning_checkpoints")} >= {1, 7, 14}
         experiment = conn.execute("SELECT experiment_id FROM stk_learning_outcomes LIMIT 1").fetchone()[0]
         assert learning.forecast(conn, experiment, AT)["expected_net_return"] is None
         assert learning.forecast(conn, experiment, end + timedelta(seconds=1))["blocks"] >= 1
@@ -194,10 +204,11 @@ def test_chronological_selection_uses_prior_labels_and_preserves_losing_held_out
     try:
         learning.initialize(conn, AT)
         book = PaperBook(conn)
+        # Minute-hold recipes registered after the lifecycle switch stay active, and can be size-tested.
         configs = {
             structure: conn.execute(
-                "SELECT id,spec_sha256 FROM stk_learning_experiments WHERE json_extract(config_json,'$.structure')=? LIMIT 1",
-                (structure,),
+                "SELECT id,spec_sha256 FROM stk_learning_experiments WHERE id=?",
+                (learning.add_experiment(conn, AT, structure, 50_000, 30),),
             ).fetchone()
             for structure in learning.STRUCTURES
         }

@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import tempfile
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
@@ -244,7 +244,7 @@ def main() -> None:
                     ], NOW)
             if args.scenario in {"learning-workflows","learning-retail"}:
                 from desk.stocks import learning
-                from tests.unit.test_stocks_learning import AT, chain
+                from tests.unit.test_stocks_learning import AT
 
                 lab = learning.open_book(paths)
                 try:
@@ -263,11 +263,17 @@ def main() -> None:
                         from tests.unit.test_stocks_learning_retail import outcome
 
                         learning.initialize(lab,AT-timedelta(days=30))
+                        for structure in learning.STRUCTURES:     # prior minute-hold research, registered after
+                            learning.add_experiment(lab,AT-timedelta(days=30),structure,50_000,30,30)
                         outcome(lab,"long_call",-.1,AT-timedelta(days=2))
                         outcome(lab,"long_put",.2,AT-timedelta(days=2))
+                    # Lifecycle recipes on every bucket's expiry: fills, a 1-day checkpoint, then the weekly recipes
+                    # sell at their 7-day horizon (Oct 28), so finished results exist before today.
+                    from tests.unit.test_stocks_learning_lifecycle import ladder
                     for at, bid, ask in [(AT,4.8,5.0),(AT+timedelta(minutes=1),4.8,5.0),
-                                         (AT+timedelta(minutes=122),5.8,6.0)]:
-                        chain(world,at,bid,ask,source="synthetic_browser_fixture")
+                                         (AT+timedelta(days=1),5.4,5.6),
+                                         (datetime(2026,10,28,16,tzinfo=UTC),5.8,6.0)]:
+                        ladder(world,at,bid,ask,source="synthetic_browser_fixture")
                         learning.tick(lab,world.market,at)
                 finally:
                     lab.close()
@@ -316,7 +322,6 @@ def main() -> None:
         (paths.home / "stocks-ui.json").write_text('{"explain": true}')
         app = create_app(paths, auto_start=False)
         if args.scenario == "personal-workflows":
-            from datetime import datetime
 
             from desk.stocks import play_selections, web
             from desk.stocks.repo import StocksDatabases

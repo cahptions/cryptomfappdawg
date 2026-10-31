@@ -226,12 +226,13 @@ def test_the_next_session_confirms_whether_flagged_volume_opened(world: StocksWo
     assert burst["session"] == ASOF.isoformat()
 
 
-def test_collection_adds_one_long_dated_expiry() -> None:
+def test_collection_adds_a_six_month_and_one_long_dated_expiry() -> None:
     today = date(2026, 10, 21)
-    listed = [date(2026, 10, 23), date(2026, 11, 20), date(2026, 12, 18), date(2027, 1, 15), date(2027, 6, 18),
-              date(2027, 10, 15), date(2028, 1, 21)]
+    listed = [date(2026, 10, 23), date(2026, 11, 20), date(2026, 12, 18), date(2027, 1, 15), date(2027, 3, 19),
+              date(2027, 6, 18), date(2027, 10, 15), date(2028, 1, 21)]
     picked = collect.pick_expirations(listed, today)
-    assert date(2027, 10, 15) in picked and date(2028, 1, 21) not in picked and date(2027, 6, 18) not in picked
+    assert date(2027, 10, 15) in picked and date(2028, 1, 21) not in picked     # one LEAPS, nearest a year out
+    assert date(2027, 3, 19) in picked and date(2027, 6, 18) not in picked      # and the expiry nearest 6 months
 
 
 def test_the_page_endpoint_serves_the_saved_plays(world: StocksWorld) -> None:

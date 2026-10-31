@@ -59,10 +59,38 @@ smaller capital, not estimates of guaranteed potential profit.
 
 ## Experiments and execution
 
-The initial registry explores long calls, long puts and long straddles at $5,000, $50,000, $500,000 and $1,000,000 target
-debits, 30/120-minute holding horizons, and additional 30/120-minute entry-spacing comparisons. A zero entry spacing permits
-each new eligible source observation, subject to unresolved order deduplication. Positions may overlap. The optional
-experiment form accepts other sizes, horizons and entry spacing without changing existing histories.
+### Lifecycle recipes (since 2026-10-31)
+
+A 30-minute or 2-hour hold measures intraday noise; it cannot say whether a 3-month option or a LEAPS pays, or whether
+holding longer does. So the registry trades **every expiry** and values each position **as it ages**:
+
+| Bucket | Days to expiry | Held up to | Sold early when | Valued after (days) |
+|---|---|---|---|---|
+| Weekly | 5–12 | 7 days | 1 day remains | 1, 7 |
+| About 1 month | 21–45 | 30 days | 3 days remain | 1, 7, 14, 30 |
+| About 3 months | 60–120 | 90 days | 14 days remain | 1, 7, 14, 30, 60, 90 |
+| About 6 months | 150–240 | 120 days | 30 days remain | 1, 7, 14, 30, 60, 90, 120 |
+| LEAPS (9+ months) | 270–800 | 180 days | 60 days remain | 1, 7, 14, 30, 60, 90, 120, 180 |
+
+- **15 recipes:** long calls, long puts and long straddles at the 0.5-delta strike in each bucket, $5,000 an entry
+  (at least one contract), at the expiry nearest the middle of the bucket's window.
+- **One purchase, many answers:** a position is bought once, and at each checkpoint the first later fresh quote records
+  what selling it then would have returned (bid less impact and exit fees), in `stk_learning_checkpoints` (append-only).
+  The position itself is sold at its horizon, or earlier when expiry gets close, so no LEAPS result waits on settlement.
+  **Does holding longer pay?** is then read from the same entries: Learning shows each recipe's average return, win rate
+  and count at every checkpoint, and names a best holding time once a checkpoint has 10 positions.
+- **Pacing:** a recipe re-enters the same stock at most once a week and at most twice a day across stocks, so evidence
+  comes from many days rather than one burst; and each recipe holds at most an equal share (1/15) of the research
+  account, so long-dated recipes cannot crowd out the rest.
+- **Collection** also keeps the expiry nearest 6 months (beside the weekly, ~30/60/90-day and ~1-year expiries), and
+  Learning's own collector keeps quoting every expiry its positions hold.
+- **The minute-hold seeds are retired**, not deleted: on the switch they stop opening positions, their open positions
+  still exit under their own rules, and their outcomes stay in the record. The $1,000/$5,000 accounts copy only active
+  recipes (retired results are history); until lifecycle results mature they use the 1-month call starter. Lifecycle
+  recipes are compared at a fixed size, so no size-doubling follow-up is created from them.
+
+Experiments registered through the form afterwards remain the earlier minute-based kind and stay active. A zero entry
+spacing permits each new eligible source observation, subject to unresolved order deduplication. Positions may overlap.
 
 For every decision, the ledger freezes its hypothesis, policy hash, underlying price, original timestamped chain and
 provisional expected return. Entry waits for a **strictly later** quote. Quotes must be at most 120 seconds old, not from

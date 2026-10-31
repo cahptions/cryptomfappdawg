@@ -32,6 +32,17 @@ SMALL_ACCOUNTS = ("reference_1k", "reference_5k")
 ACCOUNTS = ((RESEARCH, "Research account", CAPITAL), (REFERENCE, "$500,000 reference", CAPITAL),
             (SMALL_ACCOUNTS[0], "$1,000 account", 1_000.0), (SMALL_ACCOUNTS[1], "$5,000 account", 5_000.0))
 STRUCTURES = ("long_call", "long_put", "long_straddle")
+# Lifecycle experiments (since 2026-10-31): every expiry, bought once and valued as it ages, so the book learns which
+# expiries and how long to hold, instead of minute-long holds that cannot judge a 3-month option or a LEAPS.
+# id: (title, days to expiry window, held up to (days), sold when this few days remain)
+BUCKETS = {"weekly": ("Weekly", (5, 12), 7, 1), "1m": ("About 1 month", (21, 45), 30, 3),
+           "3m": ("About 3 months", (60, 120), 90, 14), "6m": ("About 6 months", (150, 240), 120, 30),
+           "leaps": ("LEAPS (9+ months)", (270, 800), 180, 60)}
+CHECKPOINTS = (1, 7, 14, 30, 60, 90, 120, 180)      # calendar days after entry
+LIFECYCLE_DEBIT = 5_000.0
+LIFECYCLE_CADENCE_DAYS = 7                            # a recipe re-enters the same stock at most once a week
+LIFECYCLE_DAILY_ENTRIES = 2                           # per recipe per day: evidence from many days, not one burst
+LIFECYCLE_SWITCH = "lifecycle_switch"
 MIN_COMPARISON_DAYS = 4
 MIN_COMPARISON_BLOCKS = 12
 CHECK_METHOD_VERSION = 2
@@ -101,6 +112,31 @@ def add_experiment(
     return ident
 
 
+def add_lifecycle(conn: sqlite3.Connection, now: datetime, structure: str, bucket: str) -> str:
+    """One recipe: ``structure`` at the 0.5-delta strike in ``bucket``'s expiries, $5,000 an entry, valued at every
+    checkpoint it lives to and sold at its horizon or before expiry, whichever comes first."""
+    title, (lo, hi), hold_days, days_left = BUCKETS[bucket]
+    spec = {"version": 3, "kind": "lifecycle", "structure": structure, "bucket": bucket,
+            "label": f"{title}, held up to {hold_days} days", "target_debit": LIFECYCLE_DEBIT,
+            "hold_minutes": hold_days * 1440, "repeat_minutes": LIFECYCLE_CADENCE_DAYS * 1440,
+            "exit_days_left": days_left, "checkpoints": [d for d in CHECKPOINTS if d <= hold_days],
+            "daily_entries": LIFECYCLE_DAILY_ENTRIES, "dte": [lo, hi], "delta": 0.5, "parent_experiment": None,
+            "change": "Lifecycle seed: every expiry, valued as it ages",
+            "execution": "next timestamped quote, bid/ask, impact and capacity v1"}
+    digest = sha256_hex(canonical_json(spec))
+    ident = digest[:20]
+    conn.execute("INSERT OR IGNORE INTO stk_learning_experiments VALUES (?,?,?,?,?)",
+                 (ident, to_iso(now), f"Test {structure.replace('_', ' ')} on {title.lower()} options at a "
+                  f"${LIFECYCLE_DEBIT:,.0f} target debit, held up to {hold_days} days and valued along the way, net of "
+                  "costs", digest, canonical_json(spec)))
+    return ident
+
+
+def retired(conn: sqlite3.Connection) -> set[str]:
+    """Minute-hold seeds from before the lifecycle switch: they open nothing new; their record stays."""
+    return set((state(conn, LIFECYCLE_SWITCH) or {}).get("retired", []))
+
+
 def initialize(conn: sqlite3.Connection, now: datetime) -> None:
     book = PaperBook(conn)
     with book.atomic():
@@ -116,12 +152,12 @@ def initialize(conn: sqlite3.Connection, now: datetime) -> None:
                                   "WHERE state='OPEN' AND account=?", (RESEARCH,)).fetchone()[0] / MICRO
             set_state(conn, "research_cap", {"at": to_iso(now), "equity": book.cash(RESEARCH) + marked,
                                              "contributed": book.deposits(RESEARCH)})
+        if state(conn, LIFECYCLE_SWITCH) is None:            # once: retire what existed before, then seed
+            set_state(conn, LIFECYCLE_SWITCH, {"at": to_iso(now), "retired": [
+                r[0] for r in conn.execute("SELECT id FROM stk_learning_experiments ORDER BY id")]})
         for structure in STRUCTURES:
-            for hold in (30, 120):
-                for budget in (5_000, 50_000, 500_000, 1_000_000):
-                    add_experiment(conn, now, structure, budget, hold)
-                for repeat in (30, 120):
-                    add_experiment(conn, now, structure, 50_000, hold, repeat)
+            for bucket in BUCKETS:
+                add_lifecycle(conn, now, structure, bucket)
 
 
 def fund(book: PaperBook, account: str, required: float, now: datetime) -> bool:
@@ -314,7 +350,16 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
             position.id, closing.debit, marks={"at": to_iso(now), "basis": "bid less modeled impact", "capacity_estimated": True}
         )
         elapsed = now - datetime.fromisoformat(position.opened_at)
-        if elapsed < timedelta(minutes=position.plan["hold_minutes"]):
+        paid = position.entry_cost + position.entry_fees
+        for days in position.plan.get("checkpoints") or ():
+            if elapsed >= timedelta(days=days):          # what selling now, at a real quote, would have returned
+                value = closing.debit - closing.fees
+                conn.execute("INSERT OR IGNORE INTO stk_learning_checkpoints VALUES (?,?,?,?,?,?)",
+                             (position.id, days, to_iso(now), value, (value - paid) / paid if paid else 0.0,
+                              position.plan.get("underlying_price")))
+        left = None if position.expires is None else (position.expires - cal.new_york(now).date()).days
+        expiring = left is not None and left <= position.plan.get("exit_days_left", -1)
+        if elapsed < timedelta(minutes=position.plan["hold_minutes"]) and not expiring:
             continue
         # Exit capacity is shared too. An oversized position waits instead of receiving a fictional full fill.
         if capacity(conn, position.account, actual) < units:
@@ -325,7 +370,9 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
             day=cal.new_york(now).date(),
             credit=closing.debit,
             fees=closing.fees,
-            reason="Registered holding horizon reached; later executable quote",
+            reason=(f"Expiry approaching: sold with {left} days left; later executable quote" if expiring and
+                    elapsed < timedelta(minutes=position.plan["hold_minutes"]) else
+                    "Registered holding horizon reached; later executable quote"),
             evidence={"quote_times": [to_iso(q.quoted_at) for q in actual if q.quoted_at], "capacity_estimated": True},
         )
         consume(conn, position.account, actual, units)
@@ -384,13 +431,18 @@ def propose(
 ) -> int:
     book = PaperBook(conn)
     champion = state(conn, "model", {}).get("champion", "")
-    experiments = conn.execute(
+    gone = retired(conn)
+    experiments = [e for e in conn.execute(
         "SELECT * FROM stk_learning_experiments ORDER BY "
         "CASE WHEN json_extract(config_json,'$.structure')=? THEN 0 ELSE 1 END,id",
         (champion,),
-    ).fetchall()
+    ).fetchall() if e["id"] not in gone]
     if not experiments or not snapshots:
         return 0
+    marked = conn.execute("SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions WHERE state='OPEN' AND account=?",
+                          (RESEARCH,)).fetchone()[0] / MICRO
+    share = (book.cash(RESEARCH) + marked) / len(experiments)   # each recipe gets an equal share of the account
+    day_start = to_iso(datetime.combine(cal.new_york(now).date(), time(), cal.NEW_YORK))
     symbols = sorted(snapshots)
     total = len(symbols) * len(experiments)
     start = state(conn, "proposal_offset", 0) % total
@@ -400,6 +452,17 @@ def propose(
     count = 0
     for experiment, symbol in chosen:
         cfg = json.loads(experiment["config_json"])
+        if cfg.get("kind") == "lifecycle":
+            today_entries = conn.execute(
+                "SELECT COUNT(*) FROM stk_learning_intents i JOIN stk_pending p ON p.id=i.order_id "
+                "WHERE i.experiment_id=? AND p.account=? AND p.created_at>=?",
+                (experiment["id"], RESEARCH, day_start)).fetchone()[0]
+            held = conn.execute(
+                "SELECT COALESCE(SUM(entry_cost_micros+entry_fees_micros),0) FROM stk_positions WHERE account=? "
+                "AND state='OPEN' AND json_extract(plan_json,'$.experiment_id')=?", (RESEARCH, experiment["id"])
+            ).fetchone()[0] / MICRO
+            if today_entries >= cfg["daily_entries"] or held + cfg["target_debit"] > share:
+                continue
         source_key, spot, chains = snapshots[symbol]
         last_intent = state(conn, "entry:" + experiment["id"] + ":" + symbol)
         if last_intent and now - datetime.fromisoformat(last_intent) < timedelta(minutes=cfg.get("repeat_minutes", 0)):
@@ -485,7 +548,7 @@ def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]
         cfg = json.loads(row["config_json"])
         key = (cfg["structure"],cfg["hold_minutes"],cfg.get("repeat_minutes",0))
         family = families.setdefault(key,{"structure":key[0],"hold_minutes":key[1],"repeat_minutes":key[2],
-                                         "outcomes":0,"returns":{}})
+                                         "label":cfg.get("label"),"outcomes":0,"returns":{}})
         family["outcomes"] += row["outcomes"]
         family["returns"].setdefault(row["block"],[]).append(row["net_return"])
     comparisons = []
@@ -593,19 +656,24 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
                 best = best_group[0]
                 config = json.loads(best["config_json"])
                 target = config["target_debit"] * 2
-                try:
-                    add_experiment(
-                        conn,
-                        now,
-                        chosen,
-                        target,
-                        config["hold_minutes"],
-                        config.get("repeat_minutes", 0),
-                        parent=best["experiment_id"],
-                    )
-                    training["next_size_experiment"] = target
-                except DeskError:
-                    training["next_size_experiment"] = "Ledger representation limit reached; existing experiments continue"
+                if config.get("kind") == "lifecycle" or best["experiment_id"] in retired(conn):
+                    # Lifecycle recipes compare expiries and holding times at a fixed size; retired ones stay retired.
+                    training["next_size_experiment"] = "Not applicable: recipes compare expiries and holding times"
+                else:
+                    try:
+                        add_experiment(
+                            conn,
+                            now,
+                            chosen,
+                            target,
+                            config["hold_minutes"],
+                            config.get("repeat_minutes", 0),
+                            parent=best["experiment_id"],
+                        )
+                        training["next_size_experiment"] = target
+                    except DeskError:
+                        training["next_size_experiment"] = ("Ledger representation limit reached; existing "
+                                                            "experiments continue")
             elif state(conn, "model", {}).get("champion"):
                 training["champion"] = state(conn, "model")["champion"]
             set_state(conn, "model", training)
@@ -801,8 +869,11 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
     for position in positions:
         reason = conn.execute("SELECT reasons FROM stk_decisions WHERE id=?", (position["decision_id"],)).fetchone()
         position["entry_reason"] = reason[0] if reason else None
+    from desk.stocks.learning_analysis import lifecycle
+
     return {
         "accounts": accounts,
+        "lifecycle": lifecycle(conn),
         "progress": state(conn, "progress", {"phase": "Waiting for fresh option data"}),
         "collection": state(conn, "collection", {}),
         "model": state(conn, "model", {"version": 0, "status": "Untrained; collecting matured forward outcomes"}),
@@ -833,6 +904,8 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
         "limits": {"trade_count": None, "position_count": None, "contract_quantity": None, "virtual_spending": None},
         "execution_note": "Estimated depth: 0.1% of OI per quote timestamp, adverse impact and $0.65/contract/side. "
         "Unfilled quantities receive no invented P/L. Only long calls, puts and straddles are supported. "
+        "Lifecycle recipes buy weekly, 1-, 3-, 6-month and LEAPS options and value each position at real quotes "
+        "after 1, 7, 14, 30, 60, 90, 120 and 180 days, selling at the horizon or before expiry. "
         "Expiry/assignment settlement without fresh tradable quotes remains unresolved and is not a training label.",
         "mode": "PAPER",
         "orders_enabled": False,

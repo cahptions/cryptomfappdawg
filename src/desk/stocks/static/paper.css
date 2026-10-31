@@ -539,3 +539,21 @@
   font-size: 1.3rem;
   margin-top: 6px;
 }
+
+/* Learning: does holding longer pay? Checkpoint columns stay compact and coloured by sign. */
+.learning-holding table {
+  font-variant-numeric: tabular-nums;
+}
+.learning-holding th:first-child {
+  text-align: left;
+  white-space: nowrap;
+}
+.learning-holding td {
+  white-space: nowrap;
+}
+.learning-holding td.positive {
+  color: var(--up);
+}
+.learning-holding td.negative {
+  color: var(--down);
+}

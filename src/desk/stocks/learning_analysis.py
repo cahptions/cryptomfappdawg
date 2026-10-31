@@ -18,7 +18,7 @@ from statistics import fmean, median, stdev
 from typing import Any
 
 from desk.stocks import calendar as cal
-from desk.stocks.learning import ACCOUNTS, REFERENCE, RESEARCH, state
+from desk.stocks.learning import ACCOUNTS, BUCKETS, REFERENCE, RESEARCH, STRUCTURES, state
 from desk.stocks.paper.book import MICRO, PaperBook
 
 
@@ -90,6 +90,36 @@ def _holding(rows: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
             "open_past_plan": overdue, "opened_too_late": late}
 
 
+def lifecycle(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Does holding longer pay? For each structure and expiry bucket, every checkpoint's average return and win rate
+    over the research account's positions that lived that long, and the final sale's."""
+    recipes = []
+    for e in conn.execute("SELECT id, config_json FROM stk_learning_experiments "
+                          "WHERE json_extract(config_json,'$.kind')='lifecycle' ORDER BY id"):
+        cfg = json.loads(e["config_json"])
+        steps = []
+        for days in cfg["checkpoints"]:
+            rows = [r[0] for r in conn.execute(
+                "SELECT c.net_return FROM stk_learning_checkpoints c JOIN stk_positions p ON p.id=c.position_id "
+                "WHERE p.account=? AND json_extract(p.plan_json,'$.experiment_id')=? AND c.days=?",
+                (RESEARCH, e["id"], days))]
+            steps.append({"days": days, "n": len(rows), "mean": fmean(rows) if rows else None,
+                          "win_rate": sum(r > 0 for r in rows) / len(rows) if rows else None})
+        final = [r[0] for r in conn.execute(
+            "SELECT o.net_return FROM stk_learning_outcomes o JOIN stk_positions p ON p.id=o.position_id "
+            "WHERE p.account=? AND o.experiment_id=?", (RESEARCH, e["id"]))]
+        open_ = conn.execute("SELECT COUNT(*) FROM stk_positions WHERE account=? AND state='OPEN' AND "
+                             "json_extract(plan_json,'$.experiment_id')=?", (RESEARCH, e["id"])).fetchone()[0]
+        ready = [s for s in steps if s["n"] >= 10 and s["mean"] is not None]
+        recipes.append({"id": e["id"], "structure": cfg["structure"], "bucket": cfg["bucket"], "label": cfg["label"],
+                        "checkpoints": steps, "open": open_,
+                        "final": {"n": len(final), "mean": fmean(final) if final else None,
+                                  "win_rate": sum(r > 0 for r in final) / len(final) if final else None},
+                        "best_so_far": max(ready, key=lambda s: s["mean"])["days"] if ready else None})
+    order = list(BUCKETS)
+    return sorted(recipes, key=lambda r: (order.index(r["bucket"]), STRUCTURES.index(r["structure"])))
+
+
 def _pairs(conn: sqlite3.Connection, pnl: dict[str, float]) -> dict[str, Any]:
     """The same intent in both books: research and reference orders share an experiment and a source quote."""
     orders: dict[tuple[str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
@@ -132,8 +162,10 @@ def analyse(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]:
     experiments = {r["id"]: json.loads(r["config_json"]) for r in conn.execute("SELECT * FROM stk_learning_experiments")}
     for r in research:
         cfg = experiments.get(r["experiment"] or "", {})
-        r["recipe"] = (f"{cfg.get('structure', r['structure']).replace('_', ' ')}, ${cfg.get('target_debit', 0):,.0f} a "
-                       f"trade, held {cfg.get('hold_minutes', 0) / 60:g} h" if cfg else r["structure"])
+        r["recipe"] = (f"{cfg.get('structure', r['structure']).replace('_', ' ')}, " + (
+            cfg["label"] if cfg.get("label") else
+            f"${cfg.get('target_debit', 0):,.0f} a trade, held {cfg.get('hold_minutes', 0) / 60:g} h")
+            if cfg else r["structure"])
     closed = sorted((r for r in research if r["closed"]), key=lambda r: -r["pnl"])
     realized = sum(r["pnl"] for r in closed)
     top = closed[:5]
@@ -159,6 +191,7 @@ def analyse(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]:
                          "pnl": g["pnl"]} for g in _groups(research, "day")), key=lambda d: d["day"]),
         "holding": _holding(research, now),
         "pairs": _pairs(conn, {r["id"]: r["pnl"] for r in rows}),
+        "lifecycle": lifecycle(conn),
         "funding": {"deposits": len(deposits), "deposited": sum(d["amount_micros"] for d in deposits) / MICRO,
                     "cap": cap, "pnl_since_cap": since_cap},
     }
@@ -220,6 +253,15 @@ def render(a: dict[str, Any]) -> str:
                                          f"{v['trades']} closed" for plan, v in h["planned"].items())
                + f" · {h['open_past_plan']} open past their planned exit, {h['opened_too_late']} of them opened too "
                  "late to finish before that day's close")
+    life = a.get("lifecycle") or []
+    if life:
+        out += ["", "Does holding longer pay? Average return if sold after … (wins; positions that lived that long):"]
+        for r in life:
+            cells = " · ".join(f"{s['days']}d {_pct(s['mean'], 0)} ({_share(s['win_rate'])}; {s['n']})"
+                               for s in r["checkpoints"] if s["n"])
+            best = f" · best so far: {r['best_so_far']} days" if r["best_so_far"] else ""
+            out.append(f"  {r['structure'].replace('_', ' ')}, {r['label']}: {cells or 'no checkpoint yet'} · "
+                       f"{r['final']['n']} sold, {r['open']} open{best}")
     d = a["daily"]
     out += ["", f"Per entry day: {d['days']} days, average trade {_pct(d['mean'])}"
                 + ("" if d["t"] is None else f", t = {d['t']:.2f} "

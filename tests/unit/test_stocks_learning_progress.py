@@ -22,6 +22,8 @@ def world(tmp_path):
     w = make_world(tmp_path,n=12)
     conn = lab.open_book(w.paths)
     lab.initialize(conn,AT-timedelta(days=20))
+    # A minute-hold recipe registered after the lifecycle switch: an active experiment these fixtures label.
+    lab.add_experiment(conn,AT-timedelta(days=20),"long_call",50_000,30,30)
     yield w,conn
     conn.close()
     w.close()

@@ -21,6 +21,8 @@ def world(tmp_path):
     w=make_world(tmp_path,n=12)
     conn=lab.open_book(w.paths)
     lab.initialize(conn,AT-timedelta(days=30))
+    for structure in lab.STRUCTURES:          # minute-hold recipes registered after the switch: active, labelled here
+        lab.add_experiment(conn,AT-timedelta(days=30),structure,50_000,30,30)
     yield w,conn
     conn.close()
     w.close()
@@ -66,7 +68,8 @@ def test_small_accounts_fill_later_and_are_not_starved_by_a_large_research_queue
     chain(w,AT)
     lab.tick(conn,w.market,AT)
     orders=conn.execute("SELECT id FROM stk_pending WHERE account IN (?,?)",lab.SMALL_ACCOUNTS).fetchall()
-    assert len(orders)==2 and min(r[0] for r in orders)>200
+    queue=conn.execute("SELECT COUNT(*) FROM stk_pending WHERE account NOT IN (?,?)",lab.SMALL_ACCOUNTS).fetchone()[0]
+    assert len(orders)==2 and queue>=150 and min(r[0] for r in orders)>queue     # behind a large queue, still placed
     assert not PaperBook(conn).positions(lab.SMALL_ACCOUNTS[0])
     fresh=AT+timedelta(minutes=1)
     chain(w,fresh)

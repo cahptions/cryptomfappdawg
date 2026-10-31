@@ -17,6 +17,16 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-10-31 — Learning trades every expiry and learns how long to hold
+
+- The user's call: 2-hour holds cannot judge 1-, 3-, 6-month options or LEAPS. `kestrel learning` showed the research
+  account's lead was 98% buying power and its profit was puts on one sell-off day.
+- 15 **lifecycle recipes** (calls, puts, straddles × weekly, ~1, ~3, ~6 months, LEAPS), $5,000 an entry, each position
+  bought once and valued at real quotes after 1, 7, 14, 30, 60, 90, 120 and 180 days (`stk_learning_checkpoints`),
+  sold at its horizon or before expiry. Paced (once a week per stock, twice a day per recipe, an equal share of the
+  account per recipe). Minute-hold seeds retired, record kept; small accounts copy only active recipes. Collection adds
+  the ~6-month expiry. Learning page and `kestrel learning`: "Does holding longer pay?".
+
 ## 2026-10-31 — `kestrel learning`: why the research account reads better
 
 - `learning_analysis.py` (read-only): each book's P/L on the money put in; the research account against the $500,000
