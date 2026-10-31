@@ -147,7 +147,7 @@ def run(args: argparse.Namespace) -> int:
                     raise SchwabAuthError(attempt.error)
             finally:
                 attempt.stop()
-        print("Authorization saved privately. Run: uv run desk stocks doctor --online")
+        print("Signed in to Schwab; the app uses it right away. Check with: kestrel")
         return 0
     if action == "dashboard":
         import uvicorn
