@@ -431,7 +431,8 @@ case "${{1:-status}}" in
   restart) exec {uv} run desk stocks restart ;;
   learning) exec {uv} run desk stocks learning-report ;;
   options-history) exec {uv} run desk stocks options-history ;;
-  *) echo "usage: kestrel [status | update | open | signin | restart | learning | options-history]"; exit 2 ;;
+  *) echo "kestrel: '$1' is not a command in this version (kestrel update brings newer ones)"
+     echo "usage: kestrel [status | update | open | signin | restart | learning | options-history]"; exit 2 ;;
 esac
 """
 REMOTE_COMMAND = """#!/bin/sh
