@@ -32,9 +32,8 @@ async def check(massive: Any, market: StocksMarket, today: date) -> dict[str, An
         if not listed:
             return {"ok": False, "text": (
                 f"Massive answered but listed no SPY calls as of {as_of} expiring {first} to {last}"
-                f"{f' (stored SPY close ${spot:,.2f})' if spot else ''}. The key reaches Massive; its plan may not "
-                "include option contract history. Sign in at massive.com and check that the free Options Basic plan "
-                "is on the same account.")}
+                f"{f' (stored SPY close ${spot:,.2f})' if spot else ''}. The key is accepted (a key without option "
+                "access is refused outright), so your plan is fine; the request itself needs fixing.")}
         expiry = min({c["expiration"] for c in listed}, key=lambda e: abs((e - target).days))
         calls = [c for c in listed if c["expiration"] == expiry]
         middle = spot if spot else sorted(c["strike"] for c in calls)[len(calls) // 2]
