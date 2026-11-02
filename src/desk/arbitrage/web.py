@@ -79,7 +79,10 @@ class FlagIn(BaseModel):
 
 
 def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
+    from desk.stocks.runtime import source_revision
+
     csrf = secrets.token_urlsafe(32)
+    revision = source_revision()          # the code this server runs; opening the app restarts it when it differs
     collector = Collector(paths)
     shared: dict[str, Any] = {}
 
@@ -134,6 +137,10 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
         return {"csrf_token": csrf}
 
     # ── the hunt: check, deals, buy & hold, metals ────────────────────────────────────────────────────
+    @app.get("/api/hunt/runtime")
+    def hunt_runtime() -> dict[str, str]:
+        return {"application": "kestrel-arbitrage", "running_revision": revision}
+
     @app.get("/api/hunt/status")
     def hunt_status() -> dict[str, Any]:
         now = utc_now()

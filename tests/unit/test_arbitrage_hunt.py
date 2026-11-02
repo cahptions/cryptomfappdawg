@@ -226,3 +226,24 @@ def test_holds_rank_rising_items_and_the_background_refreshes_what_you_watch(tmp
                 h.flag(v["item"]["id"], "hidden", True)
                 assert h.holds(NOW) == []
     run(flow())
+
+
+def test_opening_arbitrage_restarts_a_server_running_older_code(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from desk.arbitrage.web import create_app
+    from desk.ops import dashboard_restart, launcher
+    from desk.stocks.runtime import source_revision
+
+    paths = DeskPaths(tmp_path, tmp_path / "config", tmp_path / "secrets.env")
+    with TestClient(create_app(paths, auto_start=False), base_url="http://127.0.0.1") as client:
+        runtime = client.get("/api/hunt/runtime").json()
+    assert runtime == {"application": "kestrel-arbitrage", "running_revision": source_revision()}
+    assert not launcher.arbitrage_is_current("http://127.0.0.1:9/")          # nothing there: not current
+    restarted = []
+    monkeypatch.setattr(launcher, "responding", lambda url, timeout=1.0: True)
+    monkeypatch.setattr(dashboard_restart, "restart_dashboard", lambda p, desk: restarted.append(desk))
+    for current in (True, False):
+        monkeypatch.setattr(launcher, "arbitrage_is_current", lambda url, timeout=2, current=current: current)
+        launcher.ensure_running("arbitrage", 8768, paths)
+    assert restarted == ["arbitrage"]                                         # only the outdated one

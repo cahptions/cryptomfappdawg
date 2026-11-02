@@ -380,6 +380,22 @@ def open_desk(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 3
     return url
 
 
+def arbitrage_is_current(url: str, timeout: float = 2) -> bool:
+    """Whether the Arbitrage server answering ``url`` runs the code on disk (a server older than this check has no
+    runtime endpoint, so it reads as outdated)."""
+    import json
+
+    from desk.stocks.runtime import source_revision
+
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/api/hunt/runtime", timeout=timeout) as response:  # noqa: S310
+            value = json.loads(response.read(4096))
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+    return (isinstance(value, dict) and value.get("application") == "kestrel-arbitrage"
+            and value.get("running_revision") == source_revision())
+
+
 def ensure_running(desk: str, port: int, paths: DeskPaths, *, wait_seconds: float = 30, restart: bool = False) -> str:
     """Start (or, with ``restart``, safely restart) the dashboard in the background until it answers; no window."""
     url = f"http://127.0.0.1:{port}/"
@@ -387,6 +403,8 @@ def ensure_running(desk: str, port: int, paths: DeskPaths, *, wait_seconds: floa
         from desk.stocks.runtime import server_is_current
 
         restart = not server_is_current(url)
+    if desk == "arbitrage" and not restart and responding(url):
+        restart = not arbitrage_is_current(url)        # an update is loaded on the next open, never left half-applied
     if restart:
         from desk.arbitrage.repo import isolated_paths
         from desk.ops.dashboard_restart import restart_dashboard

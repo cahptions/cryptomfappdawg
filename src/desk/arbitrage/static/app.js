@@ -36,6 +36,14 @@ async function api(path, body) {
         },
   );
   const data = await response.json().catch(() => ({}));
+  if (
+    response.status === 404 &&
+    path.startsWith("hunt/") &&
+    !data.detail?.startsWith("No such")
+  )
+    throw new Error(
+      "This window is talking to the previous version of Arbitrage. Load the update with: kestrel arbitrage",
+    );
   if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
   return data;
 }
@@ -74,12 +82,13 @@ function failure(host, error) {
 
 // ── status bar ──────────────────────────────────────────────────────────────────────────────────
 async function loadStatus() {
+  const bar = document.getElementById("status");
   try {
     status = await api("hunt/status");
-  } catch {
+  } catch (e) {
+    bar.replaceChildren(el("span", e.message, "pill warn"));
     return;
   }
-  const bar = document.getElementById("status");
   const ebay = el(
     "span",
     status.ebay.paused ? "eBay: paused" : "eBay sold prices: on",
@@ -681,8 +690,8 @@ async function showHolds(view) {
   );
 }
 async function showMetals(view) {
-  await loadStatus();
-  const spot = status?.spot || {};
+  status = await api("hunt/status");
+  const spot = status.spot || {};
   const payout = status?.settings?.scrap_payout ?? 0.8;
   const tax = status?.settings?.purchase_tax ?? 0.07;
   const table = el("table", undefined, "breakdown");
@@ -725,7 +734,7 @@ async function showMetals(view) {
   );
 }
 async function showSettings(view) {
-  await loadStatus();
+  status = await api("hunt/status");
   const s = status.settings;
   const rows = [
     ["purchase_tax", "Sales tax where you buy (%)", 100],
