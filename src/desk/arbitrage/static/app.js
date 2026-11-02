@@ -369,15 +369,17 @@ function stat(label, value, cls) {
   return s;
 }
 function dealCard(v, { open = false } = {}) {
+  if (v.metal) return metalOfferCard(v);
   const card = el(
     "article",
     undefined,
     "deal " + (v.deal ? v.deal.verdict : "waiting"),
   );
   const head = el("div", undefined, "deal-head");
-  if (v.item.image)
+  const image = v.offer?.image || v.item.image;
+  if (image)
     head.append(
-      Object.assign(el("img"), { src: v.item.image, alt: "", loading: "lazy" }),
+      Object.assign(el("img"), { src: image, alt: "", loading: "lazy" }),
     );
   const title = el("div", undefined, "deal-title");
   const kindLabel =
@@ -385,13 +387,15 @@ function dealCard(v, { open = false } = {}) {
       ? "Item"
       : (KINDS.find((k) => k[0] === v.item.kind) || [0, "Item"])[1];
   title.append(
-    el("span", kindLabel, "tag"),
-    el("h3", v.item.title),
+    el("span", v.offer ? `Found · ${v.offer.source}` : kindLabel, "tag"),
+    el("h3", v.offer ? v.offer.title : v.item.title),
     el(
       "small",
-      v.check
-        ? `${money(v.check.price)}${v.check.store ? " at " + v.check.store : ""}${v.check.quantity ? ` · ${v.check.quantity} on the shelf` : ""} · checked ${ago(v.check.at)}`
-        : "No price checked yet",
+      v.offer
+        ? `${money(v.offer.price)}${v.offer.shipping === null ? " + delivery" : v.offer.shipping ? ` + ${money(v.offer.shipping)} delivery` : " delivered"} · compared with ${v.item.title} · found ${ago(v.offer.first_seen)}`
+        : v.check
+          ? `${money(v.check.price)}${v.check.store ? " at " + v.check.store : ""}${v.check.quantity ? ` · ${v.check.quantity} on the shelf` : ""} · checked ${ago(v.check.at)}`
+          : "No price checked yet",
       "muted",
     ),
   );
@@ -500,7 +504,58 @@ function pasteBox(v) {
   wrap.append(link, area, go);
   return wrap;
 }
+function offerActions(v, card) {
+  const row = el("div", undefined, "actions");
+  row.append(
+    Object.assign(
+      el("a", `Buy on ${v.offer.source.replace(" listing", "")} ↗`, "go"),
+      {
+        href: v.offer.url,
+        target: "_blank",
+        rel: "noopener",
+      },
+    ),
+  );
+  if (v.sold_url)
+    row.append(
+      Object.assign(el("a", "Sold prices ↗", "ghost"), {
+        href: v.sold_url,
+        target: "_blank",
+        rel: "noopener",
+      }),
+    );
+  const hide = el("button", "Not interested", "ghost");
+  hide.type = "button";
+  hide.onclick = async () => {
+    await api(`hunt/offer/${v.offer.id}/hide`, {});
+    card.remove();
+  };
+  row.append(hide);
+  return row;
+}
+function metalOfferCard(v) {
+  const card = metalCard({ ...v.metal, spot: status?.spot || {} });
+  const o = v.offer;
+  card
+    .querySelector(".deal-title")
+    .replaceChildren(
+      el(
+        "span",
+        `Found · ${o.source} · ${o.karat === "925" ? "sterling" : o.karat} ${o.grams} g`,
+        "tag",
+      ),
+      el("h3", o.title),
+      el(
+        "small",
+        `${money(o.price)}${o.shipping ? ` + ${money(o.shipping)} delivery` : ""} · found ${ago(o.first_seen)}`,
+        "muted",
+      ),
+    );
+  card.append(offerActions(v, card));
+  return card;
+}
 function actions(v, card) {
+  if (v.offer) return offerActions(v, card);
   const row = el("div", undefined, "actions");
   const watch = el("button", v.item.watch ? "★ Watching" : "☆ Watch", "ghost");
   watch.type = "button";
@@ -610,7 +665,7 @@ function metalCard(out) {
     row,
     el(
       "p",
-      `Spot ${money(out.spot[out.metal])}/oz (${ago(out.spot.at)}). Scrap buyers pay a share of melt; set yours in Settings.`,
+      `Spot ${money(out.spot?.[out.metal])}/oz (${ago(out.spot?.at)}). Scrap buyers pay a share of melt; set yours in Settings.`,
       "muted",
     ),
   );
@@ -618,6 +673,56 @@ function metalCard(out) {
 }
 
 // ── views ───────────────────────────────────────────────────────────────────────────────────────
+const FINDERS = [
+  ["listings", "eBay listings under their sold prices"],
+  ["feeds", "Deal posts (Slickdeals, DealNews)"],
+  ["cards", "Rising Pokémon cards"],
+];
+function finderStrip(state, hunts) {
+  const box = el("div", undefined, "finders");
+  for (const [id, label] of FINDERS) {
+    const f = state[id];
+    const row = el(
+      "div",
+      undefined,
+      "finder " + (f ? (f.ok ? "ok" : "warn") : "idle"),
+    );
+    const what = !f
+      ? "starting…"
+      : f.note ||
+        `${f.found} found${f.posts ? ` in ${f.posts} posts` : ""}${f.last ? ` · last: ${f.last}` : ""}`;
+    row.append(
+      el("b", label),
+      el("span", `${what}${f ? ` · ${ago(f.at)}` : ""}`),
+    );
+    box.append(row);
+  }
+  box.append(
+    el(
+      "small",
+      `KESTREL looks for deals by itself: ${hunts} hunts (edit them in Settings), each every 12 hours, deal posts every 30 minutes, cards daily. eBay is read slowly, so a full pass takes about an hour.`,
+      "muted",
+    ),
+  );
+  return box;
+}
+function searchNow() {
+  const b = el("button", "🔎 Search now", "ghost");
+  b.type = "button";
+  b.title =
+    "Run whatever searches are due now instead of waiting for the next background pass";
+  b.onclick = async () => {
+    b.disabled = true;
+    b.textContent = "Searching… results appear here as they come in";
+    await api("hunt/find-now", {});
+    const poll = setInterval(() => {
+      if (location.hash === "#deals" || !location.hash) route();
+      else clearInterval(poll);
+    }, 20000);
+    setTimeout(() => clearInterval(poll), 15 * 60000);
+  };
+  return b;
+}
 async function showDeals(view) {
   const filters = [
     [null, "All"],
@@ -625,6 +730,7 @@ async function showDeals(view) {
     ["lego", "LEGO"],
     ["cards", "Cards"],
     ["sneakers", "Sneakers"],
+    ["metal", "Gold & silver"],
   ];
   const chips = el("div", undefined, "filters");
   for (const [id, label] of filters) {
@@ -637,19 +743,25 @@ async function showDeals(view) {
     };
     chips.append(b);
   }
-  const { items } = await api(
-    "hunt/deals" + (dealsFilter ? `?kind=${dealsFilter}` : ""),
-  );
-  const buys = items.filter((v) => v.deal?.verdict === "buy");
+  const [{ items }, st] = await Promise.all([
+    api("hunt/deals" + (dealsFilter ? `?kind=${dealsFilter}` : "")),
+    api("hunt/status"),
+  ]);
+  status = st;
+  const verdictOf = (v) => (v.metal || v.deal || {}).verdict;
+  const buys = items.filter((v) => verdictOf(v) === "buy").length;
+  const found = items.filter((v) => v.offer).length;
   view.replaceChildren(
     el("h2", "Deals"),
     el(
       "p",
       items.length
-        ? `${buys.length} worth buying of ${items.length} checked · ranked by profit after every fee`
-        : "Nothing checked yet. Scan or type something in the bar above, with the price you see.",
+        ? `${buys} worth buying · ${found} found by KESTREL, ${items.length - found} you checked · best profit after every fee first`
+        : "Nothing yet. The finders below are searching; anything you check in the bar above shows here too.",
       "muted",
     ),
+    finderStrip(st.finders || {}, st.hunts),
+    searchNow(),
     chips,
     ...items.map((v) => dealCard(v)),
   );
@@ -658,19 +770,13 @@ async function showHolds(view) {
   const { items } = await api("hunt/holds");
   const intro = el(
     "p",
-    "Items whose sold prices have been rising, steepest first: at least 10% a year over the last 90 days of sales (or a month of a card's market prices). Trends can reverse; this is where to look, not a promise. Retired LEGO sets have historically gained about 11% a year, usually starting 2–3 years after retirement.",
+    "Items whose prices are rising, steepest first: sold prices up at least 10% a year over the last 90 days, or a Pokémon card whose sales this week average 15%+ over the last 30 days (KESTREL scans recent sets daily). Trends can reverse; this is where to look, not a promise. Retired LEGO sets have historically gained about 11% a year, usually starting 2–3 years after retirement.",
     "muted",
   );
   const cards = items.map((v) => {
     const card = dealCard(v);
-    const m = v.market;
-    const yearOut = m.value * (1 + m.yearly);
     card.insertBefore(
-      el(
-        "p",
-        `Rising ${pct(m.yearly)} a year · ${money(m.value)} now → about ${money(yearOut)} in a year if it continues`,
-        "rise",
-      ),
+      el("p", `${v.rise.text} · now ${money(v.market.value)}`, "rise"),
       card.children[1],
     );
     return card;
@@ -683,7 +789,7 @@ async function showHolds(view) {
       : [
           el(
             "p",
-            "No rising items yet. Watch items (☆) and their sold prices are tracked daily.",
+            "Nothing rising yet. The card scan runs daily, and items you watch (☆) are tracked as their sales come in.",
             "muted",
           ),
         ]),
@@ -786,9 +892,37 @@ async function showSettings(view) {
     }
   };
   const bg = status.background;
+  const hunts = el("form", undefined, "settings");
+  const list = el("textarea");
+  list.id = "hunts";
+  list.rows = 12;
+  list.value = (status.hunt_list || []).join("\n");
+  list.setAttribute("aria-label", "What KESTREL hunts for");
+  const huntsSaved = el("p", "", "muted");
+  hunts.append(
+    el("h3", "What KESTREL hunts for"),
+    el(
+      "p",
+      "One per line: a LEGO set (LEGO 75192), a sneaker style code (DZ5485-612), any product name, or metal: and an eBay search for gold and silver by weight (metal: 10k gold scrap). Each is searched on eBay every 12 hours for listings under its sold prices.",
+      "muted",
+    ),
+    list,
+    el("button", "Save hunts"),
+    huntsSaved,
+  );
+  hunts.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const out = await api("hunt/hunts", { text: list.value });
+      huntsSaved.textContent = `Saved ${out.hunts.length} hunts.`;
+    } catch (err) {
+      huntsSaved.textContent = err.message;
+    }
+  };
   view.replaceChildren(
     el("h2", "Settings"),
     form,
+    hunts,
     el(
       "p",
       `eBay sold prices are read from this computer, one search every 20 seconds at most, with an honest identity. If eBay refuses, reading pauses 6 hours and pasting still works. ${status.ebay.paused || ""} Background refresh: ${bg.running ? "on" : "off"}${bg.error ? " — " + bg.error : ""}.`,

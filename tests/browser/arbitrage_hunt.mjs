@@ -15,6 +15,32 @@ try {
     await page.goto(`${base}/#deals`);
     await page.waitForSelector(".kinds .chip");
     if (viewport.width > 600) {
+      // the finders fill Deals and Buy & Hold by themselves
+      await page.waitForSelector(".finders");
+      await page.getByRole("button", { name: "🔎 Search now" }).click();
+      await page.waitForSelector("main .deal .tag:has-text('Found')", {
+        timeout: 60000,
+      });
+      await page.reload();
+      await page.waitForSelector("main .deal a.go");
+      const found = await page.locator("main .deal .tag").allTextContents();
+      assert.ok(
+        found.some((t) => /Found · eBay listing · 10k 5.2 g/.test(t)),
+        found.join(" | "),
+      );
+      assert.ok(
+        found.some((t) => t === "Found · Slickdeals"),
+        found.join(" | "),
+      );
+      assert.match(
+        await page.textContent(".finders"),
+        /eBay listings under their sold prices/,
+      );
+      await page.goto(`${base}/#holds`);
+      await page.waitForSelector("main .rise");
+      assert.match(await page.textContent("main"), /Fixture Riser/);
+      await page.goto(`${base}/#deals`);
+      await page.waitForSelector(".kinds .chip");
       // a barcode on the shelf: sold prices, the card and its numbers
       await page.fill("#q", "027084686524");
       await page.fill("#price", "9.97");
@@ -81,9 +107,10 @@ try {
       await page.waitForSelector("#result .deal");
       await page.goto(`${base}/#holds`);
       await page.waitForSelector("main .rise");
-      assert.match(
-        await page.textContent("main .rise"),
-        /Rising \+\d+% a year/,
+      assert.ok(
+        (await page.locator("main .rise").allTextContents()).some((t) =>
+          /Rising \+\d+% a year/.test(t),
+        ),
       );
       await page.goto(`${base}/#settings`);
       await page.fill("#bankroll", "500");
@@ -92,7 +119,7 @@ try {
     }
     await page.goto(`${base}/#deals`);
     await page.waitForSelector("main .deal");
-    assert.equal(await page.locator("main .deal").count(), 3); // the LEGO set had no price: not a deal
+    assert.ok((await page.locator("main .deal").count()) > 3); // found offers and your three checks
     assert.equal(
       await page.locator("main .deal .verdict b").first().textContent(),
       "BUY",

@@ -60,6 +60,8 @@ class Sale:
 
 
 ITEM = "\x00item"                     # marks the start of one result container in the page's lines
+LINK = "\x00link "                    # a listing's own address inside a container
+IMAGE = "\x00img "                    # a listing's photo inside a container
 
 
 class _Text(HTMLParser):
@@ -80,8 +82,15 @@ class _Text(HTMLParser):
             self.skip += 1
         if tag in _BLOCK_TAGS:
             self._flush()
-        if tag == "li" and re.search(r"\bs-(?:item|card)\b", dict(attrs).get("class") or ""):
+        a = dict(attrs)
+        if tag == "li" and re.search(r"\bs-(?:item|card)\b", a.get("class") or ""):
             self.lines.append(ITEM)
+        if tag == "a" and (m := re.match(r"https://www\.ebay\.com/itm/(\d+)", a.get("href") or "")):
+            self.lines.append(LINK + "https://www.ebay.com/itm/" + m[1])
+        if tag == "img":
+            src = a.get("src") or a.get("data-src") or ""
+            if src.startswith("https://i.ebayimg.com/"):
+                self.lines.append(IMAGE + src)
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("script", "style", "noscript", "template", "svg") and self.skip:
@@ -172,16 +181,48 @@ def parse_html(html: str) -> list[Sale]:
     """A downloaded sold-results page, one result container at a time (line by line if eBay renames them)."""
     lines = _until_fewer(html_lines(html))
     if ITEM not in lines:
-        return parse_lines(lines)
+        return parse_lines([x for x in lines if not x.startswith("\x00")])
     out = []
     starts = [i for i, line in enumerate(lines) if line == ITEM]
     for a, b in zip(starts, [*starts[1:], len(lines)], strict=True):
         chunk = lines[a + 1:b]
         when = next((d for d in map(_sold_on, chunk) if d), None)
         if when is not None:
-            record = _record([x for x in chunk if not _sold_on(x)], when)
+            record = _record([x for x in chunk if not _sold_on(x) and not x.startswith("\x00")], when)
             if record is not None:
                 out.append(record)
+    return out
+
+
+@dataclass(frozen=True)
+class Listing:
+    """An item for sale now (a Buy It Now listing)."""
+    price: float
+    shipping: float | None
+    title: str
+    url: str
+    image: str | None = None
+    condition: str | None = None
+
+    @property
+    def total(self) -> float:
+        return self.price + (self.shipping or 0.0)
+
+
+def parse_listings(html: str) -> list[Listing]:
+    """Buy It Now listings from a search-results page, one result container at a time (sold results are skipped)."""
+    lines = _until_fewer(html_lines(html))
+    starts = [i for i, line in enumerate(lines) if line == ITEM]
+    out = []
+    for a, b in zip(starts, [*starts[1:], len(lines)], strict=True):
+        chunk = lines[a + 1:b]
+        if any(_sold_on(x) for x in chunk):
+            continue
+        url = next((x[len(LINK):] for x in chunk if x.startswith(LINK)), None)
+        image = next((x[len(IMAGE):] for x in chunk if x.startswith(IMAGE)), None)
+        record = _record([x for x in chunk if not x.startswith("\x00")], date.min)
+        if record is not None and url:
+            out.append(Listing(record.price, record.shipping, record.title, url, image, record.condition))
     return out
 
 
@@ -196,4 +237,4 @@ def blocked(status: int, html: str) -> str | None:
     return None
 
 
-__all__ = ["Sale", "blocked", "html_lines", "parse_html", "parse_lines", "parse_text"]
+__all__ = ["Listing", "Sale", "blocked", "html_lines", "parse_html", "parse_lines", "parse_listings", "parse_text"]

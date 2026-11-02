@@ -132,14 +132,16 @@ class Hunt:
                 "created_at": row["created_at"]}
 
     def upsert(self, kind: str, query: str, title: str, now: datetime, *, image: str | None = None,
-               extra: dict[str, Any] | None = None) -> dict[str, Any]:
+               extra: dict[str, Any] | None = None, reveal: bool = True) -> dict[str, Any]:
+        """Add or update an item; your own check shows a hidden item again (``reveal``), a finder never does."""
         iid = item_id(kind, query)
         with self._tx():
             self.conn.execute(
                 "INSERT INTO hunt_items(id,kind,query,title,image,category,new_only,created_at,body) VALUES (?,?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(id) DO UPDATE SET hidden=0, title=excluded.title, image=COALESCE(excluded.image, image), "
-                "body=excluded.body", (iid, kind, query, title, image, KINDS[kind], int(kind in ("item", "lego", "sneakers")),
-                                       now.isoformat(), json.dumps(extra or {})))
+                "ON CONFLICT(id) DO UPDATE SET hidden=CASE WHEN ? THEN 0 ELSE hidden END, title=excluded.title, "
+                "image=COALESCE(excluded.image, image), body=excluded.body",
+                (iid, kind, query, title, image, KINDS[kind], int(kind in ("item", "lego", "sneakers")),
+                 now.isoformat(), json.dumps(extra or {}), int(reveal)))
         item = self.item(iid)
         assert item is not None
         return item
@@ -212,7 +214,9 @@ class Hunt:
         kept, ratio = match(item["query"], item["kind"], sales)
         return value.summarize(kept, today), ratio, kept
 
-    def view(self, iid: str, now: datetime) -> dict[str, Any]:
+    def view(self, iid: str, now: datetime, *, price: float | None = None) -> dict[str, Any]:
+        """An item with its sold prices and, at your last checked price (or ``price``, a found offer's total), the
+        deal card."""
         item = self.item(iid)
         if item is None:
             raise DeskError("No such item")
@@ -229,12 +233,15 @@ class Hunt:
             "sales": [s.as_json() for s in sorted(sales, key=lambda s: s.sold_on or date.min, reverse=True)[:30]],
             "market": None if market is None else market.as_json(), "deal": None,
         }
-        if market is not None and check is not None:
+        if market is not None and (check is not None or price is not None):
+            at_price = price if price is not None else float(check["price"])  # type: ignore[index]
+            mine = check if price is None else {}
             out["deal"] = value.evaluate(
-                float(check["price"]), market, category=item["category"], settings=self.settings(),
-                quantity=check.get("quantity"), shipping=check.get("shipping"), match=ratio,
+                at_price, market, category=item["category"], settings=self.settings(),
+                quantity=(mine or {}).get("quantity"), shipping=(mine or {}).get("shipping"), match=ratio,
                 comps_at=datetime.fromisoformat(usable["fetched_at"]) if usable else None,
-                price_at=datetime.fromisoformat(check["at"]), now=now)
+                price_at=now if price is not None else datetime.fromisoformat(check["at"]),  # type: ignore[index]
+                now=now)
         return out
 
     def _views(self, now: datetime, where: str) -> list[dict[str, Any]]:
@@ -242,20 +249,43 @@ class Hunt:
         return [self.view(i, now) for i in ids]
 
     def deals(self, now: datetime, kind: str | None = None) -> list[dict[str, Any]]:
-        """Every checked item, best first: Buy before Maybe before Skip, then the biggest profit share; items still
-        waiting for sold prices come last."""
-        rows = [v for v in self._views(now, "id IN (SELECT item_id FROM hunt_checks)")
-                if kind is None or v["item"]["kind"] == kind or (kind == "cards" and v["item"]["category"] == "cards")]
+        """What the finders found and what you checked, best first: Buy before Maybe before Skip, then the biggest
+        profit share; items still waiting for sold prices come last."""
+        from desk.arbitrage.finder import offers
+
+        rows = [*offers(self, now), *self._views(now, "id IN (SELECT item_id FROM hunt_checks)")]
+
+        def kind_of(v: dict[str, Any]) -> str:
+            if v.get("metal"):
+                return "metal"
+            return "cards" if v["item"]["category"] == "cards" else str(v["item"]["kind"])
+
+        rows = [v for v in rows if kind is None or kind_of(v) == kind]
         order = {"buy": 0, "maybe": 1, "skip": 2}
-        return sorted(rows, key=lambda v: (order[v["deal"]["verdict"]], -v["deal"]["profit_pct"]) if v["deal"]
-                      else (3, 0.0))
+
+        def rank(v: dict[str, Any]) -> tuple[int, float]:
+            deal = v.get("metal") or v.get("deal")
+            return (order[deal["verdict"]], -deal["profit_pct"]) if deal else (3, 0.0)
+
+        return sorted(rows, key=rank)
 
     def holds(self, now: datetime) -> list[dict[str, Any]]:
-        """Items whose sold prices are rising at least 10% a year, steepest first (needs dated sales over 3 weeks,
-        or a month of a card's market prices)."""
-        rows = [v for v in self._views(now, "1") if v["market"] and v["market"]["yearly"] is not None
-                and v["market"]["yearly"] >= 0.10 and (v["market"]["basis"] == "market_price" or v["market"]["count"] >= 8)]
-        return sorted(rows, key=lambda v: -v["market"]["yearly"])
+        """Items whose prices are rising, steepest first: sold prices rising at least 10% a year (dated sales over 3
+        weeks, or a month of a card's market prices), or a card's last week of sales 15%+ above its 30-day average."""
+        rows = []
+        for v in self._views(now, "1"):
+            m = v["market"]
+            if not m:
+                continue
+            usable, _ = self.comps(v["item"]["id"])
+            cm = (usable or {}).get("body", {}).get("market") or {}
+            if cm.get("avg7") and cm.get("avg30") and cm["avg7"] >= cm["avg30"] * 1.15:
+                week = cm["avg7"] / cm["avg30"] - 1
+                rows.append({**v, "rise": {"score": week * 52, "text": f"Sales this week average {week:+.0%} over "
+                                                                        f"the last 30 days"}})
+            elif m["yearly"] is not None and m["yearly"] >= 0.10 and (m["basis"] == "market_price" or m["count"] >= 8):
+                rows.append({**v, "rise": {"score": m["yearly"], "text": f"Rising {m['yearly']:+.0%} a year"}})
+        return sorted(rows, key=lambda v: -v["rise"]["score"])
 
     def due(self, now: datetime, limit: int = 1) -> list[dict[str, Any]]:
         """Items whose sold prices the background should refresh next: watched or recently checked, oldest first."""
@@ -400,10 +430,13 @@ class Hunter:
             await asyncio.sleep(self.every)
 
     async def tick(self, now: datetime) -> None:
+        from desk.arbitrage import finder
+
         with self.open_hunt() as hunt:
             await spot(hunt, self.client, now)
             for item in hunt.due(now):
                 await refresh(hunt, item, self.client, self.ebay, now)
+            await finder.run(hunt, self.client, self.ebay, now)
 
 
 async def spot(hunt: Hunt, client: httpx.AsyncClient, now: datetime) -> dict[str, Any]:

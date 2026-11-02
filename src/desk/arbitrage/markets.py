@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -21,7 +22,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from desk.arbitrage.comps import Sale, blocked, parse_html
+from desk.arbitrage.comps import Sale, blocked, parse_html, parse_listings
 from desk.core.errors import DeskError
 
 AGENT = "KESTRELArbitrage/2.0 (personal resale research; one person's local app)"
@@ -29,6 +30,14 @@ EBAY_GAP_SECONDS = 20
 EBAY_PAUSE = timedelta(hours=6)
 MAX_PAGE = 3_000_000
 IMAGE_HOSTS = ("i.ebayimg.com", "images.pokemontcg.io", "cards.scryfall.io", "assets.tcgdex.net")
+
+
+def listing_url(query: str, *, new_only: bool = False) -> str:
+    """eBay's Buy It Now listings for a search, cheapest (with delivery) first, from US sellers."""
+    params = {"_nkw": query, "LH_BIN": "1", "_sop": "15", "LH_PrefLoc": "1", "_ipg": "60", "rt": "nc"}
+    if new_only:
+        params["LH_ItemCondition"] = "1000|1500"
+    return "https://www.ebay.com/sch/i.html?" + urlencode(params)
 
 
 def sold_url(query: str, *, new_only: bool = False) -> str:
@@ -59,11 +68,10 @@ class EbaySold:
     def paused(self, now: datetime) -> str | None:
         return paused(self.state, now)
 
-    async def fetch(self, query: str, *, new_only: bool, now: datetime) -> dict[str, Any]:
-        """{"status": ok|empty|paused|blocked|unreadable|error, "sales": [...], "url", "note"}."""
-        url = sold_url(query, new_only=new_only)
+    async def page(self, url: str, now: datetime) -> tuple[str, str | None, str]:
+        """(status ok|paused|blocked|error, note, page) for one eBay page, at the shared pace."""
         if (why := self.paused(now)) is not None:
-            return {"status": "paused", "sales": [], "url": url, "note": why}
+            return "paused", why, ""
         async with self.lock:
             wait = self.gap - (time.time() - float(self.state.get("last_request") or 0))
             if wait > 0:
@@ -73,21 +81,36 @@ class EbaySold:
                 response = await self.client.get(url, headers={"User-Agent": AGENT, "Accept-Language": "en-US"},
                                                   follow_redirects=True)
             except httpx.HTTPError as exc:
-                return {"status": "error", "sales": [], "url": url, "note": f"eBay didn't answer ({type(exc).__name__})"}
-        page = response.text[:MAX_PAGE]
-        refused = blocked(response.status_code, page)
+                return "error", f"eBay didn't answer ({type(exc).__name__})", ""
+        text = response.text[:MAX_PAGE]
+        refused = blocked(response.status_code, text)
         if refused:
             self.state.update(paused_until=(now + EBAY_PAUSE).isoformat(), reason=refused)
-            return {"status": "blocked", "sales": [], "url": url, "note": refused}
+            return "blocked", refused, ""
         if response.status_code != 200:
-            return {"status": "error", "sales": [], "url": url, "note": f"eBay answered HTTP {response.status_code}"}
-        sales = parse_html(page)
+            return "error", f"eBay answered HTTP {response.status_code}", ""
+        self.state["last_ok"] = now.isoformat()
+        return "ok", None, text
+
+    async def fetch(self, query: str, *, new_only: bool, now: datetime) -> dict[str, Any]:
+        """Sold results: {"status": ok|empty|paused|blocked|unreadable|error, "sales": [...], "url", "note"}."""
+        url = sold_url(query, new_only=new_only)
+        status, note, text = await self.page(url, now)
+        if status != "ok":
+            return {"status": status, "sales": [], "url": url, "note": note}
+        sales = parse_html(text)
         if sales:
             return {"status": "ok", "sales": sales, "url": url, "note": None}
-        if "sold" in page.lower() and "0 results" not in page.lower() and "no exact matches" not in page.lower():
+        if "sold" in text.lower() and "0 results" not in text.lower() and "no exact matches" not in text.lower():
             return {"status": "unreadable", "sales": [], "url": url,
                     "note": "eBay's page didn't read as sold results; run `kestrel ebay-check` and send the result"}
         return {"status": "empty", "sales": [], "url": url, "note": "No sales of this in the last 90 days"}
+
+    async def listings(self, query: str, *, new_only: bool, now: datetime) -> dict[str, Any]:
+        """The cheapest Buy It Now listings now (price plus delivery, US sellers)."""
+        url = listing_url(query, new_only=new_only)
+        status, note, text = await self.page(url, now)
+        return {"status": status, "note": note, "url": url, "listings": parse_listings(text) if status == "ok" else []}
 
 
 async def _json(client: httpx.AsyncClient, url: str, **params: Any) -> Any:
@@ -200,9 +223,62 @@ async def barcode(client: httpx.AsyncClient, upc: str) -> dict[str, Any] | None:
             "retail_low": item.get("lowest_recorded_price"), "retail_high": item.get("highest_recorded_price")}
 
 
+FEEDS = {
+    "slickdeals": "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1",
+    "slickdeals-lego": "https://slickdeals.net/newsearch.php?q=lego&searcharea=deals&searchin=first&rss=1",
+    "slickdeals-sneakers": "https://slickdeals.net/newsearch.php?q=nike+jordan&searcharea=deals&searchin=first&rss=1",
+    "slickdeals-pokemon": "https://slickdeals.net/newsearch.php?q=pokemon&searcharea=deals&searchin=first&rss=1",
+    "dealnews": "https://www.dealnews.com/?rss=1",
+}
+
+
+async def feed(client: httpx.AsyncClient, url: str) -> list[dict[str, Any]]:
+    """A deal feed's posts: title, link, the price in the title (None for "from $x" or no price)."""
+    from xml.etree import ElementTree as ET
+
+    try:
+        response = await client.get(url, headers={"User-Agent": AGENT})
+    except httpx.HTTPError as exc:
+        raise DeskError(f"{url.split('/')[2]} didn't answer ({type(exc).__name__})") from exc
+    if response.status_code != 200:
+        raise DeskError(f"{url.split('/')[2]} answered HTTP {response.status_code}")
+    text = response.text[:3_000_000]
+    if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
+        raise DeskError(f"{url.split('/')[2]} sent a page, not a feed")
+    try:
+        root = ET.fromstring(text)  # noqa: S314 -- declarations rejected above; size bounded
+    except ET.ParseError as exc:
+        raise DeskError(f"{url.split('/')[2]} sent an unreadable feed") from exc
+    out = []
+    for item in root.iter("item"):
+        title = " ".join((item.findtext("title") or "").split())
+        link = (item.findtext("link") or "").strip()
+        m = re.search(r"(?<!from )(?<!From )~?\$([\d,]+(?:\.\d{2})?)", title)
+        if title and link.startswith("https://"):
+            out.append({"title": title, "url": link, "price": float(m[1].replace(",", "")) if m else None})
+    return out
+
+
+async def pokemon_sets(client: httpx.AsyncClient, count: int) -> list[dict[str, Any]]:
+    value = await _json(client, "https://api.pokemontcg.io/v2/sets", orderBy="-releaseDate", pageSize=count)
+    return [{"id": s["id"], "name": s["name"]} for s in (value or {}).get("data", [])]
+
+
+async def pokemon_set_cards(client: httpx.AsyncClient, set_id: str) -> list[dict[str, Any]]:
+    """A set's cards with TCGplayer's US market price and Cardmarket's 1-, 7- and 30-day average sale prices."""
+    value = await _json(client, "https://api.pokemontcg.io/v2/cards", q=f"set.id:{set_id}", pageSize=250)
+    out = []
+    for c in (value or {}).get("data", []):
+        card = _pokemon_card(c)
+        cm = ((c.get("cardmarket") or {}).get("prices") or {})
+        if card is not None:
+            out.append({**card, "avg1": cm.get("avg1"), "avg7": cm.get("avg7"), "avg30": cm.get("avg30")})
+    return out
+
+
 def comps_json(sales: list[Sale]) -> str:
     return json.dumps([s.as_json() for s in sales])
 
 
-__all__ = ["AGENT", "IMAGE_HOSTS", "EbaySold", "barcode", "comps_json", "magic", "paused", "pokemon", "sold_url",
-           "spot"]
+__all__ = ["AGENT", "FEEDS", "IMAGE_HOSTS", "EbaySold", "barcode", "comps_json", "feed", "listing_url", "magic", "paused",
+           "pokemon", "pokemon_set_cards", "pokemon_sets", "sold_url", "spot"]

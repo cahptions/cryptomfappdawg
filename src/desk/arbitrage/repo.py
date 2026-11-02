@@ -118,6 +118,10 @@ class Repo:
                 for statement in _split_sql(HUNT_DDL):
                     conn.execute(statement)
                 conn.execute("INSERT OR IGNORE INTO arb_meta VALUES ('hunt_schema','1')")
+                from desk.arbitrage.finder import FINDER_DDL
+
+                for statement in _split_sql(FINDER_DDL):
+                    conn.execute(statement)
                 if not conn.execute("SELECT 1 FROM arb_meta WHERE key='source_host_index_v1'").fetchone():
                     from urllib.parse import urlsplit
 

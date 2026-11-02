@@ -17,6 +17,16 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-02 — Arbitrage finds deals by itself
+
+- The user: "the app is supposed to find deals and compare them", not wait for checks. `finder.py`: eBay Buy It Now
+  listings under each hunt's sold median (42 interleaved default hunts: LEGO sets, gold/silver by weight vs melt,
+  sneaker codes, sealed Pokémon; editable in Settings), Slickdeals/DealNews posts naming an exact LEGO set or sneaker
+  code, and rising Pokémon cards (Cardmarket avg7 vs avg30) into Buy & Hold. Offers (`hunt_offers`) live 3 days;
+  Deals ranks offers and checks together; a status strip shows each finder; Search now runs what's due.
+- A BUY now needs at least 5 sales (or a marketplace's recent-sales price). The Pokémon TCG API's newest sets carry no
+  prices (and it fails often), so cards are a small extra; eBay answering the operator's computer is what fills Deals.
+
 ## 2026-11-02 — KESTREL Arbitrage rebuilt: check a price against real sold prices
 
 - The user's direction: find underpriced items against eBay **sold** prices (not asking prices), rank by profit

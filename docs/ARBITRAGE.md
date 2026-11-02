@@ -22,7 +22,25 @@ paused it. The new desk has independent data, credentials and locks. Its icon op
 
 ## What it does
 
-KESTREL Arbitrage answers one question fast, in a store or at home: **is this worth buying to resell, and how many?**
+KESTREL Arbitrage **finds deals by itself** and ranks them by profit after every fee, and it answers one question fast in
+a store: **is this worth buying to resell, and how many?**
+
+### The finders (automatic)
+
+| Finder | What it looks for | How often |
+|---|---|---|
+| eBay listings under their sold prices | For each hunt in Settings (30 LEGO sets, sneaker style codes, sealed Pokémon products), the cheapest Buy It Now listings from US sellers whose total is under the same item's 90-day sold median. Box-only, lots, parts, customs and the like are skipped. | each hunt every 12 hours |
+| Gold & silver listings | `metal:` hunts (10k/14k scrap, rings, chains, sterling): listings whose title states weight and karat, priced under what a scrap buyer pays for the melt. Plated, filled and "tone" items are skipped. | every 12 hours |
+| Deal posts | Slickdeals (front page, LEGO, sneakers, Pokémon) and DealNews posts naming a LEGO set number or sneaker style code, against that item's sold prices. | every 30 minutes |
+| Rising Pokémon cards | Cards in the 14 newest sets whose last week of sales averages 15%+ over their 30-day average (Cardmarket sale averages; US value is TCGplayer's market price) → Buy & Hold. | daily |
+
+The status of each finder (last run, what it found, or why it found nothing) is at the top of **Deals**, with
+**🔎 Search now** to run whatever is due without waiting. A full pass of all hunts takes about an hour because eBay is
+read slowly. Found items stay in Deals while they're seen again (3 days), with **Buy on eBay ↗** (or the deal post)
+and **Not interested**. A BUY needs at least 5 sales behind the price (or a marketplace's own recent-sales price);
+fewer is at most a MAYBE.
+
+### Checking something yourself
 
 - **The check bar** (always at the top): pick what you're checking — Anything (scan or type a barcode, or the item's
   name), LEGO (set number), Pokémon or Magic (card name), Sneakers (style code), or Gold & silver — type the price you

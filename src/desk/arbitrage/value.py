@@ -166,7 +166,8 @@ def evaluate(price: float, market: Market, *, category: str, settings: dict[str,
     profit = net - cost
     pct = profit / cost if cost > 0 else 0.0
     conf = confidence(market, match, comps_at, price_at, now)
-    if pct >= s["min_profit_pct"] and profit >= s["min_profit_usd"] and conf["score"] >= 3:
+    thin = market.basis != "market_price" and market.count < 5      # a sale or two can't vouch for a price
+    if pct >= s["min_profit_pct"] and profit >= s["min_profit_usd"] and conf["score"] >= 3 and not thin:
         verdict = "buy"
     elif pct >= s["min_profit_pct"] / 2 and profit >= s["min_profit_usd"] / 2 and conf["score"] >= 2:
         verdict = "maybe"

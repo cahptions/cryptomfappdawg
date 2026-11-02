@@ -199,7 +199,7 @@ def test_check_reads_sold_prices_once_ranks_the_deal_and_pauses_politely_when_re
                 pasted = hunt.paste(h, refused["item"]["id"], "\n".join([
                     f"Sold  {TODAY:%b} {TODAY.day}, {TODAY.year}", "Nintendo Switch OLED console", "$250.00",
                     "Free delivery"]), NOW + timedelta(days=1))
-                assert pasted["market"]["value"] == 250.0 and pasted["deal"]["verdict"] == "buy"
+                assert pasted["market"]["value"] == 250.0 and pasted["deal"]["verdict"] == "maybe"   # one sale: not a BUY
                 with pytest.raises(Exception, match="No sold results"):
                     hunt.paste(h, refused["item"]["id"], "nothing here", NOW)
     run(flow())

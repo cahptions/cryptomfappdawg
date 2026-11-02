@@ -146,8 +146,12 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
         now = utc_now()
         with hunt_db() as h:
             ebay = shared["ebay"]
+            from desk.arbitrage.finder import hunts
+
+            hunt_list = hunts(h)
             return {"ebay": {"paused": ebay.paused(now), "last_request": ebay.state.get("last_request")},
-                    "spot": h.state("spot"), "settings": h.settings(),
+                    "spot": h.state("spot"), "settings": h.settings(), "finders": h.state("finders"),
+                    "hunts": len(hunt_list), "hunt_list": hunt_list,
                     "background": {"running": bool(shared["hunter"].task and not shared["hunter"].task.done()),
                                    "error": shared["hunter"].error}}
 
@@ -171,9 +175,47 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
         with hunt_db() as h:
             return hunting.paste(h, data["item_id"], data["text"], utc_now())
 
+    @app.post("/api/hunt/hunts")
+    async def hunt_hunts(request: Request) -> dict[str, Any]:
+        from desk.arbitrage.finder import save_hunts
+
+        data = await document(request)
+        if not isinstance(data.get("text"), str):
+            raise HTTPException(400, "One hunt per line")
+        with hunt_db() as h:
+            return {"hunts": save_hunts(h, data["text"])}
+
+    @app.post("/api/hunt/find-now")
+    async def hunt_find_now() -> dict[str, bool]:
+        """Run whatever the finders have due now, in the background (eBay's pace still applies)."""
+        import asyncio
+
+        from desk.arbitrage import finder
+
+        task = shared.get("find_now")
+        if task is not None and not task.done():
+            return {"started": False}
+
+        async def once() -> None:
+            with hunt_db() as h:
+                now = utc_now()
+                await hunting.spot(h, shared["client"], now)
+                await finder.run(h, shared["client"], shared["ebay"], now, budget=6)
+
+        shared["find_now"] = asyncio.create_task(once())
+        return {"started": True}
+
+    @app.post("/api/hunt/offer/{oid}/hide")
+    def hunt_hide_offer(oid: str) -> dict[str, bool]:
+        from desk.arbitrage.finder import hide_offer
+
+        with hunt_db() as h:
+            hide_offer(h, oid)
+            return {"hidden": True}
+
     @app.get("/api/hunt/deals")
     def hunt_deals(kind: str | None = None) -> dict[str, Any]:
-        if kind not in (None, "item", "lego", "cards", "sneakers"):
+        if kind not in (None, "item", "lego", "cards", "sneakers", "metal"):
             raise HTTPException(400, "Unknown kind")
         with hunt_db() as h:
             return {"items": h.deals(utc_now(), kind)}
