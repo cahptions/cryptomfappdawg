@@ -232,7 +232,12 @@ const KestrelPlays = (() => {
     const c = el("article", undefined, "setup-card play-card"),
       head = el("div", undefined, "setup-heading play-heading");
     head.append(
-      link(play.symbol, `#stock/${encodeURIComponent(play.symbol)}`),
+      Object.assign(
+        link(play.symbol, `#stock/${encodeURIComponent(play.symbol)}`),
+        {
+          title: `Open the ${play.symbol} stock page`,
+        },
+      ),
       el("span", money(play.underlying_price), "play-underlying"),
       KestrelPlayWorkflow.trackButton(play),
     );
@@ -326,6 +331,82 @@ const KestrelPlays = (() => {
     return c;
   }
 
+  // A contract clicked in a list opens its explanation box in place (the same box the Cards view shows);
+  // the full play page and the stock page are links inside it.
+  function popup(content) {
+    const box = el("dialog", undefined, "play-popup");
+    const close = el("button", "×", "play-popup-close");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close");
+    close.onclick = () => box.close();
+    box.append(close, content);
+    box.addEventListener("click", (e) => {
+      if (e.target === box) box.close(); // a click on the backdrop closes it
+    });
+    box.onclose = () => box.remove();
+    document.body.append(box);
+    box.showModal();
+    return box;
+  }
+  function contractLink(label, play) {
+    const a = link(
+      label,
+      play.idea_id
+        ? `#plays/idea/${play.idea_id}`
+        : `#stock/${encodeURIComponent(play.symbol)}`,
+    );
+    a.onclick = (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) return; // a new tab still opens the full page
+      e.preventDefault();
+      const box = card(play);
+      box.append(
+        link(
+          `${play.symbol} stock page ↗`,
+          `#stock/${encodeURIComponent(play.symbol)}`,
+        ),
+      );
+      popup(box);
+    };
+    return a;
+  }
+  function flagBox(r) {
+    const box = el("article", undefined, "setup-card play-card");
+    // opened = new open interest as a share of the flagged volume (the server's verdict uses 0.5 and 0.1)
+    const opened =
+      r.opened === null
+        ? "This contract wasn't in today's collected chains, so whether the trades opened new positions isn't known yet."
+        : r.opened >= 0.5
+          ? `Open interest grew by ${pct(r.opened)} of the flagged volume: most of the flagged trades were new positions held overnight.`
+          : r.opened <= 0.1
+            ? `Open interest grew by only ${pct(r.opened)} of the flagged volume: the trades were mostly closing positions or bought and sold the same day.`
+            : `Open interest grew by ${pct(r.opened)} of the flagged volume: some of the flagged trades were new positions.`;
+    box.append(
+      el("div", r.symbol, "setup-heading play-heading"),
+      el(
+        "p",
+        `${money(r.strike)} ${r.kind} · expires ${r.expiration}`,
+        "play-contract",
+      ),
+      el(
+        "p",
+        `Flagged as unusual on ${r.session}: ${number(r.volume)} contracts traded, against open interest of ${number(r.open_interest)}.`,
+      ),
+      el("p", opened),
+      el(
+        "p",
+        r.price_change === null
+          ? "The contract's price since then isn't known yet."
+          : `The contract's price has moved ${r.price_change >= 0 ? "+" : ""}${pct(r.price_change, 1)} since it was flagged.`,
+      ),
+      el("p", `Verdict: ${r.verdict}`, "play-confirm"),
+      link(
+        `${r.symbol} stock page and option chain ↗`,
+        `#stock/${encodeURIComponent(r.symbol)}`,
+      ),
+    );
+    return box;
+  }
+
   function rowsTable(plays) {
     return table(
       [
@@ -345,15 +426,7 @@ const KestrelPlays = (() => {
       ],
       plays.map((p) => [
         String(p.rank),
-        (() => {
-          const a = link(
-            `${p.symbol} ${p.action} ${p.type}`,
-            p.idea_id
-              ? `#plays/idea/${p.idea_id}`
-              : `#stock/${encodeURIComponent(p.symbol)}`,
-          );
-          return a;
-        })(),
+        contractLink(`${p.symbol} ${p.action} ${p.type}`, p),
         `${strikeList(p)} · ${p.expiration} (${p.dte}d)`,
         money(p.underlying_price),
         p.action === "SELL" ? `+${money(p.credit)}` : money(p.cost),
@@ -531,11 +604,18 @@ const KestrelPlays = (() => {
           "Verdict",
         ],
         rows.map((r) => [
-          (() =>
-            link(
+          (() => {
+            const a = link(
               `${r.symbol} ${money(r.strike)} ${r.kind} ${r.expiration}`,
               `#stock/${encodeURIComponent(r.symbol)}`,
-            ))(),
+            );
+            a.onclick = (e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+              e.preventDefault();
+              popup(flagBox(r));
+            };
+            return a;
+          })(),
           number(r.volume),
           `${number(r.open_interest)} → ${r.open_interest_now === null ? "—" : number(r.open_interest_now)}`,
           r.opened === null ? "—" : pct(r.opened),

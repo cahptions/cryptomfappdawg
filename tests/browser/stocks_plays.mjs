@@ -265,6 +265,15 @@ try {
     await page.getByRole("tab", { name: /Most likely to finish ITM/ }).click();
     await page.getByLabel("Layout").selectOption("table");
     await page.getByRole("columnheader", { name: "Chance ITM" }).waitFor();
+    // a contract in the list opens its explanation box in place, not the stock page
+    const before = page.url();
+    await page.locator('table a[href^="#plays/idea/"]').first().click();
+    const popup = page.locator("dialog.play-popup .play-card");
+    await popup.waitFor();
+    assert.equal(page.url(), before, "the page stays put");
+    assert.match(await popup.innerText(), /stock page/);
+    await page.getByRole("button", { name: "Close" }).click();
+    await popup.waitFor({ state: "detached" });
     await page.getByLabel("Minimum chance at expiry, percent").fill("99");
     await page
       .getByText(/No plays in this category match these filters/)

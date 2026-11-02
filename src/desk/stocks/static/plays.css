@@ -1042,3 +1042,34 @@
   font-weight: 600;
   color: var(--accent);
 }
+
+/* a contract's explanation box, opened from a list in place */
+.play-popup {
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+.play-popup::backdrop {
+  background: #0008;
+}
+.play-popup > .play-card {
+  margin: 0;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  box-shadow: 0 16px 60px #000a;
+}
+.play-popup-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  cursor: pointer;
+}
