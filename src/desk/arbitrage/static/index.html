@@ -3,53 +3,34 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#0b0d0a" />
     <title>KESTREL Arbitrage</title>
     <link rel="stylesheet" href="/static/style.css" />
     <script src="/static/app.js" defer></script>
   </head>
   <body>
-    <aside class="sidebar">
-      <a class="brand" href="#home">◢ KESTREL</a>
-      <p class="eyebrow">ARBITRAGE</p>
-      <nav>
-        <a href="#home">Discover</a><a href="#research">Product research</a
-        ><a href="#profitability">Where to sell</a>
-        <a href="#suggestions">Capital planner</a
-        ><a href="#inventory">Inventory</a><a href="#top">Top opportunities</a>
-        <a href="#planning">Planning</a><a href="#sources">Sources</a
-        ><a href="#settings">Settings</a>
-      </nav>
-      <p class="footnote">
-        LOCAL · RESEARCH ONLY<br />No marketplace purchases or listing changes
-      </p>
-    </aside>
-    <main>
-      <header>
-        <div>
-          <p class="eyebrow">KESTREL / COMMERCE</p>
-          <h1>Arbitrage, with an exit plan.</h1>
-          <p>
-            Discover underpriced products. Compare real costs. Put your capital
-            where it earns its place.
-          </p>
-        </div>
-        <a class="button" href="#suggestions">Review capital plan ↗</a>
-      </header>
-      <div id="notice" role="status" aria-live="polite">
-        Loading local observations…
-      </div>
-      <div id="stats" class="stats"></div>
-      <section id="content" aria-live="polite"></section>
-      <footer>
-        Retailer markup is asking-price evidence. Reviewed scenarios are
-        estimates. Heat is a descriptive rating, never a profit probability.
-      </footer>
-    </main>
-    <dialog id="editor">
-      <form method="dialog">
-        <button class="close" aria-label="Close">×</button>
-      </form>
-      <div id="edit-content"></div>
-    </dialog>
+    <header class="top">
+      <a class="brand" href="#deals">◢ KESTREL <b>Arbitrage</b></a>
+      <div id="status" class="status" aria-live="polite"></div>
+    </header>
+    <section class="checkbar" aria-label="Check a price">
+      <div
+        class="kinds"
+        role="radiogroup"
+        aria-label="What you're checking"
+      ></div>
+      <form id="check" autocomplete="off"></form>
+      <div id="result" aria-live="polite"></div>
+    </section>
+    <nav class="tabs" aria-label="Views">
+      <a href="#deals">🔥 Deals</a><a href="#holds">📈 Buy &amp; Hold</a
+      ><a href="#metals">🥇 Gold &amp; silver</a
+      ><a href="#settings">⚙️ Settings</a>
+    </nav>
+    <main id="view"></main>
+    <footer>
+      Research only · KESTREL never buys or lists anything · Sold prices from
+      eBay, TCGplayer and gold-api.com
+    </footer>
   </body>
 </html>

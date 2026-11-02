@@ -17,6 +17,25 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-02 — KESTREL Arbitrage rebuilt: check a price against real sold prices
+
+- The user's direction: find underpriced items against eBay **sold** prices (not asking prices), rank by profit
+  share, flag rising items for buy-and-hold, in-store clearance (incl. 10k gold vs melt), LEGO, cards, sneakers;
+  extremely intuitive, like Stocks. Research: eBay's sold API (Marketplace Insights) is invite-only, findCompletedItems
+  is gone (Feb 2025), robots.txt disallows /sch/; Amazon/Walmart publish no sold prices; Keepa is paid.
+- The user chose reading eBay's sold pages from their own computer. Built honestly: identifying user agent, one
+  request per 20 s, 12 h reuse, a refusal or robot check pauses 6 h, never circumvented (this cloud gets HTTP 403).
+  Paste of a sold-results page is the always-available fallback; the parser reads per result container (s-item or
+  s-card) for pages and line by line for pasted text, and drops "Results matching fewer words".
+- `comps.py` (parsers), `value.py` (90-day median of buyer totals with outliers dropped, sales a week, Theil-Sen
+  trend, eBay fees incl. buyer tax, your tax and label, 5-check confidence, BUY/MAYBE/SKIP, how many; metals vs melt),
+  `markets.py` (eBay reader, Pokémon TCG API with TCGdex fallback, Scryfall, gold-api.com spot, UPCitemdb),
+  `hunt.py` (hunt_* tables, check/paste/deals/holds, background refresh of watched and recently checked items).
+- New single-page UI: check bar (kinds, barcode camera where supported), Deals, Buy & Hold, Gold & silver, Settings.
+  `kestrel arbitrage`, `kestrel ebay-check`; `kestrel update` stops a running Arbitrage so it restarts updated.
+- Next: verify `kestrel ebay-check` on the user's network; LEGO via BrickLink (sold, 6 months) and Brickset
+  (retirement dates) for buy-and-hold; phone access in stores (Tailscale with HTTPS) and running on the HP.
+
 ## 2026-10-31 — Option strategies in the historical replay, as far back as stock prices go
 
 - The user's call: replay option trades as far back as possible; Massive's option data may be used as much as needed

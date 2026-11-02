@@ -25,6 +25,11 @@ def add_parser(sub: Any) -> None:
     dashboard.add_argument("--open", action="store_true")
     dashboard.add_argument("--restart", action="store_true", help="Gracefully restart only this Arbitrage dashboard")
     dashboard.set_defaults(func=run)
+    check = commands.add_parser("ebay-check", help="One eBay sold-results request: does this computer read sold prices?")
+    check.add_argument("query", nargs="*", help="what to search (default: LEGO 75192)")
+    check.set_defaults(func=run)
+    commands.add_parser("stop", help="Gracefully stop this computer's Arbitrage dashboard (the icon starts it again)"
+                        ).set_defaults(func=run)
     for action in ("collect", "diagnose"):
         commands.add_parser(
             action,
@@ -32,8 +37,61 @@ def add_parser(sub: Any) -> None:
         ).set_defaults(func=run)
 
 
+def ebay_check(paths: DeskPaths, query: str) -> int:
+    """One polite request; says whether eBay answered, how many sales were read, and saves an unread page for review."""
+    import httpx
+
+    from desk.arbitrage import comps, markets
+    from desk.arbitrage.hunt import Hunt
+    from desk.core.clock import utc_now
+
+    initialize(paths)
+    with Repo.open(paths) as repo:
+        hunt = Hunt(repo.conn)
+        state = hunt.state("ebay")
+        if (why := markets.paused(state, utc_now())) is not None:
+            print(f"✗ Paused: {why}")
+            return 1
+        url = markets.sold_url(query)
+        try:
+            response = httpx.get(url, headers={"User-Agent": markets.AGENT, "Accept-Language": "en-US"},
+                                 follow_redirects=True, timeout=20)
+        except httpx.HTTPError as exc:
+            print(f"✗ eBay didn't answer ({type(exc).__name__})")
+            return 1
+        state["last_request"] = time.time()
+        page = response.text[:markets.MAX_PAGE]
+        refused = comps.blocked(response.status_code, page)
+        if refused:
+            state.update(paused_until=(utc_now() + markets.EBAY_PAUSE).isoformat(), reason=refused)
+            hunt.save_state("ebay", state)
+            print(f"✗ {refused}. eBay reading pauses 6 hours; pasting sold results still works.")
+            return 1
+        hunt.save_state("ebay", state)
+        sales = comps.parse_html(page)
+        if sales:
+            print(f"✓ Read {len(sales)} sold results for \"{query}\" (HTTP {response.status_code}). Newest:")
+            for s in sales[:3]:
+                print(f"  {s.sold_on}  ${s.total:,.2f}  {s.title[:70]}")
+            return 0
+        saved = paths.home / "ebay-check.html"
+        saved.write_text(page)
+        lines = comps.html_lines(page)
+        print(f"✗ eBay answered (HTTP {response.status_code}, {len(page):,} characters) but no sold results were read. "
+              f"Saved to {saved}. Send this line to Claude: results={page.count('s-item')}/{page.count('s-card')} "
+              f"sold_lines={sum(1 for x in lines if x.startswith('Sold'))} title={page[page.find('<title>'):][:80]!r}")
+        return 1
+
+
 def run(args: argparse.Namespace) -> int:
     paths = isolated_paths(DeskPaths.from_env())
+    if args.arbitrage_command == "ebay-check":
+        return ebay_check(paths, " ".join(args.query) or "LEGO 75192")
+    if args.arbitrage_command == "stop":
+        from desk.ops.dashboard_restart import restart_dashboard
+
+        restart_dashboard(paths, "arbitrage")
+        return 0
     if args.arbitrage_command == "diagnose":
         if not (paths.db_dir / "arbitrage.db").exists():
             print(json.dumps({"initialized": False, "desk": "ARBITRAGE"}))

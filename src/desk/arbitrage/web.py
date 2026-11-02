@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import secrets
 import sqlite3
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
+from desk.arbitrage import hunt as hunting
+from desk.arbitrage import markets
 from desk.arbitrage.contracts import (
     DealLead,
     InventoryEvent,
@@ -55,26 +58,59 @@ async def document(request: Request) -> dict[str, Any]:
     return value
 
 
+class CheckIn(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+    price: float | None = Field(default=None, gt=0, lt=1_000_000)
+    quantity: int | None = Field(default=None, ge=1, le=100_000)
+    kind: str | None = Field(default=None, pattern="^(item|lego|pokemon|mtg|sneakers)$")
+    store: str | None = Field(default=None, max_length=60)
+    shipping: float | None = Field(default=None, ge=0, lt=10_000)
+
+
+class MetalIn(BaseModel):
+    karat: str = Field(pattern="^(10k|14k|18k|22k|24k|925|999)$")
+    grams: float = Field(gt=0, lt=100_000)
+    price: float = Field(gt=0, lt=10_000_000)
+
+
+class FlagIn(BaseModel):
+    flag: str = Field(pattern="^(watch|hidden)$")
+    on: bool
+
+
 def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
     csrf = secrets.token_urlsafe(32)
     collector = Collector(paths)
+    shared: dict[str, Any] = {}
+
+    @contextmanager
+    def hunt_db() -> Iterator[hunting.Hunt]:
+        with Repo.open(paths) as repo:
+            yield hunting.Hunt(repo.conn)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         initialize(paths)
-        with Repo.reader(paths) as repo:
-            enabled = repo.settings().enabled
-        if auto_start and enabled:
-            collector.start()
+        # One reader for every eBay request, so its pace holds across checks and background refreshes. The former
+        # catalog collector (hobby-electronics stores) no longer starts on its own; the hunt replaces it.
+        client = httpx.AsyncClient(timeout=httpx.Timeout(20), limits=httpx.Limits(max_connections=4))
+        with hunt_db() as h:
+            ebay = markets.EbaySold(client, h.state("ebay"))
+        hunter = hunting.Hunter(hunt_db, client, ebay)
+        shared.update(client=client, ebay=ebay, hunter=hunter)
+        if auto_start:
+            hunter.start()
         try:
             yield
         finally:
+            await hunter.stop()
             await collector.stop()
+            await client.aclose()
 
     app = FastAPI(title="KESTREL Arbitrage", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     from desk.arbitrage.discovery import IMAGE_HOSTS
 
-    install_browser_boundary(app, csrf, image_hosts=tuple(sorted(IMAGE_HOSTS)))
+    install_browser_boundary(app, csrf, image_hosts=tuple(sorted({*IMAGE_HOSTS, *markets.IMAGE_HOSTS})))
 
     @app.exception_handler(DeskError)
     async def desk_error(_: Request, exc: DeskError) -> JSONResponse:
@@ -96,6 +132,83 @@ def create_app(paths: DeskPaths, *, auto_start: bool = True) -> FastAPI:
     @app.get("/api/session")
     def session() -> dict[str, str]:
         return {"csrf_token": csrf}
+
+    # ── the hunt: check, deals, buy & hold, metals ────────────────────────────────────────────────────
+    @app.get("/api/hunt/status")
+    def hunt_status() -> dict[str, Any]:
+        now = utc_now()
+        with hunt_db() as h:
+            ebay = shared["ebay"]
+            return {"ebay": {"paused": ebay.paused(now), "last_request": ebay.state.get("last_request")},
+                    "spot": h.state("spot"), "settings": h.settings(),
+                    "background": {"running": bool(shared["hunter"].task and not shared["hunter"].task.done()),
+                                   "error": shared["hunter"].error}}
+
+    @app.post("/api/hunt/check")
+    async def hunt_check(body: CheckIn) -> dict[str, Any]:
+        with hunt_db() as h:
+            return await hunting.check(h, shared["client"], shared["ebay"], utc_now(), **body.model_dump())
+
+    @app.get("/api/hunt/cards")
+    async def hunt_cards(game: str, q: str) -> dict[str, Any]:
+        if game not in ("pokemon", "mtg") or not 1 <= len(q.strip()) <= 100:
+            raise HTTPException(400, "Choose Pokémon or Magic and type a card name")
+        search = markets.pokemon if game == "pokemon" else markets.magic
+        return {"cards": await search(shared["client"], q.strip())}
+
+    @app.post("/api/hunt/paste")
+    async def hunt_paste(request: Request) -> dict[str, Any]:
+        data = await document(request)
+        if not isinstance(data.get("item_id"), str) or not isinstance(data.get("text"), str):
+            raise HTTPException(400, "Paste the text of an eBay sold-results page")
+        with hunt_db() as h:
+            return hunting.paste(h, data["item_id"], data["text"], utc_now())
+
+    @app.get("/api/hunt/deals")
+    def hunt_deals(kind: str | None = None) -> dict[str, Any]:
+        if kind not in (None, "item", "lego", "cards", "sneakers"):
+            raise HTTPException(400, "Unknown kind")
+        with hunt_db() as h:
+            return {"items": h.deals(utc_now(), kind)}
+
+    @app.get("/api/hunt/holds")
+    def hunt_holds() -> dict[str, Any]:
+        with hunt_db() as h:
+            return {"items": h.holds(utc_now())}
+
+    @app.get("/api/hunt/item/{iid}")
+    def hunt_item(iid: str) -> dict[str, Any]:
+        with hunt_db() as h:
+            return h.view(iid, utc_now())
+
+    @app.post("/api/hunt/item/{iid}/flag")
+    def hunt_flag(iid: str, body: FlagIn) -> dict[str, Any]:
+        with hunt_db() as h:
+            h.flag(iid, body.flag, body.on)
+            return h.view(iid, utc_now())
+
+    @app.post("/api/hunt/item/{iid}/refresh")
+    async def hunt_refresh(iid: str) -> dict[str, Any]:
+        with hunt_db() as h:
+            item = h.item(iid)
+            if item is None:
+                raise HTTPException(404, "No such item")
+            await hunting.refresh(h, item, shared["client"], shared["ebay"], utc_now())
+            return h.view(iid, utc_now())
+
+    @app.post("/api/hunt/metal")
+    async def hunt_metal(body: MetalIn) -> dict[str, Any]:
+        from desk.arbitrage.value import SILVER, evaluate_metal
+
+        with hunt_db() as h:
+            spot = await hunting.spot(h, shared["client"], utc_now())
+            price = spot["silver" if body.karat in SILVER else "gold"]
+            return {"spot": spot, **evaluate_metal(body.price, body.grams, body.karat, price, h.settings())}
+
+    @app.post("/api/hunt/settings")
+    async def hunt_settings(request: Request) -> dict[str, Any]:
+        with hunt_db() as h:
+            return h.save_settings(await document(request))
 
     @app.get("/api/setup-guides")
     def setup_guides() -> list[dict[str, Any]]:

@@ -422,17 +422,23 @@ COMMAND = """#!/bin/sh
 #   kestrel restart   restart the app in the background
 #   kestrel learning  what the Learning research account is doing, and why it reads better or worse
 #   kestrel options-history   can this computer's Massive key read historical option prices?
+#   kestrel arbitrage open KESTREL Arbitrage (restarted on the latest code)
+#   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
 cd {repo} || exit 1
 case "${{1:-status}}" in
   status) exec {uv} run desk stocks status ;;
-  update) git pull --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync && exec {uv} run desk stocks restart ;;
+  update) git pull --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync \
+    && {{ {uv} run desk arbitrage stop >/dev/null 2>&1; exec {uv} run desk stocks restart; }} ;;
+  arbitrage) exec {uv} run desk open --desk arbitrage --restart ;;
+  ebay-check) shift; exec {uv} run desk arbitrage ebay-check "$@" ;;
   open) exec {uv} run desk open --desk stocks ;;
   signin) exec {uv} run desk stocks connect --manual ;;
   restart) exec {uv} run desk stocks restart ;;
   learning) exec {uv} run desk stocks learning-report ;;
   options-history) exec {uv} run desk stocks options-history ;;
   *) echo "kestrel: '$1' is not a command in this version (kestrel update brings newer ones)"
-     echo "usage: kestrel [status | update | open | signin | restart | learning | options-history]"; exit 2 ;;
+     echo "usage: kestrel [status | update | open | signin | restart | learning | options-history | arbitrage |"
+     echo "                ebay-check]"; exit 2 ;;
 esac
 """
 REMOTE_COMMAND = """#!/bin/sh
@@ -443,14 +449,18 @@ REMOTE_COMMAND = """#!/bin/sh
 #   kestrel signin    its weekly Schwab sign-in, from this terminal
 #   kestrel learning  what its Learning research account is doing
 #   kestrel open      open it in a window here
+#   kestrel arbitrage   KESTREL Arbitrage, which runs on this computer (restarted on the latest code)
+#   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
 # Any other word runs as `kestrel <word>` there, so new subcommands work here without reinstalling.
 action="${{1:-status}}"
 case "$action" in
   open) cd {repo} || exit 1; exec {uv} run desk open --desk stocks ;;
+  arbitrage) cd {repo} || exit 1; exec {uv} run desk open --desk arbitrage --restart ;;
+  ebay-check) cd {repo} || exit 1; shift; exec {uv} run desk arbitrage ebay-check "$@" ;;
   update)
     ssh -t {host} "~/.local/bin/kestrel update"; result=$?
     cd {repo} && git pull -q --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync -q \
-      && {uv} run desk stocks command >/dev/null
+      && {uv} run desk stocks command >/dev/null && {uv} run desk arbitrage stop >/dev/null 2>&1
     exit $result ;;
   *[!a-z-]*) echo "usage: kestrel [status | update | signin | learning | restart | open]  (runs on {host})"; exit 2 ;;
   *) exec ssh -t {host} "~/.local/bin/kestrel $action" ;;

@@ -1,832 +1,816 @@
 "use strict";
-const $ = (s) => document.querySelector(s);
-const esc = (v) =>
-  String(v ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
-const money = (v, currency = state?.settings.currency || "USD") =>
-  v == null
-    ? "Unknown"
-    : new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
-      }).format(Number(v));
-document.addEventListener(
-  "error",
-  (event) => {
-    if (
-      event.target instanceof HTMLImageElement &&
-      event.target.closest(".product-photo,.lead-image,.dossier-photo")
-    ) {
-      const fallback = document.createElement("span");
-      fallback.className = "no-photo";
-      fallback.textContent = "Source photo unavailable";
-      event.target.replaceWith(fallback);
-    }
-  },
-  true,
-);
-let state = null,
-  csrf = "",
-  editing = false,
-  productHistory = null,
-  setupGuides = [];
-const browse = {
-  query: "",
-  category: "",
-  mode: "all",
-  order: "profit",
-  leads: "fresh",
-  manage: false,
-  view: "list",
-  offset: 0,
-  source: "",
-};
-try { Object.assign(browse, JSON.parse(localStorage.getItem("kestrel-arbitrage-browse-v3") || "{}")); } catch { /* Optional preferences. */ }
-function rememberBrowse() {
-  try { localStorage.setItem("kestrel-arbitrage-browse-v3", JSON.stringify(browse)); } catch { /* Storage can be disabled. */ }
+// KESTREL Arbitrage: check a price against what the item really sells for, then rank what's worth buying.
+
+const KINDS = [
+  ["item", "Anything", "Scan or type a barcode, or the item's name"],
+  ["lego", "LEGO", "LEGO set number, e.g. 75192"],
+  ["pokemon", "Pokémon", "Card name, optionally its number: charizard 4"],
+  ["mtg", "Magic", "Card name: Sol Ring"],
+  ["sneakers", "Sneakers", "Style code (DZ5485-612) or name"],
+  ["metal", "Gold & silver", ""],
+];
+const KARATS = ["10k", "14k", "18k", "22k", "24k", "925", "999"];
+let csrf = null,
+  kind = "item",
+  status = null,
+  dealsFilter = null;
+
+// ── helpers ─────────────────────────────────────────────────────────────────────────────────────
+function el(tag, text, cls) {
+  const node = document.createElement(tag);
+  if (text !== undefined && text !== null) node.textContent = text;
+  if (cls) node.className = cls;
+  return node;
 }
-let reloadTicket = 0;
-const notice = (message, error = false) => {
-  $("#notice").textContent = message;
-  $("#notice").className = error ? "error" : "";
-};
-async function api(path, body, retry = true) {
+async function api(path, body) {
+  if (body !== undefined && !csrf)
+    csrf = (await (await fetch("/api/session")).json()).csrf_token;
   const response = await fetch(
-    path,
+    "/api/" + path,
     body === undefined
       ? {}
       : {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          headers: { "content-type": "application/json", "x-csrf-token": csrf },
           body: JSON.stringify(body),
         },
   );
-  if (response.status === 403 && body !== undefined && retry) {
-    csrf = (await api("/api/session")).csrf_token;
-    return api(path, body, false);
-  }
-  let data;
-  try {
-    data = await response.json();
-  } catch {
-    throw new Error(
-      `Local request failed (HTTP ${response.status}); the response was not readable JSON`,
-    );
-  }
-  if (!response.ok) throw new Error(data.detail || "Request failed");
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
   return data;
 }
-const field = (name, label, type = "text", value = "", required = true) =>
-  `<label>${esc(label)}<input name="${esc(name)}" type="${type}" value="${esc(value)}" ${type === "number" ? 'step="any" min="0"' : ""} ${required ? "required" : ""}></label>`;
-const availability = (o) =>
-  Date.now() - Date.parse(o.at) > 300000 ||
-  (o.verified_until && Date.parse(o.verified_until) < Date.now())
-    ? "STALE · " + o.availability
-    : o.availability;
-const check = (name, label, value = false) =>
-  `<label class="check"><input type="checkbox" name="${name}" ${value ? "checked" : ""}>${esc(label)}</label>`;
-const picker = (selected = "") =>
-  `<label>Product<select name="product_id" required>${state.board.map((b) => `<option value="${esc(b.product.id)}" ${selected === b.product.id ? "selected" : ""}>${esc(b.product.title)}</option>`).join("")}</select></label>`;
-const external = (url, label) =>
-  url
-    ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`
-    : "";
-function modal(html) {
-  $("#edit-content").innerHTML = html;
-  $("#editor").showModal();
-  editing = true;
-}
-$("#editor").addEventListener("close", () => {
-  editing = false;
-});
-async function reload() {
-  const ticket = ++reloadTicket, scroll = window.scrollY;
-  const focused = document.activeElement, focusId = focused?.id;
-  const selection = focused?.matches("input[type=search],input[type=text],textarea")
-    ? [focused.selectionStart, focused.selectionEnd] : null;
-  const [route, id] = location.hash.slice(1).split("/");
-  const params = new URLSearchParams({query: browse.query, category: browse.category,
-    offset: String(browse.offset || 0), order: browse.order === "roi" ? "roi" : "profit"});
-  if (route === "sources" && browse.source) params.set("source_host", browse.source);
-  if (route === "product" && id) params.set("product_id", id);
-  if (["suggestions", "profitability"].includes(route)) params.set("view", "planning");
-  const next = await api("/api/snapshot?" + params);
-  if (ticket !== reloadTicket) return;
-  if (next.catalog.total && next.catalog.offset >= next.catalog.total) {
-    browse.offset = 0;
-    rememberBrowse();
-    return reload();
-  }
-  const restoreFocus = focused === document.activeElement;
-  state = next;
-  render();
-  const replacement = focusId ? document.getElementById(focusId) : null;
-  if (restoreFocus && replacement) {
-    replacement.focus({preventScroll:true});
-    if (selection && replacement.setSelectionRange) replacement.setSelectionRange(...selection);
-  }
-  window.scrollTo(0, scroll);
-}
-function status() {
-  const jobs = Object.values(state.jobs).filter(
-    (j) => j.status === "unavailable",
-  );
-  notice(
-    state.coverage.analysis_error ||
-      state.collector.error ||
-      (!state.settings.enabled
-        ? "Observation collection paused. Cached evidence remains available."
-        : jobs.length
-          ? `${jobs.length} source unavailable. Open Settings for the reason. Cached observations remain dated.`
-          : state.collector.external
-            ? "Another Arbitrage collector owns the lock; this dashboard reads its progress."
-            : state.collector.active
-              ? `${state.automation?.phase || "Importing and refreshing products"} · ${state.pipeline?.priced_products || 0} products priced. Prices and photos appear as each source finishes.`
-              : "Collector inactive; enable it in Settings."),
-    Boolean(state.coverage.analysis_error || state.collector.error),
-  );
-  $("#stats").innerHTML = [
-    [
-      "AVAILABLE BUSINESS CAPITAL",
-      state.settings.capital == null
-        ? "Not set"
-        : money(state.basket.cash_available),
-      "Separate from trading accounts",
-    ],
-    ["PRODUCTS IN RESEARCH", (state.pipeline?.products ?? state.board.length).toLocaleString(), "From your connected sources"],
-    [
-      "CHECKED ROUTES ON THIS PAGE",
-      state.qualified_count,
-      "Estimates after required checks",
-    ],
-    [
-      "INVENTORY COMMITTED",
-      money(state.inventory.committed),
-      "Includes quarantined returns",
-    ],
-  ]
-    .map(
-      ([label, n, note]) =>
-        `<div class="stat"><div class="caption">${esc(label)}</div><strong>${esc(n)}</strong><div class="caption">${esc(note)}</div></div>`,
-    )
-    .join("");
-}
-const fractionFromPercent = (value) => {
-  const [whole, decimals = ""] = value.split(".");
-  const digits = (whole || "0").padStart(3, "0");
-  return digits.slice(0, -2) + "." + digits.slice(-2) + decimals;
-};
-const pct = (v) => (v == null ? "—" : `${(Number(v) * 100).toFixed(1)}%`);
-const stamp = (value) =>
-  value
-    ? new Date(value).toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : "Not checked";
-function photo(product) {
-  return product.image_url
-    ? `<img src="${esc(product.image_url)}" alt="${esc(product.title)}" loading="lazy" referrerpolicy="no-referrer">`
-    : '<span class="photo-placeholder" aria-label="Source supplied no product photo">▧<small>Photo not supplied</small></span>';
-}
-function offerFor(b, r) {
-  return b.offers.find((o) => o.id === r?.observation_id) || b.offers[0];
-}
-function resaleStats(b, full = false) {
-  const cohorts = (b.resale_evidence?.cohorts || []).filter(c => !["REFERENCE", "OWN_NET"].includes(c.evidence_type));
-  const priority = {TRANSACTION_RECORD: 0, REPORTED_SOLD: 1, ASKING: 2};
-  cohorts.sort((a,b) => priority[a.evidence_type]-priority[b.evidence_type] || a.channel.localeCompare(b.channel));
-  const rows = cohorts.length ? (full ? cohorts : cohorts.slice(0, 1)) : [null];
-  return rows.map(c => `<div class="resale-stats"><div class="evidence-label">${c ? esc(c.channel + " · " + c.evidence_type.replaceAll("_", " ")) : "Comparable resale evidence missing"}</div><div class="resale-values">${[["Low", "low"], ["Average", "average"], ["High", "high"], ["Median", "median"]].map(([label, key]) => `<span>${label}<strong>${c ? esc(money(c[key], c.currency)) : "—"}</strong></span>`).join("")}</div><small>${c ? `${c.count} distinct listings · ${c.window_days} days · item price before shipping/tax` : "Exact model, pack, condition, currency and region required"}</small>${full && c ? `<p class="caption">${esc(c.basis)}</p>${comparablePlot(c)}` : ""}</div>`).join("");
-}
-function comparablePlot(c) {
-  const points = c.points || [];
-  if (!points.length) return "";
-  const times = points.map(p => Date.parse(p.at)), prices = points.map(p => Number(p.price));
-  const start = Math.min(...times), span = Math.max(...times) - start || 1;
-  const low = Math.min(...prices), high = Math.max(...prices), height = high-low || 1;
-  return `<svg viewBox="0 0 700 190" role="img" class="chart" aria-label="${esc(c.evidence_type)} comparable price samples in ${esc(c.currency)}">${[0,.5,1].map(f => `<text x="0" y="${20+f*120}">${esc(money(high-f*height,c.currency))}</text><line x1="85" x2="690" y1="${16+f*120}" y2="${16+f*120}" stroke="#384253"/>`).join("")}${points.map(p => `<circle cx="${90+(Date.parse(p.at)-start)/span*590}" cy="${136-(Number(p.price)-low)/height*120}" r="4" fill="#a9baff"><title>${esc(p.at + " · " + money(p.price,c.currency))}</title></circle>`).join("")}<text x="85" y="175">${esc(new Date(start).toLocaleDateString())}</text><text x="570" y="175">${esc(new Date(Math.max(...times)).toLocaleDateString())}</text></svg>`;
-}
-function board(rows, qualified = false) {
-  if (!rows.length)
-    return `<div class="empty"><span class="empty-symbol">⌕</span><h3>${qualified ? "No buy-ready comparisons yet" : "Your ranked shortlist starts here"}</h3><p>${qualified ? "Research candidates remain available below. Stock, resale evidence and costs must pass before a buy recommendation." : "The app is checking its configured sources. Public deal leads appear in Discover; connect eBay for active listings or add an observed source offer."}</p><a class="button" href="#settings">Connect sources</a> <button data-action="observation">Add an offer you found</button></div>`;
-  return `<div class="deal-grid ${browse.view === "list" ? "dense-list" : ""}">${rows
-    .slice(0, 100)
-    .map((b, index) => {
-      const candidates = b.comparison?.alternatives || [];
-      const chosen = state.rankings?.selections?.[browse.order]?.[b.product.id];
-      let r =
-        candidates.find((r) => r.id === chosen) || b.comparison?.modeled_best;
-      if (qualified)
-        r = [...candidates]
-          .filter((r) => r.qualifies)
-          .sort(
-            (a, b) =>
-              Number(b[browse.order === "roi" ? "roi" : "stress_profit"]) -
-              Number(a[browse.order === "roi" ? "roi" : "stress_profit"]),
-          )[0];
-      let o = offerFor(b, r);
-      const p = b.product;
-      if (browse.order === "drops" && !qualified) {
-        const d = state.rankings.price_drops.find((d) => d.product_id === p.id);
-        o = b.offers.find((o) => o.source_id === d?.source_id) || o;
-        r = b.routes.find(
-          (r) => r.observation_id === o?.id && r.net_profit != null,
-        );
-      }
-      const rankingIds =
-        browse.order === "drops"
-          ? state.rankings.price_drops.map((d) => d.product_id)
-          : state.rankings?.[browse.order] || [];
-      const rank = !r ? -1 : qualified ? index : rankingIds.indexOf(p.id);
-      const drop = b.deal_history.find(
-        (d) =>
-          d.source_id === o?.source_id &&
-          d.discount_fraction &&
-          Number(d.discount_fraction) > 0,
-      );
-      return `<article class="deal-card"><a class="product-photo" href="#product/${esc(p.id)}">${photo(p)}<span class="card-rank">${rank < 0 ? "Research" : rank + 1}</span>${drop ? `<span class="price-drop">${pct(drop.discount_fraction)} below observed median</span>` : ""}</a><div class="deal-body"><span class="eyebrow">${esc(p.category)} · ${esc(p.condition)}</span><h3><a href="#product/${esc(p.id)}">${esc(p.title)}</a></h3><div class="trade-path"><div><span>Buy price</span><strong>${o ? esc(money(o.price, o.currency)) : "Unknown"}</strong><small class="landed">Landed ${o && o.shipping != null && o.tax != null ? esc(money(Number(o.price) + Number(o.shipping) + Number(o.tax), o.currency)) : "unknown · delivery/tax needed"}</small></div><span class="path-arrow">→</span><div><span>${r ? esc(r.channel) : "Resale price"}</span><strong>${r ? esc(money(r.price, r.currency)) : "Needs evidence"}</strong></div></div>${resaleStats(b)}<div class="profit-strip"><span>Net / unit <strong class="${r && Number(r.net_profit) > 0 ? "good" : ""}">${r ? esc(money(r.net_profit, r.currency)) : "Not calculated"}</strong></span><span>Downside estimate <strong>${r ? esc(money(r.stress_profit, r.currency)) : "Unknown"}</strong></span></div><div class="card-facts"><span>ROI ${r ? pct(r.roi) : "—"}</span><span>${r?.effort_minutes ? `${r.effort_minutes} min work/unit` : "Work estimate missing"}</span><span>${r?.days_to_cash ? `${r.days_to_cash}d cash cycle` : "Cash cycle unknown"}</span></div><span class="evidence-state ${r?.qualifies ? "ready" : "pending"}">${r?.qualifies ? "Checks passed · recheck before purchase" : "Research candidate · not buy-ready"}</span><p class="next-step">${!p.identity_confirmed ? "Check the exact model, pack and condition." : !r ? "Add a resale comparison to estimate your margin." : esc(r.blockers[0] || "Prices and stock can change. Nothing is reserved.")}</p><div class="toolbar"><a class="button" href="#product/${esc(p.id)}">Compare & research</a>${o ? external(o.url, "Source") : ""}</div><span class="caption">Source observed ${o ? esc(stamp(o.at)) : "never"} · ${o ? esc(availability(o).replaceAll("_", " ").toLowerCase()) : "No offer"}</span></div></article>`;
+function money(x) {
+  if (x === null || x === undefined) return "—";
+  const v = Number(x);
+  return (
+    (v < 0 ? "−$" : "$") +
+    Math.abs(v).toLocaleString("en-US", {
+      minimumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2,
+      maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2,
     })
-    .join("")}</div>`;
+  );
 }
-function leadCards() {
-  const rows = (state.leads || []).filter((l) =>
-    browse.leads === "saved"
-      ? l.saved && !l.dismissed
-      : !l.dismissed && l.fresh,
-  );
-  return `<div class="section-heading"><div><p class="eyebrow">DISCOVERY INBOX</p><h2>Fresh finds from your discovery feeds.</h2><p>New deal mentions to investigate. Price, stock and resale margin still need checking.</p></div><div class="segmented"><button data-leads="fresh" class="${browse.leads === "fresh" ? "selected" : ""}">Fresh</button><button data-leads="saved" class="${browse.leads === "saved" ? "selected" : ""}">Saved</button></div></div>${
-    rows.length
-      ? `<div class="lead-grid">${rows
-          .slice(0, 12)
-          .map(
-            (l) =>
-              `<article class="lead-card"><div class="lead-image">${photo(l)}</div><div><span class="eyebrow">${esc(l.source_id.replace("deals-", ""))} · ${l.fresh ? "Recent mention" : "Older lead"}</span><h3>${external(l.url, l.title)}</h3><p>${esc(l.summary.slice(0, 160))}</p><span class="caption">${esc(l.age_basis)} ${esc(stamp(l.published_at || l.first_seen_at))}</span><div class="toolbar"><button class="primary" data-action="lead-offer" data-id="${esc(l.id)}">Check this deal</button><button data-action="lead-save" data-id="${esc(l.id)}">${l.saved ? "Unsave" : "Save"}</button><button data-action="lead-dismiss" data-id="${esc(l.id)}" aria-label="Dismiss ${esc(l.title)}">Dismiss</button></div></div></article>`,
-          )
-          .join("")}</div>`
-      : `<div class="empty compact"><h3>${browse.leads === "saved" ? "No saved leads yet" : "No recent feed leads have arrived"}</h3><p>${browse.leads === "saved" ? "Save a discovery lead to keep its research context." : "Two public feed adapters are included. Source access must succeed before deals appear; their live acceptance is still pending. eBay listings use a separate connection."}</p><a href="#settings">See source progress and connection options ↗</a></div>`
-  }`;
+function pct(x, signed = true) {
+  if (x === null || x === undefined) return "—";
+  const v = Math.round(Number(x) * 100);
+  return (signed && v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v) + "%";
 }
-function orderedRows(qualified) {
-  let rows = state.board.filter(
-    (b) => !qualified || b.routes.some((r) => r.qualifies),
+function ago(iso) {
+  if (!iso) return "never";
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 90) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  return hours < 36 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+}
+function info(summary, ...nodes) {
+  const d = el("details", undefined, "info");
+  d.append(el("summary", summary), ...nodes);
+  return d;
+}
+function failure(host, error) {
+  host.replaceChildren(el("p", error.message || String(error), "error"));
+}
+
+// ── status bar ──────────────────────────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    status = await api("hunt/status");
+  } catch {
+    return;
+  }
+  const bar = document.getElementById("status");
+  const ebay = el(
+    "span",
+    status.ebay.paused ? "eBay: paused" : "eBay sold prices: on",
+    status.ebay.paused ? "pill warn" : "pill ok",
   );
-  rows = rows.filter(
-    (b) =>
-      // The server searches title, brand and model across the catalog.
-      // Filtering again by title would hide valid brand/model matches.
-      (browse.mode !== "qualified" || b.routes.some((r) => r.qualifies)) &&
-      (browse.mode !== "fresh" ||
-        b.offers.some(
-          (o) =>
-            !availability(o).startsWith("STALE") &&
-            ["DECLARED_AVAILABLE", "VERIFIED_AVAILABLE"].includes(
-              o.availability,
-            ),
-        )),
+  if (status.ebay.paused) ebay.title = status.ebay.paused;
+  const spot = status.spot || {};
+  bar.replaceChildren(
+    ebay,
+    el("span", spot.gold ? `Gold ${money(spot.gold)}/oz` : "Gold —", "pill"),
+    el(
+      "span",
+      spot.silver ? `Silver ${money(spot.silver)}/oz` : "Silver —",
+      "pill",
+    ),
   );
-  const ids =
-    browse.order === "drops"
-      ? (state.rankings?.price_drops || []).map((d) => d.product_id)
-      : state.rankings?.[browse.order] || [];
-  return rows.sort((a, b) => {
-    if (qualified) {
-      const key = browse.order === "roi" ? "roi" : "stress_profit";
-      const best = (x) =>
-        Math.max(
-          ...x.comparison.alternatives
-            .filter((r) => r.qualifies)
-            .map((r) => Number(r[key])),
-        );
-      return (
-        best(b) - best(a) || a.product.title.localeCompare(b.product.title)
+}
+
+// ── the check bar ───────────────────────────────────────────────────────────────────────────────
+function drawKinds() {
+  const host = document.querySelector(".kinds");
+  host.replaceChildren(
+    ...KINDS.map(([id, label]) => {
+      const b = el("button", label, "chip");
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(id === kind));
+      b.onclick = () => {
+        kind = id;
+        drawKinds();
+        drawForm();
+      };
+      return b;
+    }),
+  );
+}
+function field(id, placeholder, mode, label) {
+  const input = el("input");
+  input.id = id;
+  input.name = id;
+  input.placeholder = placeholder;
+  if (mode) input.inputMode = mode;
+  input.setAttribute("aria-label", label || placeholder);
+  return input;
+}
+function drawForm() {
+  const form = document.getElementById("check"),
+    result = document.getElementById("result");
+  result.replaceChildren();
+  if (kind === "metal") {
+    const karat = el("select");
+    karat.id = "karat";
+    karat.setAttribute("aria-label", "Karat or silver purity");
+    for (const k of KARATS)
+      karat.append(
+        Object.assign(
+          el(
+            "option",
+            k === "925" ? "925 silver" : k === "999" ? "999 silver" : k,
+          ),
+          { value: k },
+        ),
       );
-    }
-    const ai = ids.indexOf(a.product.id),
-      bi = ids.indexOf(b.product.id);
-    return (
-      (ai < 0 ? 99999 : ai) - (bi < 0 ? 99999 : bi) ||
-      Number(!a.offers.some(o => ["DECLARED_AVAILABLE", "VERIFIED_AVAILABLE"].includes(o.availability))) -
-        Number(!b.offers.some(o => ["DECLARED_AVAILABLE", "VERIFIED_AVAILABLE"].includes(o.availability))) ||
-      a.product.title.localeCompare(b.product.title)
+    form.replaceChildren(
+      karat,
+      field("grams", "Weight in grams", "decimal"),
+      field("price", "Tag price $", "decimal"),
+      el("button", "Check"),
     );
-  });
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      checkMetal();
+    };
+    return;
+  }
+  const q = field(
+    "q",
+    KINDS.find((k) => k[0] === kind)[2],
+    kind === "item" ? "search" : "text",
+    "What to check",
+  );
+  const parts = [q];
+  if (
+    "BarcodeDetector" in window &&
+    navigator.mediaDevices &&
+    kind === "item"
+  ) {
+    const scan = el("button", "📷", "icon");
+    scan.type = "button";
+    scan.title = "Scan a barcode";
+    scan.setAttribute("aria-label", "Scan a barcode");
+    scan.onclick = () => scanBarcode(q);
+    parts.push(scan);
+  }
+  if (kind === "pokemon" || kind === "mtg") {
+    parts.push(el("button", "Find card"));
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      findCards(q.value);
+    };
+  } else {
+    parts.push(
+      field("price", "Price $", "decimal", "Price you see"),
+      field("qty", "Qty", "numeric", "How many are on the shelf"),
+      el("button", "Check"),
+    );
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      check({ text: q.value });
+    };
+  }
+  form.replaceChildren(...parts);
+  q.focus();
 }
-function bindBrowse(qualified) {
-  for (const [selector, key] of [
-    ["#product-search", "query"],
-    ["#category", "category"],
-    ["#offer-filter", "mode"],
-    ["#rank-order", "order"],
-  ]) {
-    const input = $(selector);
-    input.value = browse[key];
-    input.addEventListener(
-      selector === "#product-search" ? "input" : "change",
-      (e) => {
-        browse[key] = e.target.value;
-        browse.offset = 0;
-        rememberBrowse();
-        if (selector === "#product-search") {
-          clearTimeout(window.catalogSearchTimer);
-          window.catalogSearchTimer = setTimeout(() => reload().catch(e => notice(e.message, true)), 400);
-        } else reload().catch(e => notice(e.message, true));
-      },
-    );
+function number(id) {
+  const raw = (document.getElementById(id)?.value || "").replace(/[$,\s]/g, "");
+  return raw ? Number(raw) : null;
+}
+async function check(body) {
+  const result = document.getElementById("result");
+  result.replaceChildren(
+    el(
+      "p",
+      "Reading sold prices… (eBay is read slowly, about one search every 20 seconds)",
+      "muted",
+    ),
+  );
+  try {
+    const view = await api("hunt/check", {
+      ...body,
+      price: body.price ?? number("price"),
+      quantity: number("qty"),
+      kind: kind === "item" ? null : kind,
+    });
+    result.replaceChildren(dealCard(view, { open: true }));
+    loadStatus();
+    if (location.hash === "#deals" || !location.hash) route();
+  } catch (e) {
+    failure(result, e);
   }
 }
-function comparisons(b) {
-  const c = b.comparison;
-  return `<section class="panel comparison-panel"><div class="section-heading"><div><p class="eyebrow">WHERE TO SELL</p><h2>${c?.recommended ? `Best checked destination: ${esc(c.recommended.channel)}` : "Compare the exit before buying."}</h2><p>${esc(c?.reason || "No destination comparisons yet.")}</p></div><button class="primary" data-action="route" data-id="${esc(b.product.id)}">+ Compare destination</button></div>${c?.alternatives.length ? `<div class="table-wrap"><table><thead><tr><th>Destination</th><th>Source → sell</th><th>Net / unit</th><th>Downside / break-even</th><th>Work / cash cycle</th><th>Remaining checks</th></tr></thead><tbody>${c.alternatives.map((r) => `<tr><td><strong>${esc(r.channel)}</strong><span class="meta">${esc(r.fulfillment)}</span></td><td>${esc(money(r.landed_cost, r.currency))} → ${esc(money(r.price, r.currency))}<br>${external(r.source_url, "Source offer")}</td><td class="${Number(r.net_profit) > 0 ? "good" : ""}"><strong>${esc(money(r.net_profit, r.currency))}</strong><span class="meta">${pct(r.roi)} ROI on landed cost</span></td><td>${esc(money(r.stress_profit, r.currency))}<br><span class="meta">Break-even ${esc(money(r.break_even, r.currency))}</span></td><td>${r.effort_minutes ? `${r.effort_minutes} min/unit` : "Work unknown"}<br>${r.days_to_cash ? `${r.days_to_cash} days` : "Timing unknown"}</td><td>${r.qualifies ? '<span class="good">Checks passed</span>' : r.blockers.map((x) => `<span class="blocker">${esc(x)}</span>`).join("")}<button class="text-button" data-action="route-edit" data-id="${esc(r.route_id)}">Edit assumptions</button></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty compact"><h3>No selling destinations compared.</h3><p>Add a realistic resale price and actual channel costs. Missing fields stay unknown, so you can begin research without claiming a profitable purchase.</p></div>'}</section>`;
+async function findCards(text) {
+  const result = document.getElementById("result");
+  if (!text.trim()) return;
+  result.replaceChildren(el("p", "Searching cards…", "muted"));
+  try {
+    const { cards } = await api(
+      `hunt/cards?game=${kind}&q=${encodeURIComponent(text)}`,
+    );
+    if (!cards.length)
+      return result.replaceChildren(
+        el("p", "No priced cards match. Try fewer words.", "muted"),
+      );
+    const price = field("price", "Price $", "decimal", "Price you see");
+    const grid = el("div", undefined, "cards");
+    for (const c of cards) {
+      const b = el("button", undefined, "card-pick");
+      b.type = "button";
+      if (c.image)
+        b.append(
+          Object.assign(el("img"), { src: c.image, alt: "", loading: "lazy" }),
+        );
+      b.append(el("span", c.title), el("b", money(c.market)));
+      b.onclick = () => check({ text: c.id, price: number("price") });
+      grid.append(b);
+    }
+    result.replaceChildren(
+      el(
+        "p",
+        "Type the price you see, then tap the card. Prices are TCGplayer's market price, from its recent sales.",
+        "muted",
+      ),
+      price,
+      grid,
+    );
+  } catch (e) {
+    failure(result, e);
+  }
 }
-function sourceSetupHtml() {
-  return `<section class="panel"><h2>Source connections & saved searches</h2><p class="caption">Data workflow: ${esc(state.automation?.version || "older server · restart after updating")}</p><p>Configure collection here. Browse collected products on the Sources page.</p><details><summary>External product research</summary><p>Search external sites by exact model. These links do not import results or confirm stock.</p><form id="discovery-form"><label>What do you want to source?<input id="discovery-query" type="search" placeholder="e.g. LEGO 75375 or DeWalt DCD800" required maxlength="100"></label><button class="primary">Find sourcing and resale searches</button></form><div id="discovery-links"></div></details><h3>Your automatic monitors</h3><p>Public feed adapters discover deal mentions, eBay searches discover active listings, and the retailer adapter watches exact product pages. Each source reports its actual access result below. Their actual access results appear below. Published mentions do not establish sales.</p><div class="toolbar"><button id="toggle">${state.settings.enabled ? "Pause collection" : "Resume collection"}</button><button data-action="source">Add supported product URL</button><button data-action="ebay-source">Add eBay search</button><button data-action="observation">Record real observation</button><button data-action="signal">Import evidence</button></div>${state.sources
-      .map((s) => {
-        const j = state.jobs[s.id] || {};
-        return `<div class="line"><div>${external(s.url, s.id)} ${esc(s.query || "")}<br><span class="caption">${esc(j.status || "Waiting for first attempt")} · last success ${esc(j.last_ok_at || "None")}<br>${esc(j.error || "")}${j.retry_at ? "<br>Next retry after " + esc(j.retry_at) : ""}</span></div><span><span class="badge">${esc(s.adapter)}</span><button data-action="source-toggle" data-id="${esc(s.id)}">${s.enabled ? "Pause source" : "Resume source"}</button></span></div>`;
-      })
-      .join(
-        "",
-      )}<h3>Coverage gaps</h3><p>Completed-sales feeds, Amazon FBA/Walmart WFS fee estimates and marketplace eligibility checks are not connected. Enter reviewed scenarios and your own evidence locally; never paste private API credentials into chat.</p><p>FBA means Amazon stores, packs and ships your inventory for fees. WFS is Walmart’s fulfillment service. These services require separate seller eligibility and item-specific costs.</p><p class="caption">Asking-price retention: up to 90 days / 100,000 observations; eBay API listing cache is capped at 24 hours pending a fuller licensing review. Inventory events remain append-only. Ratings require a comparable channel/metric cohort and sufficient dated evidence.</p><a href="/api/capabilities" target="_blank" rel="noopener">Machine-readable capabilities & contracts ↗</a></section>`;
-}
-function bindSourceSetup() {
-    $("#discovery-form").onsubmit = (e) => {
-      e.preventDefault();
-      const q = encodeURIComponent($("#discovery-query").value.trim());
-      const links = [
-        [
-          "Google Shopping",
-          "https://www.google.com/search?tbm=shop&q=" + q,
-          "Compare advertised offers; stock and shipping vary.",
-        ],
-        [
-          "Slickdeals",
-          "https://slickdeals.net/newsearch.php?q=" + q,
-          "Community deal leads; posts may be expired.",
-        ],
-        [
-          "Walmart",
-          "https://www.walmart.com/search?q=" + q,
-          "Retail and marketplace offers; check seller and exact pack.",
-        ],
-        [
-          "Target",
-          "https://www.target.com/s?searchTerm=" + q,
-          "Retail search; local availability varies.",
-        ],
-        [
-          "eBay sold listings",
-          "https://www.ebay.com/sch/i.html?_nkw=" +
-            q +
-            "&LH_Sold=1&LH_Complete=1",
-          "Manual comparable research; accepted-offer prices may be hidden.",
-        ],
-        [
-          "Amazon",
-          "https://www.amazon.com/s?k=" + q,
-          "Compare listing prices; these are not confirmed sales.",
-        ],
-      ];
-      $("#discovery-links").innerHTML =
-        '<div class="source-grid">' +
-        links
-          .map(
-            ([name, url, note]) =>
-              `<article class="panel"><h3>${external(url, name)}</h3><span class="badge">External research · not an automatic feed</span><p>${esc(note)}</p></article>`,
-          )
-          .join("") +
-        "</div><p>Found a candidate? Use Record real observation below. Only eBay searches and supported retailer URLs are monitored automatically.</p>";
-    };
-
-  $("#toggle").onclick = async () => {
-    await save("/api/settings", {...state.settings, enabled: !state.settings.enabled});
+async function scanBarcode(input) {
+  const result = document.getElementById("result");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+    });
+  } catch {
+    return result.replaceChildren(
+      el(
+        "p",
+        "The camera isn't available here; type the barcode digits instead.",
+        "error",
+      ),
+    );
+  }
+  const video = Object.assign(el("video", undefined, "scanner"), {
+    srcObject: stream,
+    playsInline: true,
+    muted: true,
+  });
+  const stop = el("button", "Stop scanning", "ghost");
+  result.replaceChildren(video, stop);
+  await video.play();
+  const detector = new window.BarcodeDetector({
+    formats: ["upc_a", "upc_e", "ean_13", "ean_8"],
+  });
+  let done = false;
+  const finish = () => {
+    done = true;
+    stream.getTracks().forEach((t) => t.stop());
   };
-}
-function sourceProducts(b, host) {
-  const offers = b.offers.filter(o => { try { return new URL(o.url).hostname === host; } catch { return false; } });
-  const ids = new Set(offers.map(o => o.id)), routes = b.routes.filter(r => ids.has(r.observation_id));
-  return {...b, offers, routes, comparison: {...b.comparison, alternatives: routes, modeled_best: routes[0] || null}};
-}
-
-function render() {
-  if ($("#route-manager")) browse.manage = $("#route-manager").open;
-  status();
-  const [page, id] = location.hash.slice(1).split("/");
-  const route = page || "home";
-  document
-    .querySelectorAll("nav a")
-    .forEach((a) => a.classList.toggle("active", a.hash === "#" + route));
-  const el = $("#content");
-  if (route === "home" || route === "research" || route === "top") {
-    const qualified = route === "top";
-    const ready = state.board.filter((b) =>
-      b.routes.some((r) => r.qualifies),
-    ).length;
-    el.innerHTML = `<div class="section-heading"><div><p class="eyebrow">${qualified ? "CHECKED ECONOMICS" : "SOURCING → RESALE"}</p><h2>${qualified ? "Checked opportunities" : "Sourcing desk"}</h2></div><a class="quiet-link" href="#settings">Manage discovery ↗</a></div><div class="pipeline"><span><b>${(state.leads || []).filter((l) => l.fresh && !l.dismissed).length}</b> fresh leads</span><span>→</span><span><b>${state.pipeline?.priced_products ?? state.board.length}</b> products priced</span><span>→</span><span><b>${state.pipeline?.costed_products || 0}</b> products with scenarios</span><span>→</span><span><b>${ready}</b> checked opportunities</span></div><section class="ranked-section"><div class="section-heading"><div><h2>Your sourcing shortlist</h2><p>Current downside dollars first when supported by costs. Uncosted products remain unranked. No transaction history is invented.</p></div><button data-action="observation">+ Add source offer</button></div><div class="browse-bar"><label class="search-field"><span class="sr-only">Search products</span><input id="product-search" type="search" placeholder="Search brands, models or products"></label><label>Rank by<select id="rank-order"><option value="profit">Highest modeled $ profit</option><option value="roi">Return on capital</option><option value="drops">Observed price drops</option></select></label><label>Stage<select id="offer-filter"><option value="all">All research candidates</option><option value="fresh">Recent source listings</option><option value="qualified">Checks passed</option></select></label><label>Category<select id="category"><option value="">All categories</option>${(state.categories || [...new Set(state.board.map((b) => b.product.category))]).map((c) => `<option>${esc(c)}</option>`).join("")}</select></label></div><div id="board">${board(orderedRows(qualified || browse.mode === "qualified"), qualified || browse.mode === "qualified")}</div></section>${route === "home" ? `<section class="discovery-section">${leadCards()}</section>` : ""}<details class="commercial-principles"><summary>How to interpret the evidence</summary><section class="insight-grid"><article><span class="eyebrow">BUY LOW WITH EVIDENCE</span><h3>Price history, not a crossed-out MSRP.</h3><p>${state.rankings?.price_drops.length || 0} current source price drops supported by at least six prior observation days. Historical asking prices remain separate from sales.</p></article><article><span class="eyebrow">DOLLARS, WORK, CASH</span><h3>A bigger margin must earn its overhead.</h3><p>Compare net dollars, downside price, fulfillment cost, hands-on time and cash-cycle days. High ROI alone does not make a small flip worthwhile.</p></article><article><span class="eyebrow">SELL WHERE IT MAKES SENSE</span><h3>The destination is half the deal.</h3><p>Compare Amazon, Walmart, eBay or another channel using actual seller eligibility and dated costs. No marketplace wins by default.</p><a href="#profitability">Compare destinations ↗</a></article></section></details>`;
-    bindBrowse(qualified);
-    const pagination = document.createElement("div");
-    pagination.className = "catalog-pagination";
-    const c = state.catalog;
-    pagination.innerHTML = `<button id="catalog-prev" ${!c.offset ? "disabled" : ""}>← Previous</button><span>${c.total ? c.offset+1 : 0}–${Math.min(c.offset+c.returned,c.total)} of ${c.total.toLocaleString()} matching products · ${c.page_size}/page</span><button id="catalog-next" ${c.offset+c.page_size >= c.total ? "disabled" : ""}>Next →</button><button id="catalog-view">${browse.view === "list" ? "Card view" : "List view"}</button>`;
-    $(".ranked-section").append(pagination);
-    $("#catalog-prev").onclick = () => { browse.offset = Math.max(0,c.offset-c.page_size); rememberBrowse(); reload().catch(e => notice(e.message,true)); };
-    $("#catalog-next").onclick = () => { browse.offset = c.offset+c.page_size; rememberBrowse(); reload().catch(e => notice(e.message,true)); };
-    $("#catalog-view").onclick = () => { browse.view = browse.view === "list" ? "cards" : "list"; rememberBrowse(); render(); };
-  } else if (route === "product") {
-    const b = state.board.find((x) => x.product.id === id);
-    if (!b) {
-      el.innerHTML = '<div class="panel">Product not found.</div>';
+  stop.onclick = () => {
+    finish();
+    result.replaceChildren();
+  };
+  while (!done) {
+    const codes = await detector.detect(video).catch(() => []);
+    if (codes.length) {
+      finish();
+      input.value = codes[0].rawValue;
+      document.getElementById("price")?.focus();
+      result.replaceChildren(
+        el(
+          "p",
+          `Scanned ${codes[0].rawValue}. Type the price, then Check.`,
+          "muted",
+        ),
+      );
       return;
     }
-    const query = encodeURIComponent(
-      [b.product.brand, b.product.mpn || b.product.title]
-        .filter(Boolean)
-        .join(" "),
-    );
-    el.innerHTML = `<div class="product-hero"><div class="dossier-photo">${photo(b.product)}</div><div><a class="quiet-link" href="#home">← Back to discovery</a><p class="eyebrow">PRODUCT RESEARCH</p><h2>${esc(b.product.title)}</h2><p>${esc(b.product.variant || "Variant not reviewed")} · Pack ${esc(b.product.pack_count ?? "unknown")} · ${esc(b.product.condition)}</p><div class="research-steps"><span class="${b.product.identity_confirmed ? "complete" : ""}">1. Exact product</span><span>2. Resale evidence</span><span>3. Costs & destination</span><span>4. Fresh stock check</span></div><div class="toolbar"><button data-action="identity" data-id="${esc(id)}">Review identity</button><button data-action="comparable-import" data-id="${esc(id)}">Import price comparables</button><button data-action="signal" data-id="${esc(id)}">Import heat evidence</button>${external("https://www.ebay.com/sch/i.html?_nkw=" + query + "&LH_Sold=1&LH_Complete=1", "Research sold listings")}</div><p class="caption">Sold-search prices are external research, not a confirmed sales feed. Hidden accepted offers remain unknown.</p></div></div>${resaleStats(b, true)}${comparisons(b)}<div class="research-grid"><section class="panel"><h2>Source offers & delivery checks</h2>${b.offers.map((o) => `<div class="line"><div><strong>${esc(money(o.price, o.currency))}</strong> · ${external(o.url, "Open source")}<br><span class="caption">${esc(availability(o).replaceAll("_", " "))} · ${esc(stamp(o.at))}</span><p class="caption">${esc(o.evidence)}</p></div><button data-action="verify" data-id="${o.id}">Record delivery check</button></div>`).join("") || "<p>No source offer recorded.</p>"}<h3>Heat evidence</h3>${b.heat.map((m) => `<div class="metric"><span>${esc(m.channel)} / ${esc(m.kind)}<br><span class="caption">${m.count} observations / ${m.days} days; cohort ${m.cohort_size}</span></span><span>${esc(m.rating)}</span></div>`).join("") || "<p>No reliable volume or popularity evidence connected. Asking prices and deal mentions do not establish sales.</p>"}</section><section class="panel"><h2>Asking prices & reported sales</h2><div id="history">Loading recorded history…</div><p class="caption">Actual dated observations only. Green: asking prices. Blue: imported reported sales. Gaps stay gaps.</p></section></div>`;
-    if (productHistory?.id === id) drawHistory(productHistory.data);
-    else
-      api("/api/product/" + encodeURIComponent(id))
-        .then((data) => {
-          productHistory = { id, data };
-          if (location.hash === "#product/" + id) drawHistory(data);
-        })
-        .catch((e) => notice(e.message, true));
-  } else if (route === "profitability") {
-    el.innerHTML = `<div class="section-heading"><div><p class="eyebrow">DESTINATION RESEARCH</p><h2>Where will the profit survive the costs?</h2><p>Compare real net dollars, price compression, fulfillment work and time to recover cash.</p></div><button data-action="route">+ Add destination</button></div>${
-      state.board
-        .filter((b) => b.routes.length)
-        .map(
-          (b) =>
-            `<h3><a href="#product/${esc(b.product.id)}">${esc(b.product.title)}</a></h3>${comparisons(b)}`,
-        )
-        .join("") ||
-      '<div class="empty"><h3>Start with a product from Discover.</h3><p>Its research page carries the exact item into each destination comparison.</p><a class="button" href="#home">Find products</a></div>'
-    }<details id="route-manager" class="panel" ${browse.manage ? "open" : ""}><summary>Manage stored comparisons</summary>${state.configured_routes.map((r) => `<div class="line"><span>${esc(state.board.find((b) => b.product.id === r.product_id)?.product.title || r.product_id)} · ${esc(r.channel)}</span><button data-action="route-toggle" data-id="${esc(r.id)}">${r.enabled ? "Pause route" : "Resume route"}</button></div>`).join("") || "<p>No comparisons recorded.</p>"}</details>`;
-  } else if (route === "suggestions") {
-    const b = state.basket;
-    el.innerHTML = `<section class="panel"><h2>Capital planner</h2><p>${esc(b.reason)}</p><p class="caption">Conservative greedy baseline, not a global optimum. One destination per product; integer units; no leverage. Existing inventory reduces capacity. Nothing is purchased.</p><a href="#settings">Edit separate business capital ↗</a><div class="line"><span>Cash available / preserved</span><span>${esc(money(b.cash_available))} / ${esc(money(b.cash_remaining))}</span></div>${b.basket.map((r) => `<div class="line"><span>${esc(r.product_id)} → ${esc(r.channel)} · ${r.units} units<br><span class="meta">${esc(r.source_url)} · observation ${r.observation_id}</span></span><span>${esc(money(r.commitment))} cost<br>${esc(money(r.estimated_total_profit))} estimated net</span></div>`).join("") || "<p>No current basket meets the capital and evidence requirements. Keeping cash is a valid outcome.</p>"}</section>`;
-  } else if (route === "inventory" || route === "planning") {
-    el.innerHTML = `<section class="panel"><h2>${route === "planning" ? "Planning & inventory aging" : "Inventory · append-only lots"}</h2><p>Receive stock with its total landed cost. Reserve units explicitly; release them before a sale. Returns stay quarantined until restocked. Sale amounts are net proceeds; return amounts are refunds.</p><button data-action="inventory">Record inventory event</button><div class="line"><span>Realized recorded profit</span><span>${esc(money(state.inventory.realized_profit))}</span></div><div class="table-wrap"><table><thead><tr><th>LOT / PRODUCT</th><th>AVAILABLE / RESERVED</th><th>QUARANTINED</th><th>COST / REALIZED</th><th>AGE</th></tr></thead><tbody>${state.inventory.lots.map((l) => `<tr><td>${esc(l.id)}<br>${esc(l.product_id)}</td><td>${l.available} / ${l.reserved}</td><td>${l.quarantined}</td><td>${esc(money(l.committed_cost))} / ${esc(money(l.realized_profit))}</td><td>${Math.max(0, Math.floor((Date.now() - Date.parse(l.received_at)) / 86400000))} days</td></tr>`).join("")}</tbody></table></div>${route === "planning" ? '<h3>Before committing capital</h3><ul class="checks"><li>Confirm exact variant, pack, condition, authenticity and acceptable supplier documents.</li><li>Check seller/category eligibility and shipping restrictions on the destination.</li><li>Recheck regional stock and delivered cost within five minutes of review.</li><li>Stress selling price, returns, holding time and all incremental fees.</li><li>Review aged and quarantined inventory before replenishment.</li></ul><p>No seasonality forecast is available without sufficient dated observations.</p>' : ""}</section>`;
-  } else if (route === "sources") {
-    const groups = (state.source_groups || []).filter(g => !browse.source || g.host === browse.source);
-    el.innerHTML = `<div class="section-heading"><div><p class="eyebrow">PRODUCTS BY SELLER</p><h2>Sources</h2><p>Collected offers grouped by retailer or marketplace. Prices and stock retain their last-check time.</p></div><a class="button" href="#settings">Manage connections ↗</a></div><div class="browse-bar"><label>Retailer / marketplace<select id="source-host"><option value="">All sources</option>${(state.source_groups || []).map(g => `<option value="${esc(g.host)}">${esc(g.host)} · ${g.products} products</option>`).join("")}</select></label><label>Find a product<input type="search" id="source-search" placeholder="Product or model" value="${esc(browse.query)}"></label></div>${groups.map(g => {
-      const rows = state.board.map(b => sourceProducts(b,g.host)).filter(b => b.offers.length);
-      return rows.length ? `<section class="source-product-group"><div class="section-heading"><h3>${esc(g.host)}</h3><span class="caption">${g.products.toLocaleString()} catalog products · latest check ${esc(stamp(g.latest_at))}</span></div>${board(rows)}</section>` : "";
-    }).join("") || '<div class="empty"><h3>No retained priced offers on this page.</h3><p>Catalog records may outlive their price cache. Collection errors and refresh controls are in Settings. No demonstration listing replaces missing data.</p><a href="#settings">Open Settings</a></div>'}<div class="catalog-pagination"><button id="source-prev" ${!state.catalog.offset ? "disabled" : ""}>← Previous</button><span>${state.catalog.total} matching products · 50 per page</span><button id="source-next" ${state.catalog.offset+50>=state.catalog.total ? "disabled" : ""}>Next →</button></div>`;
-    $("#source-host").value = browse.source;
-    $("#source-host").onchange = e => {browse.source=e.target.value; browse.offset=0; rememberBrowse(); reload().catch(e=>notice(e.message,true));};
-    $("#source-search").oninput = e => {browse.query=e.target.value; browse.offset=0; rememberBrowse(); clearTimeout(window.catalogSearchTimer); window.catalogSearchTimer=setTimeout(()=>reload().catch(e=>notice(e.message,true)),400);};
-    $("#source-prev").onclick = () => {browse.offset=Math.max(0,state.catalog.offset-50); rememberBrowse(); reload().catch(e=>notice(e.message,true));};
-    $("#source-next").onclick = () => {browse.offset=state.catalog.offset+50; rememberBrowse(); reload().catch(e=>notice(e.message,true));};
-  } else if (route === "settings") {
-    const s = state.settings;
-    el.innerHTML = `<section class="panel"><h2>Your business profile</h2><p>Business capital includes inventory cost. It is independent of the $500 trading reference accounts. Unknown capital produces no purchase basket.</p><form id="settings-form"><div class="form-grid">${field("capital", "Business capital", "number", s.capital ?? "", false)}${field("reserve", "Cash reserve", "number", s.reserve)}${field("region", "Delivery region (use the same value in checks)", "text", s.region)}${field("currency", "Currency", "text", s.currency)}</div><details><summary>Advanced limits · optional</summary><p>Defaults limit any one product to 20% of capital, any one selling channel to 60%, and orders to five units per product. Change these only to fit your business.</p><div class="form-grid">${field("max_product_percent", "Maximum capital in one product (%)", "number", Number(s.max_product_fraction)*100)}${field("max_channel_percent", "Maximum capital in one channel (%)", "number", Number(s.max_channel_fraction)*100)}${field("min_profit", "Minimum estimated profit per unit", "number", s.min_profit)}${field("max_units", "Maximum units per product", "number", s.max_units)}${field("max_days", "Maximum cash-cycle days", "number", s.max_days)}${field("max_monthly_cost", "Maximum monthly channel subscription", "number", s.max_monthly_cost)}</div></details><button class="primary">Save business profile</button></form></section>`;
-    el.insertAdjacentHTML(
-      "beforeend",
-      `<section class="panel"><h2>Data connections & setup guides</h2><p>No paid API is required for the included source adapter. Optional integrations show their actual implementation status.</p>${setupGuides.map((g) => `<details class="panel"><summary>${esc(g.title)} · ${esc(g.status)}</summary><p>${esc(g.purpose)}</p><div class="toolbar">${g.links.map((l) => external(l.url, l.label)).join(" · ")}</div><ol>${g.steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ol><p class="warn">${esc(g.cost)}</p><p class="caption">${esc(g.limitation)}</p></details>`).join("")}</section>`,
-    );
-    const connection = state.integrations?.ebay || {};
-    el.insertAdjacentHTML(
-      "beforeend",
-      `<section class="panel"><h2>eBay live-listing connection</h2><p class="caption">App key: ${connection.app_key_set ? "saved privately" : "not saved"} · App secret: ${connection.app_secret_set ? "saved privately" : "not saved"} · ${connection.enabled ? "enabled" : "disabled"}. ${esc(connection.note || connection.error || "")}</p><p>These are production developer app credentials, not your eBay login password. Blank fields preserve saved values. Read the eBay guide above before enabling.</p><form id="ebay-form"><label>Production App ID / Client ID<input type="password" name="client_id" autocomplete="new-password" placeholder="Leave blank to preserve"></label><label>Production Cert ID / Client Secret<input type="password" name="client_secret" autocomplete="new-password" placeholder="Leave blank to preserve"></label>${check("free_access_confirmed", "I confirmed permitted personal research access and no added API charges", connection.free_access_confirmed)}${check("enabled", "Enable read-only live eBay listings", connection.enabled)}<button class="primary">Save eBay connection</button></form><p>No purchases, cart changes or seller actions. The collector reloads this connection automatically.</p></section>`,
-    );
-    $("#ebay-form").onsubmit = async (e) => {
-      e.preventDefault();
-      const f = e.target;
-      await save("/api/integrations/ebay", {
-        client_id: f.client_id.value,
-        client_secret: f.client_secret.value,
-        enabled: f.enabled.checked,
-        free_access_confirmed: f.free_access_confirmed.checked,
-      });
-    };
-    el.insertAdjacentHTML("beforeend", sourceSetupHtml());
-    bindSourceSetup();
-    $("#settings-form").onsubmit = async (e) => {
-      e.preventDefault();
-      const d = Object.fromEntries(new FormData(e.target));
-      const productLimit = fractionFromPercent(d.max_product_percent), channelLimit = fractionFromPercent(d.max_channel_percent);
-      delete d.max_product_percent; delete d.max_channel_percent;
-      await save("/api/settings", {...s,...d,capital:d.capital || null, max_product_fraction:productLimit,max_channel_fraction:channelLimit});
-    };
-  } else
-    el.innerHTML =
-      '<section class="panel">Page not found. <a href="#home">Return home</a></section>';
+    await new Promise((r) => setTimeout(r, 250));
+  }
 }
-async function save(path, data) {
+async function checkMetal() {
+  const result = document.getElementById("result");
   try {
-    await api(path, data);
-    $("#editor").close();
-    await reload();
-    notice("Saved locally. Marketplaces were not changed.");
+    const out = await api("hunt/metal", {
+      karat: document.getElementById("karat").value,
+      grams: number("grams"),
+      price: number("price"),
+    });
+    result.replaceChildren(metalCard(out));
+    loadStatus();
   } catch (e) {
-    notice(e.message, true);
-    let m = $("#form-message");
-    if (m) m.textContent = e.message;
+    failure(result, e);
   }
 }
-function form(title, fields, onSubmit) {
-  const recordId = crypto.randomUUID();
-  modal(
-    `<h2>${esc(title)}</h2><form id="record-form">${fields}<p id="form-message" class="warn" role="alert"></p><button class="primary">Save local record</button></form>`,
-  );
-  $("#record-form").onsubmit = async (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target));
-    await onSubmit(data, e.target, recordId);
-  };
-}
-function drawHistory(data) {
-  const target = $("#history");
-  if (!target) return;
-  const rows = data.asking_history;
-  const currency = rows[0]?.currency;
-  const pts = [
-    ...rows
-      .filter((r) => r.currency === currency)
-      .map((r) => ({
-        t: Date.parse(r.at),
-        p: Number(r.price),
-        sale: false,
-        label: r.at + " asking " + r.price + " " + r.currency,
-      })),
-    ...data.reported_sales
-      .filter((r) => r.currency === currency)
-      .map((r) => ({
-        t: Date.parse(r.at),
-        p: Number(r.price),
-        sale: true,
-        label: r.at + " reported sale " + r.price,
-      })),
-  ];
-  if (!pts.length) {
-    target.textContent = "No recorded price points.";
-    return;
-  }
-  const xs = pts.map((p) => p.t),
-    ys = pts.map((p) => p.p),
-    xmin = Math.min(...xs),
-    xspan = Math.max(...xs) - xmin || 1,
-    ymin = Math.min(...ys),
-    yspan = Math.max(...ys) - ymin || 1;
-  target.innerHTML = `<svg class="chart" viewBox="0 0 800 200" role="img" aria-label="Recorded asking prices and reported sales as separate point series">${pts.map((p) => `<circle class="${p.sale ? "sale" : ""}" cx="${20 + ((p.t - xmin) / xspan) * 760}" cy="${175 - ((p.p - ymin) / yspan) * 150}" r="3"><title>${esc(p.label)}</title></circle>`).join("")}</svg><p class="caption">${esc(currency)} · ${esc(new Date(xmin).toISOString())} onward · green: asking prices · blue: imported reported sales. Source claims remain distinct.</p>`;
-}
-document.addEventListener("click", (e) => {
-  const tab = e.target.closest("[data-leads]");
-  if (tab && state) {
-    browse.leads = tab.dataset.leads;
-    render();
-    return;
-  }
-  const b = e.target.closest("[data-action]");
-  if (!b || !state) return;
-  const a = b.dataset.action,
-    id = b.dataset.id,
-    now = () => new Date().toISOString();
-  if (a === "ebay-source")
-    form(
-      "Add eBay live search",
-      field("query", "Specific product keyword or model") +
-        "<p>Requires an enabled production connection in Business settings. Search results stay separate until exact product identity is reviewed.</p>",
-      (d, _f, recordId) =>
-        save("/api/record/source", {
-          ...d,
-          id: "search-" + recordId,
-          url: "https://www.ebay.com/",
-          adapter: "ebay_browse",
-          enabled: true,
-        }),
-    );
-  if (a === "route-toggle") {
-    const route = state.configured_routes.find((r) => r.id === id);
-    if (route) save("/api/record/route", { ...route, enabled: !route.enabled });
-  }
-  if (a === "source-toggle") {
-    const source = state.sources.find((s) => s.id === id);
-    if (source)
-      save("/api/record/source", { ...source, enabled: !source.enabled });
-  }
-  if (a === "source")
-    form("Add retailer URL", field("url", "Adafruit product URL", "url"), (d) =>
-      save("/api/record/source", {
-        ...d,
-        id: "source-" + crypto.randomUUID(),
-        adapter: "jsonld",
-        enabled: true,
-      }),
-    );
-  if (a === "identity") {
-    const p = state.board.find((x) => x.product.id === id).product;
-    form(
-      "Review exact product",
-      field("title", "Product title", "text", p.title) +
-        field("category", "Category", "text", p.category) +
-        field("brand", "Brand", "text", p.brand || "", false) +
-        field("mpn", "Manufacturer part/model", "text", p.mpn || "", false) +
-        field("gtin", "GTIN / UPC", "text", p.gtin || "", false) +
-        field("variant", "Exact variant", "text", p.variant) +
-        field("pack_count", "Pack count", "number", p.pack_count ?? "") +
-        field("condition", "Condition", "text", p.condition) +
-        check(
-          "confirmed",
-          "I checked brand, model, variant, pack and condition",
-        ),
-      (d, f) =>
-        save("/api/record/product", {
-          ...p,
-          ...d,
-          brand: d.brand || null,
-          mpn: d.mpn || null,
-          gtin: d.gtin || null,
-          confirmed: undefined,
-          identity_confirmed: f.confirmed.checked,
-        }),
-    );
-  }
-  if (a === "verify") {
-    form(
-      "Record a real delivery check",
-      `<p>This is your attestation, not a stock reservation. Open the retailer page and check the exact item, destination and price. It expires after five minutes.</p>${field("price", "Current product price", "number")}${field("region", "Delivery region", "text", state.settings.region)}${field("quantity", "Confirmed available quantity", "number")}${field("shipping", "Shipping per unit", "number")}${field("tax", "Purchase tax per unit", "number")}${field("evidence", "What did you check? Include delivery/variant evidence")}`,
-      (d) =>
-        save("/api/verify/" + id, { ...d, availability: "VERIFIED_AVAILABLE" }),
-    );
-  }
-  if (a === "route" || a === "route-edit") {
-    const old =
-      a === "route-edit"
-        ? state.configured_routes.find((r) => r.id === id)
-        : null;
-    const v = (key) => old?.[key] ?? "";
-    form(
-      "Compare a selling destination",
-      picker(old?.product_id || id) +
-        `<p>Start with the prices you can support. Leave unknown costs blank; the app will show what is missing. No default fee rate is assumed.</p><h3>1 · Where and for how much?</h3><div class="form-grid">${field("channel", "Selling marketplace / channel", "text", v("channel"))}${field("fulfillment", "How will it be shipped?", "text", v("fulfillment") || "Seller fulfilled")}${field("destination_url", "Matched destination listing (optional)", "url", v("destination_url"), false)}${field("sale_price", "Supported resale price", "number", v("sale_price"))}${field("stress_price", "Lower resale price to test", "number", v("stress_price"))}</div><h3>2 · What will selling cost per unit?</h3><div class="form-grid">${field("fee_percent", "Variable selling fees (%)", "number", old?.fee_fraction != null ? Number(old.fee_fraction) * 100 : "", false)}${field("fixed_fee", "Fixed selling fees", "number", v("fixed_fee"), false)}${field("fulfillment_cost", "All inbound, prep and delivery costs", "number", v("fulfillment_cost"), false)}${field("return_allowance", "Returns / damaged-stock allowance", "number", v("return_allowance"), false)}${field("overhead", "Other overhead (include your labor value)", "number", v("overhead"), false)}${field("monthly_cost", "Extra monthly channel cost (0 if none)", "number", v("monthly_cost"))}</div><h3>3 · Is it worth the work and tied-up cash?</h3><div class="form-grid">${field("effort_minutes", "Hands-on minutes per unit", "number", v("effort_minutes"), false)}${field("days_to_cash", "Expected days until cash is recovered", "number", v("days_to_cash"), false)}${field("demand_limit", "Units supported by your demand evidence", "number", v("demand_limit"), false)}</div>${field("evidence_note", "Resale price, fee and demand sources", "text", v("evidence_note"), false)}${check("eligible", "I checked seller/category eligibility and sourcing documents", old?.eligible)}${check("identity_confirmed", "Exact model, variant, pack and condition match", old?.identity_confirmed)}${check("reviewed", "I reviewed the prices, fees and costs", old?.reviewed)}<p class="caption">Research comparison only. The current snapshot expires in 24 hours. Recheck prices and fees when continuing research.</p>`,
-      async (d, f, recordId) => {
-        const { fee_percent, ...values } = d;
-        for (const key of [
-          "fixed_fee",
-          "fulfillment_cost",
-          "return_allowance",
-          "overhead",
-          "effort_minutes",
-          "days_to_cash",
-          "demand_limit",
-        ])
-          values[key] = values[key] === "" ? null : values[key];
-        await save("/api/record/route", {
-          ...values,
-          id: old?.id || "route-" + recordId,
-          fee_fraction:
-            fee_percent === "" ? null : fractionFromPercent(fee_percent),
-          currency: state.settings.currency,
-          eligible: f.eligible.checked,
-          identity_confirmed: f.identity_confirmed.checked,
-          reviewed: f.reviewed.checked,
-          fee_version:
-            "operator-reviewed-" + new Date().toISOString().slice(0, 10),
-          valid_until: new Date(Date.now() + 86400000).toISOString(),
-        });
-      },
-    );
-  }
-  if (a === "inventory")
-    form(
-      "Inventory event",
-      field("id", "Unique event ID (reuse on retry)") +
-        field("lot_id", "Lot ID") +
-        picker() +
-        `<label>Event<select name="kind">${["RECEIVE", "RESERVE", "RELEASE", "SELL", "RETURN", "RESTOCK", "DAMAGE", "DISCARD_RETURN", "ADJUST_COST"].map((k) => `<option>${k}</option>`).join("")}</select></label>` +
-        field("units", "Units (0 for ADJUST_COST)", "number") +
-        field(
-          "amount",
-          "Total landed cost / net proceeds / refund / added cost",
-          "number",
-        ) +
-        field("at", "Occurred at (include timezone)", "text", now()) +
-        field("note", "Evidence or reference"),
-      (d) =>
-        save("/api/record/inventory", {
-          ...d,
-          currency: state.settings.currency,
-        }),
-    );
-  if (a === "signal")
-    form(
-      "Record dated evidence",
-      picker(id) +
-        field("id", "Unique evidence ID (reuse on retry)") +
-        field("channel", "Channel / venue") +
-        `<label>Evidence kind<select name="kind">${["OWN_SALE", "CONFIRMED_UNITS", "SOLD_LISTINGS", "VIEWS", "WATCHERS", "MENTIONS", "OFFERS"].map((k) => `<option>${k}</option>`).join("")}</select></label>` +
-        field(
-          "value",
-          "Count in this observation, not a cumulative total",
-          "number",
-        ) +
-        field(
-          "price",
-          "Observed unit sale price (only for sales)",
-          "number",
-          "",
-          false,
-        ) +
-        field("at", "Event time (include timezone)", "text", now()) +
-        field("source", "Document / source reference"),
-      (d) =>
-        save("/api/record/signal", {
-          ...d,
-          price: d.price || null,
-          available_at: now(),
-          currency: state.settings.currency,
-        }),
-    );
-  if (a === "lead-save" || a === "lead-dismiss") {
-    const lead = state.leads.find((l) => l.id === id);
-    if (lead)
-      save(
-        `/api/leads/${encodeURIComponent(id)}/${a === "lead-dismiss" ? "dismiss" : lead.saved ? "unsave" : "save"}`,
-        {},
-      );
-  }
-  if (a === "lead-offer") {
-    const lead = state.leads.find((l) => l.id === id);
-    if (lead)
-      form(
-        "Check the source offer",
-        `<h3>${esc(lead.title)}</h3><p>${external(lead.url, "Open the original deal")} and follow its source link. Record the actual retailer price; a community post does not establish current stock.</p>${field("url", "Direct source product link", "url")}${field("price", "Actual source price you observed", "number")}${field("currency", "Currency", "text", state.settings.currency)}${field("evidence", "What you observed (pack, condition, promotion)")}`,
-        async (d) => {
-          try {
-            await api(`/api/leads/${encodeURIComponent(id)}/offer`, d);
-            $("#editor").close();
-            await reload();
-            location.hash = "#product/" + lead.id;
-          } catch (error) {
-            $("#form-message").textContent = error.message;
-          }
-        },
-      );
-  }
-  if (a === "comparable-import") {
-    modal(`<h2>Import comparable prices</h2><p>CSV columns: title, channel, url, price, currency, region, condition, pack_count, gtin, evidence_type, at, evidence_note. Timestamp must include timezone. Use ASKING for active listings, REPORTED_SOLD for a reported sold listing; hidden accepted offers remain unknown. These are imported claims, not independent verification.</p><input id="comparable-file" type="file" accept=".csv,text/csv"><p id="form-message" role="alert"></p><button id="comparable-upload" class="primary">Import file</button>`);
-    $("#comparable-upload").onclick = async () => {
-      const file = $("#comparable-file").files[0];
-      if (!file || file.size > 450000) { $("#form-message").textContent = "Choose a CSV smaller than 450 KB."; return; }
-      await save("/api/comparables/import", {product_id: id, csv: await file.text()});
-    };
-  }
-  if (a === "observation")
-    form(
-      "Add a source offer",
-      `<p>Record the actual price from the source page. This begins research; it does not mark stock or resale profit as verified.</p><div class="form-grid">${field("title", "Exact product title")}${field("url", "Direct source product link", "url")}${field("price", "Actual source price you observed", "number")}${field("category", "Category", "text", "Uncategorized")}${field("currency", "Currency", "text", state.settings.currency)}</div>${field("evidence", "What you observed (pack, condition, promotion)")}`,
-      (d, _f, recordId) =>
-        save("/api/record/observation", {
-          product: {
-            id: "product-" + recordId,
-            title: d.title,
-            category: d.category,
-          },
-          source_id: "operator",
-          url: d.url,
-          price: d.price,
-          currency: d.currency,
-          availability: "UNKNOWN",
-          evidence: d.evidence,
-          at: now(),
-          method: "operator-page-observation",
-        }),
-    );
-});
-window.addEventListener("hashchange", () => {
-  productHistory = null;
-  if (state) reload().catch(e => notice(e.message,true));
-});
-(async () => {
-  try {
-    csrf = (await api("/api/session")).csrf_token;
-    setupGuides = await api("/api/setup-guides");
-    await reload();
-  } catch (e) {
-    notice(e.message, true);
-  }
-})();
-setInterval(() => {
-  if (
-    !editing &&
-    !$("#settings-form") &&
-    !document.activeElement?.matches("input,select,textarea") &&
-    !document.hidden
-  )
-    reload().catch((e) => notice("Dashboard unavailable: " + e.message, true));
-}, 10000);
 
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && !editing && !$("#settings-form"))
-    reload().catch((e) => notice(e.message, true));
-});
+// ── the deal card ───────────────────────────────────────────────────────────────────────────────
+const VERDICT = { buy: "BUY", maybe: "MAYBE", skip: "SKIP" };
+function meter(conf) {
+  const box = el("div", undefined, "meter");
+  const bar = el("span", undefined, "meter-bar");
+  bar.setAttribute(
+    "aria-label",
+    `Confidence ${conf.score} of ${conf.of}: ${conf.label}`,
+  );
+  for (let i = 0; i < conf.of; i++)
+    bar.append(el("i", undefined, i < conf.score ? "on" : ""));
+  box.append(
+    bar,
+    el("span", `${conf.label} · ${conf.score} of ${conf.of} checks`),
+  );
+  const list = el("ul", undefined, "checks");
+  for (const c of conf.checks)
+    list.append(
+      el(
+        "li",
+        `${c.ok ? "✓" : "✗"} ${c.label}: ${c.detail}`,
+        c.ok ? "ok" : "no",
+      ),
+    );
+  return [box, info("Why", list)];
+}
+function stat(label, value, cls) {
+  const s = el("div", undefined, "stat " + (cls || ""));
+  s.append(el("small", label), el("b", value));
+  return s;
+}
+function dealCard(v, { open = false } = {}) {
+  const card = el(
+    "article",
+    undefined,
+    "deal " + (v.deal ? v.deal.verdict : "waiting"),
+  );
+  const head = el("div", undefined, "deal-head");
+  if (v.item.image)
+    head.append(
+      Object.assign(el("img"), { src: v.item.image, alt: "", loading: "lazy" }),
+    );
+  const title = el("div", undefined, "deal-title");
+  const kindLabel =
+    v.item.kind === "item"
+      ? "Item"
+      : (KINDS.find((k) => k[0] === v.item.kind) || [0, "Item"])[1];
+  title.append(
+    el("span", kindLabel, "tag"),
+    el("h3", v.item.title),
+    el(
+      "small",
+      v.check
+        ? `${money(v.check.price)}${v.check.store ? " at " + v.check.store : ""}${v.check.quantity ? ` · ${v.check.quantity} on the shelf` : ""} · checked ${ago(v.check.at)}`
+        : "No price checked yet",
+      "muted",
+    ),
+  );
+  head.append(title);
+  if (v.deal) {
+    const badge = el("div", undefined, "verdict");
+    badge.append(
+      el("b", VERDICT[v.deal.verdict]),
+      el("small", v.deal.buy ? `buy up to ${v.deal.buy}` : ""),
+    );
+    head.append(badge);
+  }
+  card.append(head);
+  const m = v.market;
+  if (v.deal) {
+    const d = v.deal;
+    const row = el("div", undefined, "stats");
+    row.append(
+      stat("You pay", money(d.cost)),
+      stat("Sells for", money(d.sells_for)),
+      stat("You keep", money(d.you_keep)),
+      stat(
+        "Profit",
+        `${money(d.profit)} · ${pct(d.profit_pct)}`,
+        d.profit > 0 ? "up" : "down",
+      ),
+    );
+    card.append(row, ...meter(d.confidence));
+  } else if (m) {
+    const row = el("div", undefined, "stats");
+    row.append(
+      stat("Sells for", money(m.value)),
+      stat("Range", `${money(m.low)}–${money(m.high)}`),
+    );
+    card.append(
+      row,
+      el(
+        "p",
+        "Type the price you see in the check bar to get the profit and a verdict.",
+        "muted",
+      ),
+    );
+  }
+  if (m) {
+    const speed =
+      m.basis === "market_price"
+        ? "TCGplayer market price (from its recent sales)"
+        : `${m.count} sold in 90 days · about ${m.per_week ?? "—"} a week · most sell ${money(m.low)}–${money(m.high)}`;
+    const line = el("p", speed, "muted");
+    if (m.trend !== null && m.trend !== undefined && Math.abs(m.trend) >= 0.01)
+      line.append(
+        el(
+          "span",
+          ` · prices ${pct(m.trend)} a month`,
+          m.trend > 0 ? "up" : "down",
+        ),
+      );
+    card.append(line);
+  } else {
+    card.append(waiting(v));
+  }
+  card.append(actions(v, card), details(v, open));
+  return card;
+}
+function waiting(v) {
+  const box = el("div", undefined, "waiting-box");
+  const st = v.status;
+  box.append(
+    el(
+      "p",
+      st
+        ? st.note ||
+            (st.status === "empty"
+              ? "No sales in the last 90 days"
+              : "No sold prices read yet")
+        : "Sold prices are being read.",
+      "muted",
+    ),
+  );
+  box.append(pasteBox(v));
+  return box;
+}
+function pasteBox(v) {
+  const wrap = el("div", undefined, "paste");
+  const link = Object.assign(el("a", "Open eBay's sold results ↗"), {
+    href: v.sold_url,
+    target: "_blank",
+    rel: "noopener",
+  });
+  const area = el("textarea");
+  area.placeholder = "On eBay's sold results: select all, copy, and paste here";
+  area.setAttribute("aria-label", "Pasted eBay sold results");
+  const go = el("button", "Use pasted sales", "ghost");
+  go.type = "button";
+  go.onclick = async () => {
+    try {
+      const view = await api("hunt/paste", {
+        item_id: v.item.id,
+        text: area.value,
+      });
+      wrap.closest("article").replaceWith(dealCard(view, { open: true }));
+    } catch (e) {
+      wrap.append(el("p", e.message, "error"));
+    }
+  };
+  wrap.append(link, area, go);
+  return wrap;
+}
+function actions(v, card) {
+  const row = el("div", undefined, "actions");
+  const watch = el("button", v.item.watch ? "★ Watching" : "☆ Watch", "ghost");
+  watch.type = "button";
+  watch.title = "Watched items' sold prices refresh daily and feed Buy & Hold";
+  watch.onclick = async () =>
+    card.replaceWith(
+      dealCard(
+        await api(`hunt/item/${v.item.id}/flag`, {
+          flag: "watch",
+          on: !v.item.watch,
+        }),
+      ),
+    );
+  const refresh = el("button", "↻ Sold prices", "ghost");
+  refresh.type = "button";
+  refresh.title = `Read now (last read ${ago(v.comps_at)})`;
+  refresh.onclick = async () => {
+    refresh.disabled = true;
+    try {
+      card.replaceWith(
+        dealCard(await api(`hunt/item/${v.item.id}/refresh`, {}), {
+          open: true,
+        }),
+      );
+    } catch (e) {
+      refresh.disabled = false;
+      card.append(el("p", e.message, "error"));
+    }
+  };
+  const ebay = Object.assign(el("a", "eBay sold ↗", "ghost"), {
+    href: v.sold_url,
+    target: "_blank",
+    rel: "noopener",
+  });
+  const hide = el("button", "Hide", "ghost");
+  hide.type = "button";
+  hide.onclick = async () => {
+    await api(`hunt/item/${v.item.id}/flag`, { flag: "hidden", on: true });
+    card.remove();
+  };
+  row.append(watch, refresh, ebay, hide);
+  return row;
+}
+function details(v, open) {
+  const box = el("div");
+  const d = v.deal;
+  if (d) {
+    const t = el("table", undefined, "breakdown");
+    for (const [label, value] of [
+      ["Price + your sales tax", money(d.cost)],
+      ["Typical sale (buyer's total)", money(d.sells_for)],
+      ["eBay fees", "−" + money(d.fees)],
+      ["Your shipping label", "−" + money(d.shipping)],
+      ["You keep", money(d.you_keep)],
+      ["Profit", money(d.profit)],
+      ["If it sells at the low end", money(d.profit_quick)],
+    ]) {
+      const tr = el("tr");
+      tr.append(el("td", label), el("td", value));
+      t.append(tr);
+    }
+    box.append(info("Fees and profit", t));
+  }
+  if (v.sales?.length) {
+    const list = el("ul", undefined, "sales");
+    for (const s of v.sales)
+      list.append(
+        el(
+          "li",
+          `${s.sold_on || "—"} · ${money(s.price + (s.shipping || 0))} · ${s.title}`,
+        ),
+      );
+    box.append(info(`${v.sales.length} newest sales`, list));
+  }
+  if (v.market && v.item.category !== "cards")
+    box.append(info("Paste newer sales", pasteBox(v)));
+  if (open) box.querySelector("details")?.setAttribute("open", "");
+  return box;
+}
+function metalCard(out) {
+  const card = el("article", undefined, "deal " + out.verdict);
+  const head = el("div", undefined, "deal-head");
+  const title = el("div", undefined, "deal-title");
+  title.append(
+    el("span", out.metal === "gold" ? "Gold" : "Silver", "tag"),
+    el("h3", "Against its melt value"),
+  );
+  const badge = el("div", undefined, "verdict");
+  badge.append(
+    el("b", VERDICT[out.verdict]),
+    el("small", `pay at most ${money(out.break_even_price)}`),
+  );
+  head.append(title, badge);
+  const row = el("div", undefined, "stats");
+  row.append(
+    stat("You pay", money(out.cost)),
+    stat("Melt value", money(out.melt)),
+    stat("Scrap buyer pays", money(out.scrap_payout)),
+    stat(
+      "Profit",
+      `${money(out.profit)} · ${pct(out.profit_pct)}`,
+      out.profit > 0 ? "up" : "down",
+    ),
+  );
+  card.append(
+    head,
+    row,
+    el(
+      "p",
+      `Spot ${money(out.spot[out.metal])}/oz (${ago(out.spot.at)}). Scrap buyers pay a share of melt; set yours in Settings.`,
+      "muted",
+    ),
+  );
+  return card;
+}
+
+// ── views ───────────────────────────────────────────────────────────────────────────────────────
+async function showDeals(view) {
+  const filters = [
+    [null, "All"],
+    ["item", "Clearance & items"],
+    ["lego", "LEGO"],
+    ["cards", "Cards"],
+    ["sneakers", "Sneakers"],
+  ];
+  const chips = el("div", undefined, "filters");
+  for (const [id, label] of filters) {
+    const b = el("button", label, "chip");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(id === dealsFilter));
+    b.onclick = () => {
+      dealsFilter = id;
+      route();
+    };
+    chips.append(b);
+  }
+  const { items } = await api(
+    "hunt/deals" + (dealsFilter ? `?kind=${dealsFilter}` : ""),
+  );
+  const buys = items.filter((v) => v.deal?.verdict === "buy");
+  view.replaceChildren(
+    el("h2", "Deals"),
+    el(
+      "p",
+      items.length
+        ? `${buys.length} worth buying of ${items.length} checked · ranked by profit after every fee`
+        : "Nothing checked yet. Scan or type something in the bar above, with the price you see.",
+      "muted",
+    ),
+    chips,
+    ...items.map((v) => dealCard(v)),
+  );
+}
+async function showHolds(view) {
+  const { items } = await api("hunt/holds");
+  const intro = el(
+    "p",
+    "Items whose sold prices have been rising, steepest first: at least 10% a year over the last 90 days of sales (or a month of a card's market prices). Trends can reverse; this is where to look, not a promise. Retired LEGO sets have historically gained about 11% a year, usually starting 2–3 years after retirement.",
+    "muted",
+  );
+  const cards = items.map((v) => {
+    const card = dealCard(v);
+    const m = v.market;
+    const yearOut = m.value * (1 + m.yearly);
+    card.insertBefore(
+      el(
+        "p",
+        `Rising ${pct(m.yearly)} a year · ${money(m.value)} now → about ${money(yearOut)} in a year if it continues`,
+        "rise",
+      ),
+      card.children[1],
+    );
+    return card;
+  });
+  view.replaceChildren(
+    el("h2", "Buy & Hold"),
+    intro,
+    ...(cards.length
+      ? cards
+      : [
+          el(
+            "p",
+            "No rising items yet. Watch items (☆) and their sold prices are tracked daily.",
+            "muted",
+          ),
+        ]),
+  );
+}
+async function showMetals(view) {
+  await loadStatus();
+  const spot = status?.spot || {};
+  const payout = status?.settings?.scrap_payout ?? 0.8;
+  const tax = status?.settings?.purchase_tax ?? 0.07;
+  const table = el("table", undefined, "breakdown");
+  const head = el("tr");
+  head.append(
+    el("th", "Purity"),
+    el("th", "Melt per gram"),
+    el("th", "Pay at most per gram"),
+  );
+  table.append(head);
+  const purity = {
+    "10k": 10 / 24,
+    "14k": 14 / 24,
+    "18k": 18 / 24,
+    "22k": 22 / 24,
+    "24k": 0.999,
+    925: 0.925,
+    999: 0.999,
+  };
+  for (const k of KARATS) {
+    const ounce = k === "925" || k === "999" ? spot.silver : spot.gold;
+    if (!ounce) continue;
+    const perGram = (ounce / 31.1034768) * purity[k];
+    const tr = el("tr");
+    tr.append(
+      el("td", k === "925" || k === "999" ? `${k} silver` : k),
+      el("td", money(perGram)),
+      el("td", money((perGram * payout) / (1 + tax) / 1.15)),
+    );
+    table.append(tr);
+  }
+  view.replaceChildren(
+    el("h2", "Gold & silver"),
+    el(
+      "p",
+      `Pick "Gold & silver" in the check bar, then the karat, weight and tag price. "Pay at most" leaves a 15% profit when a scrap buyer pays ${Math.round(payout * 100)}% of melt, after your ${Math.round(tax * 100)}% sales tax. Weigh pieces on a pocket scale; stones and fillers aren't gold.`,
+      "muted",
+    ),
+    table,
+  );
+}
+async function showSettings(view) {
+  await loadStatus();
+  const s = status.settings;
+  const rows = [
+    ["purchase_tax", "Sales tax where you buy (%)", 100],
+    [
+      "buyer_tax",
+      "Sales tax eBay charges buyers, which its fee includes (%)",
+      100,
+    ],
+    ["min_profit_pct", "Smallest profit share to call it a BUY (%)", 100],
+    ["min_profit_usd", "Smallest profit in dollars to call it a BUY ($)", 1],
+    ["scrap_payout", "What a scrap buyer pays, as a share of melt (%)", 100],
+    [
+      "bankroll",
+      "Bankroll: no single buy uses more than a quarter of it ($, blank for none)",
+      1,
+    ],
+  ];
+  const form = el("form", undefined, "settings");
+  for (const [key, label, scale] of rows) {
+    const l = el("label", label);
+    const input = field(key, "", "decimal", label);
+    input.value =
+      s[key] === null || s[key] === undefined
+        ? ""
+        : Math.round(s[key] * scale * 100) / 100;
+    l.append(input);
+    form.append(l);
+  }
+  const saved = el("p", "", "muted");
+  form.append(el("button", "Save"), saved);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {};
+    for (const [key, , scale] of rows) {
+      const raw = document.getElementById(key).value.trim();
+      body[key] =
+        raw === ""
+          ? key === "bankroll"
+            ? null
+            : undefined
+          : Number(raw) / scale;
+    }
+    try {
+      await api("hunt/settings", body);
+      saved.textContent = "Saved.";
+      loadStatus();
+    } catch (err) {
+      saved.textContent = err.message;
+    }
+  };
+  const bg = status.background;
+  view.replaceChildren(
+    el("h2", "Settings"),
+    form,
+    el(
+      "p",
+      `eBay sold prices are read from this computer, one search every 20 seconds at most, with an honest identity. If eBay refuses, reading pauses 6 hours and pasting still works. ${status.ebay.paused || ""} Background refresh: ${bg.running ? "on" : "off"}${bg.error ? " — " + bg.error : ""}.`,
+      "muted",
+    ),
+  );
+}
+async function route() {
+  const view = document.getElementById("view");
+  const page = (location.hash || "#deals").slice(1);
+  for (const a of document.querySelectorAll(".tabs a"))
+    a.setAttribute(
+      "aria-current",
+      String(a.getAttribute("href") === "#" + page),
+    );
+  try {
+    await (
+      {
+        deals: showDeals,
+        holds: showHolds,
+        metals: showMetals,
+        settings: showSettings,
+      }[page] || showDeals
+    )(view);
+  } catch (e) {
+    failure(view, e);
+  }
+}
+
+window.addEventListener("hashchange", route);
+drawKinds();
+drawForm();
+loadStatus();
+route();
