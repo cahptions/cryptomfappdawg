@@ -1,19 +1,16 @@
 # KESTREL Arbitrage — starting the separate app
 
-Run these commands in your normal terminal. They switch to the tested feature branch and gracefully restart
-Arbitrage to load the new code. They preserve your runtime data and do not stop Stocks.
+Arbitrage ships in the same checkout as Stocks; `kestrel update` keeps it current. There is no branch to switch to.
+On the computer you want it on, install its menu icon (lime green) and open it once:
 
 ```bash
 cd ~/kestrel
-git fetch origin
-git switch codex/arbitrage-v1
-git pull --ff-only origin codex/arbitrage-v1
-uv sync --frozen
-uv run desk open --desk arbitrage --restart
+uv run desk open --desk arbitrage --install
 ```
 
-If Git reports local changes and refuses to switch, preserve them; do not reset or overwrite them. The application
-is also available at `http://127.0.0.1:8768`. To run it visibly in a terminal instead:
+After that, open **KESTREL Arbitrage** from the application menu. After an update, load the new code with
+`uv run desk open --desk arbitrage --restart`; it preserves your runtime data and does not stop Stocks. The
+application is also available at `http://127.0.0.1:8768`. To run it visibly in a terminal instead:
 
 ```bash
 cd ~/kestrel
