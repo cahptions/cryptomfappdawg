@@ -15,6 +15,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from desk.stocks import calendar as cal
 from desk.stocks.fundamentals import ANNUAL, Fundamentals, _latest_per_period
 from desk.stocks.repo import StocksMarket, StocksResearch, date_of
 
@@ -347,7 +348,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
     return {"symbol": symbol, "asof": now.isoformat(),
             "about": about(listing, profile, feeds, chief_executive(market, symbol)),
             "market_cap": market_cap, "shares_outstanding": shares,
-            "quote_details": (quote or {}).get("details") or {},
+            "quote_details": (quote or {}).get("details") or {}, "market": cal.market_session(now),
             "financials": fin, "earnings": earnings(fin, feeds, today), "ratings": ratings(feeds),
             "short_interest": short_interest(market, symbol, shares),
             "insiders": insiders(market, symbol, today),

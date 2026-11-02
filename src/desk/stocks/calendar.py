@@ -90,6 +90,22 @@ def session_close(d: date) -> datetime:
     return datetime.combine(d, CLOSE, NEW_YORK)
 
 
+def market_session(now: datetime) -> dict[str, str]:
+    """Where the US market is right now: ``pre`` (4:00–9:30 ET on a trading day), ``open`` (the regular session),
+    ``after`` (4:00–8:00 PM) or ``closed`` (nights, weekends, holidays), with the trading day it belongs to."""
+    local = new_york(now)
+    d, t = local.date(), local.time()
+    if not is_trading_day(d):
+        return {"state": "closed", "session": previous_trading_day(d).isoformat()}
+    if t < time(4, 0):
+        return {"state": "closed", "session": previous_trading_day(d).isoformat()}
+    if t < time(9, 30):
+        return {"state": "pre", "session": d.isoformat()}
+    if t < time(16, 0):
+        return {"state": "open", "session": d.isoformat()}
+    return {"state": "after" if t < time(20, 0) else "closed", "session": d.isoformat()}
+
+
 def last_closed_session(now: datetime, after_close: timedelta = timedelta(0)) -> date:
     """The latest trading day whose close (plus ``after_close``) has passed."""
     local = new_york(now)

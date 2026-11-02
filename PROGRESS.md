@@ -17,6 +17,19 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-02 — Stock page during the trading day; the Dell's icon
+
+- At 11:34 ET Monday the 1D chart showed Friday and an "after hours" line showed: Schwab's pricehistory without
+  `endDate` ends at the previous business day's close, so today never arrived. Minute and daily chart requests now
+  send `endDate` = now. Extended-hours moves show only when the market isn't in its regular session
+  (`calendar.market_session`: pre / open / after / closed), labelled Pre-market or After hours. The hover caption
+  names the close it compares with ("vs Oct 29 close $92.07"). The header pill reads "research to Oct 30 close" (the
+  research basis; quotes and the 1D chart are live).
+- The Dell's Stocks icon stayed purple because `kestrel update` never rewrote launchers. `desk stocks command` (run by
+  every update) now refreshes the menu entries and icons already installed, keeping their ports.
+- The stock-page browser fixture's next-earnings date was fixed relative to the fixture day and expired; it is now
+  nine days from today.
+
 ## 2026-11-02 — Arbitrage finds deals by itself
 
 - The user: "the app is supposed to find deals and compare them", not wait for checks. `finder.py`: eBay Buy It Now

@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -52,9 +53,12 @@ def test_malformed_minute_response_is_rejected_as_a_whole(candles):
 async def test_client_requests_one_minute_regular_session_data_with_weekend_lookback():
     client = SchwabClient(SimpleNamespace(), SimpleNamespace(headers=None, configured=True))
     client._get = AsyncMock(return_value=json.dumps({"symbol": "SPY", "candles": [candle()]}).encode())
-    assert (await client.intraday_history("SPY"))[0].at == datetime(2026, 10, 21, 13, 30, tzinfo=UTC)
+    now = datetime(2026, 11, 2, 16, 34, tzinfo=UTC)                  # Monday 11:34 ET, the market open
+    assert (await client.intraday_history("SPY", now))[0].at == datetime(2026, 10, 21, 13, 30, tzinfo=UTC)
+    # the end is now: without it Schwab ends at the previous business day's close and today never shows
     assert client._get.call_args.args == ("pricehistory", {"symbol": "SPY", "periodType": "day", "period": 5,
-        "frequencyType": "minute", "frequency": 1, "needExtendedHoursData": "false", "needPreviousClose": "false"})
+        "frequencyType": "minute", "frequency": 1, "endDate": int(now.timestamp() * 1000),
+        "needExtendedHoursData": "false", "needPreviousClose": "false"})
 
 
 def test_latest_session_is_timestamped_preserves_gaps_and_never_becomes_a_bulk_day_or_paper_input(tmp_path):
@@ -67,6 +71,7 @@ def test_latest_session_is_timestamped_preserves_gaps_and_never_becomes_a_bulk_d
         save_intraday(world.dbs.market, "SPY", parsed(), NOW)
         minute = detail(world.paths, "SPY")["stock_data"]["intraday"]
         assert minute["session"] == "2026-10-21" and minute["previous_close"] == 99
+        assert minute["previous_day"] == "2026-10-20"                    # the caption names the close compared
         assert len(minute["bars"]) == 2 and minute["bars"][1]["volume"] == 0
         assert minute["bars"][1]["gap_before"] and minute["interval_minutes"] == 1
         assert "13:30:00" in minute["bars"][0]["at"]
@@ -135,3 +140,17 @@ async def test_minute_refresh_is_bounded_paced_and_independent_of_other_source_f
         assert world.market.bar_days() == days
     finally:
         world.close()
+
+
+def test_the_market_session_says_when_extended_hours_prices_belong_on_the_page():
+    from desk.stocks.calendar import market_session
+
+    def at(y, m, d, hh, mm):
+        return market_session(datetime(y, m, d, hh, mm, tzinfo=ZoneInfo("America/New_York")))
+
+    assert at(2026, 11, 2, 11, 34) == {"state": "open", "session": "2026-11-02"}      # Monday 11:34: no after hours
+    assert at(2026, 11, 2, 8, 0) == {"state": "pre", "session": "2026-11-02"}
+    assert at(2026, 11, 2, 17, 0) == {"state": "after", "session": "2026-11-02"}
+    assert at(2026, 11, 2, 22, 0)["state"] == "closed"
+    assert at(2026, 11, 1, 12, 0) == {"state": "closed", "session": "2026-10-30"}     # Sunday: Friday's session
+    assert at(2026, 11, 26, 12, 0) == {"state": "closed", "session": "2026-11-25"}    # Thanksgiving

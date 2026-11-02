@@ -86,7 +86,9 @@ def stock_page_fixture(world: StocksWorld) -> None:
                       "surprise": a - e, "surprise_pct": 100 * (a - e) / e}
                      for q, a, e in [("2025-12-31", .61, .58), ("2026-03-31", .55, .57), ("2026-06-30", .66, .63),
                                      ("2026-09-30", .71, .69)]],
-        "calendar": [{"date": (session + timedelta(days=9)).isoformat(), "when": "after the close", "year": None,
+        # nine days from the real today: the page compares against today's date, so a fixed date expires
+        "calendar": [{"date": (datetime.now(UTC).date() + timedelta(days=9)).isoformat(), "when": "after the close",
+                      "year": None,
                       "quarter": None, "eps_estimate": .74, "eps_actual": None, "revenue_estimate": None,
                       "revenue_actual": None}],
     }

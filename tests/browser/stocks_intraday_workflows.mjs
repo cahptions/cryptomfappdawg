@@ -63,7 +63,7 @@ try {
       );
       assert.match(
         await page.getByTestId("price-caption").innerText(),
-        /1-minute close.*Change vs previous close/,
+        /1-minute close.*Change vs \w+ \d+ close \$/,
       );
       await chart.press("ArrowRight");
       assert.match(await tooltip.innerText(), /9:31 AM ET/);

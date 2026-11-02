@@ -37,9 +37,11 @@ def test_bad_daily_candles_are_not_committed_as_partial_history(rows):
 async def test_client_requests_actual_twenty_year_daily_history_not_a_cosmetic_long_range():
     client = SchwabClient(SimpleNamespace(), SimpleNamespace(headers=None, configured=True))
     client._get = AsyncMock(return_value=json.dumps({"symbol": "SPY", "candles": [candle()]}).encode())
-    assert (await client.price_history("SPY"))[0].day.year == 2010
+    now = datetime(2026, 11, 2, 16, 34, tzinfo=UTC)
+    assert (await client.price_history("SPY", now))[0].day.year == 2010
     assert client._get.call_args.args == ("pricehistory", {"symbol": "SPY", "periodType": "year", "period": 20,
-        "frequencyType": "daily", "frequency": 1, "needExtendedHoursData": "false", "needPreviousClose": "false"})
+        "frequencyType": "daily", "frequency": 1, "endDate": int(now.timestamp() * 1000),
+        "needExtendedHoursData": "false", "needPreviousClose": "false"})
 
 
 def test_chart_cache_does_not_mark_bulk_day_complete_or_mutate_paper_and_retains_data_on_failure(tmp_path):

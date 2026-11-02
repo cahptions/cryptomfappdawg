@@ -158,6 +158,12 @@ def run(args: argparse.Namespace) -> int:
 
         print(install_command(REPO_ROOT, Path.home() / ".local" / "bin", uv=os.environ.get("UV"),
                               remote=remote_host(paths)))
+        from sys import executable as this_python  # (a plain `import sys` here would shadow names run() shares)
+
+        from desk.ops.launcher import refresh_installed
+
+        with contextlib.suppress(OSError, ValueError):     # menu icons are cosmetic: never fail an update over them
+            refresh_installed(paths, this_python)
         return 0
     if action == "restart":
         import os

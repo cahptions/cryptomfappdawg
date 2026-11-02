@@ -312,6 +312,13 @@ def parse_intraday(body: bytes, symbol: str) -> list[IntradayBar]:
         raise SchemaError("schwab price history: invalid minute candles; existing intraday chart preserved") from exc
 
 
+
+def _millis(now: datetime | None) -> int:
+    """Schwab's endDate: milliseconds since the epoch (now unless given)."""
+    from desk.core.clock import utc_now
+
+    return int((now or utc_now()).timestamp() * 1000)
+
 class SchwabClient:
     def __init__(self, http: ProviderHttp, tokens: SchwabTokens) -> None:
         self.http, self.tokens = http, tokens
@@ -389,10 +396,10 @@ class SchwabClient:
         return parse_option_quotes(await self._get("quotes", {"symbols": ",".join(symbols), "fields": "quote,reference"}),
                                    set(occs))
 
-    async def price_history(self, symbol: str) -> list[Bar]:
+    async def price_history(self, symbol: str, now: datetime | None = None) -> list[Bar]:
         return parse_history(await self._get("pricehistory", {
             "symbol": symbol, "periodType": "year", "period": 20, "frequencyType": "daily", "frequency": 1,
-            "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
+            "endDate": _millis(now), "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
 
     async def daily_since(self, symbol: str, since: date, today: date) -> list[Bar]:
         """Daily candles back to ``since`` with the smallest documented period that reaches it (gap repair)."""
@@ -404,8 +411,9 @@ class SchwabClient:
             "symbol": symbol, "periodType": period_type, "period": period, "frequencyType": "daily", "frequency": 1,
             "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
 
-    async def intraday_history(self, symbol: str) -> list[IntradayBar]:
-        # Several sessions allow a real previous session at weekends, holidays and before today's open.
+    async def intraday_history(self, symbol: str, now: datetime | None = None) -> list[IntradayBar]:
+        # Several sessions allow a real previous session at weekends, holidays and before today's open. The end is
+        # always now: without it Schwab ends at the previous business day's close, so today's session never showed.
         return parse_intraday(await self._get("pricehistory", {
             "symbol": symbol, "periodType": "day", "period": 5, "frequencyType": "minute", "frequency": 1,
-            "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
+            "endDate": _millis(now), "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)

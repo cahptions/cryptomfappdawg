@@ -1397,12 +1397,22 @@ const KestrelResearch = (() => {
       changeLabel.textContent = label;
       hero.dataset.direction = delta == null || delta >= 0 ? "up" : "down";
     }
+    // Extended-hours move: only while the regular session is closed (Schwab keeps the last pre-market or
+    // after-hours price during the day, which would read as a live "after hours" move at 11 AM).
     function afterHours() {
       const q = liveQuote(),
-        x = profile?.quote_details || {};
+        x = profile?.quote_details || {},
+        state = profile?.market?.state;
       const ext = x.ext_last,
         close = x.regular_last ?? q?.last;
-      afterLine.hidden = !(q && ext && close && Math.abs(ext - close) > 1e-9);
+      afterLine.hidden = !(
+        state &&
+        state !== "open" &&
+        q &&
+        ext &&
+        close &&
+        Math.abs(ext - close) > 1e-9
+      );
       if (afterLine.hidden) return;
       const delta = ext - close;
       afterLine.replaceChildren(
@@ -1411,7 +1421,7 @@ const KestrelResearch = (() => {
           `${F.signedUsd(delta)} (${F.signedPct(delta / close)})`,
           tone(delta),
         ),
-        el("span", "After hours", "muted"),
+        el("span", state === "pre" ? "Pre-market" : "After hours", "muted"),
       );
     }
     const inspectPrice = (row, baseline, session = null, range = null) => {
@@ -1455,14 +1465,17 @@ const KestrelResearch = (() => {
           quote || !latest ? "Today" : F.date(dateOf(latest.day), false),
         );
       }
+      const vsClose = session?.previous_close
+        ? `Change vs ${session.previous_day ? shortDate(session.previous_day) + " " : "previous "}close ${money(session.previous_close)}`
+        : "Change since session open";
       priceCaption.textContent = row?.at
-        ? `${intradayTime(row.at, true)} · ${range === "1W" ? "10-minute" : "1-minute"} close · USD · ${session?.previous_close ? "Change vs previous close" : "Change since session open"}`
+        ? `${intradayTime(row.at, true)} · ${range === "1W" ? "10-minute" : "1-minute"} close · USD · ${vsClose}`
         : row
           ? `${new Date(dateOf(row.day) + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · Stored close · USD · Change since ${dateOf(baseline.day)}`
           : quote
             ? `Schwab quote · ${new Date(quote.quoted_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET · USD · Change vs previous close`
             : minuteLast
-              ? `${intradayTime(minuteLast.at, true)} · Last saved 1-minute close · USD · ${session.previous_close ? "Change vs previous close" : "Change since session open"}`
+              ? `${intradayTime(minuteLast.at, true)} · Last saved 1-minute close · USD · ${vsClose}`
               : latest
                 ? `Stored close · ${shortDate(dateOf(latest.day))} · USD · Change vs previous observed close`
                 : "No stored price history";

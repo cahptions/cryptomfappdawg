@@ -162,3 +162,19 @@ def test_desk_open_remote_sets_up_once_then_every_open_goes_there(paths: DeskPat
     run("open", "--desk", "stocks", "--install", "--remote", "off")
     assert launcher.remote_host(paths) is None and calls[-1] == ("local",)
     assert "exec ssh" not in (tmp_path / "home" / ".local" / "bin" / "kestrel").read_text()
+
+
+def test_an_update_rewrites_the_installed_menu_icons_keeping_their_ports(tmp_path):
+    """The Dell kept a purple Stocks icon: `kestrel update` now rewrites installed entries, so a new colour arrives."""
+    from desk.ops.launcher import install_launchers, refresh_installed
+
+    paths = DeskPaths(tmp_path / "data", tmp_path / "config", tmp_path / "secrets.env")
+    home = tmp_path / "share"
+    assert refresh_installed(paths, "/usr/bin/python3", data_home=home) == []        # nothing installed: nothing written
+    install_launchers(paths, "/usr/bin/python3", desks=("stocks", "arbitrage"), stocks_port=9767, data_home=home)
+    icon = home / "icons" / "hicolor" / "scalable" / "apps" / "kestrel-stocks.svg"
+    icon.write_text(icon.read_text().replace("#89cff0", "#b07cff"))                 # an old purple icon
+    written = refresh_installed(paths, "/usr/bin/python3", data_home=home)
+    assert "#89cff0" in icon.read_text() and len(written) == 4
+    assert "--port 9767" in (home / "applications" / "kestrel-stocks.desktop").read_text()
+    assert not (home / "applications" / "kestrel.desktop").exists()                 # only what was installed

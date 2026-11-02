@@ -1161,11 +1161,12 @@ function workerState() {
           timeZone: "UTC",
         }) + " close"
       : "no data yet";
+  // The research is built on the latest finished daily close; quotes and the 1D chart are live and separate.
   const pill = document.getElementById("worker-pill");
   pill.className = running ? "running" : "paused";
   pill.querySelector("span").textContent =
-    `${running ? "Running" : "Paused"} · ${session}`;
-  pill.title = `PAPER worker ${running ? "running" : "paused"} · latest analysis ${snapshot?.asof || "not ready"} · ${number(snapshot?.listings || 0)} active listings`;
+    `${running ? "Running" : "Paused"} · research to ${session}`;
+  pill.title = `PAPER worker ${running ? "running" : "paused"} · research and PAPER use the latest finished daily close (${snapshot?.asof || "not ready"}); quotes and the 1D chart are live · ${number(snapshot?.listings || 0)} active listings`;
   document.getElementById("more-status").textContent = pill.title;
 }
 // Numbers first: explanatory captions hide until the ⓘ toggle shows them; the choice is saved for this desk.

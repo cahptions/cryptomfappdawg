@@ -115,6 +115,25 @@ def install_launchers(paths: DeskPaths, python_executable: str, *, port: int = 8
     return written
 
 
+def refresh_installed(paths: DeskPaths, python_executable: str, *, data_home: Path | None = None) -> list[Path]:
+    """Rewrite the menu entries and icons already installed on this computer, keeping their ports, so an update's new
+    icon or name reaches the menu (``kestrel update`` runs this)."""
+    apps = (data_home or _data_home()) / "applications"
+    found: dict[str, int] = {}
+    for desk, spec in DESKS.items():
+        entry = apps / f"{spec['icon']}.desktop"
+        if entry.exists():
+            saved = re.search(r"--port\s+\"?(\d+)", entry.read_text(encoding="utf-8", errors="replace"))
+            found[desk] = int(saved[1]) if saved else 0
+    if not found:
+        return []
+    defaults = {"solana": 8765, "robinhood": 8766, "stocks": 8767, "arbitrage": 8768}
+    ports = {d: found.get(d) or defaults[d] for d in defaults}
+    return install_launchers(paths, python_executable, port=ports["solana"], rh_port=ports["robinhood"],
+                             stocks_port=ports["stocks"], arbitrage_port=ports["arbitrage"], desks=list(found),
+                             data_home=data_home)
+
+
 STOCKS_REMOTE_OFFSET = 10000      # another computer's Stocks port appears here 10000 higher: 8767 → 18767
 _HOST = re.compile(r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9.-]*$")
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8"]

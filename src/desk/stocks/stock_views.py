@@ -134,17 +134,18 @@ def read(conn: sqlite3.Connection, symbol: str, now: datetime) -> dict[str, Any]
                 week = []
     except (ValueError, TypeError, zlib.error):
         week = []
-    previous_close = None
+    previous_close = previous_day = None
     if session:
+        previous_day = cal.previous_trading_day(session)
         if quote and cal.new_york(datetime.fromisoformat(quote["quoted_at"])).date() == session:
             previous_close = quote.get("prev_close")
         if not previous_close:
-            previous = cal.previous_trading_day(session).toordinal()
-            previous_close = next((b["close"] for b in reversed(bars) if b["day"] == previous), None)
+            previous_close = next((b["close"] for b in reversed(bars) if b["day"] == previous_day.toordinal()), None)
     intraday = {"bars": minute_bars, "source": "Schwab", "interval_minutes": 1, "regular_hours": True,
                 "session": session.isoformat() if session else None, "updated_at": row["intraday_at"],
                 "last_at": minute_bars[-1]["at"] if minute_bars else None,
-                "previous_close": previous_close, "error": intraday_error, "week": week}
+                "previous_close": previous_close, "previous_day": previous_day.isoformat() if previous_day else None,
+                "error": intraday_error, "week": week}
     return {"bars": bars, "quote": quote, "requested": True, "updated_at": row["history_at"], "intraday": intraday,
             "history_error": history_error, "quote_error": row["quote_error"], "source": "Schwab",
             "basis": BASIS, "max_note": "Max shows available Schwab history from a request for up to 20 years; "
