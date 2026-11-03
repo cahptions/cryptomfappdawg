@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from desk.core.config import LoadedConfig, load_config
 from desk.core.paths import DeskPaths
+from desk.ops.phone import TailnetHost
 from desk.storage.databases import Databases
 from desk.web.control import ControlError, WorkerManager
 from desk.web.data import DashboardData
@@ -60,20 +61,24 @@ def _csv_value(value: Any) -> str:
     return "'" + text if text.startswith(("=", "+", "-", "@", "\t", "\r", "\n")) else text
 
 
-def install_browser_boundary(app: FastAPI, csrf_token: str, *, image_hosts: tuple[str, ...] = ()) -> None:
-    """Loopback host only, same-origin requests only (a top-level page load from a link excepted), CSRF on writes,
-    strict response headers. Shared by the Solana and Robinhood dashboards."""
+def install_browser_boundary(app: FastAPI, csrf_token: str, *, image_hosts: tuple[str, ...] = (),
+                             tailnet: TailnetHost | None = None) -> None:
+    """Loopback host (or this computer's own Tailscale name, for the phone), same-origin requests only (a top-level
+    page load from a link excepted), CSRF on writes, strict response headers. Shared by every KESTREL app."""
     extra_images = "".join(" https://" + host for host in image_hosts)
+    phone = tailnet or TailnetHost()
 
     @app.middleware("http")
     async def browser_boundary(request: Request, call_next: Any) -> Response:
         host = request.headers.get("host", "")
         # Exact host check also blocks DNS rebinding. No externally accessible bind option is exposed.
+        # Tailscale Serve on this computer ends the phone's HTTPS and passes its Host through unchanged.
         hostname, _, port = host.partition(":")
-        if hostname not in {"127.0.0.1", "localhost"} or (port and not port.isdigit()):
+        remote = hostname not in {"127.0.0.1", "localhost"}
+        if (port and not port.isdigit()) or (remote and not await phone.accepts(hostname)):
             return JSONResponse({"detail": "loopback host required"}, status_code=403)
         origin = request.headers.get("origin")
-        expected = f"{request.url.scheme}://{host}"
+        expected = f"{'https' if remote else request.url.scheme}://{host}"
         # Opening the page from a link elsewhere is a cross-site top-level navigation; it may load the page shell
         # (static files only). Every /api request, and anything framed or fetched, must still come from this page.
         navigation = (request.method in {"GET", "HEAD"} and not request.url.path.startswith("/api/")

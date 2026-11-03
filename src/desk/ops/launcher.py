@@ -461,6 +461,7 @@ COMMAND = """#!/bin/sh
 #   kestrel options-history   can this computer's Massive key read historical option prices?
 #   kestrel arbitrage open KESTREL Arbitrage (restarted on the latest code)
 #   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
+#   kestrel phone     open Stocks on your phone, privately, through Tailscale (kestrel phone off stops it)
 cd {repo} || exit 1
 case "${{1:-status}}" in
   status) exec {uv} run desk stocks status ;;
@@ -473,9 +474,10 @@ case "${{1:-status}}" in
   restart) exec {uv} run desk stocks restart ;;
   learning) exec {uv} run desk stocks learning-report ;;
   options-history) exec {uv} run desk stocks options-history ;;
+  phone) shift; exec {uv} run desk phone "$@" ;;
   *) echo "kestrel: '$1' is not a command in this version (kestrel update brings newer ones)"
      echo "usage: kestrel [status | update | open | signin | restart | learning | options-history | arbitrage |"
-     echo "                ebay-check]"; exit 2 ;;
+     echo "                ebay-check | phone]"; exit 2 ;;
 esac
 """
 REMOTE_COMMAND = """#!/bin/sh
@@ -488,12 +490,19 @@ REMOTE_COMMAND = """#!/bin/sh
 #   kestrel open      open it in a window here
 #   kestrel arbitrage   KESTREL Arbitrage, which runs on this computer (restarted on the latest code)
 #   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
+#   kestrel phone     open {host}'s Stocks on your phone through Tailscale; kestrel phone arbitrage: this
+#                     computer's Arbitrage; add off to stop
 # Any other word runs as `kestrel <word>` there, so new subcommands work here without reinstalling.
 action="${{1:-status}}"
 case "$action" in
   open) cd {repo} || exit 1; exec {uv} run desk open --desk stocks ;;
   arbitrage) cd {repo} || exit 1; exec {uv} run desk open --desk arbitrage --restart ;;
   ebay-check) cd {repo} || exit 1; shift; exec {uv} run desk arbitrage ebay-check "$@" ;;
+  phone) case "${{2:-}}" in
+      arbitrage) cd {repo} || exit 1; shift; exec {uv} run desk phone "$@" ;;
+      off) exec ssh -t {host} "~/.local/bin/kestrel phone off" ;;
+      *) exec ssh -t {host} "~/.local/bin/kestrel phone" ;;
+    esac ;;
   update)
     ssh -t {host} "~/.local/bin/kestrel update"; result=$?
     cd {repo} && git pull -q --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync -q \

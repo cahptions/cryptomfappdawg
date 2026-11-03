@@ -826,6 +826,16 @@ def cmd_services(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_phone(args: argparse.Namespace) -> int:
+    from desk.ops.phone import serve
+
+    words = set(args.words)
+    app = "arbitrage" if "arbitrage" in words else "stocks"
+    port = 8768 if app == "arbitrage" else load_config(DeskPaths.from_env().config_dir).settings.stocks.dashboard_port
+    print(serve(app, port, off="off" in words))
+    return 0
+
+
 def cmd_open(args: argparse.Namespace) -> int:
     from desk.ops import launcher
     from desk.ops.launcher import install_launchers, open_desk
@@ -1124,6 +1134,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--remote", metavar="USER@ADDRESS|off",
                    help="Stocks only: open another computer's desk here over SSH from now on (off: this computer's)")
     p.set_defaults(func=cmd_open)
+
+    p = sub.add_parser("phone", help="open Stocks (or Arbitrage) on your phone, privately, through Tailscale")
+    p.add_argument("words", nargs="*", choices=["stocks", "arbitrage", "off"], metavar="stocks|arbitrage|off")
+    p.set_defaults(func=cmd_phone)
 
     p = sub.add_parser("backups", help="online backups, verification and typed-confirmation restore")
     p.add_argument("action", choices=["run", "create", "verify", "restore"])

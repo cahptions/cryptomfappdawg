@@ -34,6 +34,15 @@ try {
     assert.match(await idea.getAttribute("href"), /^#plays\/idea\/[a-f0-9]+/);
     assert.match(await idea.innerText(), /\d+%/);
     await cockpit.locator(".cockpit-event").waitFor();
+    if (width === 390) {
+      // One column on a phone, with or without tracked plays (the fixture has none).
+      const widths = await cockpit
+        .locator(":scope > *")
+        .evaluateAll((cards) =>
+          cards.map((c) => Math.round(c.getBoundingClientRect().width)),
+        );
+      assert.equal(new Set(widths).size, 1, `cockpit card widths ${widths}`);
+    }
     assert.match(
       await page.locator("h1").first().innerText(),
       /^(Good (morning|afternoon|evening)|Late night)$/,

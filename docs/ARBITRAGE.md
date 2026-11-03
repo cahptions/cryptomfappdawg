@@ -81,6 +81,8 @@ Claude so the reader can be adjusted.
 - `kestrel arbitrage` opens the app, restarted on the latest code; `kestrel update` also stops an Arbitrage app that
   is running so the icon starts the updated one.
 - `kestrel ebay-check [words]` tests eBay's sold pages from this computer (one request).
+- `kestrel phone arbitrage` puts Arbitrage on your phone privately through Tailscale (this computer must be on
+  with Arbitrage running; setup in STOCKS.md, "On your phone"); `kestrel phone arbitrage off` stops it.
 - **Settings** in the app: your sales tax, the sales tax eBay charges buyers, the BUY thresholds, the scrap payout
   share and an optional bankroll. It also shows whether eBay reading is paused and whether the background refresh is
   running.

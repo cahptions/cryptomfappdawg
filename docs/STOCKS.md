@@ -162,6 +162,28 @@ Stocks app (its data is kept), and from then on:
 
 `--remote off` brings back this computer's own Stocks app.
 
+### On your phone
+
+**`kestrel phone`** (on the HP, or from the Dell, which runs it on the HP) puts the Stocks app on your phone, privately,
+through [Tailscale](https://tailscale.com/kb/1312/serve), free for personal use. The app keeps listening on the HP only;
+Tailscale Serve on the HP answers at the HP's private address (`https://appstuff.<your-tailnet>.ts.net/`) with a real
+HTTPS certificate, only for devices signed in to your own Tailscale account, and hands each request to the app.
+Nothing is put on the public internet (that would be Funnel, which KESTREL never uses). The app accepts exactly one
+extra address, the HP's own Tailscale name; any other name is still refused.
+
+Once, on the HP:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --operator=$USER      # prints a sign-in link
+kestrel phone                           # prints the phone address
+```
+
+The first time, Tailscale may print a link to allow HTTPS certificates for your account: open it, allow, and run
+`kestrel phone` again. On the phone: install the Tailscale app, sign in with the same account, open the printed
+address and add it to the home screen. The HP must be on and awake. `kestrel phone off` stops it.
+`kestrel phone arbitrage` does the same for Arbitrage on the computer that runs it, at port 8443.
+
 ## 3. Automatic collection and PAPER trading
 
 Opening Stocks starts `desk stocks paper --continuous --price-days 20` in the background. There is no24-hour

@@ -308,7 +308,8 @@ button.icon-link {
   white-space: nowrap;
 }
 @media (max-width: 900px) {
-  .cockpit {
+  .cockpit,
+  .cockpit.no-plays {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "plays"

@@ -17,6 +17,19 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-03 — KESTREL on the phone (Tailscale Serve); Home on a phone
+
+- The user asked to check KESTREL on their phone. Every app listened on 127.0.0.1 and refused any other Host.
+  `desk.ops.phone`: `kestrel phone` runs `tailscale serve --bg --https=443 http://127.0.0.1:<stocks port>` (Arbitrage:
+  8443), tailnet-only (Serve, never Funnel), and prints the address and phone steps; install and sign-in steps when
+  Tailscale is missing or signed out. The shared browser guard accepts exactly this computer's own `.ts.net` name
+  (read from `tailscale status` when the first such request arrives, rechecked at most once a minute) with the HTTPS
+  origin Serve gives the phone; every other host is still refused. Tailscale Serve keeps the incoming Host
+  (`ipn/ipnlocal/serve.go`, `r.Out.Host = r.In.Host`). The Dell's `kestrel phone` runs on the HP;
+  `kestrel phone arbitrage` runs locally.
+- Phone check through a stand-in HTTPS address found Home's cards squeezed into two columns when no plays are tracked
+  (`.cockpit.no-plays` outranked the phone rule). Fixed; the Home browser test now checks one column at phone width.
+
 ## 2026-11-03 — News and world: a twelfth desk, world supply shocks, policy actions
 
 - The user asked for news (articles, reports) as another committee member, including world events that move supply
