@@ -411,3 +411,62 @@ a.standing-tile:hover {
     font-size: var(--text-xl);
   }
 }
+
+/* World watch */
+.world-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.world-node {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--panel, var(--surface-2));
+  min-width: 0;
+}
+.world-node.spike {
+  border-color: var(--down, #ff6b6b);
+}
+.world-node-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.world-badge {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.world-badge.hot {
+  color: var(--down, #ff6b6b);
+  font-weight: 600;
+}
+.world-sources {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.world-actions summary {
+  cursor: pointer;
+  margin: 10px 0 6px;
+  font-weight: 600;
+}
+.world-study {
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 6px 0 12px;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+.world-study th,
+.world-study td {
+  padding: 4px 12px 4px 0;
+  text-align: left;
+  white-space: nowrap;
+}

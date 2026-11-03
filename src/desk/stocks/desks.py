@@ -21,14 +21,15 @@ from desk.stocks.options import iv_rank
 from desk.stocks.sectors import LABELS
 
 METHOD_VERSION = 2
-DESKS = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "crowd", "risk", "macro", "options")
+DESKS = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "crowd", "risk", "macro", "options",
+         "news")
 DESK_LABELS = {"valuation": "Valuation", "quality": "Quality", "growth": "Growth", "momentum": "Momentum",
                "earnings": "Earnings and events", "insiders": "Insiders", "shorts": "Short interest", "crowd": "The crowd",
-               "risk": "Risk", "macro": "Macro and sectors", "options": "Options"}
+               "risk": "Risk", "macro": "Macro and sectors", "options": "Options", "news": "News and world"}
 # The committee's starting weights (docs/STOCKS_METHOD.md): fundamentals and price evidence, not attention or option
 # pricing. Validation on unseen periods replaces them (desk.stocks.validate) and the report card shows which applied.
 DEFAULT_WEIGHTS = {"valuation": 1.0, "quality": 1.0, "growth": 0.8, "momentum": 1.0, "earnings": 0.6, "insiders": 0.6,
-                   "shorts": 0.4, "crowd": 0.0, "risk": 0.6, "macro": 0.4, "options": 0.0}
+                   "shorts": 0.4, "crowd": 0.0, "risk": 0.6, "macro": 0.4, "options": 0.0, "news": 0.0}
 EQUITY_RISK_PREMIUM = 0.05
 TERMINAL_GROWTH = 0.025
 
@@ -47,6 +48,7 @@ class Context:
     shorts: dict[str, dict[str, Any]] = field(default_factory=dict)
     crowd: dict[str, dict[str, Any]] = field(default_factory=dict)
     options: dict[str, dict[str, Any]] = field(default_factory=dict)
+    news: dict[str, dict[str, Any]] = field(default_factory=dict)      # company news, world shocks, trade actions
     macro: dict[str, Any] = field(default_factory=dict)
     sector_rs: dict[str, float] = field(default_factory=dict)
     valuation_history: dict[str, list[float]] = field(default_factory=dict)
@@ -735,13 +737,60 @@ def options(ctx: Context, symbols: Sequence[str]) -> dict[str, DeskResult]:
     return out
 
 
+# ── news and world ───────────────────────────────────────────────────────────────────────────────
+def news(ctx: Context, symbols: Sequence[str]) -> dict[str, DeskResult]:
+    """Company news tone and attention, supply shocks from world events, and trade actions (desk.stocks.news_flow).
+
+    Tone is the share of the week's articles Massive rates positive minus negative (negative firm news has predicted
+    weaker returns: Tetlock, Saar-Tsechansky and Macskassy 2008). A supply shock or a trade action moves the score in
+    the direction of the company's exposure, by its strength. It starts with no vote: validation decides whether it
+    earns one."""
+    out: dict[str, DeskResult] = {}
+    for s in symbols:
+        n = ctx.news.get(s)
+        if not n:
+            out[s] = DeskResult(None, 0.0, "No news", ["No articles, world shocks or trade actions touch this stock"],
+                                {}, [])
+            continue
+        parts: list[tuple[float, str]] = []
+        pos, neg, neu = n.get("positive", 0), n.get("negative", 0), n.get("neutral", 0)
+        rated = pos + neg + neu
+        tone = (pos - neg) / (rated + 2) if rated else 0.0               # two phantom neutrals temper a single article
+        if rated:
+            parts.append((tone, f"{pos} positive, {neg} negative and {neu} neutral articles this week"))
+        usual = n.get("earlier60", 0) / 60
+        attention = (n.get("recent3", 0) / 3) / usual if usual else None
+        if attention is not None and attention >= 2 and n.get("recent3", 0) >= 3:
+            parts.append((0.0, f"In the news {attention:.1f}× more than usual over three days"))
+        shock = 0.0
+        for w in n.get("world", []):
+            shock += w["sign"] * w["strength"]
+            parts.append((w["sign"] * w["strength"],
+                          f"{w['label']}: disruption coverage at {w['ratio']:.1f}× its usual level; this company "
+                          f"{'gains' if w['sign'] > 0 else 'depends on that supply'}"))
+        trade = 0.0
+        for t in n.get("policy", []):
+            trade += t["sign"] * t["weight"]
+            effect = "helps US makers like this one" if t["sign"] > 0 else "raises costs for buyers like this one"
+            parts.append((t["sign"] * t["weight"] * 0.6, f"{t['topic']} trade action ({t['signed']}): {effect}"))
+        score = 50 + 30 * tone + 25 * max(-1.0, min(1.0, shock)) + 15 * max(-1.0, min(1.0, trade))
+        score = max(0.0, min(100.0, score))
+        confidence = min(1.0, 0.15 * rated + 0.4 * bool(n.get("world")) + 0.3 * bool(n.get("policy")))
+        labels = ("Good news flow", "Leaning good", "Quiet or mixed", "Leaning bad", "Bad news flow")
+        out[s] = DeskResult(score, confidence, verdict(score, labels), _top_reasons(parts, 4),
+                            {"tone": round(tone, 3), "articles_week": rated, "attention": attention,
+                             "headlines": n.get("headlines", []), "world": n.get("world", []),
+                             "policy": n.get("policy", [])[:5]}, parts)
+    return out
+
+
 # ── the committee ────────────────────────────────────────────────────────────────────────────────
 def run_desks(ctx: Context, symbols: Sequence[str]) -> dict[str, dict[str, DeskResult]]:
     """desk → symbol → result, for every desk."""
     out: dict[str, dict[str, DeskResult]] = {}
     for name, fn in (("valuation", valuation), ("quality", quality), ("growth", growth), ("momentum", momentum),
                      ("earnings", earnings), ("insiders", insiders), ("shorts", shorts), ("risk", risk), ("macro", macro),
-                     ("options", options)):
+                     ("options", options), ("news", news)):
         out[name] = fn(ctx, symbols)
     fundamentals = {s: blend({d: out[d].get(s) for d in ("valuation", "quality", "growth")}, None) for s in symbols}
     out["crowd"] = crowd(ctx, symbols, fundamentals)

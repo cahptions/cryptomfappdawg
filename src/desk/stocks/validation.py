@@ -62,7 +62,7 @@ MIN_CROSS_SECTION = 10
 MIN_TRAIN_MONTHS = 6
 SHRINK_MONTHS = 12               # learned weights are shrunk toward the defaults by n / (n + 12) months of evidence
 LIVE_DESK_STEP = 5               # live desk scores are judged weekly (every fifth recorded session)
-LIVE_ONLY_DESKS = ("crowd", "options")
+LIVE_ONLY_DESKS = ("crowd", "options", "news")   # collected going forward only: graded live
 PROVEN_LIVE_WEIGHT = 0.4
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")

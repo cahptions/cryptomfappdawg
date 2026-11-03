@@ -600,6 +600,24 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             raise HTTPException(404, "No such research list")
         return value
 
+    @app.get("/api/stocks/world")
+    def world_watch() -> dict[str, Any]:
+        """World supply shocks, recent presidential trade actions and what the market did after past ones."""
+        from desk.stocks import calendar as cal
+        from desk.stocks import policy, world
+
+        today = cal.new_york(utc_now()).date()
+        with reader(paths, MARKET_FILE) as market:
+            try:
+                jobs = StocksMarket(market).jobs()
+                return {"nodes": world.status(market, today),
+                        "actions": policy.documents(market, today - timedelta(days=45), today)[:40],
+                        "study": policy.event_study(market, StocksMarket(market)),
+                        "collection": {k: jobs.get(k) for k in ("world", "news", "policy")}}
+            except sqlite3.OperationalError:
+                return {"nodes": [], "actions": [], "study": {"events": 0, "note": "Restart the Stocks worker to "
+                        "create the news tables"}, "collection": {}}
+
     @app.get("/api/stocks/events")
     def notable_events(group: str = "all", severity: int = 1, symbol: str | None = None,
                        limit: int = 300) -> dict[str, Any]:

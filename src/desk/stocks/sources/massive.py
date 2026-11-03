@@ -258,6 +258,12 @@ class MassiveClient:
             params["published_utc.lte"] = published_before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         return parse_news(await self._get("news", params=params), limit)
 
+    async def market_news(self, published_after: datetime, limit: int = 1000) -> list[dict[str, Any]]:
+        """Every stock's news since ``published_after``, oldest first (page forward from the last article's time)."""
+        params = {"order": "asc", "sort": "published_utc", "limit": limit,
+                  "published_utc.gte": published_after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        return parse_news(await self._get("news", params=params), limit)
+
     async def icon(self, path: str) -> tuple[str, bytes]:
         body = await self._get("branding", path=path)
         return icon_type(body), body

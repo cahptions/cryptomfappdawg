@@ -145,8 +145,10 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     # Receipts change as history arrives; successful source jobs can add new fundamentals/options/crowd data.
     receipts = [tuple(r) for r in market.conn.execute(
         "SELECT day, rows, received_at FROM stk_bar_days WHERE day<=? ORDER BY day", (target.toordinal(),))]
-    # Real option prices only feed historical replays, never today's research.
-    jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items() if k not in ("prices", "option_bars")}
+    # Real option prices only feed historical replays; news, world events and policy are read by the next analysis
+    # (they change every few minutes and would otherwise redo the whole analysis each pass).
+    jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items()
+            if k not in ("prices", "option_bars", "world", "news", "policy")}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
                                          "config": loaded.snapshot_hash, "preview_version": 5,
@@ -351,6 +353,19 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             log.warning("market events failed", extra={"error": str(exc)[:200]})
             market.job("market_events", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
             events = {"ok": False, "error": str(exc)[:300]}
+        # News, world events and trade actions: world files every pass, company news every 30 minutes, policy
+        # every 6 hours. Never stops collection: a failure is recorded on the System page.
+        try:
+            from desk.stocks import news_flow
+
+            due = {"world": True, "news": _due(market, "news", now, 0.5), "policy": _due(market, "policy", now, 6)}
+            got = await run_job("news_world", news_flow.job(market.conn, suite.massive, utc_now(), due=due))
+            for name, detail in got.items():
+                market.job(name, now, error=detail.get("error"), detail=detail)
+            jobs["news_world"] = got
+        except Exception as exc:  # recorded; never stops collection
+            log.warning("news and world failed", extra={"error": str(exc)[:200]})
+            market.job("world", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         if suite.massive.configured:
             from desk.stocks import options_history
 

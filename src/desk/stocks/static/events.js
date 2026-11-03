@@ -339,6 +339,202 @@ const KestrelEvents = (() => {
     return box;
   }
 
+  // World watch: supply chains under stress from world events (GDELT, 65+ languages), presidential trade actions
+  // and what the market did after past ones (desk.stocks.world and desk.stocks.policy).
+  const KIND = {
+    conflict: "fighting",
+    threats: "threats",
+    sanctions: "sanctions",
+    unrest: "strikes & protests",
+    coercion: "seizures & crackdowns",
+  };
+  function host(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  }
+  function nodeCard(n) {
+    const card = el(
+      "article",
+      undefined,
+      "world-node" + (n.spike ? " spike" : ""),
+    );
+    const level = !n.ready
+      ? `Learning its usual level (${n.baseline_days} of 5 days)`
+      : n.ratio == null
+        ? "No coverage yet"
+        : n.spike
+          ? `${n.ratio.toFixed(1)}× usual coverage`
+          : `${n.ratio.toFixed(1)}× usual · calm`;
+    const head = el("div", undefined, "world-node-head");
+    head.append(
+      el("strong", n.label),
+      el("span", level, n.spike ? "world-badge hot" : "world-badge"),
+    );
+    card.append(head, el("p", n.why, "muted caption"));
+    const exposed = [];
+    if (n.hurt.length) exposed.push(`Depend on it: ${n.hurt.join(", ")}`);
+    if (n.helped.length)
+      exposed.push(`Gain from scarcity: ${n.helped.join(", ")}`);
+    if (exposed.length) card.append(el("p", exposed.join(" · "), "caption"));
+    if (n.sources.length) {
+      const list = el("ul", undefined, "world-sources");
+      for (const src of n.sources.slice(0, 3)) {
+        const li = el("li");
+        const a = el(
+          "a",
+          `${host(src.url)} · ${KIND[src.kind] || src.kind}${src.place ? " · " + src.place : ""}`,
+        );
+        a.href = src.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        li.append(a, el("span", ` ${src.articles} articles`, "muted"));
+        list.append(li);
+      }
+      card.append(list);
+    }
+    return card;
+  }
+  function studyTable(study) {
+    const box = el("div");
+    if (!study?.events) {
+      box.append(
+        el(
+          "p",
+          study?.note || "No trade actions collected yet.",
+          "muted caption",
+        ),
+      );
+      return box;
+    }
+    const t = el("table", undefined, "world-study");
+    const head = el("tr");
+    for (const h of [
+      "After a trade action",
+      "SPY on average",
+      "Ordinary days",
+      "Up after",
+      "Ordinary up",
+    ])
+      head.append(el("th", h));
+    t.append(head);
+    for (const [h, r] of Object.entries(study.horizons)) {
+      const tr = el("tr");
+      for (const v of [
+        `${h} session${h === "1" ? "" : "s"} (${r.n})`,
+        pct(r.mean, 2),
+        pct(r.ordinary_mean, 2),
+        pct(r.up_share, 0).replace("+", ""),
+        pct(r.ordinary_up_share, 0).replace("+", ""),
+      ])
+        tr.append(el("td", v));
+      t.append(tr);
+    }
+    box.append(
+      el(
+        "p",
+        `${study.events} trade actions signed ${shortDay(study.first, true)} – ${shortDay(study.last, true)} (actions within three days counted once), measured from the close before the signing date.`,
+        "muted caption",
+      ),
+      t,
+    );
+    const topics = Object.values(study.topics || {});
+    if (topics.length) {
+      const tt = el("table", undefined, "world-study");
+      const th = el("tr");
+      for (const h of [
+        "Sector named",
+        "Actions",
+        "Named companies vs SPY, 5 sessions",
+        "Moved the expected way",
+      ])
+        th.append(el("th", h));
+      tt.append(th);
+      for (const r of topics) {
+        const tr = el("tr");
+        for (const v of [
+          r.label,
+          String(r.actions),
+          pct(r.mean_vs_spy, 2),
+          pct(r.right_share, 0).replace("+", ""),
+        ])
+          tr.append(el("td", v));
+        tt.append(tr);
+      }
+      box.append(
+        el(
+          "p",
+          "Tariffs should help the US companies that make the product and hurt those that buy it. Positive means the named companies moved that way relative to SPY.",
+          "muted caption",
+        ),
+        tt,
+      );
+    }
+    return box;
+  }
+  async function worldSection() {
+    const section = el("section", undefined, "events-section world-watch");
+    let w;
+    try {
+      w = await api("world");
+    } catch (e) {
+      section.append(el("h2", "World watch"), el("p", e.message, "muted"));
+      return section;
+    }
+    const spikes = w.nodes.filter((n) => n.spike);
+    const col = w.collection || {};
+    const files = col.world?.detail?.missing;
+    section.append(
+      el("h2", "World watch"),
+      el(
+        "p",
+        `Fighting, threats, sanctions, strikes and seizures where key supplies are made, read by GDELT from news in 65+ languages every 15 minutes. A supply chain is flagged when that coverage runs 1.8× its usual level. ${spikes.length ? `${spikes.length} flagged now.` : "Nothing flagged now."}${files ? ` Still collecting the last week's files (${files} to go).` : ""} The News desk reads these, with company news and trade actions, as a committee observer until its record earns it a vote.`,
+        "muted caption",
+      ),
+    );
+    const grid = el("div", undefined, "world-grid");
+    for (const n of w.nodes) grid.append(nodeCard(n));
+    section.append(grid);
+    const actions = el("details", undefined, "world-actions");
+    actions.open = true;
+    actions.append(
+      el(
+        "summary",
+        `Presidential actions · last 45 days (${w.actions.length})`,
+      ),
+    );
+    const list = el("ul", undefined, "world-sources");
+    for (const d of w.actions) {
+      const li = el("li");
+      const a = el("a", d.title);
+      a.href = d.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      const tags = [
+        d.trade ? "Trade" : null,
+        d.sanctions ? "Sanctions" : null,
+        ...(d.topic_labels || []),
+        ...(d.countries || []),
+      ].filter(Boolean);
+      li.append(el("span", shortDay(d.signed, true) + " ", "muted"), a);
+      if (tags.length)
+        li.append(el("span", " · " + tags.join(", "), "muted caption"));
+      list.append(li);
+    }
+    actions.append(list);
+    section.append(actions);
+    const study = el("details", undefined, "world-actions");
+    study.open = true;
+    study.append(
+      el("summary", "What the market did after trade actions"),
+      studyTable(w.study),
+    );
+    section.append(study);
+    return section;
+  }
+
   async function show(ticket) {
     const host = el("div", undefined, "event-results"),
       controls = el("div", undefined, "event-controls");
@@ -358,6 +554,9 @@ const KestrelEvents = (() => {
       ),
     );
     app.append(top);
+    const world = await worldSection();
+    if (ticket !== generation) return;
+    app.append(world);
     if (value.standing?.length) {
       const where = el("section", undefined, "events-section");
       where.append(

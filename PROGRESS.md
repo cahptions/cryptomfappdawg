@@ -17,6 +17,24 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-03 — News and world: a twelfth desk, world supply shocks, policy actions
+
+- The user asked for news (articles, reports) as another committee member, including world events that move supply
+  chains (wars where minerals or manufacturing are, often only in non-English press) and policy moves like tariff
+  announcements to model. Codex's attempt wasn't on GitHub (only local, if anywhere).
+- `world.py`: GDELT 2.0 15-minute event files (no API limit; the DOC API is throttled per shared IP) → daily totals per
+  FIPS country and kind (conflict 18-20, threats 13, sanctions 163/172, unrest 14, coercion 17) with top source URLs;
+  17 supply nodes; spike = last two days per collected file ≥1.8× the 30 days before (≥5 days of history).
+  `policy.py`: Federal Register presidential documents since 2025-01-20 (666, 66 trade actions live), tags, topic →
+  helped/hurt exposure, and an event study (SPY 1/5/10/20 sessions after trade actions vs ordinary; topic names vs
+  SPY). `news_flow.py`: Massive market-wide news with per-ticker sentiment; per-stock tone/attention; `inputs` joins
+  all three point in time. Migration 0009.
+- Desk `news` ("News and world") at weight 0, in `LIVE_ONLY_DESKS` (graded live, earns PROVEN_LIVE_WEIGHT if working);
+  replay excludes it. Runner: world every pass, news every 30 min, policy every 6 h (excluded from the research input
+  signature). Events page: World watch. Docs: STOCKS_NEWS.md.
+- Next: a Learning experiment on policy shocks (buy the index after a tariff-driven drop, the pattern the event study
+  measures) once the study shows an edge; more nodes as the user names supply chains.
+
 ## 2026-11-02 — Stock page during the trading day; the Dell's icon
 
 - At 11:34 ET Monday the 1D chart showed Friday and an "after hours" line showed: Schwab's pricehistory without

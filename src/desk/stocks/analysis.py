@@ -14,6 +14,7 @@ from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks import calendar as cal
 from desk.stocks import desks as dk
 from desk.stocks import features as feat
+from desk.stocks import news_flow
 from desk.stocks import signals as sig
 from desk.stocks.fundamentals import Fundamentals, base, with_price
 from desk.stocks.prices import Panel
@@ -119,6 +120,9 @@ class Analyzer:
                               {s: (price[s]["dollar_volume_20d"] or 0) / (price[s]["close"] or 1) for s in symbols}),
             crowd=sig.crowd(self.market, end_of_day) if crowd_and_options else {},
             options=sig.options(self.market, asof) if crowd_and_options else {},
+            # news, world shocks and trade actions are collected going forward: never in a replay of past years
+            news=news_flow.inputs(self.market.conn, asof, min(now or end_of_day, end_of_day), symbols,
+                                  sic) if crowd_and_options else {},
             macro=sig.macro(self.market, asof, spy_above),
             sector_rs=sector_rs, valuation_history=history)
         results = dk.run_desks(ctx, symbols)
