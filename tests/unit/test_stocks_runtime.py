@@ -101,7 +101,7 @@ def test_stocks_icon_reuses_current_server_and_restarts_only_a_stale_one(tmp_pat
     monkeypatch.setattr(launcher, "responding", lambda *_: next(checks))
     monkeypatch.setattr(runtime, "server_is_current", lambda *_: next(versions))
     monkeypatch.setattr(dashboard_restart, "restart_dashboard", lambda p, desk: actions.append(("restart", p, desk)))
-    monkeypatch.setattr(launcher, "_start_dashboard", lambda d, p: actions.append(("start", d, p)))
+    monkeypatch.setattr(launcher, "_start_dashboard", lambda d, p, log=None: actions.append(("start", d, p)))
     monkeypatch.setattr(launcher, "open_window", lambda *_: actions.append(("window",)))
     assert launcher.open_desk("stocks", 8767, paths) == "http://127.0.0.1:8767/"
     assert actions == ([("window",)] if current else [("restart", paths, "stocks"), ("start", "stocks", 8767), ("window",)])

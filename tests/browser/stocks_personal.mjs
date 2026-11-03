@@ -34,6 +34,18 @@ try {
     assert.match(await idea.getAttribute("href"), /^#plays\/idea\/[a-f0-9]+/);
     assert.match(await idea.innerText(), /\d+%/);
     await cockpit.locator(".cockpit-event").waitFor();
+    if (width === 1440) {
+      // The pill says today's market and the last close analysed: "Running · Market open Nov 3 · research to Nov 2 close".
+      await page.waitForFunction(() =>
+        /research to /.test(
+          document.querySelector("#worker-pill span")?.textContent,
+        ),
+      );
+      assert.match(
+        await page.locator("#worker-pill span").innerText(),
+        /^(Running|Paused) · ((Market open|Pre-market|After hours) [A-Z][a-z]{2} \d{1,2}|Market closed) · research to ([A-Z][a-z]{2} \d{1,2} close|no data yet)$/,
+      );
+    }
     if (width === 390) {
       // One column on a phone, with or without tracked plays (the fixture has none).
       const widths = await cockpit

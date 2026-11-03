@@ -311,16 +311,49 @@ def responding(url: str, timeout: float = 1.0) -> bool:
         return False
 
 
-def _start_dashboard(desk: str, port: int) -> None:
+SLOW_START_SECONDS = 120        # a first start after a long gap may migrate data; a live process gets this long
+
+
+def _start_dashboard(desk: str, port: int, log: Path | None = None) -> subprocess.Popen[bytes] | None:
+    """Start the dashboard: its user service if one is installed (None: systemd keeps its output), otherwise a
+    background process whose console output replaces ``log`` (private to you), so a failed start can say why."""
     spec = DESKS[desk]
     if shutil.which("systemctl"):
         result = subprocess.run(["systemctl", "--user", "start", str(spec["service"])], check=False,  # noqa: S603,S607
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result.returncode == 0:
-            return
-    subprocess.Popen([sys.executable, "-m", "desk", *spec["dashboard"], str(port)],  # noqa: S603
-                     start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL)
+            return None
+    output = subprocess.DEVNULL
+    if log is not None:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        output = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(output, 0o600)          # an older log keeps its mode otherwise
+    try:
+        return subprocess.Popen([sys.executable, "-m", "desk", *spec["dashboard"], str(port)],  # noqa: S603
+                                start_new_session=True, stdin=subprocess.DEVNULL, stdout=output,
+                                stderr=subprocess.STDOUT if log is not None else subprocess.DEVNULL)
+    finally:
+        if log is not None:
+            os.close(output)
+
+
+def log_tail(log: Path, paths: DeskPaths, lines: int = 15) -> str:
+    """The end of a dashboard's console log, with every configured key blanked out, for an error message."""
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "(no output was saved)"
+    try:
+        from desk.core.secrets import load_secrets
+
+        secret_values = load_secrets(paths.secrets_file).all_secret_values()
+    except Exception:          # an unreadable secrets file must not hide the reason the app stopped
+        secret_values = []
+    for value in secret_values:
+        if value:
+            text = text.replace(value, "[key hidden]")
+    kept = [line for line in text.splitlines() if line.strip() and "UV_NATIVE_TLS" not in line]
+    return "\n".join(kept[-lines:]) or "(it printed nothing)"
 
 
 Area = tuple[int, int, int, int]                 # x, y, width, height in screen pixels
@@ -469,14 +502,21 @@ def ensure_running(desk: str, port: int, paths: DeskPaths, *, wait_seconds: floa
 
         restart_dashboard(isolated_paths(paths) if desk == "arbitrage" else paths, desk=desk)
     if not responding(url):
-        _start_dashboard(desk, port)
-        deadline = time.monotonic() + wait_seconds
+        log = paths.logs_dir / f"{desk}-dashboard.log"
+        label = "Arbitrage" if desk == "arbitrage" else DESKS[desk]["name"]
+        process = _start_dashboard(desk, port, log)
+        started = time.monotonic()
         while not responding(url):
-            if time.monotonic() > deadline:
-                if desk == 'arbitrage':
-                    raise DeskError(f'Arbitrage dashboard did not start on {url}; run '
-                                    '`uv run desk arbitrage dashboard --open` to see its local error')
-                raise DeskError(f"the dashboard did not start on {url}; run `desk up` or check `desk services status`")
+            waited = time.monotonic() - started
+            if process is not None and process.poll() is not None:
+                raise DeskError(f"{label} stopped while starting (exit code {process.returncode}). The end of what "
+                                f"it printed ({log}):\n\n{log_tail(log, paths)}")
+            if waited > (wait_seconds if process is None else max(wait_seconds, SLOW_START_SECONDS)):
+                if process is None:
+                    raise DeskError(f"{label} did not start on {url}; its service log: journalctl --user -u "
+                                    f"{DESKS[desk]['service']} -n 40")
+                raise DeskError(f"{label} is still starting after {int(waited)} seconds and does not answer on {url} "
+                                f"yet. The end of what it printed ({log}):\n\n{log_tail(log, paths)}")
             time.sleep(0.5)
     if desk == "stocks":
         from desk.stocks.runtime import server_is_current
@@ -573,6 +613,6 @@ def install_command(repo: Path, bin_dir: Path, uv: str | None = None, remote: st
 
 
 __all__ = ["APP_BROWSERS", "DESKS", "browser_command", "check_host", "check_remote", "desktop_entry", "ensure_running",
-           "install_command", "install_launchers", "monitors", "notify", "open_desk", "open_window", "remote_host",
+           "install_command", "install_launchers", "log_tail", "monitors", "notify", "open_desk", "open_window", "remote_host",
            "remote_window", "responding", "saved_place", "screen_area", "set_remote_host", "shadowed",
            "ssh_key_setup", "this_computer", "window_slot"]

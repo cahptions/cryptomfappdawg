@@ -27,6 +27,7 @@ from desk.core.errors import DeskError
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.core.secrets import load_secrets
 from desk.core.worker_lock import WorkerLock
+from desk.stocks import calendar as cal
 from desk.stocks import play_history, play_tracking
 from desk.stocks.backtest import position_view
 from desk.stocks.backtest_job import BacktestWorker
@@ -136,6 +137,7 @@ def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
             "report_errors": [name for name in ("worker", "research", "paper", "options")
                               if (paths.home / f"stocks-{name}.json").exists() and saved_view(paths, name) is None],
             "worker_running": WorkerLock(paths, "stocks-worker").held(), "stop": paths.stop_file.exists(),
+            "market": cal.market_session(utc_now()),
             "connection": connection_status(paths, loaded.settings.stocks, credentials),
             "source_keys": {name: credentials.configured(name) for name in
                             ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "FINNHUB_API_KEY")},

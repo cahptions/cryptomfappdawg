@@ -207,3 +207,45 @@ def test_a_remote_choice_naming_this_computer_is_refused_and_ignored(paths: Desk
     assert launcher.shadowed(script) is None
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     assert "not on your PATH" in str(launcher.shadowed(script))
+
+
+class _Stopped:
+    """A background dashboard that exited while starting."""
+
+    returncode = 3
+
+    def poll(self) -> int:
+        return self.returncode
+
+
+def test_a_dashboard_that_stops_while_starting_says_why_without_its_keys(paths: DeskPaths,
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The HP's restart printed only "did not start": the background app's output was thrown away. Now its console
+    output is kept privately, and a start that fails says so at once with the end of it, keys blanked out."""
+    paths.ensure()
+    paths.secrets_file.write_text("MASSIVE_API_KEY=k3y-v4lu3-123456\n", encoding="utf-8")
+    paths.secrets_file.chmod(0o600)
+    log = paths.logs_dir / "stocks-dashboard.log"
+    started: list[Path | None] = []
+
+    def start(desk: str, port: int, log_path: Path | None = None) -> _Stopped:
+        started.append(log_path)
+        assert log_path is not None
+        log_path.write_text("Traceback (most recent call last):\n  ...\nStorageError: stocks_market migrations must "
+                            "be numbered without gaps; url ?apiKey=k3y-v4lu3-123456\n", encoding="utf-8")
+        return _Stopped()
+
+    real = launcher._start_dashboard
+    monkeypatch.setattr(launcher, "responding", lambda *_a, **_k: False)
+    monkeypatch.setattr(launcher, "_start_dashboard", start)
+    with pytest.raises(DeskError) as stopped:
+        launcher.ensure_running("stocks", 8767, paths, wait_seconds=5)
+    message = str(stopped.value)
+    assert started == [log] and "stopped while starting (exit code 3)" in message
+    assert "migrations must be numbered" in message and "k3y-v4lu3" not in message and "[key hidden]" in message
+
+    monkeypatch.setattr(launcher.shutil, "which", lambda _: None)                     # no systemd: a plain process
+    process = real("stocks", 9, log)
+    assert process is not None
+    process.wait(timeout=60)
+    assert oct(log.stat().st_mode & 0o777) == "0o600" and log.read_text()             # its output, private to you

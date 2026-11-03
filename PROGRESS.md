@@ -17,6 +17,17 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-03 — A failed start says why; the pill says today's market
+
+- After the HP's jump from its Oct 30 version, `desk stocks restart` printed only "did not start": with no Stocks user
+  service, the background app's output went to /dev/null. `_start_dashboard` now keeps it in
+  `logs/<desk>-dashboard.log` (0600, replaced each start); `ensure_running` reports at once when the process exits
+  while starting, with the end of that log (configured keys blanked), and waits up to 120 s while it is still alive.
+  Today's version starting on a data folder written by the Oct 30/31 version (migrations 0008-0009, learning book)
+  answered in 2 s here, so the HP's reason is local; the next restart will print it.
+- Status pill: "Running · Market open Nov 3 · research to Nov 2 close" (snapshot `market` from
+  `cal.market_session`); daily research is built on the last finished close, today's after 4 PM.
+
 ## 2026-11-03 — The HP's kestrel pointed at the HP
 
 - `kestrel phone` on the HP printed the October 30 remote script's usage ("runs on neo@192.168.0.10", the HP itself):

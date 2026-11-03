@@ -1150,23 +1150,41 @@ async function refresh(initial = false) {
       : null;
   }
 }
-// The worker pill in the header (and the phone's More sheet): running or paused, and the last market close it has
-// finished analysing ("Oct 29 close"), not today's date.
+// The worker pill in the header (and the phone's More sheet): running or paused, today's market (open, pre-market,
+// after hours, closed) and the last market close it has finished analysing. During the day that is yesterday's
+// close: daily research runs once today's close is in, quotes and the 1D chart are live meanwhile.
+const MARKET_WORDS = {
+  open: "Market open",
+  pre: "Pre-market",
+  after: "After hours",
+  closed: "Market closed",
+};
 function workerState() {
-  const running = !!snapshot?.worker_running,
-    session = snapshot?.asof
-      ? new Date(snapshot.asof + "T12:00:00Z").toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          timeZone: "UTC",
-        }) + " close"
-      : "no data yet";
-  // The research is built on the latest finished daily close; quotes and the 1D chart are live and separate.
+  const day = (iso) =>
+      new Date(iso + "T12:00:00Z").toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }),
+    running = !!snapshot?.worker_running,
+    market = snapshot?.market,
+    session = snapshot?.asof ? day(snapshot.asof) + " close" : "no data yet",
+    today =
+      market && market.state !== "closed"
+        ? `${MARKET_WORDS[market.state]} ${day(market.session)}`
+        : market
+          ? MARKET_WORDS.closed
+          : "";
   const pill = document.getElementById("worker-pill");
   pill.className = running ? "running" : "paused";
-  pill.querySelector("span").textContent =
-    `${running ? "Running" : "Paused"} · research to ${session}`;
-  pill.title = `PAPER worker ${running ? "running" : "paused"} · research and PAPER use the latest finished daily close (${snapshot?.asof || "not ready"}); quotes and the 1D chart are live · ${number(snapshot?.listings || 0)} active listings`;
+  pill.querySelector("span").textContent = [
+    running ? "Running" : "Paused",
+    today,
+    `research to ${session}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  pill.title = `PAPER worker ${running ? "running" : "paused"} · ${today ? today + " · " : ""}research and PAPER use the latest finished daily close (${snapshot?.asof || "not ready"}); today's runs once today's close is in; quotes and the 1D chart are live · ${number(snapshot?.listings || 0)} active listings`;
   document.getElementById("more-status").textContent = pill.title;
 }
 // Numbers first: explanatory captions hide until the ⓘ toggle shows them; the choice is saved for this desk.
