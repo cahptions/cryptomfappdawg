@@ -342,7 +342,7 @@ def pick_expirations(expirations: Sequence[date], today: date, earnings: date | 
     for target in (30, 60, 90, 180):
         picked.add(min(future, key=lambda e: abs((e - today).days - target)))
     long_dated = [e for e in future if (e - today).days >= 180]
-    if long_dated:                               # one LEAPS expiry, nearest a year out (Plays → LEAPS)
+    if long_dated:                               # one LEAPS expiry, nearest a year out (Plays → Expiry: LEAPS)
         picked.add(min(long_dated, key=lambda e: abs((e - today).days - 365)))
     if earnings is not None:
         after = [e for e in future if e > earnings]

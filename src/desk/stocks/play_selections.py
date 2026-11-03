@@ -35,8 +35,20 @@ def idea_id(session: str, category: str, method: str, play: dict[str, Any]) -> s
     return hashlib.sha256(json.dumps(value, separators=(",", ":")).encode()).hexdigest()[:32]
 
 
+def _save_idea(research: sqlite3.Connection, session: str, category: str, method: str, stamp: datetime,
+               play: dict[str, Any]) -> str:
+    ident = idea_id(session, category, method, play)
+    play["idea_id"] = ident
+    research.execute("INSERT OR IGNORE INTO stk_play_ideas VALUES (?,?,?,?,?,?,?)",
+                     (ident, to_iso(stamp), day_of(date.fromisoformat(session)), category, legs_key(play["legs"]),
+                      json.dumps(play, allow_nan=False), method))
+    return ident
+
+
 def register(research: sqlite3.Connection, board: dict[str, Any], now: datetime) -> dict[str, Any]:
-    """Freeze the first identification of an exact structure/version, and attach stable detail-page identities."""
+    """Freeze the first identification of an exact structure/version, and attach stable detail-page identities.
+    Expiry filter plays (``horizon_plays``) get identities but are saved only when opened (``open_horizon_play``):
+    saving every band's picks would follow hundreds of untouched ideas a day until they expire."""
     if not board.get("asof"):
         return board
     session, method = board["asof"], str(board.get("method", "unknown"))
@@ -44,12 +56,24 @@ def register(research: sqlite3.Connection, board: dict[str, Any], now: datetime)
     with transaction(research):
         for category in board.get("categories") or []:
             for play in [*(category.get("plays") or []), *(category.get("budget_plays") or [])]:
-                ident = idea_id(session, category["id"], method, play)
-                play["idea_id"] = ident
-                research.execute("INSERT OR IGNORE INTO stk_play_ideas VALUES (?,?,?,?,?,?,?)",
-                    (ident, to_iso(stamp), day_of(date.fromisoformat(session)), category["id"], legs_key(play["legs"]),
-                     json.dumps(play, allow_nan=False), method))
+                _save_idea(research, session, category["id"], method, stamp, play)
+            for play in category.get("horizon_plays") or []:
+                play["idea_id"] = idea_id(session, category["id"], method, play)
     return board
+
+
+def open_horizon_play(research: sqlite3.Connection, board: dict[str, Any], ident: str, now: datetime) -> None:
+    """Save an Expiry filter play from the current board when it is first opened; nothing else is saved."""
+    session, method = board.get("asof"), str(board.get("method", "unknown"))
+    if session:
+        stamp = min(now, datetime.fromisoformat(board.get("generated_at") or to_iso(now)))
+        for category in board.get("categories") or []:
+            for play in category.get("horizon_plays") or []:
+                if idea_id(session, category["id"], method, play) == ident:
+                    with transaction(research):
+                        _save_idea(research, session, category["id"], method, stamp, dict(play))
+                    return
+    raise DeskError("That play is not saved yet. Refresh Plays after the next collection pass.")
 
 
 def calculator_chain(market: sqlite3.Connection, research: sqlite3.Connection, ident: str,

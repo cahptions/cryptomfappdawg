@@ -119,7 +119,7 @@ def test_forward_pipeline_and_populated_dashboard_are_idempotent(tmp_path: Path)
             snapshot = client.get("/api/stocks/snapshot").json()
             assert snapshot["asof"] == NOW.date().isoformat() and snapshot["lists"]
             detail = client.get("/api/stocks/stock/CHEAP").json()
-            assert len(detail["analysis"]["desks"]) == 11
+            assert len(detail["analysis"]["desks"]) == 12             # News and world joined as an observer
             assert len(detail["bars"]) == len(world.market.bars("CHEAP")) > 400
             assert detail["coverage"]["sessions"] == len(detail["bars"])
             accounts = client.get("/api/stocks/paper").json()["report"]["accounts"]
@@ -260,6 +260,8 @@ def test_dashboard_lifespan_starts_paper_once_and_shutdown_does_not_persist_paus
     child = Mock()
     child.poll.return_value = None
     spawn = Mock(return_value=child)
+    # Popen is replaced for the whole process here, so the app's own `git log` version check is pinned too.
+    monkeypatch.setattr("desk.stocks.web.code_version", lambda: {"commit": "test", "full": "test", "at": None})
     monkeypatch.setattr("desk.stocks.research_worker.subprocess.Popen", spawn)
     with TestClient(create_app(paths), base_url="http://127.0.0.1:8767") as client:
         assert spawn.call_count == 1

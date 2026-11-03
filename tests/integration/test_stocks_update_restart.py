@@ -54,7 +54,7 @@ def test_application_icon_replaces_real_stale_dashboard_without_changing_saved_p
         assert not server_is_current(url)
         assert lock_owner(paths.home / "run" / "stocks-dashboard.lock") == old.pid
         opened = []
-        monkeypatch.setattr(launcher, "_start_dashboard", lambda desk, selected_port: spawn(REPO / "src"))
+        monkeypatch.setattr(launcher, "_start_dashboard", lambda desk, selected_port, log=None: spawn(REPO / "src"))
         monkeypatch.setattr(launcher, "open_window", lambda *args: opened.append(args))
         assert launcher.open_desk("stocks", port, paths, wait_seconds=15) == url
         assert len(children) == 2 and old.poll() is not None

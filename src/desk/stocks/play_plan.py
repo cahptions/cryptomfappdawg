@@ -84,8 +84,8 @@ def _standard(play: Mapping[str, Any], category: str) -> tuple[float | None, flo
     gain = (play.get("max_gain") or 0.0) / play["max_loss"] if play.get("max_gain") else None
     if category == "lottos":
         return 2.0, None, None, "Lottos: sell when it triples; otherwise let it run, sized so losing it all is fine"
-    if category == "leaps":
-        return 0.5, 0.3, 60, "LEAPS: bank +50%, cut at −30%, and leave before the last two months of fast decay"
+    if category == "leaps" or (s in ("long_call", "long_put") and dte >= 180):
+        return 0.5, 0.3, 60, "Long-dated: bank +50%, cut at −30%, and leave before the last two months of fast decay"
     if s in ("long_call", "long_put"):
         return 1.0, 0.5, late, "Bought options: sell at double, cut at half, and leave before time decay speeds up"
     if s.endswith("debit") and gain:
@@ -291,12 +291,71 @@ def bankroll(board: Mapping[str, Any], amount: float, level: str = "balanced") -
             "asof": board.get("asof")}
 
 
+PLAN_PATHS = 500          # simulated stock paths per play (a fixed seed per play, so the number is stable): ±2 points
+PLAN_CHECKS = 50          # times each path is checked against the take-profit and stop before the leave-by date
+
+
+def _leg_values(call: bool, s: Any, k: float, t: Any, vol: float, r: float) -> Any:
+    """Black-Scholes for one leg across a grid of stock paths; puts by put-call parity (half the work)."""
+    from desk.stocks.plays import _ncdf
+
+    sq = vol * np.sqrt(t)
+    d1 = (np.log(s / k) + (r + 0.5 * vol * vol) * t) / sq
+    disc = k * np.exp(-r * t)
+    value = s * _ncdf(d1) - disc * _ncdf(d1 - sq)
+    return value if call else value - s + disc
+
+
+def plan_odds(play: Mapping[str, Any], plan: Mapping[str, Any], rate: float, session: date) -> dict[str, Any] | None:
+    """The chance the exit plan's take-profit is reached before its stop or its leave-by date (or expiry), and the
+    chances of the stop and of neither: stock paths from KESTREL's own forecast (the drift and volatility behind its
+    chance in the money), every leg repriced along each path at its quoted volatility. Like tastytrade's "P50", it is
+    a path probability, so it fits a trade managed to a target better than finishing in the money does; it is a model
+    estimate until tracked plays grade it."""
+    import hashlib
+
+    forecast, take = play.get("forecast") or {}, plan.get("take_profit")
+    if not take or not forecast.get("sigma") or not play.get("legs"):
+        return None
+    dte = max(1, int(play["dte"]))
+    leave = plan.get("leave_by")
+    horizon = max(1, min(dte, (date.fromisoformat(leave) - session).days if leave else dte))
+    checks = min(PLAN_CHECKS, horizon)
+    days = np.linspace(horizon / checks, horizon, checks)
+    step = np.diff(np.concatenate(([0.0], days))) / 365
+    sigma, drift = float(forecast["sigma"]), float(forecast["drift"])
+    seed = int(hashlib.sha256("|".join(leg["occ"] for leg in play["legs"]).encode()).hexdigest()[:8], 16)
+    shocks = np.random.default_rng(seed).standard_normal((PLAN_PATHS, checks))
+    stock = float(play["underlying_price"]) * np.exp(np.cumsum((drift - 0.5 * sigma ** 2) * step
+                                                               + sigma * np.sqrt(step) * shocks, axis=1))
+    left = np.maximum((dte - days) / 365, 1e-6)          # broadcast across paths: no per-path copies
+    held = np.zeros_like(stock)
+    for leg in play["legs"]:
+        held += (1 if leg["side"] == "buy" else -1) * _leg_values(leg["kind"] == "call", stock, float(leg["strike"]),
+                                                                  left, float(leg.get("iv") or 0.3), rate)
+
+    def first(hit: Any) -> Any:
+        return np.where(hit.any(axis=1), hit.argmax(axis=1), checks)
+
+    stop = plan.get("stop")
+    today = _held(play["legs"], float(play["underlying_price"]), dte / 365, rate)
+    if stop and today <= float(stop["value"]):          # a spread wider than the stop: out on the first fair mark
+        return {"take_profit": 0.0, "stop": 1.0, "neither": 0.0, "at_entry": "stop",
+                "by": (session + timedelta(days=horizon)).isoformat(), "paths": 0, "checks": 0}
+    up = first(held >= float(take["value"]))
+    down = first(held <= float(stop["value"])) if stop else np.full(PLAN_PATHS, checks)
+    p_take, p_stop = float(np.mean(up < down)), float(np.mean(down < up))
+    return {"take_profit": round(p_take, 3), "stop": round(p_stop, 3), "neither": round(1 - p_take - p_stop, 3),
+            "by": (session + timedelta(days=horizon)).isoformat(), "paths": PLAN_PATHS, "checks": checks}
+
+
 def attach(play: dict[str, Any], category: str, record: Mapping[str, Any] | None, learned: Mapping[str, Any] | None,
            rate: float, session: date) -> dict[str, Any]:
     play["confidence"] = confidence(play, record)
     play["exit_plan"] = exit_plan(play, category, learned, rate, session)
+    play["exit_plan"]["odds"] = plan_odds(play, play["exit_plan"], rate, session)
     return play
 
 
-__all__ = ["DIRECTION", "LEVELS", "attach", "bankroll", "confidence", "exit_plan", "status", "stock_levels",
-           "target_value"]
+__all__ = ["DIRECTION", "LEVELS", "attach", "bankroll", "confidence", "exit_plan", "plan_odds", "status",
+           "stock_levels", "target_value"]

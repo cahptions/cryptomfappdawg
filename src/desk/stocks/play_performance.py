@@ -20,7 +20,7 @@ from typing import Any
 
 from desk.core.paths import DeskPaths
 from desk.stocks import calendar as cal
-from desk.stocks.plays import CATEGORIES, method
+from desk.stocks.plays import RECORDED, method
 
 VERSION = 1
 HORIZONS: tuple[tuple[str, int | None], ...] = (("1 day", 1), ("1 week", 5), ("1 month", 21), ("At expiry", None))
@@ -177,7 +177,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
     current = method(promoted(research))
     spy = spy_closes(market)
     categories = []
-    for c in CATEGORIES:
+    for c in RECORDED:
         mine = [r for r in rows if r.category == c.id]
         if not mine:
             continue
@@ -200,7 +200,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
                 for _, _, label in edges if groups.get(label)]
 
     curves = {"all": cumulative(graded, spy)}
-    for c in CATEGORIES:
+    for c in RECORDED:
         mine = [r for r in graded if r.category == c.id]
         if mine:
             curves[c.id] = cumulative(mine, spy)
@@ -211,7 +211,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
             "categories": categories, "overall": by_horizon(graded),
             "dte": buckets("dte", DTE_BUCKETS), "price": buckets("entry", PRICE_BUCKETS),
             "calibration": calibration(rows), "cumulative": curves,
-            "titles": {c.id: {"title": c.title, "emoji": c.emoji} for c in CATEGORIES},
+            "titles": {c.id: {"title": c.title, "emoji": c.emoji} for c in RECORDED},
             "note": "Returns are on the money at risk after fees, from quoted closing marks and exact settlements only. "
                     "Holding periods count sessions after the pick; a play that expired sooner counts its settlement."}
 

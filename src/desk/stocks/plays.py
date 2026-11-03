@@ -169,17 +169,29 @@ CATEGORIES: tuple[Category, ...] = (
              "Ask $0.05–$0.50, 1–14 days, at least 3% out of the money, volume and open interest ≥ 50. Ranked by "
              "payoff at a one-standard-deviation move per dollar, times KESTREL's chance in the money.",
              "No cheap short-dated contract is liquid enough today."),
-    Category("leaps", "LEAPS", "🏛️",
-             "Long-dated in-the-money calls on high-conviction names: stock-like exposure for less money down.",
-             "180+ days, call nearest 0.75 delta, spread ≤ 10%; committee ≥ 60 or a broad ETF. Ranked by conviction "
-             "less the time value paid.",
-             "No long-dated chain is stored yet (collection adds the expiry nearest a year out)."),
     Category("watchlist", "Your watchlist", "⭐",
              "The best-valued contract for each stock on your watchlist, in the committee's direction.",
              "14–60 days, |delta| 0.35–0.60, spread ≤ 15%; highest KESTREL value per dollar.",
              "Add stocks to your watchlist (star them on a stock page) to see their plays here."),
 )
-BY_CATEGORY = {c.id: c for c in CATEGORIES}
+# Sections no longer built, kept so their recorded plays still show in History and Performance. LEAPS (until
+# 2026-11-03) became the Expiry filter's "LEAPS (9+ months)": every section's rules searched at that expiry.
+RETIRED = (
+    Category("leaps", "LEAPS", "🏛️",
+             "Long-dated in-the-money calls on high-conviction names: stock-like exposure for less money down.",
+             "180+ days, call nearest 0.75 delta, spread ≤ 10%; committee ≥ 60 or a broad ETF. Ranked by conviction "
+             "less the time value paid. Retired 2026-11-03: the Expiry filter searches every section at 9+ months.",
+             "Retired: choose LEAPS (9+ months) in the Expiry filter."),
+)
+RECORDED = (*CATEGORIES, *RETIRED)
+BY_CATEGORY = {c.id: c for c in RECORDED}
+# The Expiry filter's bands, matching the expiries collection keeps (nearest weekly, about 30, 60, 90 and 180 days, and
+# the one nearest a year out). Choosing one re-runs each section's rules inside it, every other rule unchanged.
+HORIZON_VERSION = 1
+HORIZONS = (("weeks", "Up to 2 weeks", 1, 14), ("month", "About a month", 15, 45),
+            ("months", "2 to 4 months", 46, 135), ("half_year", "About 6 months", 136, 270),
+            ("leaps", "LEAPS (9+ months)", 271, 1200))
+HORIZON_FREE = frozenset({"unusual", "earnings", "lottos"})   # the flow seen, a results date, or short-dated by design
 
 
 def method(promoted: Mapping[str, str] | None = None) -> str:
@@ -286,6 +298,7 @@ class Context:
     watchlist: list[str]
     flagged: dict[str, dict[str, Any]] = field(default_factory=dict)   # occ → the last recorded unusual play of it
     budget_range: tuple[float, float] | None = None  # whole-play entry cost / maximum loss; never per-share premium
+    horizon: tuple[int, int] | None = None           # days to expiry searched instead of each section's own window
 
 
 def _rate(market: StocksMarket, session: date) -> float:
@@ -474,6 +487,22 @@ def _view(u: Underlying) -> str:
     return f"committee {c['score']:.0f} ({c.get('label', '').lower()})"
 
 
+def _window(ctx: Context, lo: int, hi: int) -> tuple[int, int]:
+    """A section's own expiry window, or the Expiry filter's band when the board searches every expiry."""
+    return ctx.horizon if ctx.horizon is not None else (lo, hi)
+
+
+def _days(tb: Table, ctx: Context, lo: int, hi: int) -> Array:
+    lo, hi = _window(ctx, lo, hi)
+    out: Array = (tb.dte >= lo) & (tb.dte <= hi)
+    return out
+
+
+def _centre(ctx: Context, days: float) -> float:
+    """The expiry a section prefers inside its window (the band's middle when searching another band)."""
+    return days if ctx.horizon is None else sum(ctx.horizon) / 2
+
+
 def _nearest(tb: Table, mask: Array, target_delta: float, lo: int, hi: int) -> int | None:
     m = mask & (tb.dte >= lo) & (tb.dte <= hi)
     rows = np.where(m)[0]
@@ -505,7 +534,7 @@ def likely_itm(tb: Table, ctx: Context) -> list[Candidate]:
     if d is None:
         return []
     m = ((tb.call == (d == "call")) & _budget_long(tb, ctx) & _liquid(tb, 0.15, 100) & (tb.ask >= 0.10)
-         & (tb.dte >= 7) & (tb.dte <= 60) & (np.abs(tb.delta) >= 0.25) & (np.abs(tb.delta) <= 0.55))
+         & _days(tb, ctx, 7, 60) & (np.abs(tb.delta) >= 0.25) & (np.abs(tb.delta) <= 0.55))
     rows = np.where(m)[0]
     if not len(rows):
         return []
@@ -516,7 +545,7 @@ def likely_itm(tb: Table, ctx: Context) -> list[Candidate]:
 
 
 def edge(tb: Table, ctx: Context) -> list[Candidate]:
-    m = (_budget_long(tb, ctx) & _liquid(tb, 0.12, 100) & (tb.ask >= 0.10) & (tb.dte >= 7) & (tb.dte <= 60)
+    m = (_budget_long(tb, ctx) & _liquid(tb, 0.12, 100) & (tb.ask >= 0.10) & _days(tb, ctx, 7, 60)
          & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.70))
     rows = np.where(m)[0]
     if not len(rows):
@@ -652,7 +681,7 @@ def cheap_vol(tb: Table, ctx: Context) -> list[Candidate]:
     ratio = None if not (u.iv30 and u.rv) else u.iv30 / u.rv
     if not ((ratio is not None and ratio <= 0.9) or (u.iv_rank is not None and u.iv_rank <= 20)):
         return []
-    legs = _straddle(tb, 14, 60, budget=ctx.budget_range)
+    legs = _straddle(tb, *_window(ctx, 14, 60), budget=ctx.budget_range)
     if legs is None:
         return []
     why = [f"IV30 {u.iv30:.0%} vs realized {u.rv:.0%} ({ratio:.2f}×)" if ratio else "IV rank low",
@@ -686,7 +715,7 @@ def trend_calls(tb: Table, ctx: Context) -> list[Candidate]:
     mask = tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.15, 100)
     if ctx.budget_range is not None:
         mask &= (np.abs(tb.delta)>=.35) & (np.abs(tb.delta)<=.75)
-    i = _nearest(tb, mask, 0.60, 30, 75)
+    i = _nearest(tb, mask, 0.60, *_window(ctx, 30, 75))
     if i is None:
         return []
     return [Candidate("trend_calls", tb, "long_call", [(i, "buy")], float(m),
@@ -704,7 +733,7 @@ def bear_puts(tb: Table, ctx: Context) -> list[Candidate]:
     mask = ~tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.15, 100)
     if ctx.budget_range is not None:
         mask &= (np.abs(tb.delta)>=.25) & (np.abs(tb.delta)<=.65)
-    i = _nearest(tb, mask, 0.45, 30, 75)
+    i = _nearest(tb, mask, 0.45, *_window(ctx, 30, 75))
     if i is None:
         return []
     why = [f"Valuation {v:.0f}, momentum {m:.0f}, {above:.0%} vs its 200-day" if weak else
@@ -722,7 +751,7 @@ def squeeze(tb: Table, ctx: Context) -> list[Candidate]:
     mask = tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.20, 50)
     if ctx.budget_range is not None:
         mask &= (np.abs(tb.delta)>=.20) & (np.abs(tb.delta)<=.45)
-    i = _nearest(tb, mask, 0.30, 14, 45)
+    i = _nearest(tb, mask, 0.30, *_window(ctx, 14, 45))
     if i is None:
         return []
     shorts = u.detail.get("shorts") or {}
@@ -740,7 +769,7 @@ def debit_spreads(tb: Table, ctx: Context) -> list[Candidate]:
     if d is None:
         return []
     is_call = d == "call"
-    on_side = (tb.call == is_call) & (tb.dte >= 21) & (tb.dte <= 60)
+    on_side = (tb.call == is_call) & _days(tb, ctx, 21, 60)
     bought = np.where(on_side & _liquid(tb, 0.15, 100) & (np.abs(tb.delta) >= 0.40) & (np.abs(tb.delta) <= 0.70))[0]
     sellable = on_side & _liquid(tb, 0.25, 50) & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.40)
     pairs = []
@@ -752,7 +781,8 @@ def debit_spreads(tb: Table, ctx: Context) -> list[Candidate]:
                 continue
             if ctx.budget_range is not None and not ctx.budget_range[0] < risk <= ctx.budget_range[1]:
                 continue
-            pairs.append((abs(float(tb.dte[b]) - 40.5), abs(abs(tb.delta[b]) - 0.55) + abs(abs(tb.delta[s]) - 0.30),
+            pairs.append((abs(float(tb.dte[b]) - _centre(ctx, 40.5)),
+                          abs(abs(tb.delta[b]) - 0.55) + abs(abs(tb.delta[s]) - 0.30),
                           float(tb.spread[b] + tb.spread[s]), int(b), int(s)))
     if not pairs:
         return []
@@ -779,7 +809,7 @@ def sell_premium(tb: Table, ctx: Context) -> list[Candidate]:
     is_call = kind == "call"
     if ctx.budget_range is not None:
         pairs = []
-        shorts = np.where((tb.call==is_call) & _liquid(tb,.15,100) & (tb.dte>=21) & (tb.dte<=60)
+        shorts = np.where((tb.call==is_call) & _liquid(tb,.15,100) & _days(tb, ctx, 21, 60)
                           & (np.abs(tb.delta)>=.15) & (np.abs(tb.delta)<=.35))[0]
         for s in shorts:
             longs = np.where((tb.dte==tb.dte[s]) & (tb.call==is_call) & _liquid(tb,.15,100)
@@ -795,7 +825,7 @@ def sell_premium(tb: Table, ctx: Context) -> list[Candidate]:
             return []
         _delta,_width,short,long = min(pairs)
     else:
-        short_candidate = _nearest(tb, (tb.call == is_call) & _liquid(tb, 0.15, 100), 0.25, 21, 60)
+        short_candidate = _nearest(tb, (tb.call == is_call) & _liquid(tb, 0.15, 100), 0.25, *_window(ctx, 21, 60))
         if short_candidate is None:
             return []
         short = short_candidate
@@ -844,13 +874,14 @@ def strangles(tb: Table, ctx: Context) -> list[Candidate]:
     cheap = (u.iv_rank is not None and u.iv_rank <= 25) or bool(u.iv30 and u.rv and u.iv30 <= u.rv)
     if not cheap:
         return []
-    ok = _liquid(tb, 0.15, 100) & (tb.dte >= 21) & (tb.dte <= 60) & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.40)
+    ok = _liquid(tb, 0.15, 100) & _days(tb, ctx, 21, 60) & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.40)
     pairs = []
     for c in np.where(ok & tb.call & (tb.k > u.price))[0]:
         for q in np.where(ok & ~tb.call & (tb.k < u.price) & (tb.dte == tb.dte[c]))[0]:
             cost = float(tb.ask[c] + tb.ask[q]) * 100 + 2 * FEE
             if _in_budget(ctx, cost):
-                pairs.append((abs(float(tb.dte[c]) - 40.5), abs(tb.delta[c] - 0.30) + abs(abs(tb.delta[q]) - 0.30),
+                pairs.append((abs(float(tb.dte[c]) - _centre(ctx, 40.5)),
+                              abs(tb.delta[c] - 0.30) + abs(abs(tb.delta[q]) - 0.30),
                               int(c), int(q)))
     if not pairs:
         return []
@@ -872,9 +903,9 @@ def _iron(tb: Table, ctx: Context, category: str) -> list[Candidate]:
     if not _rich(u) or _direction(u) is not None:
         return []
     butterfly = category == "iron_butterflies"
-    ok = _liquid(tb, 0.20, 50) & (tb.dte >= 21) & (tb.dte <= 60)
+    ok = _liquid(tb, 0.20, 50) & _days(tb, ctx, 21, 60)
     found = []
-    for days in sorted({float(d) for d in tb.dte[ok]}, key=lambda d: abs(d - 40.5)):
+    for days in sorted({float(d) for d in tb.dte[ok]}, key=lambda d: abs(d - _centre(ctx, 40.5))):
         on = ok & (tb.dte == days)
         calls, puts = np.where(on & tb.call)[0], np.where(on & ~tb.call)[0]
         if butterfly:
@@ -931,12 +962,12 @@ def cash_secured_puts(tb: Table, ctx: Context) -> list[Candidate]:
     liked = u.committee if u.committee is not None else (60.0 if u.symbol in ETFS else None)
     if liked is None or liked < 50:
         return []
-    m = (~tb.call & (tb.k < u.price) & _liquid(tb, 0.15, 100) & (tb.dte >= 21) & (tb.dte <= 45)
+    m = (~tb.call & (tb.k < u.price) & _liquid(tb, 0.15, 100) & _days(tb, ctx, 21, 45)
          & (np.abs(tb.delta) >= 0.15) & (np.abs(tb.delta) <= 0.35) & (tb.bid >= 0.005 * tb.k))
     rows = [int(i) for i in np.where(m)[0] if _in_budget(ctx, float(tb.k[i] - tb.bid[i]) * 100 + FEE)]
     if not rows:
         return []
-    i = min(rows, key=lambda r: (abs(float(tb.dte[r]) - 33), abs(abs(tb.delta[r]) - 0.25)))
+    i = min(rows, key=lambda r: (abs(float(tb.dte[r]) - _centre(ctx, 33)), abs(abs(tb.delta[r]) - 0.25)))
     k, premium, days = float(tb.k[i]), float(tb.bid[i]), int(tb.dte[i])
     risk = (k - premium) * 100 + FEE
     ev = (premium - float(tb.payoff[i])) * 100 - FEE
@@ -971,26 +1002,12 @@ def lottos(tb: Table, ctx: Context) -> list[Candidate]:
                       flags=["Most lottos expire worthless: size it as money you can lose entirely"])]
 
 
-def leaps(tb: Table, ctx: Context) -> list[Candidate]:
-    u = tb.u
-    conviction = u.committee if u.committee is not None else (60.0 if u.symbol in ETFS else None)
-    if conviction is None or conviction < 60:
-        return []
-    i = _nearest(tb, tb.call & _budget_long(tb, ctx) & _liquid(tb, 0.10, 20), 0.75, 180, 800)
-    if i is None or abs(tb.delta[i]) < 0.6:
-        return []
-    extrinsic = (tb.ask[i] - max(0.0, u.price - tb.k[i])) / u.price
-    return [Candidate("leaps", tb, "long_call", [(i, "buy")], conviction - 100 * extrinsic,
-                      [f"{u.symbol}: {_view(u)}" if u.committee is not None else f"{u.symbol}: broad-market ETF",
-                       f"Time value paid: {extrinsic:.1%} of the stock price for {int(tb.dte[i])} days"])]
-
-
 def watchlist(tb: Table, ctx: Context) -> list[Candidate]:
     u = tb.u
     if u.symbol not in ctx.watchlist:
         return []
     d = "call" if u.committee is None or u.committee >= 50 else "put"
-    m = (tb.call == (d == "call")) & _budget_long(tb, ctx) & _liquid(tb, 0.15, 50) & (tb.dte >= 14) & (tb.dte <= 60) & (
+    m = (tb.call == (d == "call")) & _budget_long(tb, ctx) & _liquid(tb, 0.15, 50) & _days(tb, ctx, 14, 60) & (
         np.abs(tb.delta) >= 0.35) & (np.abs(tb.delta) <= 0.60)
     rows = np.where(m)[0]
     if not len(rows):
@@ -1005,7 +1022,7 @@ SELECTORS: dict[str, Callable[[Table, Context], list[Candidate]]] = {
     "likely_itm": likely_itm, "edge": edge, "unusual": unusual, "cheap_vol": cheap_vol, "earnings": earnings,
     "strangles": strangles, "trend_calls": trend_calls, "bear_puts": bear_puts, "squeeze": squeeze,
     "debit_spreads": debit_spreads, "sell_premium": sell_premium, "iron_condors": iron_condors,
-    "iron_butterflies": iron_butterflies, "cash_secured_puts": cash_secured_puts, "lottos": lottos, "leaps": leaps,
+    "iron_butterflies": iron_butterflies, "cash_secured_puts": cash_secured_puts, "lottos": lottos,
     "watchlist": watchlist}
 
 
@@ -1191,6 +1208,7 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
     from desk.stocks.play_targets import build as target_probabilities
 
     play["probability_targets"] = target_probabilities(play, sigma, drift, t)
+    play["forecast"] = {"sigma": round(float(sigma), 4), "drift": round(float(drift), 4)}   # for the plan's odds
     return play
 
 
@@ -1509,46 +1527,71 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
     return sha256_hex(canonical_json(parts))
 
 
+def _band_picks(category: str, tables: list[Table], band_ctx: Context, variant: Any) -> list[dict[str, Any]]:
+    """One band's ranking (a price band or an expiry band), before one-per-stock and top-twelve cuts."""
+    from desk.stocks import play_learning as lrn
+
+    limit = 2 if category == "unusual" else 1
+    found = [c for tb in tables for c in SELECTORS[category](tb, band_ctx)]
+    found.sort(key=lambda c: (-c.score, c.table.u.symbol))
+    finished: dict[int, dict[str, Any]] = {}
+
+    def done(c: Candidate) -> dict[str, Any]:
+        if id(c) not in finished:
+            p = finish(c, band_ctx)
+            p["selection_score"] = float(variant.rank(p) if variant and variant.rank else c.score)
+            finished[id(c)] = p
+        return finished[id(c)]
+
+    if variant:
+        return list(lrn.select(variant, category, found, done, limit))
+    picks: list[dict[str, Any]] = []
+    counts: Counter[str] = Counter()
+    for c in found:
+        if counts[c.table.u.symbol] >= limit:
+            continue
+        counts[c.table.u.symbol] += 1
+        picks.append({**done(c), "rank": len(picks) + 1})
+        if len(picks) >= PER_CATEGORY:
+            break
+    return picks
+
+
 def budget_plays(category: str, tables: list[Table], ctx: Context, promoted: str | None) -> list[dict[str,Any]]:
     """Rank within each affordable band BEFORE one-per-stock and top-twelve cuts; keep closing cohorts untouched."""
     from desk.stocks import play_learning as lrn
 
     variant = lrn.BY_VARIANT[promoted] if promoted else None
-    limit = 2 if category=="unusual" else 1
     out = []
     seen = set()
     for low,high in BUDGET_BANDS:
-        budget_ctx = replace(ctx,budget_range=(low,high))
-        found = [c for tb in tables for c in SELECTORS[category](tb,budget_ctx)]
-        found.sort(key=lambda c:(-c.score,c.table.u.symbol))
-        finished: dict[int,dict[str,Any]] = {}
-
-        def done(c: Candidate, finished: dict[int,dict[str,Any]] = finished,
-                 budget_ctx: Context = budget_ctx) -> dict[str,Any]:
-            if id(c) not in finished:
-                p = finish(c,budget_ctx)
-                p["selection_score"] = float(variant.rank(p) if variant and variant.rank else c.score)
-                finished[id(c)] = p
-            return finished[id(c)]
-
-        if variant:
-            picks = lrn.select(variant,category,found,done,limit)
-        else:
-            picks = []
-            counts: Counter[str] = Counter()
-            for c in found:
-                if counts[c.table.u.symbol]>=limit:
-                    continue
-                counts[c.table.u.symbol] += 1
-                picks.append({**done(c),"rank":len(picks)+1})
-                if len(picks)>=PER_CATEGORY:
-                    break
-        for p in picks:
+        for p in _band_picks(category, tables, replace(ctx, budget_range=(low, high)), variant):
             key = canonical_json(p["legs"])
             risk = p["max_loss"] if p["action"]=="SELL" else p["cost"]
             if key not in seen and low < risk <= high:
                 seen.add(key)
                 out.append({**p,"budget_band":[low,high],"budget_version":BUDGET_VERSION,"discovery":"budget"})
+    return out
+
+
+def horizon_plays(category: str, tables: list[Table], ctx: Context, promoted: str | None,
+                  shown: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The section's own rules searched inside each Expiry filter band, so choosing "About 6 months" or "LEAPS
+    (9+ months)" finds that section's best plays there instead of filtering its usual 2-to-8-week list to nothing.
+    Shown and opened like other plays; not recorded in the section's track record."""
+    if category in HORIZON_FREE:
+        return []
+    from desk.stocks import play_learning as lrn
+
+    variant = lrn.BY_VARIANT[promoted] if promoted else None
+    seen = {canonical_json(p["legs"]) for p in shown}
+    out = []
+    for band, _label, lo, hi in HORIZONS:
+        for p in _band_picks(category, tables, replace(ctx, horizon=(lo, hi)), variant):
+            key = canonical_json(p["legs"])
+            if key not in seen and lo <= int(p["dte"]) <= hi:
+                seen.add(key)
+                out.append({**p, "horizon": band, "horizon_version": HORIZON_VERSION, "discovery": "horizon"})
     return out
 
 
@@ -1618,11 +1661,12 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         recorded[cat.id] = plays
         exit_rule = (learned.get("exits") or {}).get(cat.id) or {}
         cheaper = budget_plays(cat.id, tables, ctx, live.get(cat.id))
-        for p in [*plays, *cheaper]:                          # how far to trust it, when to leave, for every play
+        longer = horizon_plays(cat.id, tables, ctx, live.get(cat.id), plays)
+        for p in [*plays, *cheaper, *longer]:                 # how far to trust it, when to leave, for every play
             plan.attach(p, cat.id, track.get(cat.id), exit_rule, ctx.rate, session)
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
                  "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
-                 "budget_plays": cheaper,
+                 "budget_plays": cheaper, "horizon_plays": longer, "horizon_free": cat.id in HORIZON_FREE,
                  "label": (learned.get("labels") or {}).get(cat.id), "live_rules": live.get(cat.id),
                  "exit": exit_rule if exit_rule.get("suggested") else None}
         if cat.id == "unusual":
@@ -1637,6 +1681,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     return {
         "version": VERSION, "method": m, "promoted": live, "input_hash": key, "asof": session.isoformat(),
         "expected_asof": expected.isoformat(), "generated_at": now.isoformat(),
+        "horizons": [{"id": band, "label": label, "lo": lo, "hi": hi} for band, label, lo, hi in HORIZONS],
         "source": sources.most_common(1)[0][0] if sources else None,
         "coverage": {"underlyings": len(tables), "contracts_scored": int(sum(len(tb) for tb in tables)),
                      "with_analysis": sum(1 for tb in tables if tb.u.detail)},
@@ -1656,7 +1701,8 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     }
 
 
-__all__ = ["BY_CATEGORY", "CATEGORIES", "Candidate", "Category", "Context", "Table", "Underlying", "build",
+__all__ = ["BY_CATEGORY", "CATEGORIES", "HORIZONS", "RECORDED", "RETIRED", "Candidate", "Category", "Context",
+           "Table", "Underlying", "build",
            "calibration", "calibration_summary", "calibrator", "committee_ic", "dte_bucket", "finish",
-           "flagged_before", "followups", "grade", "implied_vols", "load", "method", "record", "record_twins",
+           "flagged_before", "followups", "grade", "horizon_plays", "implied_vols", "load", "method", "record", "record_twins",
            "records", "session_closed", "settle_value", "signature", "table", "twin"]

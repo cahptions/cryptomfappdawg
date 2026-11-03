@@ -28,8 +28,20 @@ const KestrelPlays = (() => {
     minCost: "",
     priceFilterVersion: 2,
     minItm: "",
+    expiry: "",
     view: "cards",
   };
+  // The Expiry filter's bands (the board sends them; this copy serves boards saved before it did).
+  const HORIZONS = [
+    { id: "weeks", label: "Up to 2 weeks", lo: 1, hi: 14 },
+    { id: "month", label: "About a month", lo: 15, hi: 45 },
+    { id: "months", label: "2 to 4 months", lo: 46, hi: 135 },
+    { id: "half_year", label: "About 6 months", lo: 136, hi: 270 },
+    { id: "leaps", label: "LEAPS (9+ months)", lo: 271, hi: 1200 },
+  ];
+  let boardHorizons = null; // the loaded board's bands
+  const horizons = () => boardHorizons || HORIZONS,
+    horizon = () => horizons().find((h) => h.id === state.expiry);
   try {
     const saved = JSON.parse(localStorage.getItem("kestrel-plays") || "{}");
     state = {
@@ -50,37 +62,60 @@ const KestrelPlays = (() => {
     }
   }
 
+  // The headline chance is the plan's: reaching its take-profit before its stop or its leave-by date, from KESTREL's
+  // forecast paths. Finishing in the money is not the goal of a managed trade (a bought option can finish in the
+  // money and still lose its premium), so it, profit at expiry and the market's view sit underneath.
+  const takeChance = (play) => play.exit_plan?.odds?.take_profit;
+  function expiryChance(play) {
+    const value = play.itm_kestrel ?? play.itm_market,
+      label =
+        play.chance_label ||
+        (play.action === "SELL"
+          ? "Chance it expires worthless"
+          : "Chance in the money");
+    return {
+      label,
+      shown:
+        play.action === "SELL" && value !== null && value !== undefined
+          ? 1 - value
+          : value,
+    };
+  }
   function chanceMeter(play) {
     const box = el("div", undefined, "play-chance"),
-      value = play.itm_kestrel ?? play.itm_market,
       bar = el("div", undefined, "play-chance-bar"),
-      fill = el("span");
-    fill.style.width = `${Math.max(2, Math.min(100, 100 * (value ?? 0)))}%`;
+      fill = el("span"),
+      odds = play.exit_plan?.odds,
+      take = play.exit_plan?.take_profit,
+      expiry = expiryChance(play),
+      market = play.action === "SELL" ? 1 - play.itm_market : play.itm_market,
+      history =
+        play.itm_history === null || play.itm_history === undefined
+          ? null
+          : play.action === "SELL"
+            ? 1 - play.itm_history
+            : play.itm_history;
     bar.append(fill);
     bar.setAttribute("role", "img");
-    bar.setAttribute(
-      "aria-label",
-      `KESTREL chance in the money ${pct(value)}; market ${pct(play.itm_market)}; history ${pct(play.itm_history)}`,
-    );
-    const label =
-      play.chance_label ||
-      (play.action === "SELL"
-        ? "Chance it expires worthless"
-        : "Chance in the money");
-    const shown =
-      play.action === "SELL" && value !== null && value !== undefined
-        ? 1 - value
-        : value;
+    let label, shown, detail;
+    if (odds && take) {
+      label = `Chance to hit take-profit (${signed(100 * take.return, 0)}%)`;
+      shown = odds.take_profit;
+      detail = `${odds.at_entry === "stop" ? "Already past its stop at today's fair value (the bid/ask spread is wider than the stop allows) · " : ""}Stop first ${pct(odds.stop)} · Profit at expiry ${pct(play.profit_kestrel)} · ${expiry.label} ${pct(expiry.shown)} (market ${pct(market)}${history === null ? "" : `, history ${pct(history)}`})`;
+      box.title =
+        "KESTREL's forecast paths, each leg repriced at its quoted volatility: the share that reach the exit plan's take-profit before its stop or its leave-by date. A model estimate, checked against tracked plays as they resolve.";
+    } else {
+      label = `${expiry.label} at expiry`;
+      shown = expiry.shown;
+      detail = `Market ${pct(market)} · History ${history === null ? "—" : pct(history)} · Profit ${pct(play.profit_kestrel)}`;
+    }
     fill.style.width = `${Math.max(0, Math.min(100, 100 * (shown ?? 0)))}%`;
-    bar.setAttribute("aria-label", `${label} at expiry: ${pct(shown)}`);
+    bar.setAttribute("aria-label", `${label}: ${pct(shown)}`);
     box.append(
-      el("span", `${label} at expiry`, "play-chance-label"),
+      el("span", label, "play-chance-label"),
       el("strong", pct(shown)),
       bar,
-      el(
-        "small",
-        `Market ${pct(play.action === "SELL" ? 1 - play.itm_market : play.itm_market)} · History ${play.itm_history === null || play.itm_history === undefined ? "—" : pct(play.action === "SELL" ? 1 - play.itm_history : play.itm_history)} · Profit ${pct(play.profit_kestrel)}`,
-      ),
+      el("small", detail),
     );
     return box;
   }
@@ -415,6 +450,7 @@ const KestrelPlays = (() => {
         "Strike · expiry",
         "Stock",
         "Cost/credit",
+        "Take-profit",
         "Chance ITM",
         "Profit",
         "Confidence",
@@ -430,6 +466,7 @@ const KestrelPlays = (() => {
         `${strikeList(p)} · ${p.expiration} (${p.dte}d)`,
         money(p.underlying_price),
         p.action === "SELL" ? `+${money(p.credit)}` : money(p.cost),
+        pct(takeChance(p)),
         pct(p.itm_kestrel),
         pct(p.profit_kestrel),
         p.confidence ? `${p.confidence.score}/${p.confidence.of}` : "—",
@@ -635,6 +672,7 @@ const KestrelPlays = (() => {
       action = el("select"),
       maxCost = el("input"),
       minItm = el("input"),
+      expiry = el("select"),
       view = el("select");
     for (const [select, label, choices, key] of [
       [
@@ -656,6 +694,12 @@ const KestrelPlays = (() => {
           ["SELL", "Selling"],
         ],
         "action",
+      ],
+      [
+        expiry,
+        "Expiry",
+        [["", "Any expiry"], ...horizons().map((h) => [h.id, h.label])],
+        "expiry",
       ],
       [
         view,
@@ -687,7 +731,10 @@ const KestrelPlays = (() => {
     maxCost.placeholder = "No limit";
     minItm.placeholder = "Any chance";
     maxCost.setAttribute("aria-label", "Maximum cost per contract");
-    minItm.setAttribute("aria-label", "Minimum chance at expiry, percent");
+    minItm.setAttribute(
+      "aria-label",
+      "Minimum chance to hit the take-profit, percent",
+    );
     maxCost.oninput = () => {
       state.maxCost = maxCost.value;
       state.minCost = "";
@@ -703,7 +750,8 @@ const KestrelPlays = (() => {
       [kind, "Option type"],
       [action, "Buy or sell"],
       [maxCost, "Max cost / risk ($)"],
-      [minItm, "Min chance at expiry (%)"],
+      [minItm, "Min chance (%)"],
+      [expiry, "Expiry"],
       [view, "Layout"],
     ]) {
       const label = el("label", undefined, "play-filter-field");
@@ -718,6 +766,7 @@ const KestrelPlays = (() => {
         maxCost: "",
         minCost: "",
         minItm: "",
+        expiry: "",
       });
       remember();
       onchange();
@@ -751,6 +800,7 @@ const KestrelPlays = (() => {
       action.value = state.action;
       maxCost.value = state.maxCost;
       minItm.value = state.minItm;
+      expiry.value = horizon() ? state.expiry : "";
       view.value = state.view;
       clear.disabled = !filterRules().length;
       for (const [button, low, high] of presets)
@@ -793,14 +843,20 @@ const KestrelPlays = (() => {
       });
     if (state.minItm !== "")
       rules.push({
-        label: `Minimum chance at expiry ${state.minItm}%`,
+        label: `Chance at least ${state.minItm}% (the card's headline chance)`,
         accepts: (p) => {
-          const itm = p.itm_kestrel ?? p.itm_market;
+          const headline = takeChance(p) ?? expiryChance(p).shown;
           return (
-            Number.isFinite(itm) &&
-            100 * (p.action === "SELL" ? 1 - itm : itm) >= Number(state.minItm)
+            Number.isFinite(headline) && 100 * headline >= Number(state.minItm)
           );
         },
+      });
+    const band = horizon();
+    if (band)
+      rules.push({
+        label: `Expiry: ${band.label}`,
+        accepts: (p) =>
+          Number.isFinite(p.dte) && p.dte >= band.lo && p.dte <= band.hi,
       });
     return rules;
   }
@@ -814,8 +870,13 @@ const KestrelPlays = (() => {
               ...cat.plays.filter((p) => playRisk(p) > 1000),
             ]
           : cat.plays,
+      // An expiry band adds this section's own rules searched inside that band (saved boards carry them).
+      band = horizon(),
+      longer = band
+        ? (cat.horizon_plays || []).filter((p) => p.horizon === band.id)
+        : [],
       unique = new Map();
-    for (const play of pool) {
+    for (const play of [...pool, ...longer]) {
       const key =
         play.idea_id || JSON.stringify(play.legs?.map((l) => [l.occ, l.side]));
       if (!unique.has(key)) unique.set(key, play);
@@ -928,6 +989,7 @@ const KestrelPlays = (() => {
       return KestrelPlaysHistory.performance(ticket);
     const data = await api("plays");
     if (ticket !== generation) return;
+    boardHorizons = data.horizons || null;
     app.className = "plays-page";
     const hero = el("div", undefined, "explorer-heading"),
       titles = el("div");
@@ -1054,6 +1116,19 @@ const KestrelPlays = (() => {
         );
         body.append(note);
       }
+      const band = horizon();
+      if (band)
+        body.append(
+          el(
+            "p",
+            cat.horizon_free
+              ? `${cat.title} keeps its own expiries (${cat.id === "lottos" ? "cheap and short-dated by design" : cat.id === "earnings" ? "the first expiry after the results date" : "the contracts people actually traded"}), so ${band.label.toLowerCase()} only narrows its list.`
+              : data.horizons
+                ? `${band.label}: this section's rules searched at that expiry, every other rule unchanged. These alternatives open like any play and are followed in History once you open one; the section's track record stays its usual expiries.`
+                : "This saved board predates expiry search. The next collection pass rebuilds it from saved chains; for now the filter only narrows the usual list.",
+            "caption muted",
+          ),
+        );
       if (cat.followups?.length) body.append(followupTable(cat.followups));
       summary.textContent = `Showing ${shown.length} ranked plays in ${cat.title}: ${matches.length} of ${candidates.length} candidates match. ${rules.length ? `${rules.map((r) => r.label).join(" · ")}. Filters are remembered in this browser.` : "No filters applied."} At most 12 shown, ${cat.id === "unusual" ? "two" : "one"} per stock.`;
       if (!budget && cat.budget_plays) {

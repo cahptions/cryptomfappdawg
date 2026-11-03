@@ -24,6 +24,17 @@ from tests.conftest import REPO
 
 F = REPO / "tests" / "fixtures" / "stocks"
 NOW = datetime(2026, 10, 21, 22, 0, tzinfo=UTC)             # 18:00 New York, after the close
+
+
+@pytest.fixture(autouse=True)
+def offline_news(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A collection cycle also reads GDELT, the Federal Register and Massive news; tests stay off the network."""
+    from desk.stocks import news_flow
+
+    async def unavailable(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"world": {"error": "fixture: news sources are offline in tests"}}
+
+    monkeypatch.setattr(news_flow, "job", unavailable)
 SEC_WWW, SEC_DATA = "https://www.sec.gov", "https://data.sec.gov"
 
 

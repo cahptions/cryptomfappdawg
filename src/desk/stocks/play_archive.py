@@ -18,7 +18,7 @@ from desk.stocks import calendar as cal
 from desk.stocks import play_history as ph
 from desk.stocks import play_selections as ps
 from desk.stocks.play_tracking import get_state, legs_key
-from desk.stocks.plays import CATEGORIES, TYPES, structure_of
+from desk.stocks.plays import RECORDED, TYPES, structure_of
 from desk.storage.db import transaction
 
 ARCHIVE_CATEGORY = "archive_"
@@ -157,7 +157,7 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime) -> 
             continue
         rows[key] = _idea_row(research,record,now)
     categories: list[dict[str, Any]] = []
-    for category in CATEGORIES:
+    for category in RECORDED:
         plays = sorted((r for r in rows.values() if r["category"] == category.id),
                        key=lambda r:(r.get("identified_at") or "",r["symbol"],r.get("archive_id") or str(r["rank"])))
         if plays:

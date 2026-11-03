@@ -362,7 +362,7 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             got = await run_job("news_world", news_flow.job(market.conn, suite.massive, utc_now(), due=due))
             for name, detail in got.items():
                 market.job(name, now, error=detail.get("error"), detail=detail)
-            jobs["news_world"] = got
+            jobs["news_world"] = {"ok": not any(d.get("error") for d in got.values()), **got}
         except Exception as exc:  # recorded; never stops collection
             log.warning("news and world failed", extra={"error": str(exc)[:200]})
             market.job("world", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")

@@ -446,7 +446,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         from desk.stocks.play_selections import idea_id
 
         for category in value.get("categories", []):
-            for play in [*category.get("plays", []), *category.get("budget_plays", [])]:
+            for play in [*category.get("plays", []), *category.get("budget_plays", []),
+                         *category.get("horizon_plays", [])]:
                 play["idea_id"] = idea_id(value["asof"], category["id"], str(value.get("method", "unknown")), play)
         return value
 
@@ -460,10 +461,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
     @app.get("/api/stocks/plays/idea/{ident}")
     def play_idea(ident: str) -> dict[str, Any]:
-        from desk.stocks.play_selections import view
+        from desk.stocks.play_selections import open_horizon_play, view
 
         with reader(paths, RESEARCH_FILE) as conn:
+            if conn.execute("SELECT 1 FROM stk_play_ideas WHERE id=?", (ident,)).fetchone():
+                return view(conn, ident, utc_now())
+        # An Expiry filter play is saved (and from then on followed) only once it is opened.
+        conn = open_database(paths.db_dir / RESEARCH_FILE, DbKind.STOCKS_RESEARCH)
+        try:
+            open_horizon_play(conn, saved_view(paths, "plays") or {}, ident, utc_now())
             return view(conn, ident, utc_now())
+        finally:
+            conn.close()
 
     @app.post("/api/stocks/plays/select")
     def select_play(inputs: PlaySelection) -> dict[str, Any]:

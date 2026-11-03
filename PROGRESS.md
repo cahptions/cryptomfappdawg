@@ -17,6 +17,20 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-03 — Plays: an Expiry filter instead of a LEAPS section; the bar is the take-profit chance
+
+- Expiry filter (Up to 2 weeks … LEAPS 9+ months, matching the collected expiries). `Context.horizon` overrides each
+  selector's own days-to-expiry window (`_window`/`_days`/`_centre`); `horizon_plays` runs every section's rules in each
+  band (shared `_band_picks` with the budget search), one per stock, twelve per band; Unusual, Earnings and Lottos keep
+  theirs. Band plays get idea ids but are saved (and so followed) only when opened (`open_horizon_play`), not hundreds
+  a day. LEAPS retired to `RETIRED`/`RECORDED` so its past plays keep their titles in History and Performance; long
+  bought options (180+ days) take the old LEAPS exit rule. The old LEAPS recipe (0.75 Δ calls on ETFs) has no other
+  home: at 9+ months the fixture's sections found a cash-secured put on SPY, no long call.
+- The card's bar: chance the exit plan's take-profit is reached before its stop or leave-by date (`plan_odds`: 500
+  KESTREL-forecast paths, legs repriced at their IVs, ~2-3 ms a play), with stop-first, profit at expiry and ITM
+  (market, history) beneath; Min chance filters on it. A plan whose stop is already past today's fair value (the
+  fixture's iron butterfly: fair cost to close $2.21, stop $2.14 from the natural entry) says so.
+
 ## 2026-11-03 — A failed start says why; the pill says today's market
 
 - After the HP's jump from its Oct 30 version, `desk stocks restart` printed only "did not start": with no Stocks user

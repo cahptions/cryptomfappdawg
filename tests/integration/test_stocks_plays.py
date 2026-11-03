@@ -147,8 +147,21 @@ def test_every_category_is_built_with_consistent_prices_odds_and_greeks(world: S
         assert leg["side"] == "sell" and leg["kind"] == "put" and leg["strike"] < p["underlying_price"]
         assert p["max_loss"] == pytest.approx((leg["strike"] - leg["bid"]) * 100 + OPTION_FEE_PER_CONTRACT, abs=0.01)
         assert p["chance_label"] == "Chance it expires worthless" and 21 <= p["dte"] <= 45
-    leaps = by["leaps"]["plays"]
-    assert leaps and leaps[0]["symbol"] == "SPY" and leaps[0]["dte"] >= 180 and leaps[0]["delta"] >= 0.6
+    # LEAPS is no longer a section: the Expiry filter searches every section's rules inside each band instead.
+    assert "leaps" not in by and [h["id"] for h in out["horizons"]] == ["weeks", "month", "months", "half_year", "leaps"]
+    bands = {h["id"]: (h["lo"], h["hi"]) for h in out["horizons"]}
+    for c in out["categories"]:
+        shown = {json.dumps(p["legs"], sort_keys=True) for p in c["plays"]}
+        for p in c["horizon_plays"]:
+            lo, hi = bands[p["horizon"]]
+            assert lo <= p["dte"] <= hi and p["discovery"] == "horizon"
+            assert json.dumps(p["legs"], sort_keys=True) not in shown and p.get("exit_plan")
+        if c["horizon_free"]:
+            assert c["id"] in ("unusual", "earnings", "lottos") and c["horizon_plays"] == []
+    long_dated = [p for c in out["categories"] for p in c["horizon_plays"] if p["horizon"] == "leaps"]
+    assert long_dated and all(p["dte"] >= 271 for p in long_dated)       # sections whose own rules qualify there
+    assert all(p["exit_plan"]["why"].startswith("Long-dated") for p in long_dated
+               if p["structure"] in ("long_call", "long_put") and p["exit_plan"]["source"] == "standard")
     assert [p["symbol"] for p in by["watchlist"]["plays"]] == ["S12"]
     for p in by["lottos"]["plays"]:
         assert p["dte"] <= 14 and 0.05 <= p["ask"] <= 0.50 and any("worthless" in f for f in p["flags"])

@@ -126,3 +126,21 @@ def test_after_hours_an_old_quote_is_stale_but_one_from_the_close_is_not(saved, 
     assert status["state"] == state and not status["market_open"]
     if state == "stale":
         assert "Wed Oct 28, 1:05 PM ET" in status["message"] and "Thu Oct 29 close" in status["message"]
+
+
+def test_expiry_filter_plays_are_saved_only_when_opened(saved):
+    """Every band's picks would otherwise be followed until expiry, hundreds a day; one is saved once you open it."""
+    _paths, dbs, play = saved
+    long_dated = {**play, "legs": [{**play["legs"][0], "occ": play["legs"][0]["occ"].replace("C", "P", 1)}],
+                  "horizon": "leaps", "discovery": "horizon"}
+    value = {**board(IDENTIFIED, "trend_calls", []), "method": "fixture"}
+    value["categories"][0]["horizon_plays"] = [long_dated]
+    play_selections.register(dbs.research, value, IDENTIFIED)
+    ident = long_dated["idea_id"]
+    assert ident and dbs.research.execute("SELECT 1 FROM stk_play_ideas WHERE id=?", (ident,)).fetchone() is None
+    with pytest.raises(DeskError, match="not saved yet"):
+        play_selections.open_horizon_play(dbs.research, value, "0" * 32, NOW)
+    play_selections.open_horizon_play(dbs.research, value, ident, NOW)
+    play_selections.open_horizon_play(dbs.research, value, ident, NOW)                      # once
+    assert dbs.research.execute("SELECT COUNT(*) FROM stk_play_ideas WHERE id=?", (ident,)).fetchone()[0] == 1
+    assert play_selections.idea(dbs.research, ident)["category"] == "trend_calls"

@@ -93,7 +93,7 @@ VARIANTS: tuple[Variant, ...] = (
             keep=lambda p, _: not p.get("earnings"),
             categories=("likely_itm", "edge", "unusual", "cheap_vol", "strangles", "trend_calls", "bear_puts",
                         "squeeze", "debit_spreads", "sell_premium", "iron_condors", "iron_butterflies",
-                        "cash_secured_puts", "lottos", "leaps", "watchlist")),
+                        "cash_secured_puts", "lottos", "watchlist")),
 )
 BY_VARIANT = {v.id: v for v in VARIANTS}
 

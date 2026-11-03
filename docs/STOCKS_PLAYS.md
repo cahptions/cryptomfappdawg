@@ -12,6 +12,17 @@ Code: `src/desk/stocks/plays.py` (categories, unusual activity, recording and gr
 (the probabilities), `src/desk/stocks/static/plays.js` (the page); history, performance and learning are described
 below.
 
+## Expiry filter
+
+**Expiry** chooses a band: Up to 2 weeks, About a month, 2 to 4 months, About 6 months, or LEAPS (9+ months), matching
+the expiries collection keeps (the nearest weekly, about 30, 60, 90 and 180 days, and the one nearest a year out).
+Choosing one does not just hide the rest: the worker has already searched each section's own rules inside every band
+(its direction, delta, liquidity and spread rules unchanged; only the days to expiry differ), one per stock, twelve per
+band, so "About 6 months" shows that section's best 6-month plays rather than an empty list. Unusual activity, Earnings
+plays and Lottos keep their own expiries (the contracts traded, the first expiry after results, short-dated by design);
+for them the filter only narrows. Expiry-band plays open like any play and are saved, and followed in History, once
+opened; they are not part of the section's graded record, which keeps its usual expiries.
+
 ## Affordable plays and filters
 
 **All prices** is the default, with no automatic price ceiling. Lower-priced candidates appear in visible price-range
@@ -157,7 +168,8 @@ profit is shown separately). Open it on any card to see each check and why:
 Every play carries an **exit plan** in the units Learning grades (return on the money at risk, round-trip fees
 included): a take-profit, a stop and a date to be out by, each also given as the stock price that would reach it after
 a move today and, where time alone gets there, the day it would if the stock stays put. The standard rules are the
-common ones per structure: bought options +100% / −50%; LEAPS +50% / −30%; lottos +200% and no stop; debit spreads
+common ones per structure: bought options +100% / −50%; long-dated bought options (180+ days) +50% / −30%, out two
+months before expiry; lottos +200% and no stop; debit spreads
 half the maximum gain / −50%; straddles and strangles +50% / −40%; credit spreads and condors half the credit / a loss
 of twice the credit; iron butterflies a quarter of the credit / −50%; cash-secured puts half the premium / a loss of
 twice the premium. Bought plays leave 21 days before expiry (a third of the time for short-dated ones). Once a
@@ -182,6 +194,22 @@ within what remains. The summary gives the money at risk, the cash tied up (a so
 collateral; a cash-secured put ties up the cash for the shares), what happens if every take-profit or every stop
 hits, and KESTREL's expected value. With an amount saved, every other card shows how many of that play fit it. When
 nothing fits, the page names the cheapest qualifying play's risk.
+
+## The headline chance: reaching the take-profit
+
+The big number and bar on every card is the **chance to hit the take-profit**: the share of KESTREL's simulated
+stock paths (its own forecast drift and volatility, the same ones behind its chance in the money) on which the exit
+plan's take-profit is reached before its stop or its leave-by date, every leg repriced along each path at its quoted
+volatility (500 paths, checked up to 50 times; a fixed seed per play keeps the number steady, about ±2 points). It is
+a path probability, like tastytrade's "P50", because a managed trade succeeds by reaching its target, not by finishing
+in the money: a bought option can finish in the money and still lose its premium, and one bought out of the money can
+reach +100% weeks before expiry. Under the bar: the chance the **stop** comes first, the chance of **profit at expiry**
+(beyond break-even, what Robinhood and OptionStrat headline), and the chance in the money with the market's and
+history's views. When today's fair value is already past the stop (a bid/ask spread wider than the stop allows), the
+card says so and the chance is 0%. **Min chance (%)** filters on this headline number.
+
+The in-the-money chance below is the one graded and calibrated against how past plays finished; the take-profit
+chance is a model estimate until tracked plays grade it the same way.
 
 ## Three chances, side by side
 
@@ -220,7 +248,7 @@ before expiry (reflection formula for geometric Brownian motion; "already in the
 | 🦋 **Iron butterflies** | The same conditions, sold at the money: **sell** the call and put at the strike nearest the price, buy wings ~5% either side, credit ≥ 40% of the wider wing. The largest credit of the range trades; the full credit needs a finish right at the strike, partial profit anywhere between the break-evens. |
 | 💵 **Cash-secured puts** | Committee ≥ 50 or a broad ETF: **sell** a put near 0.25 Δ below the price, 21–45 days, premium ≥ 0.5% of the strike, with the cash to buy 100 shares set aside. The risk shown is that cash less the premium (the stock going to zero). The card shows the effective purchase price and the yield on the cash if the put expires worthless. A covered call at the same strike has the same payoff. |
 | 🎰 **Lottos** | Ask $0.05–$0.50, 1–14 days, ≥ 3% out of the money: the most payoff for a one-standard-deviation move, times the chance in the money. Most expire worthless, and the card says so. |
-| 🏛️ **LEAPS** | 180+ days, call near 0.75 Δ, on committee ≥ 60 names or broad ETFs: stock-like exposure for less money down. Collection now adds the expiry nearest a year out for this. |
+| 🏛️ ~~LEAPS~~ | Retired 2026-11-03 (its past plays stay in History and Performance). Choose **Expiry → LEAPS (9+ months)** instead: every section's own rules searched at that expiry. Collection still keeps the expiry nearest a year out. |
 | ⭐ **Your watchlist** | The best-valued contract for each starred stock, in the committee's direction. |
 
 Every structure is **defined risk**: the most it can lose is known when it is shown. Strategies left out, and why:

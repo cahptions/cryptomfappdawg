@@ -19,7 +19,7 @@ from desk.stocks import calendar as cal
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.play_marks import profit, settle_day
 from desk.stocks.play_tracking import get_state, legs_key, tick_time, unpack
-from desk.stocks.plays import BY_CATEGORY, CATEGORIES, TYPES, spread_width
+from desk.stocks.plays import BY_CATEGORY, RECORDED, TYPES, spread_width
 from desk.stocks.repo import day_of
 
 VERSION = 1
@@ -191,7 +191,7 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime) -> 
         by_category[p["category"]].append(row)
     categories: list[dict[str, Any]] = []
     every: list[dict[str, Any]] = []
-    for c in CATEGORIES:
+    for c in RECORDED:
         rows = by_category.get(c.id)
         if rows:
             categories.append({"id": c.id, "title": c.title, "emoji": c.emoji, "plays": rows, "summary": _summary(rows)})

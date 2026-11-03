@@ -57,7 +57,7 @@ try {
     const data = await (
       await page.request.get(`${base}/api/stocks/plays`)
     ).json();
-    assert.equal(data.categories.length, 17);
+    assert.equal(data.categories.length, 16); // LEAPS is an Expiry band now
     assert.equal(
       await tabs.count(),
       data.categories.length + 1,
@@ -247,7 +247,10 @@ try {
       "ν Vega / IV point",
     ])
       assert.ok((await first.innerText()).includes(name));
-    assert.match(await first.innerText(), /Market \d+% · History/);
+    assert.match(
+      await first.innerText(),
+      /Stop first \d+% · Profit at expiry \d+% · .*\(market \d+%/,
+    );
     // the selling category shows credits and the chance of expiring worthless
     await page.getByRole("tab", { name: /Sell rich premium/ }).click();
     const sells = page.locator("article.play-card");
@@ -274,12 +277,32 @@ try {
     assert.match(await popup.innerText(), /stock page/);
     await page.getByRole("button", { name: "Close" }).click();
     await popup.waitFor({ state: "detached" });
-    await page.getByLabel("Minimum chance at expiry, percent").fill("99");
+    await page.getByRole("columnheader", { name: "Take-profit" }).waitFor();
+    await page
+      .getByLabel("Minimum chance to hit the take-profit, percent")
+      .fill("99");
     await page
       .getByText(/No plays in this category match these filters/)
       .waitFor();
-    await page.getByLabel("Minimum chance at expiry, percent").fill("");
+    await page
+      .getByLabel("Minimum chance to hit the take-profit, percent")
+      .fill("");
     await page.getByLabel("Layout").selectOption("cards");
+    // The card's headline is the plan's chance: take-profit before the stop or the leave-by date.
+    const chance = page.locator(".play-card .play-chance").first();
+    assert.match(
+      await chance.innerText(),
+      /Chance to hit take-profit \(\+\d+%\)\s+\d+%[\s\S]*Stop first \d+% · Profit at expiry \d+%/i,
+    );
+    // Expiry: the section's own rules searched in the chosen band; LEAPS is a band now, not a section.
+    assert.equal(await page.getByRole("tab", { name: /LEAPS/ }).count(), 0);
+    await page.getByLabel("Expiry", { exact: true }).selectOption("leaps");
+    await page
+      .getByText(/LEAPS \(9\+ months\): this section's rules/)
+      .waitFor();
+    for (const card of await page.locator(".play-card").all())
+      assert.match(await card.innerText(), /\((2[7-9]\d|[3-9]\d\d|\d{4})d\)/);
+    await page.getByLabel("Expiry", { exact: true }).selectOption("");
     const overflow = await page.evaluate(
       () => document.scrollingElement.scrollWidth - window.innerWidth,
     );
