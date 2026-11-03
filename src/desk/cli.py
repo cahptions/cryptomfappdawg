@@ -858,7 +858,7 @@ def cmd_open(args: argparse.Namespace) -> int:
         if args.desk != "stocks":
             raise DeskError("--remote is for --desk stocks")
         if requested != "off":
-            launcher.ssh_key_setup(launcher.check_host(requested))
+            launcher.ssh_key_setup(launcher.check_remote(requested))
         launcher.set_remote_host(paths, None if requested == "off" else requested)
     if getattr(args, "install", False):
         ports[args.desk] = port

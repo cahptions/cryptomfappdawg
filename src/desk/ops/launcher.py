@@ -16,10 +16,12 @@ Nothing here touches a wallet.
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -149,13 +151,50 @@ def check_host(host: str) -> str:
     return host
 
 
+def this_computer(host: str) -> bool:
+    """Whether ``user@address`` names this very computer: an address assigned here (binding to it works), or its own
+    name. A remote choice like that (the other computer's setup run on this one) would send kestrel to itself."""
+    address = host.rpartition("@")[2]
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        name = socket.gethostname().lower()
+        return address.lower() in {"localhost", name, name.split(".")[0]}
+    if ip.is_loopback:
+        return True
+    try:
+        with socket.socket(socket.AF_INET6 if ip.version == 6 else socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.bind((str(ip), 0))
+    except OSError:
+        return False
+    return True
+
+
+def check_remote(host: str) -> str:
+    if this_computer(check_host(host)):
+        raise DeskError(f"{host} is this computer. Run --remote on the computer that should show it (the Dell); "
+                        "this one keeps its own KESTREL.")
+    return host
+
+
 def remote_host(paths: DeskPaths) -> str | None:
-    """The computer whose Stocks desk this one shows (e.g. ``neo@192.168.0.10``), or None for its own."""
+    """The computer whose Stocks desk this one shows (e.g. ``neo@192.168.0.10``), or None for its own. A saved choice
+    that names this computer itself is ignored."""
     try:
         host = remote_path(paths).read_text(encoding="utf-8").strip()
     except OSError:
         return None
-    return host if _HOST.fullmatch(host) else None
+    return host if _HOST.fullmatch(host) and not this_computer(host) else None
+
+
+def shadowed(command: Path) -> str | None:
+    """Why typing ``kestrel`` would not run ``command``: another one earlier on PATH, or its folder not on PATH."""
+    found = shutil.which(command.name)
+    if found is None:
+        return f"{command.parent} is not on your PATH yet: open a new terminal (or log out and back in)."
+    if Path(found).resolve() != command.resolve():
+        return f"Another, older kestrel at {found} runs instead of {command}. Remove it: rm {found}"
+    return None
 
 
 def set_remote_host(paths: DeskPaths, host: str | None) -> None:
@@ -164,7 +203,7 @@ def set_remote_host(paths: DeskPaths, host: str | None) -> None:
         path.unlink(missing_ok=True)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(check_host(host) + "\n", encoding="utf-8")
+    path.write_text(check_remote(host) + "\n", encoding="utf-8")
 
 
 def _quiet(command: list[str], timeout: float = 30) -> int:
@@ -533,7 +572,7 @@ def install_command(repo: Path, bin_dir: Path, uv: str | None = None, remote: st
     return path
 
 
-__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "check_host", "desktop_entry", "ensure_running",
+__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "check_host", "check_remote", "desktop_entry", "ensure_running",
            "install_command", "install_launchers", "monitors", "notify", "open_desk", "open_window", "remote_host",
-           "remote_window", "responding", "saved_place", "screen_area", "set_remote_host", "ssh_key_setup",
-           "window_slot"]
+           "remote_window", "responding", "saved_place", "screen_area", "set_remote_host", "shadowed",
+           "ssh_key_setup", "this_computer", "window_slot"]

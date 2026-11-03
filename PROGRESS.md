@@ -17,6 +17,14 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-03 — The HP's kestrel pointed at the HP
+
+- `kestrel phone` on the HP printed the October 30 remote script's usage ("runs on neo@192.168.0.10", the HP itself):
+  the Dell's `--remote` setup had been run on the HP once. `launcher.this_computer` (an address that can be bound
+  here, or this computer's name) now makes `remote_host` ignore such a saved choice and `--remote` refuse it, so the
+  next `desk stocks restart`/`command` writes the local kestrel; both also say when another kestrel earlier on PATH,
+  or a PATH without ~/.local/bin, would run instead.
+
 ## 2026-11-03 — KESTREL on the phone (Tailscale Serve); Home on a phone
 
 - The user asked to check KESTREL on their phone. Every app listened on 127.0.0.1 and refused any other Host.

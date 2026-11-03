@@ -154,10 +154,13 @@ def run(args: argparse.Namespace) -> int:
         from pathlib import Path
 
         from desk.core.paths import REPO_ROOT
-        from desk.ops.launcher import install_command, remote_host
+        from desk.ops.launcher import install_command, remote_host, shadowed
 
-        print(install_command(REPO_ROOT, Path.home() / ".local" / "bin", uv=os.environ.get("UV"),
-                              remote=remote_host(paths)))
+        installed = install_command(REPO_ROOT, Path.home() / ".local" / "bin", uv=os.environ.get("UV"),
+                                    remote=remote_host(paths))
+        print(installed)
+        if note := shadowed(installed):
+            print(note)
         from sys import executable as this_python  # (a plain `import sys` here would shadow names run() shares)
 
         from desk.ops.launcher import refresh_installed
@@ -170,11 +173,13 @@ def run(args: argparse.Namespace) -> int:
         from pathlib import Path
 
         from desk.core.paths import REPO_ROOT
-        from desk.ops.launcher import ensure_running, install_command, remote_host
+        from desk.ops.launcher import ensure_running, install_command, remote_host, shadowed
 
         command = Path.home() / ".local" / "bin" / "kestrel"
         if command.is_file():              # `kestrel update` brings new kestrel subcommands with it
             install_command(REPO_ROOT, command.parent, uv=os.environ.get("UV"), remote=remote_host(paths))
+            if note := shadowed(command):
+                print(note)
         print("Restarting KESTREL with the installed version; saved data and PAPER preferences are kept.")
         print(f"KESTREL is running: {ensure_running('stocks', settings.dashboard_port, paths, restart=True)}")
         return 0

@@ -178,3 +178,32 @@ def test_an_update_rewrites_the_installed_menu_icons_keeping_their_ports(tmp_pat
     assert "#89cff0" in icon.read_text() and len(written) == 4
     assert "--port 9767" in (home / "applications" / "kestrel-stocks.desktop").read_text()
     assert not (home / "applications" / "kestrel.desktop").exists()                 # only what was installed
+
+
+def test_a_remote_choice_naming_this_computer_is_refused_and_ignored(paths: DeskPaths, tmp_path: Path,
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Dell's setup run on the HP once saved the HP as its own remote, so its kestrel sent every command over SSH
+    back to itself. A choice like that is refused, an existing one ignored, and an update writes the local kestrel."""
+    import socket
+
+    assert launcher.this_computer("neo@127.0.0.1") and launcher.this_computer(f"neo@{socket.gethostname()}")
+    assert not launcher.this_computer("neo@192.0.2.10")                                # a documentation address
+    with pytest.raises(DeskError, match="is this computer"):
+        launcher.set_remote_host(paths, "neo@127.0.0.1")
+    launcher.remote_path(paths).parent.mkdir(parents=True, exist_ok=True)
+    launcher.remote_path(paths).write_text("neo@127.0.0.1\n", encoding="utf-8")        # saved by an older version
+    assert launcher.remote_host(paths) is None
+    script = launcher.install_command(Path("/home/neo/kestrel"), tmp_path / "bin", remote=launcher.remote_host(paths))
+    assert "runs on" not in script.read_text() and "phone) shift" in script.read_text()
+
+    older = tmp_path / "older"
+    older.mkdir()
+    (older / "kestrel").write_text("#!/bin/sh\n")
+    (older / "kestrel").chmod(0o700)
+    monkeypatch.setenv("PATH", f"{older}:{script.parent}:/usr/bin:/bin")
+    assert launcher.shadowed(script) == f"Another, older kestrel at {older / 'kestrel'} runs instead of {script}. " \
+                                        f"Remove it: rm {older / 'kestrel'}"
+    monkeypatch.setenv("PATH", f"{script.parent}:/usr/bin:/bin")
+    assert launcher.shadowed(script) is None
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    assert "not on your PATH" in str(launcher.shadowed(script))
