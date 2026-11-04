@@ -180,6 +180,13 @@ def run(args: argparse.Namespace) -> int:
             install_command(REPO_ROOT, command.parent, uv=os.environ.get("UV"), remote=remote_host(paths))
             if note := shadowed(command):
                 print(note)
+        if remote_host(paths) is None:     # the computer that runs Stocks keeps it running, reboots included
+            from sys import executable as this_python  # (a plain `import sys` here would shadow names run() shares)
+
+            from desk.ops.services import keep_stocks_running
+
+            for note in keep_stocks_running(paths, this_python, settings.dashboard_port):
+                print(note)
         print("Restarting KESTREL with the installed version; saved data and PAPER preferences are kept.")
         print(f"KESTREL is running: {ensure_running('stocks', settings.dashboard_port, paths, restart=True)}")
         return 0

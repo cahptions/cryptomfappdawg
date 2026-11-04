@@ -343,6 +343,20 @@ def log_tail(log: Path, paths: DeskPaths, lines: int = 15) -> str:
         text = log.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return "(no output was saved)"
+    return _redacted_tail(text, paths, lines)
+
+
+def journal_tail(unit: str, paths: DeskPaths, lines: int = 15) -> str:
+    """The end of a user service's journal, keys blanked out."""
+    try:
+        done = subprocess.run(["journalctl", "--user", "-u", unit, "-n", str(lines), "--no-pager", "-o", "cat"],  # noqa: S603,S607
+                              capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return f"(see: journalctl --user -u {unit} -n 40)"
+    return _redacted_tail(done.stdout or "", paths, lines)
+
+
+def _redacted_tail(text: str, paths: DeskPaths, lines: int) -> str:
     try:
         from desk.core.secrets import load_secrets
 
@@ -511,10 +525,11 @@ def ensure_running(desk: str, port: int, paths: DeskPaths, *, wait_seconds: floa
             if process is not None and process.poll() is not None:
                 raise DeskError(f"{label} stopped while starting (exit code {process.returncode}). The end of what "
                                 f"it printed ({log}):\n\n{log_tail(log, paths)}")
-            if waited > (wait_seconds if process is None else max(wait_seconds, SLOW_START_SECONDS)):
+            slow = process is not None or desk == "stocks"        # Stocks runs as an always-on service
+            if waited > (max(wait_seconds, SLOW_START_SECONDS) if slow else wait_seconds):
                 if process is None:
-                    raise DeskError(f"{label} did not start on {url}; its service log: journalctl --user -u "
-                                    f"{DESKS[desk]['service']} -n 40")
+                    raise DeskError(f"{label} did not answer on {url} within {int(waited)} seconds. The end of its "
+                                    f"service log:\n\n{journal_tail(str(DESKS[desk]['service']), paths)}")
                 raise DeskError(f"{label} is still starting after {int(waited)} seconds and does not answer on {url} "
                                 f"yet. The end of what it printed ({log}):\n\n{log_tail(log, paths)}")
             time.sleep(0.5)
@@ -612,7 +627,7 @@ def install_command(repo: Path, bin_dir: Path, uv: str | None = None, remote: st
     return path
 
 
-__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "check_host", "check_remote", "desktop_entry", "ensure_running",
-           "install_command", "install_launchers", "log_tail", "monitors", "notify", "open_desk", "open_window", "remote_host",
-           "remote_window", "responding", "saved_place", "screen_area", "set_remote_host", "shadowed",
-           "ssh_key_setup", "this_computer", "window_slot"]
+__all__ = ["APP_BROWSERS", "DESKS", "browser_command", "check_host", "check_remote", "desktop_entry",
+           "ensure_running", "install_command", "install_launchers", "journal_tail", "log_tail", "monitors",
+           "notify", "open_desk", "open_window", "remote_host", "remote_window", "responding", "saved_place",
+           "screen_area", "set_remote_host", "shadowed", "ssh_key_setup", "this_computer", "window_slot"]

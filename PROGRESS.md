@@ -17,6 +17,19 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-04 — Stocks on the HP is always on (a user service), not a plain background process
+
+- The user opened KESTREL on the Dell at 10:41 on Nov 4 and saw "research to Nov 2 close" and data only from 10:41.
+  The HP's app had been off since the failed restart on Nov 3 (the update from the Oct 30 version), so Nov 3's close
+  was never researched; opening it from the Dell started it. Root cause: the launcher anticipated a
+  `desk-stocks-dashboard.service` but nothing ever installed one, so the app ran as a plain process that nothing
+  restarts (the Oct 30 missed close had the same cause).
+- `services.render_stocks_unit` (Restart=always, RestartSec=10, no memory cap since the research worker shares it;
+  `systemd-analyze verify` clean) and `keep_stocks_running` (write if changed, daemon-reload, enable, try
+  `loginctl enable-linger`, else print the one sudo command; never fails an update), run by `desk stocks restart` on
+  the computer without a remote choice. `ensure_running` waits up to 120 s for the service and shows the end of its
+  journal (keys blanked) if it never answers. `kestrel` reports **Always on**.
+
 ## 2026-11-04 — Learning: the small accounts' Experiments tab says what they actually do
 
 - The user opened Experiments under the $1,000 account and saw only $5,000+ and $40,000+ recipes. That tab listed the

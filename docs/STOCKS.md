@@ -143,6 +143,22 @@ on the very same orders (split into trades both made, trades the reference could
 could not afford at all), the research account's results by recipe (structure, size, holding time), how much of its
 profit came from its best five trades, and whether its per-day average is distinguishable from luck.
 
+### Always on
+
+On the computer that holds the Schwab sign-in (the HP), Stocks runs as a user service,
+`desk-stocks-dashboard.service`: systemd restarts it 10 seconds after it stops for any reason (a crash, a failed
+restart, a stop) and, with lingering on, starts it when the computer powers on, before anyone logs in. `kestrel
+update` and `kestrel restart` install and enable it; `kestrel` shows an **Always on** line. Turning on lingering
+needs an administrator once:
+
+```bash
+sudo loginctl enable-linger neo
+```
+
+Until 2026-11-04 the app ran as a plain background process, so anything that stopped it left it off (and the
+research for that day's close unrun) until something opened it again. Its log is in the journal:
+`journalctl --user -u desk-stocks-dashboard.service -n 50`.
+
 ### Using another computer's KESTREL Stocks
 
 Schwab allows one Market Data app per developer account, and each sign-in with that app ends the previous one. So

@@ -117,6 +117,12 @@ def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool
          "running" if held else "paused · use Start PAPER in the app"),
         _version(port, online),
     ]
+    from desk.ops.launcher import remote_host
+    from desk.ops.services import always_on
+
+    if remote_host(paths) is None:                  # the computer that runs Stocks
+        on, text = always_on()
+        out.insert(1, (on, "Always on", text))
     dbs = StocksDatabases.open(paths)
     try:
         market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
