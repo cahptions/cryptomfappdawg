@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from collections.abc import Awaitable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -180,6 +180,19 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     return {"asof": target.isoformat(), "universe": day.universe_size, "research_only": True, "paper": None}
 
 
+def recorded_plays(conn: Any, session: date, categories: tuple[str, ...]) -> dict[str, list[dict[str, Any]]]:
+    """The Plays recorded once ``session`` closed (exact contracts, rank and reasons), for PAPER strategies that buy
+    them; recorded before PAPER's step, by the research pass in the same cycle."""
+    out: dict[str, list[dict[str, Any]]] = {c: [] for c in categories}
+    marks = ",".join("?" for _ in categories)
+    for row in conn.execute(f"SELECT category, rank, symbol, legs_json, play_json FROM stk_plays WHERE session=? "  # noqa: S608
+                            f"AND category IN ({marks}) ORDER BY category, rank", (session.toordinal(), *categories)):
+        play = json.loads(row["play_json"])
+        out[row["category"]].append({"rank": row["rank"], "symbol": row["symbol"], "legs": json.loads(row["legs_json"]),
+                                     "reasons": play.get("reasons") or []})
+    return out
+
+
 def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime, *,
             research_only: bool = False) -> dict[str, Any]:
     """Only today's actually available closed-session analysis creates forward orders; no historical entry replay."""
@@ -216,6 +229,8 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
     for session in missed:
         engine.step(session, now, None, allow_entries=False)
     refreshed = daily.refresh(analyzer, panel, target, now)
+    if refreshed.day is not None:                      # Lotto strategies buy the Plays picks recorded for this session
+        refreshed.day.ctx.plays = recorded_plays(research.conn, target, ("lottos",))
     stepped = engine.step(target, now, refreshed.day, allow_entries=not paths.stop_file.exists())
     research.record_run("paper_step", now, now, target, stepped.skipped is None,
                         {"session": target.isoformat(), "intervening_sessions": gaps,

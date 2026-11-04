@@ -49,6 +49,7 @@ class Context:
     crowd: dict[str, dict[str, Any]] = field(default_factory=dict)
     options: dict[str, dict[str, Any]] = field(default_factory=dict)
     news: dict[str, dict[str, Any]] = field(default_factory=dict)      # company news, world shocks, trade actions
+    plays: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # the session's recorded Plays, by section
     macro: dict[str, Any] = field(default_factory=dict)
     sector_rs: dict[str, float] = field(default_factory=dict)
     valuation_history: dict[str, list[float]] = field(default_factory=dict)

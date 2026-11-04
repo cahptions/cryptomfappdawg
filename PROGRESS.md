@@ -17,6 +17,18 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-04 — PAPER lotto experiment: KESTREL's Lottos picks against random lottos
+
+- The user saw a 7,800% Plays lotto and asked PAPER to identify and trade those. Three option strategies: **Lotto
+  picks · sold at triple** and **Lotto picks · let them run** buy the exact contracts the Plays Lottos section
+  recorded when the session closed (`runner.recorded_plays` → `Context.plays`; recorded by the research pass before
+  PAPER's step in the same cycle); **Random lottos** (baseline) buys random contracts passing the same filters
+  (`_random_lotto`). Same $300 (0.6% of $50,000) per pick, up to 20 open; a followed contract names its own
+  structure (call or put). The report now judges a strategy against the baseline it names (`compare`). Plays
+  Lottos links to `lotto_picks`. Not replayed (no historical lotto quotes).
+- Honest limits found in the test: a lotto whose ask runs past the 10%-or-5-cent limit overnight is cancelled (the
+  synthetic $0.38 → $0.51 case), fees are large on $0.05-$0.10 contracts, and marks are daily closes.
+
 ## 2026-11-04 — Stocks on the HP is always on (a user service), not a plain background process
 
 - The user opened KESTREL on the Dell at 10:41 on Nov 4 and saw "research to Nov 2 close" and data only from 10:41.

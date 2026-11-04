@@ -123,6 +123,7 @@ Each is preregistered: hypothesis, rule and exits are frozen by version in `stk_
 | Hold SPY | buy SPY once, hold |
 | 10 random stocks | 10 liquid names drawn at random (reproducibly) each month |
 | Random calls | an at-the-money 30–60 day call on a random optioned name; same exits as the call strategies |
+| Random lottos | 12 random optioned names a day, each a random contract passing the Lottos filters below; held to expiry |
 
 **Stocks, rebalanced monthly** (top 10 at the open after each month's last session; names that drop out are sold):
 the committee's top 10; the Undervalued, Quality at a fair price and Momentum lists; and three combinations —
@@ -160,10 +161,27 @@ warning and cannot earn a current-version grade from those combined results. Ver
 | Squeeze calls | squeeze score ≥ 60 (1% each) | 0.30Δ call, 14–45 days | +200%, −60%, 7 days left |
 | Follow unusual call buying | ≥ 1,000 contracts, ≥ 5× usual, ≥ $100k premium (1% each) | the same contract | +100%, −50%, 5 days left |
 
+**Lottos** (added 2026-11-04 at the operator's request, after a Plays lotto showed a 7,800% gain). Cheap, short-dated,
+far out-of-the-money contracts: most expire worthless, a few pay many times their cost, so the test is whether the
+winners pay for all the losers after fees, and whether KESTREL's picks do better than chance. Every pick gets the same
+dollars, 0.6% of the account ($300 of $50,000, so ten contracts at $0.30 or about forty at $0.07, $0.65 a contract in
+fees, which on a $0.07 contract is 9% of its cost); up to 20 open at once, inside the 10% options-at-risk cap.
+
+| Strategy | Enters | Exits |
+|---|---|---|
+| Lotto picks · sold at triple | the Plays **Lottos** section's picks recorded when the session closed, in rank order: ask $0.05–$0.50, 2–14 days, ≥ 3% out of the money, volume and open interest ≥ 50, spread ≤ 35%, ranked by the payoff on a one-standard-deviation move per dollar × KESTREL's chance in the money | sells when it is worth 3× (the Plays exit plan); otherwise held to expiry |
+| Lotto picks · let them run | the same picks | held to expiry: the rare 20×–100× winner is kept whole, and nothing is sold early |
+
+Both are judged against **Random lottos**, not Random calls. They buy at the next session's ask within the usual limit
+(10% or 5 cents above the price seen); a lotto whose price ran further overnight is cancelled, as a limit order would
+be. Marks and exits are checked once a day on closing quotes, so a contract that spikes and falls back within a day
+is seen at its close. The historical replay can't test them: lottos live on real quotes for days-to-expiry contracts,
+and the picks are recorded from collection onward.
+
 ## Grading
 
 `desk.stocks.paper.report` compares each account's daily returns with its baseline's (random stocks for stock
-strategies, random calls for option strategies) and with SPY, with a stationary-bootstrap interval and one-sided
+strategies, random calls for option strategies, random lottos for the lotto strategies) and with SPY, with a stationary-bootstrap interval and one-sided
 p-value, Holm-adjusted across strategies. A strategy is *too early* until it has three months of sessions (six for
 monthly portfolios) and, for event and options strategies, 20 closed trades. Then: *working* (Holm p < 0.05),
 *promising* (p < 0.10), *backwards* (p > 0.95) or *not working*. The report also shows return, drawdown, volatility,

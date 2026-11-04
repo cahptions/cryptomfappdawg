@@ -168,7 +168,7 @@ CATEGORIES: tuple[Category, ...] = (
              "move. Most expire worthless — the chance is shown.",
              "Ask $0.05–$0.50, 1–14 days, at least 3% out of the money, volume and open interest ≥ 50. Ranked by "
              "payoff at a one-standard-deviation move per dollar, times KESTREL's chance in the money.",
-             "No cheap short-dated contract is liquid enough today."),
+             "No cheap short-dated contract is liquid enough today.", paper="lotto_picks"),
     Category("watchlist", "Your watchlist", "⭐",
              "The best-valued contract for each stock on your watchlist, in the committee's direction.",
              "14–60 days, |delta| 0.35–0.60, spread ≤ 15%; highest KESTREL value per dollar.",

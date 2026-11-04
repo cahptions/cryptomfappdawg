@@ -5,6 +5,7 @@ rewritten."""
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -259,3 +260,100 @@ def test_every_preregistered_strategy_runs(world: StocksWorld, analyses: dict[da
     assert by_id["spy_hold"]["return"] == pytest.approx(by_id["spy_hold"]["equity"] / 10_000 - 1)
     assert by_id["random_calls"]["deposits"] == 50_000
     assert rep["accounts"][-1]["baseline"]                                     # baselines listed last
+
+
+def test_lotto_strategies_buy_the_recorded_lotto_picks_and_random_lottos_pass_the_same_filters(
+        world: StocksWorld, analyses: dict[date, Day], tmp_path: Path) -> None:
+    """PAPER buys the exact contract the Plays Lottos section recorded, the same dollars per pick, at the next session's
+    ask within its limit (a price that ran away overnight cancels, as a real limit order would); one version sells at
+    triple, one holds to expiry; random lottos are the baseline both are judged against."""
+    from dataclasses import replace
+
+    from desk.stocks.paper.report import report
+    from desk.stocks.paper.strategies import LOTTO_ASK
+
+    days = world.days[-28:]
+
+    def quotes(symbol: str, d: date) -> dict[str, object]:
+        return {q.occ: q for qs in world.market.option_chain(symbol, d)[1].values() for q in qs}
+
+    # The synthetic market has few short-dated contracts, so the test widens the expiry window to find a pick whose
+    # next-session ask stays inside the order's limit; the shipped strategies keep 2-14 days.
+    found = None
+    for d0, d1 in pairwise(days):
+        s0 = next(b.close for b in world.market.bars("CHEAP", d0) if b.day == d0)
+        later = quotes("CHEAP", d1)
+        for q in sorted(quotes("CHEAP", d0).values(), key=lambda q: q.ask or 1e9):
+            nxt = later.get(q.occ)
+            if (q.kind == "call" and q.strike > s0 and fills.fair_spread(q) and 2 <= (q.expiration - d0).days <= 40
+                    and nxt is not None and nxt.ask is not None and nxt.ask <= fills.limit(q.ask) and q.ask * 100 < 300):
+                found = d0, q
+                break
+        if found:
+            break
+    assert found, "the synthetic market has a fillable out-of-the-money call"
+    d0, pick = found
+    play = {"rank": 1, "symbol": "CHEAP", "reasons": ["Pays 4.0× its cost on a one-standard-deviation move"],
+            "legs": [{"occ": pick.occ, "kind": pick.kind, "strike": pick.strike,
+                      "expiration": pick.expiration.isoformat(), "side": "buy"}]}
+    with_plays = {**analyses, d0: replace(analyses[d0], ctx=replace(analyses[d0].ctx, plays={"lottos": [play]}))}
+    def widened(sid: str) -> Strategy:
+        params = {**BY_STRATEGY[sid].p, "dte": [2, 40]}
+        if "compare" in params:
+            params["compare"] = "t_random_lottos"
+        return replace(BY_STRATEGY[sid], id=f"t_{sid}", params=tuple(sorted(params.items())))
+
+    wide = tuple(widened(sid) for sid in ("random_lottos", "lotto_picks", "lotto_runners"))
+    b = book(tmp_path)
+    at_d0 = days.index(d0)
+    run(world, with_plays, b, wide, days[at_d0:at_d0 + 3])
+    for sid, target in (("t_lotto_picks", 2.0), ("t_lotto_runners", 1e9)):
+        [p] = b.positions(sid) + b.positions(sid, state="CLOSED")
+        assert p.symbol == "CHEAP" and p.legs[0]["occ"] == pick.occ and p.structure == "long_call"
+        assert p.entry_day > d0                                               # filled at a later session's quote
+        units = int(50_000 * 0.006 // (pick.ask * 100 + fills.OPTION_FEE_PER_CONTRACT))   # $300 at the decision price
+        assert p.legs[0]["quantity"] == units and p.plan["take_profit"] == target
+        assert p.entry_cost + p.entry_fees <= units * (fills.limit(pick.ask) * 100 + fills.OPTION_FEE_PER_CONTRACT)
+        assert any("Plays Lottos #1" in r for r in enter_reasons(b, sid))
+    for p in b.positions("t_random_lottos") + b.positions("t_random_lottos", state="CLOSED"):
+        [leg] = p.legs
+        assert p.structure == f"long_{leg['kind']}"
+    for d in b.decisions(limit=500):
+        if d["account"] == "t_random_lottos" and d["action"] == "ENTER":
+            assert all(LOTTO_ASK[0] <= leg["decision_price"] <= LOTTO_ASK[1] for leg in d["evidence"]["legs"])
+    rep = {a["id"]: a for a in report(b, world.market, wide)["accounts"]}
+    assert rep["t_random_lottos"]["baseline"] and rep["t_lotto_picks"]["params"]["compare"] == "t_random_lottos"
+    assert rep["t_lotto_picks"]["vs_baseline"] is not None                    # judged against random lottos
+    shipped = {sid: BY_STRATEGY[sid].p for sid in ("random_lottos", "lotto_picks", "lotto_runners")}
+    assert all(p["dte"] == [2, 14] and p["premium"] == 0.006 for p in shipped.values())
+    assert shipped["lotto_picks"]["take_profit"] == 2.0 and shipped["lotto_runners"]["take_profit"] > 1e6
+
+
+def enter_reasons(b: PaperBook, account: str) -> list[str]:
+    return [str(d["reasons"]) for d in b.decisions(limit=500) if d["account"] == account and d["action"] == "ENTER"]
+
+
+def test_the_runner_hands_paper_the_lotto_picks_recorded_for_the_session(tmp_path: Path) -> None:
+    import json
+
+    from desk.core.paths import DeskPaths
+    from desk.stocks.repo import StocksDatabases
+    from desk.stocks.runner import recorded_plays
+
+    dbs = StocksDatabases.open(DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "secrets.env"))
+    try:
+        legs = [{"occ": "XYZ261120C00055000", "kind": "call", "strike": 55.0, "expiration": "2026-11-20", "side": "buy"}]
+        for session, category, rank in ((date(2026, 11, 3), "lottos", 2), (date(2026, 11, 3), "lottos", 1),
+                                        (date(2026, 11, 3), "edge", 1), (date(2026, 11, 2), "lottos", 1)):
+            dbs.research.execute(
+                "INSERT INTO stk_plays(session, category, rank, symbol, action, structure, expiration, event, event_kind,"
+                " event_strike, event_width, entry, max_loss, legs_json, underlying, play_json, method, recorded_at)"
+                " VALUES (?,?,?,?,'BUY','long_call',?,'itm','call',55,0,0.2,20.65,?,50,?,'m','2026-11-03T21:00:00+00:00')",
+                (session.toordinal(), category, rank, f"S{rank}", date(2026, 11, 20).toordinal(), json.dumps(legs),
+                 json.dumps({"reasons": [f"reason {rank}"]})))
+        got = recorded_plays(dbs.research, date(2026, 11, 3), ("lottos",))
+        assert [(p["rank"], p["symbol"], p["reasons"]) for p in got["lottos"]] == [(1, "S1", ["reason 1"]),
+                                                                                  (2, "S2", ["reason 2"])]
+        assert got["lottos"][0]["legs"] == legs and set(got) == {"lottos"}
+    finally:
+        dbs.close()

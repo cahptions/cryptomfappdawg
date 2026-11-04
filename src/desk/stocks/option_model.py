@@ -41,6 +41,9 @@ NOT_REPLAYED = {
     "earnings_straddles": "Needs the move options priced before each report, which only real chains show.",
     "squeeze_calls": "Needs short-interest history as it was published at the time.",
     "unusual_follow": "Needs each day's real option volume across the whole chain.",
+    "random_lottos": "Lottos live on real quotes for cheap, days-to-expiry contracts; a monthly modeled chain has none.",
+    "lotto_picks": "Follows the Plays Lottos picks recorded each day, which exist from collection onward.",
+    "lotto_runners": "Follows the Plays Lottos picks recorded each day, which exist from collection onward.",
 }
 
 MASSIVE_DAYS = 725            # Options Basic reaches 2 years back; a few days' margin

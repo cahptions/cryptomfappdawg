@@ -265,6 +265,27 @@ def unusual_calls(day: Day, p: dict[str, Any]) -> list[Candidate]:
     return sorted(out, key=lambda c: (-c.score, c.symbol))
 
 
+def lotto_picks(day: Day, p: dict[str, Any]) -> list[Candidate]:
+    """The Plays Lottos section's recorded picks for this session, exact contracts, in its rank order."""
+    out = []
+    for play in (day.ctx.plays or {}).get("lottos", []):
+        [only] = play["legs"]
+        out.append(Candidate(play["symbol"], -float(play["rank"]), [
+            f"Plays Lottos #{play['rank']}: {play['symbol']} {only['expiration']} ${only['strike']:g} {only['kind']}",
+            *play.get("reasons", [])[:2]], {**_evidence(day, play["symbol"]), "follow": only,
+                                            "structure": f"long_{only['kind']}"}))
+    return out
+
+
+def random_lottos(day: Day, p: dict[str, Any]) -> list[Candidate]:
+    """Random optioned names; each buys a random contract that passes the same price, expiry and liquidity filters
+    as Plays' Lottos (the contract is drawn in ``build_structure``)."""
+    rng = random.Random(f"{p['seed']}:{day.asof.isoformat()}")      # noqa: S311 - a reproducible draw, not a secret
+    pool = sorted(s for s in day.ctx.symbols if (day.ctx.options.get(s) or {}).get("iv30"))
+    return [Candidate(s, 0.0, ["Random lotto (baseline)"], {**_evidence(day, s), "draw": f"{p['seed']}:{day.asof}:{s}"})
+            for s in rng.sample(pool, min(p["n"], len(pool)))]
+
+
 def random_optioned(day: Day, p: dict[str, Any]) -> list[Candidate]:
     rng = random.Random(f"{p['seed']}:{day.asof.isoformat()}")      # noqa: S311 - a reproducible draw, not a secret
     pool = sorted(s for s in day.ctx.symbols if (day.ctx.options.get(s) or {}).get("iv30"))
@@ -277,6 +298,7 @@ RULES: dict[str, Rule] = {
     "earnings_drift": earnings_drift, "insider_cluster": insider_cluster, "breakout": breakout, "squeeze": squeeze,
     "cheap_iv_bulls": cheap_iv_bulls, "momentum_bulls": momentum_bulls, "bears": bears, "earnings_vol": earnings_vol,
     "squeeze_options": squeeze_options, "unusual_calls": unusual_calls, "random_optioned": random_optioned,
+    "lotto_picks": lotto_picks, "random_lottos": random_lottos,
 }
 
 
@@ -334,6 +356,8 @@ def build_structure(structure: str, chains: dict[date, list[OptionQuote]], s: fl
                     p: dict[str, Any], evidence: dict[str, Any]) -> list[dict[str, Any]] | None:
     """One unit of a structure (quantity 1 per long leg); None when the chain can't supply it fairly."""
     lo, hi = p["dte"]
+    if structure == "random_lotto":
+        return _random_lotto(chains, s, today, r, p, str(evidence.get("draw", "")))
     if structure in ("long_call", "long_put"):
         follow = evidence.get("follow")
         if follow:                                    # the unusual contract itself, when it's fairly quoted
@@ -377,6 +401,30 @@ def build_structure(structure: str, chains: dict[date, list[OptionQuote]], s: fl
             put = Pick(same, iv, opt.greeks("put", s, same.strike, opt.year_fraction(today, e), iv, r).delta)
         return [leg(call, 1), leg(put, 1)]
     raise ValueError(f"unknown structure {structure}")
+
+
+LOTTO_ASK = (0.05, 0.50)           # the Plays Lottos filters: price, out of the money, open interest, volume
+LOTTO_OTM, LOTTO_MIN_ACTIVITY = 0.03, 50
+
+
+def _random_lotto(chains: dict[date, list[OptionQuote]], s: float, today: date, r: float, p: dict[str, Any],
+                  draw: str) -> list[dict[str, Any]] | None:
+    lo, hi = p["dte"]
+    pool = []
+    for e, quotes in chains.items():
+        if not lo <= (e - today).days <= hi:
+            continue
+        for q in quotes:
+            otm = q.strike / s - 1 if q.kind == "call" else 1 - q.strike / s
+            if (q.ask is not None and LOTTO_ASK[0] <= q.ask <= LOTTO_ASK[1] and otm >= LOTTO_OTM and fair_spread(q)
+                    and q.open_interest >= LOTTO_MIN_ACTIVITY and q.volume >= LOTTO_MIN_ACTIVITY):
+                pool.append(q)
+    for q in random.Random(draw).sample(sorted(pool, key=lambda x: x.occ), len(pool)):  # noqa: S311 - reproducible
+        t = opt.year_fraction(today, q.expiration)
+        iv = opt.implied_vol(q.kind, q.mid or 0, s, q.strike, t, r)
+        if iv is not None:
+            return [leg(Pick(q, iv, opt.greeks(q.kind, s, q.strike, t, iv, r).delta), 1)]
+    return None
 
 
 def _P(**kw: Any) -> tuple[tuple[str, Any], ...]:
@@ -454,6 +502,21 @@ STRATEGIES: tuple[Strategy, ...] = (
              "Large, unusual call buying knows something; buying the same contract follows it",
              _P(rule="unusual_calls", min_volume=1000, min_ratio=5.0, min_premium=100_000, structure="long_call", dte=[10, 90],
                 premium=0.01, take_profit=1.0, stop=-0.5, exit_dte=5, max_open=3)),
+    # lottos: cheap, short-dated, far out of the money; most expire worthless, a few pay many times their cost.
+    # The same dollars on every pick (0.6% of the account, $300 of $50,000), up to 20 open at once.
+    Strategy("random_lottos", 1, "Random lottos", "option", "event",
+             "Random cheap, short-dated, out-of-the-money contracts held to expiry: what any lotto picking must beat",
+             _P(rule="random_lottos", n=12, seed="random_lottos", structure="random_lotto", dte=[2, 14],
+                premium=0.006, take_profit=1e9, stop=-2.0, exit_dte=-1, max_open=20), baseline=True),
+    Strategy("lotto_picks", 1, "Lotto picks · sold at triple", "option", "event",
+             "KESTREL's Plays Lottos picks pay off often enough to beat random lottos, selling each when it triples "
+             "(the Plays exit plan) and otherwise holding to expiry",
+             _P(rule="lotto_picks", structure="long_call", dte=[2, 14], premium=0.006, take_profit=2.0, stop=-2.0,
+                exit_dte=-1, max_open=20, compare="random_lottos")),
+    Strategy("lotto_runners", 1, "Lotto picks · let them run", "option", "event",
+             "The same picks held to expiry: the rare 20×–100× winners pay for all the ones that expire worthless",
+             _P(rule="lotto_picks", structure="long_call", dte=[2, 14], premium=0.006, take_profit=1e9, stop=-2.0,
+                exit_dte=-1, max_open=20, compare="random_lottos")),
 )
 BY_STRATEGY = {s.id: s for s in STRATEGIES}
 

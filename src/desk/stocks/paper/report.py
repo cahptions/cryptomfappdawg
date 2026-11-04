@@ -123,8 +123,11 @@ def grade(acct: dict[str, Any]) -> dict[str, Any]:
 def report(book: PaperBook, market: StocksMarket, strategies: Sequence[Strategy]) -> dict[str, Any]:
     first = min((rows[0][0] for s in strategies if (rows := book.equity(s.id))), default=None)
     spy = _spy_closes(market, first) if first else {}
-    baselines = {asset: {d: e for d, _, _, e in book.equity(sid)} for asset, sid in BASELINE_FOR.items()}
-    accounts = [account_report(book, market, s, baselines.get(s.asset), spy) for s in strategies]
+    # Each strategy is judged against its asset's random baseline, or the one it names ("compare": lottos vs lottos).
+    wanted = {*BASELINE_FOR.values(), *(s.p["compare"] for s in strategies if s.p.get("compare"))}
+    baselines = {sid: {d: e for d, _, _, e in book.equity(sid)} for sid in wanted}
+    accounts = [account_report(book, market, s, baselines.get(s.p.get("compare") or BASELINE_FOR.get(s.asset, "")), spy)
+                for s in strategies]
     tested = [a["vs_baseline"] for a in accounts if a["vs_baseline"] and a["vs_baseline"].get("p") is not None]
     for stat, adjusted in zip(tested, holm([t["p"] for t in tested]), strict=True):
         stat["p_holm"] = adjusted

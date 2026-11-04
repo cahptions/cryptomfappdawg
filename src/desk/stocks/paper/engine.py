@@ -485,9 +485,12 @@ class PaperEngine:
                 break
             if c.symbol in held or c.symbol in entering or c.symbol not in bars:
                 continue
-            legs = self._structure(p["structure"], c.symbol, asof, bars[c.symbol].close, p, c.evidence)
+            structure = c.evidence.get("structure") or p["structure"]      # a followed contract names its own
+            legs = self._structure(structure, c.symbol, asof, bars[c.symbol].close, p, c.evidence)
             if not legs:
                 continue
+            if structure == "random_lotto":
+                structure = f"long_{legs[0]['kind']}"
             unit = sum(leg["quantity"] * (leg["decision_price"] or 0) * fills.CONTRACT for leg in legs)
             fee = fills.OPTION_FEE_PER_CONTRACT * sum(abs(leg["quantity"]) for leg in legs)
             if unit <= 0:
@@ -509,10 +512,10 @@ class PaperEngine:
                     exit_on = cal.next_trading_day(exit_on)
                 option_plan["exit_on"] = exit_on.isoformat()
             did = self.book.decide(now, asof, st.id, st.spec_sha256, c.symbol, "ENTER", c.reasons,
-                                   {**c.evidence, "structure": p["structure"], "units": units, "unit_debit": unit,
+                                   {**c.evidence, "structure": structure, "units": units, "unit_debit": unit,
                                     "legs": legs})
             self.book.place(did, st.id, now, asof, {"asset": "option", "action": "ENTER", "symbol": c.symbol,
-                                                    "structure": p["structure"], "legs": legs, "units": units,
+                                                    "structure": structure, "legs": legs, "units": units,
                                                     "max_debit": round(max_debit, 2), "plan": option_plan})
             rep.orders += 1
             at_risk += max_debit
