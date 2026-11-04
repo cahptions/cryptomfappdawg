@@ -50,10 +50,7 @@ try {
       await dialog
         .getByRole("heading", { name: "Why it was selected", exact: true })
         .waitFor();
-      assert.match(
-        await dialog.innerText(),
-        /Prior research: long_put/,
-      );
+      assert.match(await dialog.innerText(), /Prior research: long_put/);
       assert.match(await dialog.innerText(), /underlying\/day blocks/);
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
       await page
@@ -63,6 +60,20 @@ try {
       assert.match(
         await page.locator(".paper-trades").innerText(),
         /requested.*filled.*unfilled/,
+      );
+      // Experiments: this account's own picking and sizing first; the research catalog is labeled as research-sized.
+      await page
+        .getByRole("button", { name: "Experiments", exact: true })
+        .click();
+      await page
+        .getByRole("heading", {
+          name: `How the ${a.title} picks its trades`,
+          exact: true,
+        })
+        .waitFor();
+      assert.match(
+        await page.locator(".paper-trades").innerText(),
+        /does not run the experiments below at their sizes[\s\S]*about 25% of its value per trade \(\$[\d,.]+ now\)[\s\S]*sized for the \$500,000 research account/,
       );
       const overflow = await page.evaluate(
         () => document.scrollingElement.scrollWidth - innerWidth,

@@ -859,8 +859,10 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
         check["report"] = json.loads(check.pop("payload_json"))
     experiment_total = conn.execute("SELECT COUNT(*) FROM stk_learning_experiments").fetchone()[0]
     experiments = [dict(r) for r in conn.execute("SELECT * FROM stk_learning_experiments ORDER BY created_at DESC,id LIMIT 100")]
+    gone = retired(conn)
     for experiment in experiments:
         experiment["configuration"] = json.loads(experiment.pop("config_json"))
+        experiment["retired"] = experiment["id"] in gone          # minute-hold seeds from before 2026-10-31
         stats = conn.execute(
             "SELECT COUNT(*),AVG(net_return),SUM(pnl) FROM stk_learning_outcomes WHERE experiment_id=?", (experiment["id"],)
         ).fetchone()

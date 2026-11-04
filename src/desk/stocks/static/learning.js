@@ -883,8 +883,32 @@ const KestrelLearning = (() => {
           content.append(n);
         }
       } else if (view === "experiments") {
+        if (a.small_account) {
+          // The small accounts do not run these sizes: they borrow the best recent research recipe and size it
+          // for their own cash.
+          const own = el("section", undefined, "paper-status");
+          own.append(
+            el("h2", `How the ${titleOf(a)} picks its trades`),
+            el(
+              "p",
+              `It does not run the experiments below at their sizes. It copies a research recipe (structure and expiry) whose results finished in the last 90 days are positive after costs, best first, then buys whole contracts it can afford: about 25% of its value per trade (${money(0.25 * (a.equity ?? a.starting_capital))} now), one contract above that only if its cash covers it, never more than its cash, and one order waiting at a time. Until research results finish, it uses a starter recipe: a call about a month out.`,
+            ),
+            el("p", `Now: ${a.policy?.phase || "Waiting for fresh quotes"}`),
+          );
+          if (a.policy?.note)
+            own.append(el("p", a.policy.note, "caption muted"));
+          content.append(
+            own,
+            el(
+              "h2",
+              `Research experiments it learns from (sized for the $500,000 research account)`,
+            ),
+          );
+        } else
+          content.append(
+            el("h2", `${data.experiment_total} registered hypotheses`),
+          );
         content.append(
-          el("h2", `${data.experiment_total} registered hypotheses`),
           el(
             "p",
             "Seed experiments run automatically. Optionally register another size or holding-period hypothesis; the reference account never restricts research capital.",
@@ -947,7 +971,10 @@ const KestrelLearning = (() => {
           }
         };
         content.append(form, result);
-        const grid = el("div", undefined, "paper-trade-grid");
+        // Current recipes first; the minute-hold seeds retired on Oct 31 stay folded away with their record.
+        const grid = el("div", undefined, "paper-trade-grid"),
+          old = el("div", undefined, "paper-trade-grid"),
+          retired = data.experiments.filter((e) => e.retired);
         for (const e of data.experiments) {
           const n = el("article", undefined, "paper-trade-card");
           n.append(
@@ -970,9 +997,20 @@ const KestrelLearning = (() => {
                 `Follow-up to ${e.configuration.parent_experiment}: ${e.configuration.change}`,
               ),
             );
-          grid.append(n);
+          (e.retired ? old : grid).append(n);
         }
         content.append(grid);
+        if (retired.length) {
+          const fold = el("details", undefined, "learning-retired");
+          fold.append(
+            el(
+              "summary",
+              `${retired.length} retired minute-hold experiments (before Oct 31) · kept for their record, open nothing new`,
+            ),
+            old,
+          );
+          content.append(fold);
+        }
         if (data.experiment_total > data.experiments.length)
           content.append(
             el(

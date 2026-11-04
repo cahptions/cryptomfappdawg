@@ -17,6 +17,15 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-04 — Learning: the small accounts' Experiments tab says what they actually do
+
+- The user opened Experiments under the $1,000 account and saw only $5,000+ and $40,000+ recipes. That tab listed the
+  research account's catalog under every account. The $1k/$5k accounts (`learning_retail`) run none of those sizes:
+  they copy a research recipe whose last-90-day finished results are positive after costs (a 1-month call starter
+  until then) and buy whole contracts at about 25% of their own value, one above that only if cash covers it. The tab
+  now says so first for a small account, labels the catalog as research-sized, and folds the minute-hold seeds retired
+  on Oct 31 (`experiment.retired`).
+
 ## 2026-11-03 — Plays: an Expiry filter instead of a LEAPS section; the bar is the take-profit chance
 
 - Expiry filter (Up to 2 weeks … LEAPS 9+ months, matching the collected expiries). `Context.horizon` overrides each
