@@ -390,6 +390,15 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             except Exception as exc:  # recorded; never stops collection
                 log.warning("option prices failed", extra={"error": str(exc)[:200]})
                 market.job("option_bars", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+            # Lottos on real past prices: a batch of Massive's weekly option history each pass (more off-hours).
+            from desk.stocks import lotto_history
+
+            try:
+                jobs["lotto_history"] = await run_job("lotto_history", lotto_history.job(
+                    suite.massive, market, paths.home, utc_now()))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("lotto history failed", extra={"error": str(exc)[:200]})
+                market.job("lotto_history", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",
                   "research_only": research_only, "options_provider": suite.option_source,
                   "problems": suite.problems, "jobs": jobs, "market_events": events,

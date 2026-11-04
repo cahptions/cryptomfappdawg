@@ -224,6 +224,13 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
         days = StocksMarket(conn).bar_days()
         latest = days[-1] if days else None
         price_error = StocksMarket(conn).jobs().get("prices", {}).get("last_error")
+        from desk.stocks import lotto_history
+
+        try:                                   # lottos replayed on real past prices, and how far the download is
+            result["lotto_history"] = {"report": lotto_history.load(paths.home / lotto_history.REPORT),
+                                       "coverage": lotto_history.coverage(StocksMarket(conn), cal.new_york(now).date())}
+        except sqlite3.OperationalError:       # a database from before the lotto replay
+            result["lotto_history"] = None
     result["session_status"] = {"last_processed": last.isoformat() if last else None,
         "latest_prices": latest.isoformat() if latest else None, "expected_close": target.isoformat(),
         "waiting_for_prices": latest is None or latest < target, "pending_orders": pending,

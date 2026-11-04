@@ -22,6 +22,77 @@ const KestrelPaper = (() => {
     account?.grade && typeof account.grade === "object"
       ? account.grade.text
       : account?.grade || "Forward record has not started";
+  // The lotto accounts are replayed on real past prices (Massive's weekly option history), not modeled ones.
+  const LOTTO_REPLAY = {
+    lotto_picks: "kestrel_triple",
+    lotto_runners: "kestrel_run",
+    random_lottos: "random_run",
+  };
+  const lottoStatus = (data, variant) => {
+    const v = data?.report?.variants?.[variant];
+    return v?.picks
+      ? `${v.picks} picks on real prices · ${percent(v.return)}`
+      : "downloading real past prices";
+  };
+  function lottoReplay(card, data, variant) {
+    const report = data?.report,
+      cover = data?.coverage || report?.coverage,
+      v = report?.variants?.[variant];
+    if (v?.picks) {
+      const versus =
+        report.kestrel_vs_random?.[
+          variant.endsWith("triple") ? "triple" : "run"
+        ];
+      card.append(
+        el(
+          "strong",
+          `${v.picks} picks on real prices · ${percent(v.return)} on the money put in`,
+        ),
+        el(
+          "p",
+          `${report.first} to ${report.last} · ${report.sessions} sessions · ${report.names.length} names`,
+          "caption muted",
+        ),
+        el(
+          "p",
+          `Expired worthless ${percent(v.worthless)} · 3× or more ${percent(v.at_least_3x)} · 10× or more ${percent(v.at_least_10x)} · best ${v.best.multiple.toFixed(1)}× (${v.best.symbol}, ${v.best.decided})`,
+          "caption",
+        ),
+      );
+      if (versus && !variant.startsWith("random"))
+        card.append(
+          el(
+            "p",
+            `Against random lottos: ${versus.mean_gap >= 0 ? "+" : ""}${percent(versus.mean_gap)} a pick on average over ${versus.days} days (90% range ${percent(versus.low)} to ${percent(versus.high)}; chance it is no better: ${percent(versus.p_not_better)}).`,
+            "caption",
+          ),
+        );
+      const how = el("details");
+      how.append(
+        el("summary", "How it was replayed"),
+        el("p", report.method, "caption muted"),
+      );
+      card.append(how);
+    } else
+      card.append(
+        el(
+          "strong",
+          cover
+            ? "Downloading real past prices"
+            : "Waiting for the first download",
+        ),
+      );
+    if (cover)
+      card.append(
+        el(
+          "p",
+          cover.requests_left
+            ? `${cover.expiries_listed} of ${cover.expiries_planned} weekly listings (${cover.weeks} weeks × ${cover.names} names) · ${cover.contracts_fetched} of ${cover.contracts_wanted} contracts priced · about ${Math.ceil(cover.hours_left_at_full_speed)} hours of requests left at Massive's 5 a minute; KESTREL takes small batches during market hours and larger ones when it is closed, so expect a few days`
+            : `All ${cover.weeks} weeks × ${cover.names} names downloaded (${cover.contracts_fetched} contracts)`,
+          "caption muted",
+        ),
+      );
+  }
   function evidencePanel(account, live, openReplay) {
     const section = el("section", undefined, "paper-evidence"),
       grid = el("div", undefined, "paper-evidence-grid"),
@@ -56,6 +127,12 @@ const KestrelPaper = (() => {
       ),
     );
     replay.append(el("h3", "Historical replay"));
+    if (LOTTO_REPLAY[account.id]) {
+      lottoReplay(replay, live.lotto_history, LOTTO_REPLAY[account.id]);
+      grid.append(observed, replay);
+      section.append(grid);
+      return section;
+    }
     if (historical.status === "current") {
       replay.append(
         el("strong", historical.grade.text),
@@ -518,7 +595,7 @@ const KestrelPaper = (() => {
           ),
           el(
             "small",
-            `Historical replay: ${live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
+            `Historical replay: ${LOTTO_REPLAY[a.id] ? lottoStatus(live.lotto_history, LOTTO_REPLAY[a.id]) : live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
           ),
         );
         b.onclick = () => {

@@ -17,6 +17,17 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-04 — Lottos replayed on real past prices
+
+- The user pushed back on "the replay can't test lottos": it can, on real prices. `lotto_history`: per pass a batch
+  of Massive Options Basic requests (8 open / 40 closed): past weekly listings as of two weeks before each expiry for
+  12 heavily traded names (`stk_lotto_lists`, migration 0010), candidate OTM strikes chosen generously by a rough
+  estimate, then each candidate's real daily bars (`stk_option_bars`). `replay`: qualifying contracts per day by real
+  close/volume, KESTREL's Lottos score vs a random one per stock, top 12, next-open entry +5%, $300, triple or expiry;
+  summary and KESTREL-vs-random bootstrap. Rebuilt when 150+ new contracts arrive. Paper's lotto accounts show it in
+  their Historical replay card with download progress. The user also asked that nothing possible be explained away
+  again; an audit of every such statement across the app is running.
+
 ## 2026-11-04 — PAPER lotto experiment: KESTREL's Lottos picks against random lottos
 
 - The user saw a 7,800% Plays lotto and asked PAPER to identify and trade those. Three option strategies: **Lotto

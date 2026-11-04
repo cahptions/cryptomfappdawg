@@ -175,8 +175,19 @@ fees, which on a $0.07 contract is 9% of its cost); up to 20 open at once, insid
 Both are judged against **Random lottos**, not Random calls. They buy at the next session's ask within the usual limit
 (10% or 5 cents above the price seen); a lotto whose price ran further overnight is cancelled, as a limit order would
 be. Marks and exits are checked once a day on closing quotes, so a contract that spikes and falls back within a day
-is seen at its close. The historical replay can't test them: lottos live on real quotes for days-to-expiry contracts,
-and the picks are recorded from collection onward.
+is seen at its close.
+
+**Lottos on real past prices** (`desk.stocks.lotto_history`). The modeled replay can't price lottos honestly (their
+value is in the far, short-dated tails a model gets wrong), so the lotto accounts are replayed on real prices instead:
+Massive's Options Basic archive, two years of daily bars per contract, weeklies included. Each collection pass
+downloads a batch (8 requests in market hours, 40 when closed, at Massive's shared 5 a minute): for each of SPY, QQQ,
+IWM, AAPL, NVDA, TSLA, AMD, AMZN, META, MSFT, GOOGL and NFLX and every past weekly expiry, the out-of-the-money
+contracts listed two weeks before it, then each candidate's real daily bars (about 73 hours of requests in all, so a
+few days). The replay then runs KESTREL's Lottos rule (one-standard-deviation payoff per dollar × chance in the money,
+from the contract's implied and the stock's realized volatility; no committee tilt) against a random qualifying
+contract per stock, sold at triple or held to expiry, $300 a pick, bought at the next session's real open plus 5%
+with $0.65 a contract. Each lotto account's Historical replay card shows its version: picks, return on the money put
+in, how many expired worthless, reached 3× and 10×, the best pick, and KESTREL against random with a bootstrap range.
 
 ## Grading
 
