@@ -17,7 +17,7 @@ from desk.core.clock import to_iso
 from desk.stocks import calendar as cal
 from desk.stocks import play_history as ph
 from desk.stocks import play_selections as ps
-from desk.stocks.play_tracking import get_state, legs_key
+from desk.stocks.play_tracking import get_state, legs_key, unpack
 from desk.stocks.plays import RECORDED, TYPES, structure_of
 from desk.storage.db import transaction
 
@@ -61,6 +61,59 @@ def recovered_play(row: sqlite3.Row) -> dict[str, Any]:
             "max_loss": risk, "cost": risk if action == "BUY" else None, "underlying_price": underlying,
             "source": "Original saved first-sighting quotes", "quoted_at": None, "recovered_sighting": True,
             "reasons": ["Recovered from the original saved sighting. Original model odds and rank were not retained."]}
+
+
+def sighting_price(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
+                   legs: list[dict[str, Any]], seen_at: datetime) -> dict[str, Any] | None:
+    """The stock price nearest at or before a recovered sighting, from what was stored then (the original sighting
+    kept only its option quotes): the saved option chain's underlying price that session, else a tracked quote of
+    one of its legs, else the latest daily close already published. Labelled with its source and time; never a
+    price from after the sighting."""
+    local = cal.new_york(seen_at)
+    session = local.date()
+    best: tuple[datetime, float, str] | None = None
+    for r in market.execute("SELECT observed_at, underlying_price FROM stk_option_chains WHERE underlying = ? AND day = ?"
+                            " AND underlying_price > 0", (symbol, session.toordinal())):
+        at = datetime.fromisoformat(r["observed_at"])
+        if at <= seen_at and (best is None or at > best[0]):
+            best = (at, float(r["underlying_price"]), "the saved option chain")
+    if best is None:
+        for leg in legs:
+            for r in research.execute("SELECT at, quoted_at, underlying FROM stk_track_ticks WHERE occ = ? AND session = ?"
+                                      " AND underlying > 0", (leg["occ"], session.toordinal())):
+                at = datetime.fromisoformat(r["quoted_at"] or r["at"])
+                if at <= seen_at and (best is None or at > best[0]):
+                    best = (at, float(r["underlying"]), "a tracked quote")
+            row = research.execute("SELECT packed FROM stk_track_intraday WHERE occ = ? AND session = ?",
+                                   (leg["occ"], session.toordinal())).fetchone()
+            for minute, _bid, _ask, underlying, *_ in unpack(row[0]) if row else []:
+                if minute is None or not underlying:
+                    continue
+                at = datetime.combine(session, time(int(minute) // 60, int(minute) % 60), cal.NEW_YORK)
+                if at <= seen_at and (best is None or at > best[0]):
+                    best = (at, float(underlying), "a tracked quote")
+    if best is None:
+        for r in market.execute("SELECT day, close FROM stk_bars WHERE symbol = ? AND day <= ? ORDER BY day DESC LIMIT 2",
+                                (symbol, session.toordinal())):
+            closed = cal.session_close(date.fromordinal(r["day"]))
+            if closed <= seen_at and r["close"]:
+                best = (closed, float(r["close"]), "the daily close")
+                break
+    if best is None:
+        return None
+    return {"price": round(best[1], 4), "source": best[2], "at": best[0].isoformat()}
+
+
+def with_sighting_price(market: sqlite3.Connection | None, research: sqlite3.Connection, play: dict[str, Any],
+                        identified_at: str) -> dict[str, Any]:
+    """A recovered sighting without its stock price, with the nearest stored one filled in and labelled."""
+    if market is None or not play.get("recovered_sighting") or play.get("underlying_price"):
+        return play
+    found = sighting_price(market, research, play["symbol"], play["legs"], datetime.fromisoformat(identified_at))
+    if found is None:
+        return play
+    return {**play, "underlying_price": found["price"], "underlying_source": found["source"],
+            "underlying_at": found["at"]}
 
 
 def recover(research: sqlite3.Connection, now: datetime) -> dict[str, int]:

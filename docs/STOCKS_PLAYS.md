@@ -375,8 +375,10 @@ claim a fresh provider quote.
 
 On startup and tracking passes, the app automatically recovers up to 500 older first sightings per pass from their
 original stored contracts, entry and timestamp. This repairs the earlier two-LEAPS-only failure wherever those
-sightings were retained. Missing original ranks, odds and stock-price snapshots remain unavailable; today's model
-is not used to invent historical recommendations. Unreadable sightings are recorded as skipped rather than
+sightings were retained. Missing original ranks and odds remain unavailable; today's model is not used to invent
+historical recommendations. A sighting kept no stock price, so its detail page shows the nearest one stored at or
+before it, labelled with its source and time: the saved option chain's underlying price that session, else a tracked
+quote of one of its legs that session, else the latest daily close already published (never a later price). Unreadable sightings are recorded as skipped rather than
 blocking other recovery. Picks or option quotes that were never stored cannot be recovered by this process.
 
 Archive implementation: `play_archive.py`; `0011_play_archive.sql` adds lookup indexes and the append-only recovery

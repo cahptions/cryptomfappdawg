@@ -316,9 +316,13 @@ const KestrelPlayWorkflow = (() => {
     if (ticket !== generation || serial !== viewSerial) return;
     const play = data.idea.play,
       tracked = data.tracking;
+    // A recovered sighting kept no stock price: the server fills the nearest stored one and says where it came from.
+    const priceNote = play.underlying_source
+      ? `Stock price from ${play.underlying_source} at ${when(play.underlying_at)} (the sighting kept none) · identified ${when(data.idea.identified_at)}`
+      : `Stock price at identification · ${when(data.idea.identified_at)}`;
     heading(
       `${play.symbol} · ${money(play.underlying_price)} · ${play.type}`,
-      `${money(play.strike)} strike · ${play.expiration} · Stock price at identification · ${when(data.idea.identified_at)}`,
+      `${money(play.strike)} strike · ${play.expiration} · ${priceNote}`,
       personal ? "mine" : "board",
     );
     const actions = el("div", undefined, "play-actions"),
@@ -328,7 +332,7 @@ const KestrelPlayWorkflow = (() => {
     if (play.recovered_sighting && !play.underlying_price) {
       calc.disabled = true;
       note.textContent =
-        "The original stock price was not saved, so this snapshot cannot support IV scenarios. P/L still uses saved option quotes. Open the company profile for its current chain and calculator.";
+        "The original sighting kept no stock price and none was stored at or before it, so this snapshot cannot support IV scenarios. P/L still uses saved option quotes. Open the company profile for its current chain and calculator.";
     }
     refresh.onclick = () => detail(ticket, id, personal);
     calc.onclick = async () => {

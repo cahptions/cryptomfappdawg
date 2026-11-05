@@ -84,7 +84,9 @@ def calculator_chain(market: sqlite3.Connection, research: sqlite3.Connection, i
     from desk.stocks.hub import option_table
 
     found = idea(research, ident)
-    play = found["play"]
+    from desk.stocks.play_archive import with_sighting_price
+
+    play = with_sighting_price(market, research, found["play"], found["identified_at"])
     if play["symbol"] != symbol:
         raise DeskError("This saved play belongs to a different stock.")
     legs = play["legs"]
@@ -339,9 +341,16 @@ def raw_path(research: sqlite3.Connection, legs: list[dict[str, Any]], start: da
     return daily, intraday
 
 
-def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: bool = False) -> dict[str, Any]:
+def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: bool = False,
+         market: sqlite3.Connection | None = None) -> dict[str, Any]:
+    """A saved idea (or a personal selection of one) with its quote path. ``market`` lets a recovered sighting,
+    which kept no stock price, show the nearest stored one (``play_archive.with_sighting_price``), labelled."""
     current = ticket(research, ident, now) if personal else None
     found = current["idea"] if current else idea(research, ident)
+    if market is not None:
+        from desk.stocks.play_archive import with_sighting_price
+
+        found["play"] = with_sighting_price(market, research, found["play"], found["identified_at"])
     play, entry = found["play"], current["entry"] if current else None
     prepared = plan(research, found["id"], now)
     if current and entry is None:
