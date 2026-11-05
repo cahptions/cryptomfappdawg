@@ -17,6 +17,15 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-05 — Audit fixes, round 2a: Learning (Stocks)
+
+- Expired positions settle at intrinsic on the official close (a real outcome, written to the outcomes); every held
+  and pending leg is quoted each minute through Schwab /quotes (one request per 100 legs) with the chain rotation kept
+  for new entries; capacity uses the size displayed at the side traded (no depth beyond the top of the book); the
+  experiment form registers lifecycle recipes; the small accounts sell at the recipe's best checkpoint so far (only
+  checkpoints matured before each decision); recipe families include the expiry bucket; the calendar's session close
+  replaces hard-coded 4 PM. 1,699 tests and both Learning browser tests pass. Plays (round 2b) is finishing.
+
 ## 2026-11-05 — Audit fixes, round 1: data, operations, replay and validation (Stocks)
 
 - Four read-only auditors listed every place the app said something wasn't done; the user asked that nothing possible be
