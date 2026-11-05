@@ -34,6 +34,7 @@ from desk.stocks.paper.report import daily_returns, trade_stats
 from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
 from desk.stocks.repo import MARKET_FILE, StocksMarket, StocksResearch
+from desk.stocks.validation import evaluation_window
 from desk.storage.db import DbKind, migrate
 
 VERSION = 4
@@ -237,7 +238,8 @@ def replay(
     try:
         source.execute("BEGIN")  # one consistent source snapshot while collection can continue in WAL
         market = HistoricalMarket(source)
-        days = market.bar_days()
+        start, limited = evaluation_window(market, settings)    # every stored day by default, memory allowing
+        days = [d for d in market.bar_days() if d >= start]
         requested = sessions
         if sessions == 0:
             sessions = max(0, len(days) - MIN_BARS)
@@ -247,9 +249,9 @@ def replay(
                 "Collection can continue automatically; see Settings for missing price access."
             )
         selected = days[-sessions:]
-        # A short evaluation window still needs long indicator lookbacks (for example 12-month momentum).
-        since = min(days[-sessions - MIN_BARS], days[-1] - timedelta(days=max(settings.history_days, sessions * 2 + 400)))
-        raw = load_panel(market, since, days[-1], adjust=False)
+        # A short window still reads the whole evaluation window: 12-month momentum, 52-week highs and two years of
+        # month-end valuations look back far beyond the replayed sessions.
+        raw = load_panel(market, days[0], days[-1], adjust=False)
         if "SPY" not in raw.index:
             raise DeskError("SPY closing history is needed for the benchmark before replay can start")
         if raw.day_index(selected[0]) < MIN_BARS:
@@ -365,6 +367,7 @@ def replay(
                 "existing stock spread/slippage/fee model and prior-session liquidity.",
                 "Open positions at the end remain marked, not fictitiously closed. Each strategy has its own capital.",
                 "Walk-forward comparisons do not establish a profitable edge or automatically change the live model.",
+                *([limited] if limited else []),
             ],
         }
     finally:

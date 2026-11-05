@@ -156,7 +156,12 @@ const KestrelEvidence = (() => {
         [
           "Historical comparisons",
           report?.rebuild?.months ?? "—",
-          "Reconstructed history is a separate record",
+          report?.prices?.first
+            ? `A separate record, rebuilt from ${number(report.prices.sessions)} stored sessions since ${report.prices.first}` +
+              (report.prices.memory_note
+                ? `. ${report.prices.memory_note}`
+                : "")
+            : "Reconstructed history is a separate record",
         ],
         [
           "Latest evaluated close",

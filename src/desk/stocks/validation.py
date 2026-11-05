@@ -29,12 +29,14 @@ import warnings
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from itertools import pairwise
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from desk.core.config import StocksSection
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stats.core import holm, mean_interval, stationary_bootstrap_means
 from desk.stocks import calendar as cal
@@ -42,7 +44,7 @@ from desk.stocks import desks as dk
 from desk.stocks.analysis import Analyzer
 from desk.stocks.lists import LISTS
 from desk.stocks.prices import Panel, last_valid
-from desk.stocks.repo import StocksMarket, StocksResearch
+from desk.stocks.repo import StocksMarket, StocksResearch, date_of
 from desk.stocks.sectors import sector
 from desk.stocks.universe import SECTOR_FUNDS, research_listings
 
@@ -66,6 +68,8 @@ LIVE_ONLY_DESKS = ("crowd", "options", "news")   # collected going forward only:
 PROVEN_LIVE_WEIGHT = 0.4
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")
+EVALUATION_BYTES_PER_BAR = 600   # a stored bar while an evaluation panel loads and the desks score it (generous)
+EVALUATION_RESERVE_KB = 1_500_000  # the memory guard's floor (desk.stocks.runner._memory_guard) stays free
 
 
 def content() -> dict[str, Any]:
@@ -84,6 +88,48 @@ def rebuild_sha256() -> str:
 
 def method_sha256() -> str:
     return sha256_hex(canonical_json({"rebuild": rebuild_sha256(), "validation": content()}))
+
+
+# ── the evaluation window ────────────────────────────────────────────────────────────────────────
+def _available_kb() -> int | None:
+    info = Path("/proc/meminfo")
+    if not info.exists():
+        return None
+    for line in info.read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1])
+    return None
+
+
+def evaluation_window(market: StocksMarket, settings: StocksSection, *, available_kb: int | None = None
+                      ) -> tuple[date, str | None]:
+    """The first stored day an offline evaluation (evidence, rebuild, learning lab, replay) loads, and why if memory
+    cut it short.
+
+    Collection asks Massive only for its last ``history_days`` (older days are refused on the free plan, which would
+    fail the prices job), but stored bars are never pruned. A rebuild needs 252 warm-up sessions plus 12 independent
+    months, more than two years hold, so evaluations read every stored day by default (``evaluation_history_days`` =
+    0) or the configured span. Newest days are kept first; a span that would not fit beside the memory guard's 1.5 GB
+    floor stops early, but never shorter than the ``history_days`` the daily analysis already loads."""
+    rows = market.conn.execute("SELECT day, rows FROM stk_bar_days WHERE rows > 0 ORDER BY day DESC").fetchall()
+    if not rows:
+        return date.min, None
+    newest = date_of(rows[0][0])
+    floor = newest - timedelta(days=settings.history_days)
+    limit = newest - timedelta(days=settings.evaluation_history_days) if settings.evaluation_history_days else date.min
+    kb = _available_kb() if available_kb is None else available_kb
+    budget = None if kb is None else max(0, kb - EVALUATION_RESERVE_KB) * 1024
+    start, total = newest, 0
+    for ordinal, n in rows:
+        day = date_of(ordinal)
+        if day < limit:
+            break
+        total += n
+        if budget is not None and day < floor and total * EVALUATION_BYTES_PER_BAR > budget:
+            return start, (f"Available memory limited this evaluation to prices from {start.isoformat()}; older stored "
+                           f"prices from {date_of(rows[-1][0]).isoformat()} are kept for a run with more free memory.")
+        start = day
+    return start, None
 
 
 # ── statistics ───────────────────────────────────────────────────────────────────────────────────

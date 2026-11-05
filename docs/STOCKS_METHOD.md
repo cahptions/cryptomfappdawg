@@ -165,8 +165,11 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
 
 ## 9. Known limits
 
-- The free price source keeps two years of daily bars, so the rebuild covers about a year of months at first and
-  every grade starts as *too early*. A longer price history (Schwab, when connected) lengthens the rebuild.
+- The free price source serves two years of daily bars, so the rebuild covers about a year of months at first and
+  every grade starts as *too early*. Stored bars are never pruned, and the evidence check, the rebuild and the
+  historical replay read every stored day (`evaluation_history_days`, 0 = all; free memory permitting, never less
+  than `history_days`), so the rebuild gains a month for each month of collection. Schwab's longer chart history is
+  kept apart for stock-page charts and never enters the rebuild.
 - Rebuilt months carry survivorship bias (section 8). The live record does not.
 - Returns are price only; dividends are ignored on both sides.
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.
