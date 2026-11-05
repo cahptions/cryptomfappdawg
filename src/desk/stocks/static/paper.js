@@ -454,7 +454,7 @@ const KestrelPaper = (() => {
           "p",
           job.preference_error ||
             job.phase ||
-            "Replay past stock strategies with a separate simulated ledger.",
+            "Replay past stock and option strategies with a separate simulated ledger.",
           "muted",
         );
         message.setAttribute("role", "status");
@@ -503,7 +503,7 @@ const KestrelPaper = (() => {
           el("h2", "Historical strategy replay"),
           el(
             "p",
-            "Signals are reconstructed in date order; entries fill at a later open. Historical results stay separate from the forward PAPER record.",
+            "Signals are reconstructed in date order. Stock orders fill at the next session's open; option orders fill at the next session's option prices (rebuilt from stock history, real where Massive has them). Historical results stay separate from the forward PAPER record.",
             "muted",
           ),
           controls,
@@ -551,7 +551,7 @@ const KestrelPaper = (() => {
             "p",
             record === "live"
               ? "PAPER starts with the app unless paused. Eligible strategies begin when their data is available; 63/126-session evidence thresholds do not block entries."
-              : "Replay starts automatically when enough bulk history and warm-up sessions are saved. You can also start it above. Option-chain histories cannot be reconstructed from stock prices.",
+              : "Replay starts automatically when enough bulk history and warm-up sessions are saved. You can also start it above. Option strategies whose signal comes from the stock replay on option prices rebuilt from stock history, with Massive's real daily option prices where they exist.",
             "muted",
           ),
           link("Review data connections ↗", "#settings"),

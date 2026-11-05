@@ -774,9 +774,9 @@ async function settingsPage() {
         "Save your contact email above; no paid account is required. Publication dates govern which filings a replay may use.",
       ],
       [
-        "Archived historical options",
-        "Required for genuine historical bid/ask, IV and option-strategy fills",
-        "Not supplied by a stock price chart. This app archives observations it receives; buying a historical dataset alone will not integrate it. A separately implemented and tested import adapter is required.",
+        "Historical option prices (Massive Options Basic)",
+        "Real past option prices for the historical replay and the Lottos history",
+        "Uses the same Massive key, on the free Options Basic plan: each contract's daily closing trades for the last 2 years. The app downloads the contracts the replay traded and the weekly lotto history a few at a time (Massive's 5 requests a minute are shared); older or untraded prices are rebuilt from stock history. Historical bid/ask quotes and open interest are not included, so replay fills use a modeled spread.",
       ],
     ],
   );

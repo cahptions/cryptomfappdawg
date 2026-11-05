@@ -443,7 +443,9 @@ def replay(
                 "Each day's universe is the listings as they stood that day, so companies delisted since collection "
                 "began are included; companies delisted before collection began never appeared in a listing file and "
                 "are missing. A held stock that stops trading after it is delisted is sold at its last close.",
-                "Later restatements/data revisions may be absent from the available filing history.",
+                "Fundamentals are SEC XBRL company facts: each value counts from the day after the filing that "
+                "reported it, and a restatement replaces the earlier value only from its own filing date. Values a "
+                "company never filed in XBRL are missing.",
                 "Option prices: Massive's real daily closing trades where it has them (the last 2 years), a recent "
                 "trade's implied volatility on a quiet day, and otherwise Black-Scholes at the stock's realized "
                 "volatility times how options on it have been priced against it (calibrated on collected chains and "

@@ -57,7 +57,8 @@ trading (`desk.stocks.option_model`):
   can't pull a rule toward it; the decision then sees that day's real price where there is one.
 - **Downloading.** Each collection pass fetches up to 12 of the contracts the latest replay traded (about 2½ minutes at
   Massive's 5 requests a minute), so all of a replay's contracts arrive within hours. When a batch finishes, the
-  automatic replay runs once more to use them (never mid-download). Nothing else in the app uses Massive's option data. `kestrel options-history` shows how many are downloaded and how long the
+  automatic replay runs once more to use them (never mid-download). The Lottos history (`desk.stocks.lotto_history`)
+  also reads Massive's option data, from the same 5-requests-a-minute budget. `kestrel options-history` shows how many are downloaded and how long the
   rest will take; each option account's replay view shows what share of its held days were priced by real trades.
 
 Strategies whose signal is option data itself are not replayed: **Calls when IV is cheap** (a model built from the
