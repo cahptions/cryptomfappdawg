@@ -2,11 +2,11 @@
 
 Each day's universe is the listings as they stood that day (delisted companies included), but companies delisted before
 collection began are missing, and filing history is what is stored: it is not a survivor-bias-free archival
-experiment. Crowd counts are excluded (collected going forward only). Macro inputs are
-dated market prints read as of each day. Short interest joins, as FINRA published it, once the stored settlements cover
-the replayed window (``short_history``). Option strategies whose signals come from the stock run on option prices
-rebuilt from stock history, with Massive's real daily option prices replacing the model where they exist
-(``desk.stocks.option_model``).
+experiment. Crowd counts, company news and world shocks are excluded (collected going forward only); trade actions
+count once published. Macro inputs are dated market prints read as of each day. Short interest joins, as FINRA
+published it, once the stored settlements cover the replayed window (``short_history``). Option strategies whose
+signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option prices
+replacing the model where they exist (``desk.stocks.option_model``).
 """
 
 from __future__ import annotations
@@ -420,7 +420,9 @@ def replay(
                 "unusual activity) are not replayed.",
                 shorts["message"],
                 "Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints, read only through each "
-                "decision date as first stored. Crowd counts are excluded: they are collected going forward only.",
+                "decision date as first stored. Trade actions reach the News desk once published (stored from January "
+                "20, 2025). Company news, world shocks and crowd counts are collected going forward only and are "
+                "left out.",
                 f"Every replayed day has at least {WARMUP_SESSIONS} earlier sessions of prices, so 12-month momentum, "
                 "the 52-week high and low and the 200-day average are complete from the first replayed day.",
                 "Signals use only data through each decision date. Fills occur at the next available open with the "

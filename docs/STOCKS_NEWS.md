@@ -14,8 +14,8 @@ stock and graded on live data, and it gets a vote only if its record proves it p
 | Policy | Federal Register presidential documents (executive orders, proclamations, memoranda) since January 20, 2025, tagged for trade actions, sanctions, sectors and countries | every 6 hours | trade actions in the last 15 days that name a product this company makes (helped) or buys (hurt) |
 
 All three are free; only company news needs a key (Massive, already configured). Research reads only what was
-received by its analysis time, and the historical replay of past years leaves news out (it can't be reconstructed
-as it was known then).
+received by its analysis time; the historical rebuild and replay read trade actions by their publication date (stored
+from January 20, 2025) and leave company news and world shocks out of past days until those are backfilled.
 
 ## The supply map
 

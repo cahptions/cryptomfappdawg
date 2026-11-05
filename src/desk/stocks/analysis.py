@@ -3,7 +3,8 @@ page shows. ``build`` works for today and for any past day (validation rebuilds 
 
 ``historical`` marks a reconstructed past day (the rebuild and the replay): the universe is the listings as they stood
 that day, delisted companies included (``desk.stocks.universe.listed_on``), and inputs collected going forward only
-(crowd counts, option summaries, company news, world shocks) are left out."""
+(crowd counts, option summaries, company news, world shocks) are left out. Trade actions stay: they are stored with
+their publication dates since January 20, 2025 and read only once published."""
 
 from __future__ import annotations
 
@@ -124,9 +125,7 @@ class Analyzer:
                               {s: (price[s]["dollar_volume_20d"] or 0) / (price[s]["close"] or 1) for s in symbols}),
             crowd={} if historical else sig.crowd(self.market, end_of_day),
             options={} if historical else sig.options(self.market, asof),
-            # news, world shocks and trade actions are collected going forward: never in a replay of past years
-            news=news_flow.inputs(self.market.conn, asof, min(now or end_of_day, end_of_day), symbols,
-                                  sic) if not historical else {},
+            news=self._news(asof, min(now or end_of_day, end_of_day), symbols, sic, historical),
             macro=sig.macro(self.market, asof, spy_above),
             sector_rs=sector_rs, valuation_history=history)
         results = dk.run_desks(ctx, symbols)
@@ -144,6 +143,16 @@ class Analyzer:
                     and (values["bars_year"] or 0) >= MIN_BARS):
                 market_price[s] = values
         return Day(asof, ctx, results, committee, w, len(symbols), market_price)
+
+    def _news(self, asof: date, received_by: datetime, symbols: list[str], sic: dict[str, Any],
+              historical: bool) -> dict[str, dict[str, Any]]:
+        """What the News desk reads. A past day keeps only trade actions published by then (``policy.documents``
+        filters on the publication date): company news and world shocks are collected going forward, so a rebuilt or
+        replayed day can't show them as they were known until they are backfilled."""
+        news = news_flow.inputs(self.market.conn, asof, received_by, symbols, sic)
+        if not historical:
+            return news
+        return {s: {"world": [], "policy": v["policy"]} for s, v in news.items() if v.get("policy")}
 
     def weights(self) -> dict[str, float]:
         """Learned weights from the newest validation when it produced them, else the documented defaults."""

@@ -162,3 +162,38 @@ def test_a_held_stock_that_stops_trading_after_delisting_sells_at_its_last_close
         assert not book.pending()
     finally:
         w.close()
+
+
+def test_a_past_day_reads_trade_actions_once_published_but_not_company_news(tmp_path):
+    from datetime import datetime, time
+
+    from desk.stocks import calendar as cal
+    from desk.stocks import news_flow, policy
+    from desk.stocks.analysis import Analyzer
+    from desk.stocks.prices import load_panel
+
+    w = make_world(tmp_path, n=12)
+    try:
+        published = w.days[-30]
+        policy.save(w.market.conn, [{"document_number": "2026-7", "title": "Adjusting Imports of Pharmaceutical Products",
+                                     "publication_date": published.isoformat(), "signing_date": published.isoformat(),
+                                     "html_url": "https://www.federalregister.gov/d/2026-7", "abstract": "",
+                                     "subtype": "proclamation"}])
+        at = datetime.combine(w.days[-29], time(10), cal.NEW_YORK)
+        news_flow.save(w.market.conn, [{"id": "a1", "published": at.isoformat(), "title": "INSDR slides",
+                                        "url": "https://news.test/a1", "source": "Wire", "tickers": ["INSDR"],
+                                        "insights": [{"ticker": "INSDR", "sentiment": "negative"}]}], NOW)
+        analyzer = Analyzer(w.market, w.research, SETTINGS)
+
+        def built(d, **kwargs):
+            return analyzer.build(load_panel(w.market, w.days[0], d), d, now=NOW, **kwargs)
+
+        after = built(w.days[-28], historical=True)
+        assert after.ctx.news["INSDR"] == {"world": [], "policy": after.ctx.news["INSDR"]["policy"]}
+        assert after.ctx.news["INSDR"]["policy"][0]["sign"] == -1                 # a drug maker buys the inputs
+        assert after.results["news"]["INSDR"].score is not None and after.results["news"]["INSDR"].score < 50
+        assert "INSDR" not in built(w.days[-31], historical=True).ctx.news         # not yet published
+        assert built(w.days[-1]).ctx.news["INSDR"]["earlier60"] == 1             # live analysis reads the article
+        assert "INSDR" not in built(w.days[-1], historical=True).ctx.news         # a past day can't, until backfilled
+    finally:
+        w.close()

@@ -9,7 +9,8 @@ Two records, never mixed:
   that day, so companies delisted since collection began are included; companies delisted before collection began
   never appeared in a listing file and are missing (survivorship bias: it flatters lists that buy and hurts lists that
   avoid). Crowd and options data exist only from the first day of collection, so those desks and the lists built on
-  them have a live record only.
+  them have a live record only. The News desk is rebuilt from trade actions alone (published by each month's end);
+  its company news and world shocks are collected going forward, so it earns a vote only from its live record.
 
 A list is bought at the next session's open and held 5, 21, 63 or 252 sessions, sold at that session's close (a stock
 that stops trading is sold at its last close), price-only, against SPY and the stock's sector fund over the same
@@ -65,7 +66,10 @@ MIN_CROSS_SECTION = 10
 MIN_TRAIN_MONTHS = 6
 SHRINK_MONTHS = 12               # learned weights are shrunk toward the defaults by n / (n + 12) months of evidence
 LIVE_DESK_STEP = 5               # live desk scores are judged weekly (every fifth recorded session)
-LIVE_ONLY_DESKS = ("crowd", "options", "news")   # collected going forward only: graded live
+LIVE_ONLY_DESKS = ("crowd", "options", "news")   # earn a vote only from their live record (never a learned weight)
+NOT_REBUILT = ("crowd", "options")               # nothing dated to rebuild them from: graded live only
+PARTLY_REBUILT = {"news": "Rebuilt from trade actions only, each read once published; company news and world shocks "
+                          "are collected going forward, so the full desk is graded live."}
 PROVEN_LIVE_WEIGHT = 0.4
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")
@@ -82,7 +86,7 @@ def content() -> dict[str, Any]:
             "exit": "close of the horizon's last session", "returns": "price only"}
 
 
-REBUILD_INPUTS = ("listed_on_the_day",)    # what a rebuilt month reads beyond the desks' own rules
+REBUILD_INPUTS = ("listed_on_the_day", "trade_actions")    # what a rebuilt month reads beyond the desks' own rules
 
 
 def rebuild_sha256() -> str:
@@ -666,8 +670,8 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
                          else [(m.asof, {s: v[0] for s, v in m.scores.get(d, {}).items()}) for m in history])
         desks[d] = {"label": dk.DESK_LABELS.get(d, "Committee"), "claim": claim,
                     "live": desk_record(fw, live_obs_d, claim, step=LIVE_DESK_STEP) if live_scores else None,
-                    "rebuilt": None if d in LIVE_ONLY_DESKS or not history else
-                    desk_record(fw, rebuilt_obs_d, claim, step=MONTH_SESSIONS)}
+                    "rebuilt": None if d in NOT_REBUILT or not history else
+                    desk_record(fw, rebuilt_obs_d, claim, step=MONTH_SESSIONS), "rebuilt_note": PARTLY_REBUILT.get(d)}
     options = options_truth(market, fw, live_lists.get("cheap_iv", []))
     for source in ("live", "rebuilt"):
         family = [v[source][PRIMARY] for v in lists.values() if v["claim"] in TESTED_CLAIMS and v[source]]
@@ -679,6 +683,8 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
         v["grade"] = _headline((v["live"] or {}).get(PRIMARY), (v["rebuilt"] or {}).get(PRIMARY), v["claim"])
     for v in desks.values():
         v["grade"] = _headline(v["live"], v["rebuilt"], v["claim"])
+        if v["rebuilt_note"] and v["grade"]["source"] == "rebuilt":
+            v["grade"]["text"] += "; trade actions only"
     options["cheap_iv"]["grade"] = grade(options["cheap_iv"], "iv_cheap", "live")
     learning = learn(fw, history)
     weights = dict(learning["candidate"]) if learning["adopted"] and learning["candidate"] else dict(dk.DEFAULT_WEIGHTS)
@@ -708,6 +714,8 @@ REBUILD_CAVEATS = [
     "included. Companies delisted before collection began never appeared in a listing file and are missing, which "
     "flatters lists that buy and hurts lists that avoid.",
     "Crowd and options data start on the first day of collection, so those desks and lists have a live record only.",
+    "The News desk's rebuilt record reads trade actions only (stored from January 20, 2025, each once published); "
+    "its company news and world shocks are collected going forward.",
     "Returns are price only (no dividends) on both sides of every comparison.",
 ]
 

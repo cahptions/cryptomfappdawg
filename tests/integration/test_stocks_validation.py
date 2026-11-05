@@ -80,6 +80,7 @@ def test_report_grades_lists_and_desks_and_learns_weights(world: StocksWorld) ->
     for name in ("valuation", "momentum", "risk", "committee"):
         assert out["desks"][name]["rebuilt"]["ic"]["n"] >= 9, name
     assert out["desks"]["crowd"]["rebuilt"] is None
+    assert out["desks"]["news"]["rebuilt_note"] and out["desks"]["valuation"]["rebuilt_note"] is None
     tested = [v["rebuilt"]["1m"] for v in out["lists"].values() if v["claim"] in val.TESTED_CLAIMS and v["rebuilt"]]
     assert all(s["p_holm"] is None or s["p_holm"] >= s["p"] for s in tested)
     learning = out["committee"]
