@@ -23,7 +23,12 @@ Completed stock replays use the same session/trade thresholds, daily baseline co
 Holm correction as the forward grader, using the replay's own sessions. The result is stored in its retained archive
 with the strategy specification, date range and tested family. An older specification is labeled outdated; use
 **Run replay** to open the existing controls. Automatic replay also refreshes older report versions when enabled.
-Rules needing unavailable publication-timed inputs (short interest) remain explicitly unsupported.
+Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints and are read as of each replayed day. Short
+interest joins the replay automatically once the stored FINRA settlements cover the replayed window (24 or more
+twice-monthly settlements, the latest published by the first replayed day, each counted 12 days after settlement, with
+no gap or partial settlement after it); **Squeeze runners** and **Squeeze calls** replay then. Until it does, they say so
+and short interest is left out. Lab strategies replay too; they were chosen on the same rebuilt months, so their replay
+is in-sample and says so.
 
 ### Option strategies in the historical replay
 
@@ -49,8 +54,8 @@ trading (`desk.stocks.option_model`):
 
 Strategies whose signal is option data itself are not replayed: **Calls when IV is cheap** (a model built from the
 stock's movement can't show options priced cheaply against it), **Cheap earnings straddles** (needs the move options
-priced before each report), **Follow unusual call buying** (needs each day's real volume) and **Squeeze calls** (needs
-short interest as published). They are tested forward on collected chains.
+priced before each report) and **Follow unusual call buying** (needs each day's real volume). They are tested forward
+on collected chains. **Squeeze calls** follows short interest, not option data, and replays with it (above).
 
 Historical rules were designed with knowledge of past data, and the stored listing universe/filing history can be
 incomplete. A favorable replay is exploratory reconstruction, not fresh prospective evidence. Replayed days never

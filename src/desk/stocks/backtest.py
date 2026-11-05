@@ -1,9 +1,11 @@
 """Chronological strategy replay in isolated books. No provider calls or forward-ledger writes.
 
-Historical reconstruction is conditional on the stored/current listing universe and available filing history;
-it is not a survivor-bias-free archival experiment. Social and non-vintage macro inputs are excluded. Option strategies
-whose signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option
-prices replacing the model where they exist (``desk.stocks.option_model``).
+Historical reconstruction is conditional on the stored listing universe and available filing history; it is not a
+survivor-bias-free archival experiment. Crowd counts are excluded (collected going forward only). Macro inputs are
+dated market prints read as of each day. Short interest joins, as FINRA published it, once the stored settlements cover
+the replayed window (``short_history``). Option strategies whose signals come from the stock run on option prices
+rebuilt from stock history, with Massive's real daily option prices replacing the model where they exist
+(``desk.stocks.option_model``).
 """
 
 from __future__ import annotations
@@ -12,7 +14,8 @@ import math
 import sqlite3
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta
-from statistics import mean, stdev
+from itertools import pairwise
+from statistics import mean, median, stdev
 from typing import Any
 
 from desk.core.config import StocksSection
@@ -34,11 +37,15 @@ from desk.stocks.paper.fills import fair_spread, index_chain
 from desk.stocks.paper.report import daily_returns, trade_stats
 from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
-from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE, StocksMarket, StocksResearch
+from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE, StocksMarket, StocksResearch, date_of
+from desk.stocks.signals import SHORT_PUBLICATION_LAG
 from desk.stocks.validation import evaluation_window
 from desk.storage.db import DbKind, migrate
 
 VERSION = 5
+SHORT_MIN_SETTLEMENTS = 24     # a year of FINRA's twice-monthly settlements
+SHORT_MAX_GAP_DAYS = 35        # at most one missed release between stored settlements
+SHORT_MIN_SHARE = 0.5          # a settlement holding under half the typical settlement's symbols is a partial backfill
 
 
 class HistoricalMarket(StocksMarket):
@@ -227,6 +234,27 @@ def memory_db(kind: DbKind) -> sqlite3.Connection:
     return conn
 
 
+def short_history(market: StocksMarket, first: date, last: date) -> dict[str, Any]:
+    """Whether stored short interest covers the replayed sessions as FINRA published it: at least 24 settlements,
+    the latest one published by the first replayed day (12 days after settlement), and no gap or partial settlement
+    from there to the last replayed day. Until it does, the replay leaves short interest and the squeeze rules out."""
+    stored = [(date_of(r[0]), int(r[1])) for r in market.conn.execute(
+        "SELECT settlement, COUNT(*) FROM stk_short_interest WHERE settlement <= ? GROUP BY settlement ORDER BY settlement",
+        (last.toordinal(),))]
+    published = [d for d, _ in stored if d <= first - timedelta(days=SHORT_PUBLICATION_LAG)]
+    span = [(d, n) for d, n in stored if published and d >= published[-1]]
+    typical = median(n for _, n in stored) if stored else 0
+    ends = [d for d, _ in span] + [last - timedelta(days=SHORT_PUBLICATION_LAG)]
+    replayed = (len(stored) >= SHORT_MIN_SETTLEMENTS and bool(span) and all(n >= typical * SHORT_MIN_SHARE for _, n in span)
+                and all((b - a).days <= SHORT_MAX_GAP_DAYS for a, b in pairwise(ends)))
+    have = (f"{len(stored)} FINRA settlements are stored" + (f", from {stored[0][0].isoformat()}" if stored else ""))
+    return {"replayed": replayed, "settlements": len(stored), "first": stored[0][0].isoformat() if stored else None,
+            "message": f"Short interest is read as FINRA published it (each settlement counts {SHORT_PUBLICATION_LAG} "
+                       f"days later); {have}." if replayed else
+                       f"{have}; the replay starts {first.isoformat()}, so short interest and the squeeze rules wait "
+                       f"until the stored history covers it ({SHORT_MIN_SETTLEMENTS} or more settlements, without gaps)."}
+
+
 def lab_strategies(paths: DeskPaths) -> list[Strategy]:
     """Every lab strategy ever promoted, read from the research database without writing to it."""
     path = paths.db_dir / RESEARCH_FILE
@@ -272,9 +300,10 @@ def replay(
             raise DeskError("SPY closing history is needed for the benchmark before replay can start")
         if raw.day_index(selected[0]) < MIN_BARS:
             raise DeskError("The selected replay window does not have enough earlier warm-up history")
-        strategies = tuple(s for s in STRATEGIES if s.asset == "stock" or s.id in option_model.REPLAYED)
-        # Squeeze rules require a properly archived/publication-timed short-interest history; unavailable here.
-        strategies = tuple(s for s in strategies if s.id != "squeeze_runner")
+        shorts = short_history(market, selected[0], selected[-1])
+        replayed = {*option_model.REPLAYED, *(option_model.SHORT_REPLAYED if shorts["replayed"] else ())}
+        strategies = tuple(s for s in STRATEGIES if (s.asset == "stock" and s.id not in option_model.SHORT_REPLAYED)
+                           or s.id in replayed)
         # Lab strategies blend desks this replay computes, so they replay too (retired ones as well: a grade, not a
         # trading status). They were chosen on rebuilt months, so their replay is in-sample (see the limitations).
         learned = lab_strategies(paths)
@@ -300,15 +329,15 @@ def replay(
                 progress(asof, index, len(selected))
             panel = historical_panel(raw, asof, splits)
             day = analyzer.build(panel, asof, now=cal.session_close(asof), crowd_and_options=False, weights=dict(DEFAULT_WEIGHTS))
-            # Re-run desks without non-vintage short/macro data. It is not a historical publication archive.
-            from desk.stocks.desks import committee, run_desks
+            if not shorts["replayed"]:
+                # Re-run desks without short interest the stored history can't show as published that day.
+                from desk.stocks.desks import committee, run_desks
 
-            day.ctx.shorts = {}
-            day.ctx.macro = {}
-            day.results = run_desks(day.ctx, day.ctx.symbols)
-            day.committee = {
-                s: committee({d: rows.get(s) for d, rows in day.results.items()}, day.weights) for s in day.ctx.symbols
-            }
+                day.ctx.shorts = {}
+                day.results = run_desks(day.ctx, day.ctx.symbols)
+                day.committee = {
+                    s: committee({d: rows.get(s) for d, rows in day.results.items()}, day.weights) for s in day.ctx.symbols
+                }
             # Option rules see a modeled implied volatility only after the desks have scored without option data.
             modeled.session(asof, panel, engine._rate(asof))
             day.ctx.options = {s: o for s in sorted(modeled.optioned) if (o := modeled.summary(s))}
@@ -357,6 +386,7 @@ def replay(
                 :200
             ],
             "skipped_sessions": skipped,
+            "short_interest": shorts,
             "walk_forward": walk_forward(accounts),
             "manifest": {s.id: {"spec_sha256": s.spec_sha256, "version": s.version} for s in strategies},
             "settings": settings.model_dump(mode="json"),
@@ -381,8 +411,10 @@ def replay(
                 "Massive's prices), with a put skew and the typical quoted spread. Monthly expiries and a listing-style "
                 "strike grid stand in for the real listings; open interest and dividends are not modeled.",
                 "Option strategies whose signal is option data itself (cheap implied volatility, earnings straddles, "
-                "unusual activity) and short-interest rules are not replayed.",
-                "Crowd, short-interest and non-vintage macro inputs are excluded.",
+                "unusual activity) are not replayed.",
+                shorts["message"],
+                "Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints, read only through each "
+                "decision date as first stored. Crowd counts are excluded: they are collected going forward only.",
                 "Signals use only data through each decision date. Fills occur at the next available open with the "
                 "existing stock spread/slippage/fee model and prior-session liquidity.",
                 "Open positions at the end remain marked, not fictitiously closed. Each strategy has its own capital.",

@@ -35,11 +35,16 @@ from desk.stocks.repo import StocksMarket
 
 # Strategies a stock-price replay can run with rebuilt option prices, and why the others can't.
 REPLAYED = ("random_calls", "momentum_call_spreads", "bear_put_spreads")
+# Squeeze rules replay once the stored short-interest history covers the window (desk.stocks.backtest.short_history).
+SHORT_REPLAYED = ("squeeze_runner", "squeeze_calls")
+SHORT_WAIT = ("Replays once the stored FINRA short-interest history covers the replay window: 24 or more twice-monthly "
+              "settlements, the earliest published before the first replayed day. Until then it is left out.")
 NOT_REPLAYED = {
     "cheap_iv_calls": "Its signal is how options were priced against the stock's own movement. Prices rebuilt from "
                       "that movement can't show it, so this one is tested on collected chains only.",
     "earnings_straddles": "Needs the move options priced before each report, which only real chains show.",
-    "squeeze_calls": "Needs short-interest history as it was published at the time.",
+    "squeeze_calls": SHORT_WAIT,
+    "squeeze_runner": SHORT_WAIT,
     "unusual_follow": "Needs each day's real option volume across the whole chain.",
     "random_lottos": "Replayed on real past prices instead (Massive's weekly option history), not on modeled ones.",
     "lotto_picks": "Replayed on real past prices instead (Massive's weekly option history), not on modeled ones.",
@@ -381,5 +386,5 @@ def wanted(positions: Iterable[Any], last: date) -> list[dict[str, str]]:
     return [{"occ": code, "first": a.isoformat(), "last": b.isoformat()} for code, (a, b) in sorted(spans.items())]
 
 
-__all__ = ["MASSIVE_DAYS", "NOT_REPLAYED", "REPLAYED", "Calibration", "ModeledOptions", "RealBars", "calibrate",
+__all__ = ["MASSIVE_DAYS", "NOT_REPLAYED", "REPLAYED", "SHORT_REPLAYED", "Calibration", "ModeledOptions", "RealBars", "calibrate",
            "monthly_expiries", "occ", "parse_occ", "realized", "strike_grid", "strike_step", "third_friday", "wanted"]

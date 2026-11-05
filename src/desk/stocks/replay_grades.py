@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from desk.stocks.option_model import NOT_REPLAYED, REPLAYED
+from desk.stocks.option_model import NOT_REPLAYED, REPLAYED, SHORT_REPLAYED
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.paper.report import report
 from desk.stocks.paper.strategies import STRATEGIES, Strategy
@@ -41,12 +41,17 @@ def current(replay: dict[str,Any] | None, strategies: Sequence[Strategy] = STRAT
     rows = {a["id"]:a for a in accounts if isinstance(a,dict) and isinstance(a.get("id"),str)} \
         if isinstance(accounts,list) else {}
     out = {}
+    found = replay.get("short_interest")
+    shorts: dict[str,Any] = found if isinstance(found,dict) else {}
     for s in strategies:
         value: dict[str,Any] = {"status":"missing","strategy_id":s.id,"current_spec_sha256":s.spec_sha256,
                                "can_promote":False}
-        if (s.asset == "option" and s.id not in REPLAYED) or s.id == "squeeze_runner":
-            value.update(status="unsupported",message=NOT_REPLAYED.get(s.id) or "Publication-timed inputs for this "
-                         "strategy are not available historically; a stock-price replay cannot supply them.")
+        if (s.asset == "option" and s.id not in REPLAYED and s.id not in SHORT_REPLAYED) or (
+                s.id in SHORT_REPLAYED and replay.get("run_id") and s.id not in rows):
+            # squeeze rules: left out of a replay whose stored short-interest history did not cover its window
+            value.update(status="unsupported",message=" ".join(filter(None, (NOT_REPLAYED.get(s.id) or (
+                "Publication-timed inputs for this strategy are not available historically; a stock-price replay "
+                "cannot supply them."), shorts.get("message") if s.id in SHORT_REPLAYED else None))))
         elif not replay.get("run_id"):
             value["message"] = "No completed historical replay yet. Run replay to evaluate saved history."
         elif s.id not in rows:
