@@ -193,7 +193,8 @@ def test_a_past_day_reads_trade_actions_once_published_but_not_company_news(tmp_
         assert after.ctx.news["INSDR"]["policy"][0]["sign"] == -1                 # a drug maker buys the inputs
         assert after.results["news"]["INSDR"].score is not None and after.results["news"]["INSDR"].score < 50
         assert "INSDR" not in built(w.days[-31], historical=True).ctx.news         # not yet published
-        assert built(w.days[-1]).ctx.news["INSDR"]["earlier60"] == 1             # live analysis reads the article
+        live = built(w.days[-1]).ctx.news["INSDR"]                                 # live analysis reads the article,
+        assert live["earlier60"] > 0 and live["earlier_days"] > 0                 # scaled to the days stored
         assert "INSDR" not in built(w.days[-1], historical=True).ctx.news         # a past day can't, until backfilled
     finally:
         w.close()

@@ -17,6 +17,24 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-05 — Audit fixes, round 1: data, operations, replay and validation (Stocks)
+
+- Four read-only auditors listed every place the app said something wasn't done; the user asked that nothing possible be
+  explained away. Arbitrage is out of scope at the user's request. Two implementation agents (worktrees, a commit per
+  item) built round 1; merged here, 1,681 tests and the Events/Home/Plays/bankroll/Paper/stock-page browser tests pass.
+- Data and operations: the four Stocks databases join the backups and the always-on service installs the timer; the
+  Stocks unit keeps the computer awake (systemd-inhibit); the SEC insider history backfill runs weekly and the filings
+  feed catches up after downtime; short interest (about two years), short volume (45 days or the gap) and fails reach
+  further back; company news keeps 70 days and attention is scaled to the days stored; GDELT keeps 32 whole days with
+  holes filled; trade actions page through full history then from the newest stored; event and stock-page headlines
+  come from stored news first; outdated statements in STOCKS*.md, SCHWAB.md and providers.toml corrected.
+- Replay and validation: evidence, rebuild and replay read every stored day (the rebuild could never reach 12 months);
+  Lab strategies replay; macro is read as of each day and short interest joins once its history covers the window;
+  replays wait for a year of warm-up; past days use the listings as they stood (delisted names stay); trade actions by
+  publication date; option prices use the trailing dividend yield and an expanding calibration window; PAPER compares
+  with SPY's total return, records why it passes over a candidate, and identifies recovery sessions; option liquidity
+  uses Massive's volume; outdated Paper/replay/method text corrected.
+
 ## 2026-11-04 — Lottos replayed on real past prices
 
 - The user pushed back on "the replay can't test lottos": it can, on real prices. `lotto_history`: per pass a batch
