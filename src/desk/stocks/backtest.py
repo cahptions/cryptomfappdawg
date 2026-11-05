@@ -434,6 +434,8 @@ def replay(
                 "real_from": (selected[-1] - timedelta(days=option_model.MASSIVE_DAYS)).isoformat(),
                 "contracts": len(contracts),
                 "with_real_prices": sum(1 for c in contracts if c["occ"] in real.series),
+                "liquidity_checks": dict(modeled.liquidity),
+                "optioned_stocks": len(modeled.optioned),
                 "not_replayed": dict(option_model.NOT_REPLAYED),
             },
             "option_contracts": contracts,
@@ -448,9 +450,15 @@ def replay(
                 "Massive's prices), with a put skew and the typical quoted spread. The ratio, skew and spread are "
                 "refit at the start of each replayed month from observations dated before it (stated defaults until "
                 "there are enough), so no session is priced with what options did later. Monthly expiries and a "
-                "listing-style strike grid stand in for the real listings; open interest is not modeled. Dividends "
-                "enter every option price as the stock's trailing-12-month cash dividend yield (stored dividends ex "
-                "by that day).",
+                "listing-style strike grid stand in for the real listings. Dividends enter every option price as the "
+                "stock's trailing-12-month cash dividend yield (stored dividends ex by that day).",
+                "Open interest isn't stored historically. Where Massive was asked about the days before a decision, a "
+                f"contract that traded fewer than {option_model.LIQUID_VOLUME} contracts in the "
+                f"{option_model.LIQUID_DAYS} days up to it counts as illiquid and is passed over "
+                f"({modeled.liquidity['illiquid']} contract-days were, {modeled.liquidity['liquid']} were not); every "
+                "other rebuilt contract is assumed to clear the rules' 100-contract open-interest floor.",
+                f"Option strategies trade only the {len(modeled.optioned)} stocks whose option chains this app has "
+                "collected at some point, a narrower universe than the stock strategies'.",
                 "Option strategies whose signal is option data itself (cheap implied volatility, earnings straddles, "
                 "unusual activity) are not replayed.",
                 shorts["message"],

@@ -18,6 +18,12 @@ day the contract traded, the price is its closing trade. On a quiet day, it is t
 within a week. Contracts are chosen from the model's prices, so one contract's real price never pulls a rule toward
 that contract; real prices change what a contract cost and was worth (and, through calibration, the model itself).
 Every day a traded contract is held records which kind of price it got.
+
+Open interest isn't stored historically. The rules' 100-contract open-interest floor is checked against Massive's
+traded volume where Massive was asked about the days before a decision: a contract that traded fewer than
+``LIQUID_VOLUME`` contracts in the ``LIQUID_DAYS`` days up to the decision is quoted with no open interest, so the rules
+pass over it as illiquid. Any other rebuilt contract is assumed to clear the floor, and the replay says how many
+decisions were checked that way.
 """
 
 from __future__ import annotations
@@ -68,7 +74,9 @@ MIN_HALF_SPREAD = 0.025       # dollars: the smallest half-spread quoted
 STICKY_DAYS = 7               # a real trade's implied volatility prices a quiet contract for up to a week
 HORIZON_DAYS = 130            # expiries offered (the replayed rules hold 30 to 60 days)
 STRIKE_RANGE = 0.35           # strikes from 35% below to 35% above the price
-OPEN_INTEREST = 1000          # not modeled; above the rules' 100-contract floor
+OPEN_INTEREST = 1000          # assumed where Massive's volume can't say; above the rules' 100-contract floor
+LIQUID_DAYS = 10              # calendar days of Massive's volume up to a decision that stand in for open interest
+LIQUID_VOLUME = 10            # contracts traded in that span for a contract to count as liquid
 _OCC = re.compile(r"^([A-Z][A-Z0-9.]*)(\d{6})([CP])(\d{8})$")
 
 
@@ -136,21 +144,40 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 # ── real prices ──────────────────────────────────────────────────────────────────────────────────
 class RealBars:
-    """Massive's daily closing trades per contract (OCC code -> sorted (day ordinal, close))."""
+    """Massive's daily closing trades per contract (OCC code -> sorted (day ordinal, close)), each day's volume, and
+    the span of days Massive was asked about for each contract (``fetched``: a day inside it with no bar had no
+    trade)."""
 
-    def __init__(self, rows: Iterable[tuple[str, int, float]] = ()) -> None:
+    def __init__(self, rows: Iterable[tuple[Any, ...]] = (), fetched: dict[str, tuple[int, int]] | None = None) -> None:
         series: dict[str, list[tuple[int, float]]] = defaultdict(list)
-        for code, day, close in rows:
+        self.volumes: dict[tuple[str, int], float] = {}
+        for code, day, close, *volume in rows:
             series[code].append((day, close))
+            if volume and volume[0] is not None:
+                self.volumes[(code, day)] = float(volume[0])
         self.series = {code: sorted(points) for code, points in series.items()}
         self.days = {code: [d for d, _ in points] for code, points in self.series.items()}
+        self.fetched = dict(fetched or {})
 
     @classmethod
     def load(cls, conn: sqlite3.Connection) -> RealBars:
         try:
-            return cls((r[0], r[1], r[2]) for r in conn.execute("SELECT occ, day, close FROM stk_option_bars"))
+            fetched = {r[0]: (int(r[1]), int(r[2])) for r in conn.execute(
+                "SELECT occ, first, last FROM stk_option_bar_fetches")}
+            return cls(((r[0], r[1], r[2], r[3]) for r in conn.execute(
+                "SELECT occ, day, close, volume FROM stk_option_bars")), fetched)
         except sqlite3.OperationalError:          # a database from before real option prices
             return cls()
+
+    def liquid(self, code: str, day: date) -> bool | None:
+        """Whether the contract traded at least ``LIQUID_VOLUME`` contracts in the ``LIQUID_DAYS`` days up to ``day``,
+        or None when Massive was not asked about ``day``."""
+        span, d = self.fetched.get(code), day.toordinal()
+        if span is None or not span[0] <= d <= span[1]:
+            return None
+        lo = max(span[0], d - LIQUID_DAYS)
+        traded = sum(self.volumes.get((code, x), 0.0) for x in self.days.get(code, []) if lo <= x <= d)
+        return traded >= LIQUID_VOLUME
 
     def __len__(self) -> int:
         return len(self.series)
@@ -339,6 +366,7 @@ class ModeledOptions:
         self._known: dict[str, set[tuple[date, float]]] = defaultdict(set)    # strikes once traded stay listed
         self._traded: set[str] = set()
         self.priced: dict[tuple[str, int], str] = {}                           # traded contract, day -> price kind
+        self.checked: dict[tuple[str, int], bool] = {}                         # contract, day -> liquid by Massive
 
     def session(self, asof: date, panel: Panel, rate: float) -> None:
         self.asof, self.panel, self.rate = asof, panel, rate
@@ -397,8 +425,12 @@ class ModeledOptions:
                     if real and code in self._traded:
                         self.priced[(code, self.asof.toordinal())] = source
                     half = max(mid * spread / 2, MIN_HALF_SPREAD)
+                    liquid = self.real.liquid(code, self.asof)
+                    if liquid is not None and not real:
+                        self.checked[(code, self.asof.toordinal())] = liquid
                     quotes.append(OptionQuote(code, symbol, kind, k, e, round(max(mid - half, 0.0), 2), round(mid + half, 2),
-                                              mid if source == "real" else None, 0, OPEN_INTEREST, None, quoted))
+                                              mid if source == "real" else None, 0, 0 if liquid is False else OPEN_INTEREST,
+                                              None, quoted))
             out[e] = quotes
         return out
 
@@ -419,6 +451,12 @@ class ModeledOptions:
         return opt.bs_price(kind, s, k, t, self.calibration.iv(atm, s, k, t), self.rate, q), "model"
 
     # ── what the replay reports ────────────────────────────────────────────────────────────────
+    @property
+    def liquidity(self) -> dict[str, int]:
+        """Contract-days offered to a decision whose liquidity Massive's volume decided."""
+        verdicts = list(self.checked.values())
+        return {"liquid": sum(verdicts), "illiquid": len(verdicts) - sum(verdicts)}
+
     def price_mix(self, positions: Iterable[Any], last: date) -> dict[str, dict[str, int]]:
         """Per account, how many held contract-days were priced by a real trade, a recent trade's volatility, or the
         model."""

@@ -47,7 +47,10 @@ trading (`desk.stocks.option_model`):
   from observations dated before it, so no session is priced with what options did later, falling back to stated
   market-wide values until there are enough.
 - **Listings.** Monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid stand in for
-  the real listings. Open interest is not modeled. Dividends are: every option price and implied volatility reads
+  the real listings. Open interest isn't stored historically: where Massive was asked about the days before a
+  decision, a contract that traded fewer than 10 contracts in the 10 days up to it is passed over as illiquid, and any
+  other rebuilt contract is assumed to clear the rules' 100-contract floor (the replay reports how many were checked).
+  Option strategies trade only the stocks whose chains this app has collected at some point. Dividends are: every option price and implied volatility reads
   the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for later splits), in
   the replay's model, its calibration and the PAPER fills and marks.
 - **Choosing never follows a real price.** Contracts are chosen from the model's prices, so one contract's real price
