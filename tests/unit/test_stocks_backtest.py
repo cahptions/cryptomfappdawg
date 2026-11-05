@@ -237,3 +237,22 @@ def test_malformed_retry_clock_is_repairable_without_crashing_automation(tmp_pat
         assert worker.automatic(True, 0)["auto_enabled"]
     finally:
         world.close()
+
+
+def test_lab_strategies_replay_and_get_a_current_historical_grade(tmp_path):
+    from desk.stocks.paper import lab
+    from desk.stocks.replay_grades import current
+
+    world = make_world(tmp_path, n=12)
+    try:
+        learned = lab.as_strategy("valuation+momentum/10", {"variants": 1, "why": "Synthetic lab fixture"})
+        lab.promote(world.research, learned, {}, NOW)
+        research = list(world.dbs.research.iterdump())
+        result = replay(world.paths, load_config(REPO / "config").settings.stocks, 8)
+        account = next(a for a in result["accounts"] if a["id"] == learned.id)
+        assert account["sessions"] == 8 and account["historical_grade"]["spec_sha256"] == learned.spec_sha256
+        assert current(result, (learned,))[learned.id]["status"] == "current"
+        assert any("in-sample" in x for x in result["limitations"])
+        assert list(world.dbs.research.iterdump()) == research       # read-only
+    finally:
+        world.close()

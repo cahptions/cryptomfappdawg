@@ -27,17 +27,18 @@ from desk.stocks.contracts import Bar, OptionQuote, Split
 from desk.stocks.desks import DEFAULT_WEIGHTS
 from desk.stocks.fundamentals import Fundamentals
 from desk.stocks.option_model import ModeledOptions
+from desk.stocks.paper import lab
 from desk.stocks.paper.book import PaperBook, Position
 from desk.stocks.paper.engine import PaperEngine, StepReport
 from desk.stocks.paper.fills import fair_spread, index_chain
 from desk.stocks.paper.report import daily_returns, trade_stats
 from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
-from desk.stocks.repo import MARKET_FILE, StocksMarket, StocksResearch
+from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE, StocksMarket, StocksResearch
 from desk.stocks.validation import evaluation_window
 from desk.storage.db import DbKind, migrate
 
-VERSION = 4
+VERSION = 5
 
 
 class HistoricalMarket(StocksMarket):
@@ -226,6 +227,21 @@ def memory_db(kind: DbKind) -> sqlite3.Connection:
     return conn
 
 
+def lab_strategies(paths: DeskPaths) -> list[Strategy]:
+    """Every lab strategy ever promoted, read from the research database without writing to it."""
+    path = paths.db_dir / RESEARCH_FILE
+    if not path.exists():
+        return []
+    conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, isolation_level=None, timeout=2)
+    conn.row_factory = sqlite3.Row
+    try:
+        return lab.strategies(StocksResearch(conn))[0]
+    except sqlite3.OperationalError:           # a research database from before the lab
+        return []
+    finally:
+        conn.close()
+
+
 def replay(
     paths: DeskPaths, settings: StocksSection, sessions: int, *, progress: Callable[[date, int, int], None] | None = None
 ) -> dict[str, Any]:
@@ -259,6 +275,10 @@ def replay(
         strategies = tuple(s for s in STRATEGIES if s.asset == "stock" or s.id in option_model.REPLAYED)
         # Squeeze rules require a properly archived/publication-timed short-interest history; unavailable here.
         strategies = tuple(s for s in strategies if s.id != "squeeze_runner")
+        # Lab strategies blend desks this replay computes, so they replay too (retired ones as well: a grade, not a
+        # trading status). They were chosen on rebuilt months, so their replay is in-sample (see the limitations).
+        learned = lab_strategies(paths)
+        strategies += tuple(learned)
         ledger.execute("INSERT INTO replay_meta VALUES ('manifest',?)", (canonical_json({
             "version": VERSION, "run_id": run_id, "first_day": selected[0].isoformat(), "last_day": selected[-1].isoformat(),
             "settings": settings.model_dump(mode="json"), "strategies": {s.id: s.content() for s in strategies},
@@ -367,6 +387,8 @@ def replay(
                 "existing stock spread/slippage/fee model and prior-session liquidity.",
                 "Open positions at the end remain marked, not fictitiously closed. Each strategy has its own capital.",
                 "Walk-forward comparisons do not establish a profitable edge or automatically change the live model.",
+                *(["Lab strategies were chosen on these same rebuilt months, so their replay is in-sample: it shows "
+                   "what the chosen rule did, not evidence from history it never saw."] if learned else []),
                 *([limited] if limited else []),
             ],
         }

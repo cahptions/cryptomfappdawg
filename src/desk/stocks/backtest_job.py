@@ -69,7 +69,10 @@ class BacktestWorker(EvidenceWorker):
                 option_prices: int | str = "downloading" if prices["left"] else prices["asked"]
             except sqlite3.OperationalError:
                 option_prices = 0
+            from desk.stocks.backtest import lab_strategies
+
             return {
+                "lab": ",".join(sorted(s.id for s in lab_strategies(self.paths))),   # a new lab strategy replays too
                 "sessions": row[0],
                 "latest": date.fromordinal(row[1]).isoformat() if row[1] else None,
                 "warmup_sessions": MIN_BARS,
@@ -171,7 +174,7 @@ class BacktestWorker(EvidenceWorker):
     @staticmethod
     def input_key(sessions: int, coverage: dict[str, Any]) -> str:
         return (f"{VERSION}:{sessions}:{coverage['latest']}:{coverage['sessions']}:{coverage['rows']}:"
-                f"{coverage.get('option_prices', 0)}")
+                f"{coverage.get('option_prices', 0)}:{coverage.get('lab', '')}")
 
 
 def run(paths: DeskPaths, sessions: int) -> None:

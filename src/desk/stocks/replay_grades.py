@@ -44,7 +44,7 @@ def current(replay: dict[str,Any] | None, strategies: Sequence[Strategy] = STRAT
     for s in strategies:
         value: dict[str,Any] = {"status":"missing","strategy_id":s.id,"current_spec_sha256":s.spec_sha256,
                                "can_promote":False}
-        if (s.asset == "option" and s.id not in REPLAYED) or s.id == "squeeze_runner" or s.learned:
+        if (s.asset == "option" and s.id not in REPLAYED) or s.id == "squeeze_runner":
             value.update(status="unsupported",message=NOT_REPLAYED.get(s.id) or "Publication-timed inputs for this "
                          "strategy are not available historically; a stock-price replay cannot supply them.")
         elif not replay.get("run_id"):
