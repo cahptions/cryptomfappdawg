@@ -120,6 +120,9 @@ const KestrelPaper = (() => {
         `${forward?.sessions || 0} recorded market sessions${forward?.start ? ` · since ${forward.start}` : ""}.`,
         "caption muted",
       ),
+      ...(forward?.recovery_sessions
+        ? [el("p", `Recovery sessions: ${forward.recovery_note}`, "caption")]
+        : []),
       el(
         "p",
         `Return ${percent(forward?.return)} · Drawdown ${percent(forward?.max_drawdown)}`,

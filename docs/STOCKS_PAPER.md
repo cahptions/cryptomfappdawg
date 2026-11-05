@@ -119,8 +119,11 @@ intrinsic-value fill. Model-based option exits are explicitly labeled; they are 
 Every decision (ENTER, EXIT, and SKIP with its reason), order, fill, cash movement and daily equity is append-only.
 A position's entry never changes and a closed position never changes (SQLite triggers refuse it).
 The whole ledger session commits in one transaction. STOP cancels pending entries and suppresses new ones while
-existing positions remain managed. Recovery through missed sessions is simulation and must be identified in the
-evaluation; it is not evidence of fills while a laptop was asleep.
+existing positions remain managed. Recovery through missed sessions is simulation, not evidence of fills while a
+laptop was asleep: a session stepped without its own analysis (exits, stops, expiries and marks only) is recorded as a
+RECOVERY event, and the report counts and lists each account's recovery sessions, which the Strategy evidence card
+shows beside its forward sessions. Ledgers from before that event are read the same way: a session stepped in the same
+pass as a later one was caught up.
 
 ## The strategies
 

@@ -11,6 +11,10 @@ account through that session, in the order a real account would live it:
    or option strategy passes over (no price, no liquidity, no chain, no fitting contract, over budget) is recorded
    as a SKIP with its reason: once per stock, at most ``MAX_SKIPS`` per strategy and session;
 7. record each account's equity for the day (once; a day is never stepped twice).
+
+A session stepped without its own analysis (a missed session caught up later, or one whose analysis never arrived) is
+recovery simulation: exits, stops, expiries and marks only. It is recorded as a RECOVERY event so the evaluation
+identifies it (``desk.stocks.paper.report.recovery_sessions``).
 """
 
 from __future__ import annotations
@@ -151,6 +155,9 @@ class PaperEngine:
                 if order.order["action"] == "ENTER":
                     self.book.resolve(order.id, "CANCELLED", now, "STOP: new entries disabled")
                     rep.cancelled += 1
+        if day is None or day.asof != asof:
+            self.book.event(now, None, "RECOVERY", None, {"session": asof.isoformat(), "entries": False,
+                                                          "why": "stepped without that session's analysis"})
         self._fill(asof, now, bars, day, rep)
         self._corporate_actions(asof, now, last, rep)
         self._stops(asof, now, bars, day, rep)
