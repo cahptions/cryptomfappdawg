@@ -9,19 +9,21 @@ Options: an order decided on a close fills at the next stored chain snapshot, bu
 bid, and only if the spread is fair (no more than 35% of the mid) and the ask hasn't run more than 10% (or 5 cents)
 past what the decision saw. Each contract pays $0.65 per leg (Schwab's commission; Robinhood's is lower), each way. A position is
 marked at the mid; a contract missing from the day's chain is priced with Black-Scholes at its last implied
-volatility. At expiration a position settles at intrinsic value on the underlying's close.
+volatility and the stock's trailing-12-month dividend yield (``Dividends``). At expiration a position settles at
+intrinsic value on the underlying's close.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from desk.stocks import options as opt
-from desk.stocks.contracts import Bar, OptionQuote
+from desk.stocks.contracts import Bar, Dividend, OptionQuote, Split
 
 LIQUID_DOLLAR_VOLUME = 50_000_000
 SLIPPAGE_LIQUID = 0.0005
@@ -35,6 +37,7 @@ MAX_ASK_RUN = 0.10
 MIN_ASK_RUN = 0.05                       # dollars: a 10% limit on a $0.10 contract is one tick of noise
 CONTRACT = 100
 SHARE_STEP = 10_000                      # fractional shares to 1/10,000
+MAX_DIVIDEND_YIELD = 0.25                # a larger trailing yield is a special payout, not a continuous one
 
 
 def slippage(dollar_volume: float | None) -> float:
@@ -84,6 +87,32 @@ def stop_hit(bar: Bar, stop: float | None) -> float | None:
 
 
 # ── options ──────────────────────────────────────────────────────────────────────────────────────
+class Dividends:
+    """The ``q`` Black-Scholes reads: a stock's cash dividends that went ex in the year up to a day, per share of that
+    day (earlier ones divided by later splits), over its price. Only dividends ex on or before the day count, so a
+    replayed day never sees a later one; a stock with none stored pays none."""
+
+    def __init__(self, dividends: Iterable[Dividend], splits: Iterable[Split]) -> None:
+        self.paid: dict[str, list[tuple[date, float]]] = defaultdict(list)
+        for d in dividends:
+            if d.cash_amount > 0:
+                self.paid[d.symbol].append((d.ex_date, float(d.cash_amount)))
+        self.splits: dict[str, list[tuple[date, float]]] = defaultdict(list)
+        for sp in splits:
+            self.splits[sp.symbol].append((sp.execution_date, sp.ratio))
+
+    def per_share(self, symbol: str, day: date, basis: date | None = None) -> float:
+        """Trailing-year dividends per share, in shares as of ``basis`` (default ``day``)."""
+        end = basis or day
+        return sum(cash / math.prod(r for d, r in self.splits.get(symbol, []) if ex < d <= end)
+                   for ex, cash in self.paid.get(symbol, []) if day - timedelta(days=365) < ex <= day)
+
+    def yield_on(self, symbol: str, day: date, s: float | None, basis: date | None = None) -> float:
+        if not s or s <= 0 or not math.isfinite(s):
+            return 0.0
+        return min(self.per_share(symbol, day, basis) / s, MAX_DIVIDEND_YIELD)
+
+
 def index_chain(chains: dict[date, list[OptionQuote]]) -> dict[str, OptionQuote]:
     return {q.occ: q for quotes in chains.values() for q in quotes}
 
@@ -130,7 +159,7 @@ def open_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote]) ->
 
 
 def close_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote], s: float | None, today: date,
-               r: float) -> OptionFill:
+               r: float, dividend_yield: float = 0.0) -> OptionFill:
     """Sell long legs at the bid and buy back short legs at the ask (model prices when a leg has no quote)."""
     credit = 0.0
     modeled = False
@@ -144,7 +173,7 @@ def close_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote], s
             price = float(q.bid if long else q.ask)
         else:
             modeled = True
-            model = model_price(leg, s, today, r)
+            model = model_price(leg, s, today, r, dividend_yield)
             if model is None:
                 return OptionFill([], 0.0, 0.0, f"no price for {leg['occ']}")
             price = model * (0.95 if long else 1.05)
@@ -154,7 +183,7 @@ def close_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote], s
     return OptionFill(out, -credit, round(contracts * OPTION_FEE_PER_CONTRACT, 2), modeled=modeled)
 
 
-def model_price(leg: dict[str, Any], s: float | None, today: date, r: float) -> float | None:
+def model_price(leg: dict[str, Any], s: float | None, today: date, r: float, dividend_yield: float = 0.0) -> float | None:
     if s is None or s <= 0:
         return None
     expiration = date.fromisoformat(leg["expiration"])
@@ -163,7 +192,7 @@ def model_price(leg: dict[str, Any], s: float | None, today: date, r: float) -> 
         return intrinsic(leg, s)
     if not vol or not math.isfinite(float(vol)) or float(vol) <= 0:
         return None
-    return opt.bs_price(leg["kind"], s, leg["strike"], opt.year_fraction(today, expiration), float(vol), r)
+    return opt.bs_price(leg["kind"], s, leg["strike"], opt.year_fraction(today, expiration), float(vol), r, dividend_yield)
 
 
 def intrinsic(leg: dict[str, Any], s: float) -> float:
@@ -172,7 +201,7 @@ def intrinsic(leg: dict[str, Any], s: float) -> float:
 
 
 def mark_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote], s: float | None, today: date,
-              r: float) -> tuple[float | None, list[dict[str, Any]], bool]:
+              r: float, dividend_yield: float = 0.0) -> tuple[float | None, list[dict[str, Any]], bool]:
     """Position value at the mids (model where a quote is missing); returns (value, legs with marks, modelled?)."""
     value = 0.0
     modelled = False
@@ -183,9 +212,9 @@ def mark_legs(legs: Sequence[dict[str, Any]], quotes: dict[str, OptionQuote], s:
         iv = leg.get("last_iv")
         if mid is not None and s:
             t = opt.year_fraction(today, date.fromisoformat(leg["expiration"]))
-            iv = opt.implied_vol(leg["kind"], mid, s, leg["strike"], t, r) or iv
+            iv = opt.implied_vol(leg["kind"], mid, s, leg["strike"], t, r, dividend_yield) or iv
         else:
-            mid = model_price({**leg, "last_iv": iv}, s, today, r)
+            mid = model_price({**leg, "last_iv": iv}, s, today, r, dividend_yield)
             modelled = True
         if mid is None:
             return None, list(legs), True
@@ -199,6 +228,6 @@ def settle(legs: Sequence[dict[str, Any]], s: float) -> float:
     return float(sum(int(leg["quantity"]) * intrinsic(leg, s) * CONTRACT for leg in legs))
 
 
-__all__ = ["CONTRACT", "OPTION_FEE_PER_CONTRACT", "OptionFill", "StockFill", "buy_at_open", "close_legs", "fair_spread",
-           "index_chain", "intrinsic", "mark_legs", "model_price", "open_legs", "sale_fees", "sell_at", "settle",
+__all__ = ["CONTRACT", "OPTION_FEE_PER_CONTRACT", "Dividends", "OptionFill", "StockFill", "buy_at_open", "close_legs",
+           "fair_spread", "index_chain", "intrinsic", "mark_legs", "model_price", "open_legs", "sale_fees", "sell_at", "settle",
            "shares_for", "slippage", "stop_hit"]

@@ -5,6 +5,10 @@ optioned stock), a listing-style strike grid, and Black-Scholes at the stock's r
 on that stock have actually been priced against its realized volatility. That ratio, the put skew and the quoted spread
 are calibrated from the chains this app collected and from Massive's real daily option prices.
 
+Every Black-Scholes price and implied volatility here reads the stock's trailing-12-month cash dividend yield as
+``q`` (``desk.stocks.paper.fills.Dividends``: stored dividends ex on or before the day, adjusted for later splits). The
+collected chains' summary IV30, which calibration compares realized volatility against, was computed without it.
+
 Where Massive has a contract's real daily price (Options Basic covers the last 2 years), it replaces the model. On a
 day the contract traded, the price is its closing trade. On a quiet day, it is the volatility implied by its last trade
 within a week. Contracts are chosen from the model's prices, so one contract's real price never pulls a rule toward
@@ -30,6 +34,7 @@ import numpy as np
 from desk.stocks import calendar as cal
 from desk.stocks import options as opt
 from desk.stocks.contracts import OptionQuote
+from desk.stocks.paper.fills import Dividends
 from desk.stocks.prices import Panel
 from desk.stocks.repo import StocksMarket
 
@@ -199,7 +204,8 @@ def _rv_at(panel: Panel, symbol: str, day: date) -> float | None:
     return realized(panel.close[i, :t + 1])
 
 
-def calibrate(market: StocksMarket, panel: Panel, real: RealBars, rate: float, *, spread_days: int = 5) -> Calibration:
+def calibrate(market: StocksMarket, panel: Panel, real: RealBars, rate: float, *, spread_days: int = 5,
+              dividends: Dividends | None = None) -> Calibration:
     """How options were priced against each stock's realized volatility, the skew and the spread, from what's stored.
 
     ``panel`` must be split-adjusted through its last day so returns are continuous."""
@@ -232,7 +238,8 @@ def calibrate(market: StocksMarket, panel: Panel, real: RealBars, rate: float, *
                 continue
             s, rv = float(panel.close[i, t_index]), realized(panel.close[i, :t_index + 1])
             t = opt.year_fraction(day, expiration)
-            iv = opt.implied_vol(kind, close, s, k, t, rate) if s > 0 and math.isfinite(s) else None
+            dy = dividends.yield_on(symbol, day, s, basis=panel.days[-1]) if dividends else 0.0
+            iv = opt.implied_vol(kind, close, s, k, t, rate, dy) if s > 0 and math.isfinite(s) else None
             if not iv or not rv:
                 continue
             m = math.log(k / s) / (iv * math.sqrt(t))
@@ -263,9 +270,11 @@ def calibrate(market: StocksMarket, panel: Panel, real: RealBars, rate: float, *
 class ModeledOptions:
     """Chains for one replay session at a time (``session`` first), cached per symbol."""
 
-    def __init__(self, calibration: Calibration, real: RealBars, optioned: Iterable[str]) -> None:
+    def __init__(self, calibration: Calibration, real: RealBars, optioned: Iterable[str],
+                 dividends: Dividends | None = None) -> None:
         self.calibration = calibration
         self.real = real
+        self.dividends = dividends or Dividends((), ())
         self.optioned = frozenset(optioned)
         self.asof: date | None = None
         self.panel: Panel | None = None
@@ -318,6 +327,7 @@ class ModeledOptions:
             return {}
         quoted = cal.session_close(self.asof)
         spread = self.calibration.spread(symbol)
+        q = self.dividends.yield_on(symbol, self.asof, s)
         grid = strike_grid(s)
         out: dict[date, list[OptionQuote]] = {}
         for e in monthly_expiries(self.asof):
@@ -327,7 +337,7 @@ class ModeledOptions:
             for kind in ("call", "put"):
                 for k in strikes:
                     code = occ(symbol, e, kind, k)
-                    mid, source = self._price(code, symbol, kind, s, k, e, t, atm, real)
+                    mid, source = self._price(code, symbol, kind, s, k, e, t, atm, real, q)
                     if real and code in self._traded:
                         self.priced[(code, self.asof.toordinal())] = source
                     half = max(mid * spread / 2, MIN_HALF_SPREAD)
@@ -337,7 +347,7 @@ class ModeledOptions:
         return out
 
     def _price(self, code: str, symbol: str, kind: str, s: float, k: float, e: date, t: float, atm: float,
-               real: bool) -> tuple[float, str]:
+               real: bool, q: float = 0.0) -> tuple[float, str]:
         assert self.asof is not None
         floor = max(0.0, s - k) if kind == "call" else max(0.0, k - s)
         if real:
@@ -347,10 +357,10 @@ class ModeledOptions:
             prior = self.real.before(code, self.asof, STICKY_DAYS)
             s0 = None if prior is None else self._spot(symbol, prior[0])
             if prior is not None and s0 is not None:
-                iv = opt.implied_vol(kind, prior[1], s0, k, opt.year_fraction(prior[0], e), self.rate)
+                iv = opt.implied_vol(kind, prior[1], s0, k, opt.year_fraction(prior[0], e), self.rate, q)
                 if iv:
-                    return opt.bs_price(kind, s, k, t, iv, self.rate), "real_iv"
-        return opt.bs_price(kind, s, k, t, self.calibration.iv(atm, s, k, t), self.rate), "model"
+                    return opt.bs_price(kind, s, k, t, iv, self.rate, q), "real_iv"
+        return opt.bs_price(kind, s, k, t, self.calibration.iv(atm, s, k, t), self.rate, q), "model"
 
     # ── what the replay reports ────────────────────────────────────────────────────────────────
     def price_mix(self, positions: Iterable[Any], last: date) -> dict[str, dict[str, int]]:

@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from desk.core.clock import to_iso
@@ -71,6 +71,7 @@ class PaperEngine:
         self._splits: dict[str, list[tuple[date, float]]] = {}
         self.rate = DEFAULT_RATE
         self._observed_by: datetime | None = None
+        self._dividends = fills.Dividends((), ())
 
     # ── data ───────────────────────────────────────────────────────────────────────────────────────
     def _bars(self, asof: date) -> dict[str, Bar]:
@@ -95,6 +96,10 @@ class PaperEngine:
         self._chain_today(symbol, asof)
         day, chains = self._chains[symbol]
         return chains if day == asof else None
+
+    def _q(self, symbol: str, asof: date, s: float | None) -> float:
+        """The stock's trailing-12-month dividend yield, for option prices the model fills in."""
+        return self._dividends.yield_on(symbol, asof, s)
 
     def shares(self, p: Position, on: date) -> float:
         factor = math.prod(ratio for d, ratio in self._splits.get(p.symbol, []) if p.entry_day < d <= on)
@@ -130,8 +135,10 @@ class PaperEngine:
         self._observed_by = now
         self._chains = {}
         self._splits = defaultdict(list)
-        for sp in self.market.splits():
+        splits = self.market.splits()
+        for sp in splits:
             self._splits[sp.symbol].append((sp.execution_date, sp.ratio))
+        self._dividends = fills.Dividends(self.market.dividends(asof - timedelta(days=400)), splits)
         for st in self.strategies.values():
             self.market.register_spec(f"stocks_paper_{st.id}", st.version, st.content(), now)
             capital = self.settings.paper_option_capital_usd if st.asset == "option" else self.settings.paper_starting_capital_usd
@@ -271,7 +278,8 @@ class PaperEngine:
             stale = sessions_between(o.fill_after, asof) >= STALE_OPTION_SESSIONS
             if quotes is None and not stale:
                 return False
-            f = fills.close_legs(self._with_marks(p), quotes or {}, None if bar is None else bar.close, asof, self.rate)
+            s = None if bar is None else bar.close
+            f = fills.close_legs(self._with_marks(p), quotes or {}, s, asof, self.rate, self._q(symbol, asof, s))
             if f.problem:
                 if not stale:
                     return False
@@ -301,8 +309,8 @@ class PaperEngine:
             raise _Cancel(f"not enough cash (${cash:,.2f})")
         for leg in f.legs:
             t = opt.year_fraction(asof, date.fromisoformat(leg["expiration"]))
-            leg["entry_iv"] = opt.implied_vol(leg["kind"], leg["entry_price"], bar.close, leg["strike"], t, self.rate) or leg.get(
-                "entry_iv")
+            leg["entry_iv"] = opt.implied_vol(leg["kind"], leg["entry_price"], bar.close, leg["strike"], t, self.rate,
+                                              self._q(symbol, asof, bar.close)) or leg.get("entry_iv")
         expires = min(date.fromisoformat(leg["expiration"]) for leg in f.legs)
         st = self.strategies[o.account]
         self.book.open_position(account=o.account, spec_sha256=st.spec_sha256, asset="option", symbol=symbol,
@@ -401,8 +409,9 @@ class PaperEngine:
                 self.book.mark(p.id, value, stop_price=stop)
             else:
                 quotes = self._chain_today(p.symbol, asof) or {}
-                v, legs, modelled = fills.mark_legs(self._with_marks(p), quotes, None if bar is None else bar.close, asof,
-                                                    self.rate)
+                s = None if bar is None else bar.close
+                v, legs, modelled = fills.mark_legs(self._with_marks(p), quotes, s, asof, self.rate,
+                                                    self._q(p.symbol, asof, s))
                 value = p.last_value or 0.0 if v is None else v
                 self.book.mark(p.id, value, marks={"day": asof.isoformat(), "modelled": modelled,
                                                    "legs": {leg["occ"]: {"mark": leg.get("mark"), "iv": leg.get("last_iv")}

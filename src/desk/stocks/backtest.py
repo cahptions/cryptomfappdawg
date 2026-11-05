@@ -34,7 +34,7 @@ from desk.stocks.option_model import ModeledOptions
 from desk.stocks.paper import lab
 from desk.stocks.paper.book import PaperBook, Position
 from desk.stocks.paper.engine import PaperEngine, StepReport
-from desk.stocks.paper.fills import fair_spread, index_chain
+from desk.stocks.paper.fills import Dividends, fair_spread, index_chain
 from desk.stocks.paper.report import daily_returns, trade_stats
 from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
@@ -323,8 +323,10 @@ def replay(
         engine = ReplayEngine(market, book, settings, strategies)
         splits = market.splits()
         real = option_model.RealBars.load(source)
-        calibration = option_model.calibrate(market, historical_panel(raw, days[-1], splits), real, engine._rate(days[-1]))
-        modeled = ModeledOptions(calibration, real, market.optioned_symbols() & set(raw.symbols))
+        dividends = Dividends(market.dividends(), splits)
+        calibration = option_model.calibrate(market, historical_panel(raw, days[-1], splits), real, engine._rate(days[-1]),
+                                             dividends=dividends)
+        modeled = ModeledOptions(calibration, real, market.optioned_symbols() & set(raw.symbols), dividends)
         market.options = engine.options = modeled
         skipped = []
         drawdowns: dict[str, tuple[float, float]] = {}
@@ -415,7 +417,8 @@ def replay(
                 "trade's implied volatility on a quiet day, and otherwise Black-Scholes at the stock's realized "
                 "volatility times how options on it have been priced against it (calibrated on collected chains and "
                 "Massive's prices), with a put skew and the typical quoted spread. Monthly expiries and a listing-style "
-                "strike grid stand in for the real listings; open interest and dividends are not modeled.",
+                "strike grid stand in for the real listings; open interest is not modeled. Dividends enter every "
+                "option price as the stock's trailing-12-month cash dividend yield (stored dividends ex by that day).",
                 "Option strategies whose signal is option data itself (cheap implied volatility, earnings straddles, "
                 "unusual activity) are not replayed.",
                 shorts["message"],

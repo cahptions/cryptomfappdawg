@@ -45,7 +45,9 @@ trading (`desk.stocks.option_model`):
   priced against it, with a put skew and the stock's typical quoted spread. All three are calibrated on every replay
   from the chains this app collected and from Massive's real prices, falling back to stated market-wide values.
 - **Listings.** Monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid stand in for
-  the real listings. Open interest and dividends are not modeled.
+  the real listings. Open interest is not modeled. Dividends are: every option price and implied volatility reads
+  the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for later splits), in
+  the replay's model, its calibration and the PAPER fills and marks.
 - **Choosing never follows a real price.** Contracts are chosen from the model's prices, so one contract's real price
   can't pull a rule toward it; the decision then sees that day's real price where there is one.
 - **Downloading.** Each collection pass fetches up to 12 of the contracts the latest replay traded (about 2½ minutes at
