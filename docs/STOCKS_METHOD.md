@@ -24,8 +24,9 @@ Every number is computed as of a day using only what was public before it:
 | Treasury yields | dated before D |
 | Prices | the close of D and earlier |
 
-Prices are adjusted for splits when read (history is never rewritten) and are price-only: dividends are not added on
-either side of any comparison. The NYSE calendar is computed by rule (holidays, observed days, Juneteenth from 2022).
+Prices are adjusted for splits when read (history is never rewritten). Research-list and desk comparisons are
+price-only: dividends are not added on either side. PAPER accounts are paid cash dividends on the ex-date, so they are
+compared with SPY's total return, dividends reinvested ([STOCKS_PAPER.md](STOCKS_PAPER.md)). The NYSE calendar is computed by rule (holidays, observed days, Juneteenth from 2022).
 `tests/integration/test_stocks_analysis.py` plants a filing and an insider trade after a day and checks that day's
 analysis is unchanged; `tests/integration/test_stocks_validation.py` checks that a rebuilt month equals an analysis
 run with no prices after that month.
@@ -173,7 +174,7 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
   than `history_days`), so the rebuild gains a month for each month of collection. Schwab's longer chart history is
   kept apart for stock-page charts and never enters the rebuild.
 - Rebuilt months carry survivorship bias (section 8). The live record does not.
-- Returns are price only; dividends are ignored on both sides.
+- Research-list and desk returns are price only; dividends are ignored on both sides (PAPER includes them on both).
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.
 - Crowd counts are a snapshot of Reddit attention from one aggregator, not sentiment.
 - Option chains are collected for the most-traded names only, once a day after the close (no intraday history).

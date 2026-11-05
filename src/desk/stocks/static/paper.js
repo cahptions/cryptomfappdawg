@@ -143,7 +143,7 @@ const KestrelPaper = (() => {
         ),
         el(
           "p",
-          `Return ${percent(historical.return)} · Drawdown ${percent(historical.max_drawdown)} · SPY price return ${percent(historical.spy_return)}`,
+          `Return ${percent(historical.return)} · Drawdown ${percent(historical.max_drawdown)} · SPY total return (dividends reinvested) ${percent(historical.spy_return)}`,
           "caption",
         ),
       );

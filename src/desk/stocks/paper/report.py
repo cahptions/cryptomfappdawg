@@ -1,7 +1,10 @@
 """How each PAPER strategy is doing, honestly: its equity against SPY and against the baseline it has to beat (random
 stocks for stock strategies, random calls for option strategies), its closed trades, and a grade that waits for
 enough evidence. Daily excess returns get a stationary-bootstrap interval and one-sided p-value; the strategies tested
-together are Holm-adjusted."""
+together are Holm-adjusted.
+
+Strategy accounts are paid cash dividends on the ex-date (``desk.stocks.paper.engine``), so SPY is compared on its total
+return too: each close plus any dividend that went ex that day, reinvested, with splits applied (``spy_total``)."""
 
 from __future__ import annotations
 
@@ -50,8 +53,22 @@ def trade_stats(closed: Sequence[Position]) -> dict[str, Any]:
             "total_pnl": sum(p.pnl or 0 for p in closed)}
 
 
-def _spy_closes(market: StocksMarket, since: date) -> dict[date, float]:
-    return {b.day: b.close for b in market.bars("SPY", since)}
+def spy_total(market: StocksMarket, since: date) -> dict[date, float]:
+    """SPY's total-return index from ``since``: a day's return is (close + cash dividend ex that day) over the prior
+    close, in that day's shares (a split's ratio applied to the prior close), reinvested."""
+    bars = market.bars("SPY", since)
+    paid: dict[date, float] = {}
+    for d in market.dividends(since):
+        if d.symbol == "SPY" and d.cash_amount > 0:
+            paid[d.ex_date] = paid.get(d.ex_date, 0.0) + float(d.cash_amount)
+    ratio = {sp.execution_date: sp.ratio for sp in market.splits() if sp.symbol == "SPY"}
+    out: dict[date, float] = {}
+    level, prior = 1.0, None
+    for b in bars:
+        if prior is not None and prior > 0:
+            level *= (b.close + paid.get(b.day, 0.0)) / (prior / ratio.get(b.day, 1.0))
+        out[b.day], prior = level, b.close
+    return out
 
 
 def _aligned(a: dict[date, float], b: dict[date, float]) -> tuple[np.ndarray, np.ndarray]:
@@ -122,7 +139,7 @@ def grade(acct: dict[str, Any]) -> dict[str, Any]:
 
 def report(book: PaperBook, market: StocksMarket, strategies: Sequence[Strategy]) -> dict[str, Any]:
     first = min((rows[0][0] for s in strategies if (rows := book.equity(s.id))), default=None)
-    spy = _spy_closes(market, first) if first else {}
+    spy = spy_total(market, first) if first else {}
     # Each strategy is judged against its asset's random baseline, or the one it names ("compare": lottos vs lottos).
     wanted = {*BASELINE_FOR.values(), *(s.p["compare"] for s in strategies if s.p.get("compare"))}
     baselines = {sid: {d: e for d, _, _, e in book.equity(sid)} for sid in wanted}
@@ -139,4 +156,4 @@ def report(book: PaperBook, market: StocksMarket, strategies: Sequence[Strategy]
                       "min_trades": MIN_TRADES, "baselines": BASELINE_FOR}}
 
 
-__all__ = ["BASELINE_FOR", "account_report", "daily_returns", "grade", "report", "trade_stats"]
+__all__ = ["BASELINE_FOR", "account_report", "daily_returns", "grade", "report", "spy_total", "trade_stats"]

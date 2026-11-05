@@ -202,8 +202,9 @@ in, how many expired worthless, reached 3× and 10×, the best pick, and KESTREL
 ## Grading
 
 `desk.stocks.paper.report` compares each account's daily returns with its baseline's (random stocks for stock
-strategies, random calls for option strategies, random lottos for the lotto strategies) and with SPY, with a stationary-bootstrap interval and one-sided
-p-value, Holm-adjusted across strategies. A strategy is *too early* until it has three months of sessions (six for
+strategies, random calls for option strategies, random lottos for the lotto strategies) and with SPY's total return
+(each close plus any dividend that went ex that day, reinvested, since the accounts are paid dividends too), with a
+stationary-bootstrap interval and one-sided p-value, Holm-adjusted across strategies. A strategy is *too early* until it has three months of sessions (six for
 monthly portfolios) and, for event and options strategies, 20 closed trades. Then: *working* (Holm p < 0.05),
 *promising* (p < 0.10), *backwards* (p > 0.95) or *not working*. The report also shows return, drawdown, volatility,
 Sharpe, win rate, profit factor, average holding time and the best and worst trades.
