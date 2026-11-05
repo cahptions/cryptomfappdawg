@@ -1,8 +1,11 @@
 """The small accounts sell a lifecycle recipe's position at its best research checkpoint so far, using only checkpoints
-valued before each decision, instead of copying the recipe's full horizon."""
+valued before each decision, instead of copying the recipe's full horizon; and they copy a family that keeps its own
+expiry window."""
 
 import json
 from datetime import timedelta
+
+import pytest
 
 from desk.core.clock import to_iso
 from desk.stocks import learning as lab
@@ -83,6 +86,49 @@ def test_a_small_account_sells_at_the_best_checkpoint_while_research_holds_to_it
                    for p in small)
         research = [p for p in book.positions(lab.RESEARCH) if p.plan.get("bucket") == "1m"]
         assert research and all(p.plan["hold_minutes"] == 30 * 1440 for p in research)   # research keeps its horizon
+    finally:
+        conn.close()
+        world.close()
+
+
+def finished(conn, experiment, net, entered, n=3):
+    """``n`` matured research outcomes of ``experiment``, one stock each (separate underlying/day blocks)."""
+    book = PaperBook(conn)
+    for i in range(n):
+        symbol = f"S{i}"
+        did = book.decide(entered, entered.date(), lab.RESEARCH, "synthetic", symbol, "ENTER", ["Synthetic"], {})
+        pid = book.open_position(account=lab.RESEARCH, spec_sha256="synthetic", asset="option", symbol=symbol,
+                                 structure="long_call", legs=[], decision_id=did, at=entered, day=entered.date(),
+                                 cost=100., fees=0., max_loss=100., stop_price=None, expires=EXP,
+                                 plan={"experiment_id": experiment})
+        position = next(p for p in book.positions(lab.RESEARCH) if p.id == pid)
+        mature = entered + timedelta(days=1)
+        book.close_position(position, at=mature, day=mature.date(), credit=100 * (1 + net), fees=0., reason="Synthetic",
+                            evidence={})
+        conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?,'sold at a quote')",
+                     (pid, experiment, to_iso(entered), to_iso(mature), f"{entered.date().isoformat()}:{symbol}", net,
+                      100 * net, 1, 1))
+
+
+def test_lifecycle_families_keep_their_own_expiry_window_even_at_the_same_holding_time(tmp_path):
+    world = make_world(tmp_path, n=12)
+    conn = lab.open_book(world.paths)
+    try:
+        lab.initialize(conn, AT - timedelta(days=60))
+        month = recipe(conn)                                                    # 1-month calls, held up to 30 days
+        quarter = lab.add_lifecycle(conn, AT - timedelta(days=60), "long_call", "3m", 30)   # 3-month calls, 30 days
+        finished(conn, month, .3, AT - timedelta(days=10))
+        finished(conn, quarter, -.2, AT - timedelta(days=9))
+        chosen = retail.policies(conn, AT)
+        assert [(p["config"]["bucket"], p["evidence"]["experiment_ids"]) for p in chosen] == [("1m", [month])]
+        assert chosen[0]["config"]["dte"] == [21, 45] and chosen[0]["evidence"]["blocks"] == 3
+        families = {(f["bucket"], f["hold_minutes"]): f for f in lab.evidence_progress(conn, AT)["families"]}
+        assert families[("1m", 30 * 1440)]["mean_net_return"] == pytest.approx(.3)
+        assert families[("3m", 30 * 1440)]["mean_net_return"] == pytest.approx(-.2)
+        # Spacing is per family: the 1-month family's last entry does not hold back the 3-month one.
+        cfg = json.loads(conn.execute("SELECT config_json FROM stk_learning_experiments WHERE id=?",
+                                      (quarter,)).fetchone()[0])
+        assert retail.spacing_key("a", cfg, "SPY") == "retail_entry:a:long_call:43200:3m:SPY"
     finally:
         conn.close()
         world.close()

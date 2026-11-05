@@ -641,6 +641,13 @@ def propose(
     return count
 
 
+def family(cfg: dict[str, Any]) -> tuple[str, str | None, int, int]:
+    """What makes two experiments the same recipe family: structure, expiry bucket (lifecycle recipes; none for the
+    minute-hold kind), holding time and entry spacing. Sizing variants share a family; a 30-day hold of 1-month options
+    and a 30-day hold of 3-month options do not."""
+    return (cfg["structure"], cfg.get("bucket"), cfg["hold_minutes"], cfg.get("repeat_minutes", 0))
+
+
 def outcome_rows(conn: sqlite3.Connection, now: datetime) -> list[sqlite3.Row]:
     """Only matured uncapped research; configuration variants within a block are not independent days."""
     return conn.execute(
@@ -670,19 +677,20 @@ def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]
     days,boundary,train,test = partition_outcomes(rows)
     blocks = len({r["block"] for r in rows})
     total = sum(r["outcomes"] for r in rows)
-    families: dict[tuple[str,int,int],dict[str,Any]] = {}
+    families: dict[tuple[str,str | None,int,int],dict[str,Any]] = {}
     for row in rows:
         cfg = json.loads(row["config_json"])
-        key = (cfg["structure"],cfg["hold_minutes"],cfg.get("repeat_minutes",0))
-        family = families.setdefault(key,{"structure":key[0],"hold_minutes":key[1],"repeat_minutes":key[2],
-                                         "label":cfg.get("label"),"outcomes":0,"returns":{}})
-        family["outcomes"] += row["outcomes"]
-        family["returns"].setdefault(row["block"],[]).append(row["net_return"])
+        key = family(cfg)
+        group = families.setdefault(key,{"structure":key[0],"bucket":key[1],"hold_minutes":key[2],"repeat_minutes":key[3],
+                                        "label":cfg.get("label"),"outcomes":0,"returns":{}})
+        group["outcomes"] += row["outcomes"]
+        group["returns"].setdefault(row["block"],[]).append(row["net_return"])
     comparisons = []
-    for family in families.values():
-        values = [mean(v) for v in family.pop("returns").values()]
-        comparisons.append({**family,"blocks":len(values),"mean_net_return":mean(values)})
-    comparisons.sort(key=lambda f:(-f["mean_net_return"],f["structure"],f["hold_minutes"],f["repeat_minutes"]))
+    for group in families.values():
+        values = [mean(v) for v in group.pop("returns").values()]
+        comparisons.append({**group,"blocks":len(values),"mean_net_return":mean(values)})
+    comparisons.sort(key=lambda f:(-f["mean_net_return"],f["structure"],f["bucket"] or "",f["hold_minutes"],
+                                   f["repeat_minutes"]))
     shown = comparisons if len(comparisons)<=8 else [*comparisons[:4],*comparisons[-4:]]
     raw = conn.execute("SELECT COUNT(*) n,MAX(o.matured_at) latest FROM stk_learning_outcomes o "
         "JOIN stk_positions p ON p.id=o.position_id AND p.account=? WHERE o.matured_at<=?",(RESEARCH,to_iso(now))).fetchone()

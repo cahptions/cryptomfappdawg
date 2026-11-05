@@ -37,8 +37,10 @@ trade counts and policy status. Select an account to inspect its own chart, open
 decision evidence. Accounts start forward when this update first runs; earlier research returns are not scaled into
 invented small-account histories. A single starting observation is explicitly identified rather than drawn as a history.
 
-The transfer policy groups prior uncapped outcomes by structure, holding time and entry spacing. Repeated fills and sizing
-variants are averaged within underlying/day blocks, then their mean net return is shrunk toward zero. Only outcomes that
+The transfer policy groups prior uncapped outcomes into recipe families: structure, expiry bucket (lifecycle recipes),
+holding time and entry spacing. A 30-day hold of 1-month options and a 30-day hold of 3-month options are different
+families, so the expiry window a small account buys from always belongs to the evidence that chose it. Repeated fills
+and sizing variants are averaged within underlying/day blocks, then their mean net return is shrunk toward zero. Only outcomes that
 matured strictly before a decision, within the previous 90 days, can enter that decision. A previously recorded promoted
 structure takes priority among positive families; otherwise selections are explicitly **provisional**, not validated
 predictions. Small-account outcomes do not train the uncapped model or inflate the transfer policy's research sample.
@@ -174,7 +176,7 @@ does not mean those outcomes or provisional per-experiment estimates are absent.
 
 **What the system has learned** shows the actual completed research outcome count, block/day counts and minimum progress,
 the exact remaining blockers, and the last completed outcome, usable observation and check-in times. Expand **Early
-experiment results** for provisional observed returns by structure/holding-time/entry-spacing family. Repeated fills and
+experiment results** for provisional observed returns by recipe family (structure, expiry, holding time, entry spacing). Repeated fills and
 sizing variants are averaged within each underlying/day; both stronger and weaker families are retained in the summary,
 and every original experiment remains available. These descriptive averages are separate from held-out model results.
 The count is always based on uncapped research, even while inspecting a reference or small account. Closed research trades

@@ -64,19 +64,21 @@ def holding(conn: sqlite3.Connection, cfg: dict[str, Any], experiment_ids: list[
 
 
 def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
-    """Group sizing variants and repeated fills into one family/underlying-day block, then shrink the mean."""
+    """Group sizing variants and repeated fills into one family/underlying-day block, then shrink the mean. A family is
+    structure, expiry bucket, holding time and entry spacing (``learning.family``), so a lifecycle family's config, and
+    the expiry window (``dte``) a small account buys from, belong to every experiment in it."""
     rows = conn.execute("SELECT o.experiment_id,o.block,AVG(o.net_return) r,MAX(o.matured_at) mature,e.config_json "
         "FROM stk_learning_outcomes o JOIN stk_learning_experiments e ON e.id=o.experiment_id "
         "JOIN stk_positions p ON p.id=o.position_id AND p.account='uncapped_research' "
         "WHERE o.matured_at<? AND o.matured_at>=? GROUP BY o.experiment_id,o.block",
         (to_iso(now),to_iso(now-timedelta(days=LOOKBACK_DAYS)))).fetchall()
-    groups: dict[tuple[str,int,int],dict[str,Any]] = {}
+    groups: dict[tuple[str,str | None,int,int],dict[str,Any]] = {}
     gone = lab.retired(conn)                    # retired minute-hold recipes are history, not something to copy
     for row in rows:
         if row["experiment_id"] in gone:
             continue
         cfg = json.loads(row["config_json"])
-        key = (cfg["structure"],cfg["hold_minutes"],cfg.get("repeat_minutes",0))
+        key = lab.family(cfg)
         if key not in groups:
             groups[key] = {"config":cfg,"blocks":defaultdict(list),"experiments":set(),"matured_through":""}
         group = groups[key]
@@ -117,6 +119,11 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
                   -(p["evidence"]["expected_net_return"] or 0),p["config"]["structure"],p["config"]["hold_minutes"]))
 
 
+def spacing_key(account: str, cfg: dict[str, Any], symbol: str) -> str:
+    bucket = f":{cfg['bucket']}" if cfg.get("bucket") else ""
+    return f"retail_entry:{account}:{cfg['structure']}:{cfg['hold_minutes']}{bucket}:{symbol}"
+
+
 def amount(fill: Any) -> float:
     return (to_micros(fill.debit,cost=True)+to_micros(fill.fees,cost=True))/MICRO
 
@@ -153,7 +160,10 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
         for policy_index, policy in enumerate(choices):
             cfg,evidence = policy["config"],policy["evidence"]
             for symbol,(source,spot,chains) in sorted(snapshots.items()):
-                last = lab.state(conn,f"retail_entry:{account}:{cfg['structure']}:{cfg['hold_minutes']}:{symbol}")
+                # Spacing per family; a lifecycle family's key names its bucket (the older key is still honoured).
+                last = max(filter(None,(lab.state(conn,spacing_key(account,cfg,symbol)),
+                                        lab.state(conn,f"retail_entry:{account}:{cfg['structure']}:{cfg['hold_minutes']}:{symbol}"))),
+                           default=None)
                 if last and now-datetime.fromisoformat(last)<timedelta(minutes=cfg.get("repeat_minutes",0)):
                     continue
                 for expiry in sorted(chains):
@@ -214,7 +224,7 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
         oid = book.place(did,account,now,cal.new_york(now).date(),plan)
         conn.execute("INSERT INTO stk_learning_intents VALUES (?,?,?,?,?)",
                      (oid,plan["experiment_id"],source,desired,canonical_json(forecast)))
-        lab.set_state(conn,f"retail_entry:{account}:{cfg['structure']}:{cfg['hold_minutes']}:{symbol}",to_iso(now))
+        lab.set_state(conn,spacing_key(account,cfg,symbol),to_iso(now))
         lab.set_state(conn,prefix,{"phase":"Queued an affordable trade; waiting for a later fresh quote",
             "mode":evidence["mode"],"decision_at":to_iso(now),"symbol":symbol,"structure":cfg["structure"],
             "desired_units":desired,"estimated_entry_cost":amount(lab.impact(legs,quotes,desired,True)),
