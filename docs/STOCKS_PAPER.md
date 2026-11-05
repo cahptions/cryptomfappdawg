@@ -42,8 +42,10 @@ trading (`desk.stocks.option_model`):
   a week) prices it at that day's stock price.
 - **The model everywhere else.** Before Massive's window, or for a contract that never traded, the price is
   Black-Scholes at the stock's realized volatility (half 20-day, half 60-day) times how options on that stock have been
-  priced against it, with a put skew and the stock's typical quoted spread. All three are calibrated on every replay
-  from the chains this app collected and from Massive's real prices, falling back to stated market-wide values.
+  priced against it, with a put skew and the stock's typical quoted spread. All three are calibrated from the chains
+  this app collected and from Massive's real prices on an expanding window: refit at the start of each replayed month
+  from observations dated before it, so no session is priced with what options did later, falling back to stated
+  market-wide values until there are enough.
 - **Listings.** Monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid stand in for
   the real listings. Open interest is not modeled. Dividends are: every option price and implied volatility reads
   the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for later splits), in

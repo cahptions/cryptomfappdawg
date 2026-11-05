@@ -238,6 +238,22 @@ def memory_db(kind: DbKind) -> sqlite3.Connection:
     return conn
 
 
+def rate_series(market: StocksMarket) -> Callable[[date], float]:
+    """The 3-month Treasury yield known on a day (the engine's default rate before any is stored)."""
+    from bisect import bisect_right
+
+    from desk.stocks.paper.engine import DEFAULT_RATE
+
+    points = sorted((p.day, p.value / 100) for p in market.rates("UST3M"))
+    days = [d for d, _ in points]
+
+    def on(day: date) -> float:
+        i = bisect_right(days, day)
+        return points[i - 1][1] if i else DEFAULT_RATE
+
+    return on
+
+
 def short_history(market: StocksMarket, first: date, last: date) -> dict[str, Any]:
     """Whether stored short interest covers the replayed sessions as FINRA published it: at least 24 settlements,
     the latest one published by the first replayed day (12 days after settlement), and no gap or partial settlement
@@ -324,9 +340,12 @@ def replay(
         splits = market.splits()
         real = option_model.RealBars.load(source)
         dividends = Dividends(market.dividends(), splits)
-        calibration = option_model.calibrate(market, historical_panel(raw, days[-1], splits), real, engine._rate(days[-1]),
-                                             dividends=dividends)
-        modeled = ModeledOptions(calibration, real, market.optioned_symbols() & set(raw.symbols), dividends)
+        # An expanding window: each replayed month's option model is fit only on what was observed before it.
+        observations = option_model.observe(market, historical_panel(raw, days[-1], splits), real, rate_series(market),
+                                            dividends=dividends)
+        modeled = ModeledOptions(observations.fit(selected[0]), real, market.optioned_symbols() & set(raw.symbols),
+                                 dividends)
+        refits = 0
         market.options = engine.options = modeled
         skipped = []
         drawdowns: dict[str, tuple[float, float]] = {}
@@ -344,6 +363,9 @@ def replay(
                 day.committee = {
                     s: committee({d: rows.get(s) for d, rows in day.results.items()}, day.weights) for s in day.ctx.symbols
                 }
+            if index and asof.month != selected[index - 1].month:
+                modeled.calibration = observations.fit(asof)
+                refits += 1
             # Option rules see a modeled implied volatility only after the desks have scored without option data.
             modeled.session(asof, panel, engine._rate(asof))
             day.ctx.options = {s: o for s in sorted(modeled.optioned) if (o := modeled.summary(s))}
@@ -401,7 +423,9 @@ def replay(
             "source": "Stored bulk closing-price history and dated filings; option prices rebuilt from stock history, "
                       "with Massive's real daily option prices where they exist",
             "option_pricing": {
-                "calibration": calibration.as_json(),
+                "calibration": modeled.calibration.as_json(),
+                "calibration_window": f"Refit at the start of each replayed month ({refits + 1} fits) from observations "
+                                      "dated before it",
                 "real_from": (selected[-1] - timedelta(days=option_model.MASSIVE_DAYS)).isoformat(),
                 "contracts": len(contracts),
                 "with_real_prices": sum(1 for c in contracts if c["occ"] in real.series),
@@ -416,9 +440,12 @@ def replay(
                 "Option prices: Massive's real daily closing trades where it has them (the last 2 years), a recent "
                 "trade's implied volatility on a quiet day, and otherwise Black-Scholes at the stock's realized "
                 "volatility times how options on it have been priced against it (calibrated on collected chains and "
-                "Massive's prices), with a put skew and the typical quoted spread. Monthly expiries and a listing-style "
-                "strike grid stand in for the real listings; open interest is not modeled. Dividends enter every "
-                "option price as the stock's trailing-12-month cash dividend yield (stored dividends ex by that day).",
+                "Massive's prices), with a put skew and the typical quoted spread. The ratio, skew and spread are "
+                "refit at the start of each replayed month from observations dated before it (stated defaults until "
+                "there are enough), so no session is priced with what options did later. Monthly expiries and a "
+                "listing-style strike grid stand in for the real listings; open interest is not modeled. Dividends "
+                "enter every option price as the stock's trailing-12-month cash dividend yield (stored dividends ex "
+                "by that day).",
                 "Option strategies whose signal is option data itself (cheap implied volatility, earnings straddles, "
                 "unusual activity) are not replayed.",
                 shorts["message"],

@@ -9,6 +9,10 @@ Every Black-Scholes price and implied volatility here reads the stock's trailing
 ``q`` (``desk.stocks.paper.fills.Dividends``: stored dividends ex on or before the day, adjusted for later splits). The
 collected chains' summary IV30, which calibration compares realized volatility against, was computed without it.
 
+Calibration is an expanding window: the replay refits it at the start of each replayed month from observations dated
+before that session (``Observations.fit``), so no session is priced with what options did later; before enough
+observations exist it uses the stated defaults.
+
 Where Massive has a contract's real daily price (Options Basic covers the last 2 years), it replaces the model. On a
 day the contract traded, the price is its closing trade. On a quiet day, it is the volatility implied by its last trade
 within a week. Contracts are chosen from the model's prices, so one contract's real price never pulls a rule toward
@@ -23,7 +27,7 @@ import re
 import sqlite3
 from bisect import bisect_left
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from statistics import median
@@ -204,25 +208,87 @@ def _rv_at(panel: Panel, symbol: str, day: date) -> float | None:
     return realized(panel.close[i, :t + 1])
 
 
-def calibrate(market: StocksMarket, panel: Panel, real: RealBars, rate: float, *, spread_days: int = 5,
-              dividends: Dividends | None = None) -> Calibration:
-    """How options were priced against each stock's realized volatility, the skew and the spread, from what's stored.
+@dataclass
+class Observations:
+    """Every dated calibration observation, so a replayed session is priced only from what was observed before it.
 
-    ``panel`` must be split-adjusted through its last day so returns are continuous."""
-    ratios: dict[str, list[float]] = defaultdict(list)
-    skews: list[float] = []
-    chains = massive = 0
+    Collected chains give implied over realized volatility (IV30) and the put skew; Massive's real prices give implied
+    volatility (read with that day's rate and dividend yield, at that day's actual stock price) that becomes a ratio
+    once the skew it sits on is known; collected chains' quotes give the spread."""
+    market: StocksMarket
+    collected: list[tuple[int, str, float]]                      # (day ordinal, symbol, IV30 / realized)
+    skews: list[tuple[int, float]]
+    massive: list[tuple[int, str, float, float, float]]          # (day ordinal, symbol, implied vol, realized, m)
+    spread_days: int = 5
+    _spreads: dict[date, dict[str, list[float]]] = field(default_factory=dict)
+
+    def spreads(self, day: date) -> dict[str, list[float]]:
+        """Near-the-money bid-ask spreads over the mid for one collected chain day (cached)."""
+        if day not in self._spreads:
+            out: dict[str, list[float]] = defaultdict(list)
+            for symbol, _, price, quotes in self.market.chain_rows(day, 14, 90):
+                if not price:
+                    continue
+                for q in quotes:
+                    mid = q.mid
+                    if mid is not None and mid >= 0.5 and (q.bid or 0) > 0 and abs(math.log(q.strike / price)) < 0.1:
+                        out[symbol].append(((q.ask or 0) - (q.bid or 0)) / mid)
+            self._spreads[day] = dict(out)
+        return self._spreads[day]
+
+    def fit(self, before: date = date.max) -> Calibration:
+        """The calibration from observations dated before ``before`` (stated defaults where there are too few)."""
+        cut = before.toordinal()
+        skews = [v for d, v in self.skews if d < cut]
+        skew = _clamp(median(skews), 0.0, 0.3) if len(skews) >= 5 else DEFAULT_SKEW
+        ratios: dict[str, list[float]] = defaultdict(list)
+        chains = massive = 0
+        for d, symbol, ratio in self.collected:
+            if d < cut:
+                ratios[symbol].append(ratio)
+                chains += 1
+        for d, symbol, iv, rv, m in self.massive:
+            if d < cut:
+                ratios[symbol].append(iv / _clamp(1 - skew * m, 0.6, 2.0) / rv)
+                massive += 1
+        every = [x for xs in ratios.values() for x in xs]
+        spreads: dict[str, list[float]] = defaultdict(list)
+        for day in self.market.option_days(before, self.spread_days):
+            for symbol, values in self.spreads(day).items():
+                spreads[symbol] += values
+        all_spreads = [x for xs in spreads.values() for x in xs]
+        return Calibration(
+            ratios={s: _clamp(median(v), 0.6, 3.0) for s, v in ratios.items() if len(v) >= 8},
+            market_ratio=_clamp(median(every), 0.6, 3.0) if len(every) >= 20 else DEFAULT_RATIO,
+            skew=skew,
+            spreads={s: _clamp(median(v), 0.01, 0.3) for s, v in spreads.items() if len(v) >= 10},
+            market_spread=_clamp(median(all_spreads), 0.01, 0.3) if len(all_spreads) >= 30 else DEFAULT_SPREAD,
+            observations={"collected_days": chains, "massive_prices": massive, "skew": len(skews),
+                          "spreads": len(all_spreads)})
+
+
+def observe(market: StocksMarket, panel: Panel, real: RealBars, rate: float | Callable[[date], float], *,
+            spread_days: int = 5, dividends: Dividends | None = None) -> Observations:
+    """Collect every dated calibration observation once (``Observations.fit`` then fits any expanding window).
+
+    ``panel`` must be split-adjusted through its last day so returns are continuous; a Massive contract is read
+    against the stock's actual price that day (its strike is in that day's shares)."""
+    rate_on = rate if callable(rate) else (lambda _: float(rate))
+    collected: list[tuple[int, str, float]] = []
+    skews: list[tuple[int, float]] = []
     for symbol, day, summary in market.option_daily_all():
         rv = _rv_at(panel, symbol, day)
         iv30 = summary.get("iv30")
         if rv and iv30 and math.isfinite(float(iv30)) and iv30 > 0:
-            ratios[symbol].append(float(iv30) / rv)
-            chains += 1
+            collected.append((day.toordinal(), symbol, float(iv30) / rv))
         for e in summary.get("expiries") or []:
             if 14 <= (e.get("days") or 0) <= 90 and e.get("atm_iv") and e.get("skew_25d") is not None:
                 # 25-delta strikes sit about 0.674 standard moves either side, 1.349 apart
-                skews.append(float(e["skew_25d"]) / 100 / (float(e["atm_iv"]) * 1.349))
-    skew = _clamp(median(skews), 0.0, 0.3) if len(skews) >= 5 else DEFAULT_SKEW
+                skews.append((day.toordinal(), float(e["skew_25d"]) / 100 / (float(e["atm_iv"]) * 1.349)))
+    later: dict[str, list[tuple[date, float]]] = defaultdict(list)
+    for sp in market.splits():
+        later[sp.symbol].append((sp.execution_date, sp.ratio))
+    massive: list[tuple[int, str, float, float, float]] = []
     for code, points in real.series.items():
         parsed = parse_occ(code)
         if parsed is None:
@@ -236,34 +302,24 @@ def calibrate(market: StocksMarket, panel: Panel, real: RealBars, rate: float, *
             t_index = panel.day_index(day)
             if t_index < 0 or panel.days[t_index] != day or not 7 <= (expiration - day).days <= 120:
                 continue
-            s, rv = float(panel.close[i, t_index]), realized(panel.close[i, :t_index + 1])
+            factor = math.prod(r for d, r in later.get(symbol, []) if day < d <= panel.days[-1])
+            s, rv = float(panel.close[i, t_index]) * factor, realized(panel.close[i, :t_index + 1])
             t = opt.year_fraction(day, expiration)
-            dy = dividends.yield_on(symbol, day, s, basis=panel.days[-1]) if dividends else 0.0
-            iv = opt.implied_vol(kind, close, s, k, t, rate, dy) if s > 0 and math.isfinite(s) else None
+            dy = dividends.yield_on(symbol, day, s) if dividends else 0.0
+            iv = opt.implied_vol(kind, close, s, k, t, rate_on(day), dy) if s > 0 and math.isfinite(s) else None
             if not iv or not rv:
                 continue
             m = math.log(k / s) / (iv * math.sqrt(t))
             if abs(m) <= 1.5:
-                ratios[symbol].append(iv / _clamp(1 - skew * m, 0.6, 2.0) / rv)
-                massive += 1
-    every = [x for xs in ratios.values() for x in xs]
-    spreads: dict[str, list[float]] = defaultdict(list)
-    for day in market.option_days(date.max, spread_days):
-        for symbol, _, price, quotes in market.chain_rows(day, 14, 90):
-            if not price:
-                continue
-            for q in quotes:
-                mid = q.mid
-                if mid is not None and mid >= 0.5 and (q.bid or 0) > 0 and abs(math.log(q.strike / price)) < 0.1:
-                    spreads[symbol].append(((q.ask or 0) - (q.bid or 0)) / mid)
-    all_spreads = [x for xs in spreads.values() for x in xs]
-    return Calibration(
-        ratios={s: _clamp(median(v), 0.6, 3.0) for s, v in ratios.items() if len(v) >= 8},
-        market_ratio=_clamp(median(every), 0.6, 3.0) if len(every) >= 20 else DEFAULT_RATIO,
-        skew=skew,
-        spreads={s: _clamp(median(v), 0.01, 0.3) for s, v in spreads.items() if len(v) >= 10},
-        market_spread=_clamp(median(all_spreads), 0.01, 0.3) if len(all_spreads) >= 30 else DEFAULT_SPREAD,
-        observations={"collected_days": chains, "massive_prices": massive, "skew": len(skews), "spreads": len(all_spreads)})
+                massive.append((ordinal, symbol, iv, rv, m))
+    return Observations(market, collected, skews, massive, spread_days)
+
+
+def calibrate(market: StocksMarket, panel: Panel, real: RealBars, rate: float | Callable[[date], float], *,
+              spread_days: int = 5, dividends: Dividends | None = None, before: date = date.max) -> Calibration:
+    """How options were priced against each stock's realized volatility, the skew and the spread, from what was
+    stored before ``before`` (everything by default)."""
+    return observe(market, panel, real, rate, spread_days=spread_days, dividends=dividends).fit(before)
 
 
 # ── a day's chain ────────────────────────────────────────────────────────────────────────────────
@@ -396,5 +452,6 @@ def wanted(positions: Iterable[Any], last: date) -> list[dict[str, str]]:
     return [{"occ": code, "first": a.isoformat(), "last": b.isoformat()} for code, (a, b) in sorted(spans.items())]
 
 
-__all__ = ["MASSIVE_DAYS", "NOT_REPLAYED", "REPLAYED", "SHORT_REPLAYED", "Calibration", "ModeledOptions", "RealBars", "calibrate",
-           "monthly_expiries", "occ", "parse_occ", "realized", "strike_grid", "strike_step", "third_friday", "wanted"]
+__all__ = ["MASSIVE_DAYS", "NOT_REPLAYED", "REPLAYED", "SHORT_REPLAYED", "Calibration", "ModeledOptions", "Observations",
+           "RealBars", "calibrate", "monthly_expiries", "observe", "occ", "parse_occ", "realized", "strike_grid",
+           "strike_step", "third_friday", "wanted"]
