@@ -130,3 +130,73 @@ def test_thirty_graded_plans_calibrate_the_headline_chance_and_the_card_quotes_t
     assert view["resolved"] == 40 and view["outcomes"] == {"take_profit": 4, "stop": 36}
     assert view["points"] == [{"predicted": 0.41, "observed": 0.1, "n": 40, "bucket": "40–50%"}]
     assert view["brier"] == pytest.approx(0.1 * 0.59 ** 2 + 0.9 * 0.41 ** 2, abs=1e-4)
+
+
+def _expired(conn: sqlite3.Connection, session: date, rank: int, net: float, *, touch: float | None = 0.6,
+             profit: float = 0.55) -> date:
+    expiration = cal.trading_days(session + timedelta(days=1), session + timedelta(days=12))[5]
+    play = {"odds_version": od.MODEL_VERSION, "event": "itm", "touch_kestrel": touch, "max_gain": 300.0,
+            "itm_history": 0.35,
+            "probability_targets": {"returns": {"0": profit, "25": 0.4, "50": 0.3, "100": 0.1},
+                                    "max_gain_probability": 0.2},
+            "calibrated": {"profit": {"raw": profit, "shown": profit - 0.05, "level": None}}}
+    conn.execute(
+        "INSERT INTO stk_plays(session, category, rank, symbol, action, structure, expiration, event, event_kind,"
+        " event_strike, event_width, entry, max_loss, legs_json, underlying, itm_market, itm_history, itm_kestrel,"
+        " itm_kestrel_raw, profit_kestrel, play_json, method, recorded_at) VALUES (?, 'debit_spreads', ?, 'AAA', 'BUY',"
+        " 'bull_call_debit', ?, 'itm', 'call', 110, 0, 2, 201.3, '[]', 100, 0.4, 0.35, 0.45, 0.45, 0.5, ?, 'm', 'x')",
+        (day_of(session), rank, day_of(expiration), json.dumps(play)))
+    conn.execute("INSERT INTO stk_play_outcomes VALUES (?, 'debit_spreads', ?, 'x', 112, ?, 0, ?)",
+                 (day_of(session), rank, int(net > 0), net))
+    return expiration
+
+
+def test_expiry_chances_are_graded_on_the_return_and_touch_on_daily_highs(dbs: Any) -> None:
+    from desk.stocks.contracts import Bar
+
+    conn = dbs.research
+    market = StocksMarket(dbs.market)
+    session = cal.trading_days(START, START + timedelta(days=10))[0]
+    expiration = _expired(conn, session, 1, 1.49)                        # the spread's maximum: 300 / 201.3
+    days = cal.trading_days(session + timedelta(days=1), expiration)
+    market.save_bars(days[0], [Bar("AAA", days[0], 100, 104, 99, 103, 1e6)], "synthetic", NOW)
+    assert pl.grade_events(market, StocksResearch(conn), NOW) == 5          # touch waits for the missing sessions
+    for d in days[1:]:
+        market.save_bars(d, [Bar("AAA", d, 103, 111, 102, 108, 1e6)], "synthetic", NOW)
+    assert pl.grade_events(market, StocksResearch(conn), NOW) == 1
+    got = {r["event"]: dict(r) for r in conn.execute("SELECT * FROM stk_play_grades")}
+    assert {e: got[e]["hit"] for e in got} == {"profit": 1, "target25": 1, "target50": 1, "target100": 1,
+                                               "max_gain": 1, "touch": 1}
+    assert got["profit"]["predicted"] == 0.5 and got["profit"]["predicted_raw"] == 0.55   # shown vs model's own
+    assert got["touch"]["outcome"] == "hit" and got["target25"]["predicted"] == 0.4
+    later = cal.next_trading_day(expiration)
+    loser = _expired(conn, later, 2, -0.2, touch=0.3)
+    for d in cal.trading_days(later, loser):
+        market.save_bars(d, [Bar("AAA", d, 103, 105, 102, 104, 1e6)], "synthetic", NOW)
+    assert pl.grade_events(market, StocksResearch(conn), NOW) == 6
+    miss = {r["event"]: r["hit"] for r in conn.execute("SELECT event, hit FROM stk_play_grades WHERE rank = 2")}
+    assert set(miss.values()) == {0}                                     # no profit, no target, never reached $110
+
+
+def test_graded_profit_chances_calibrate_what_the_card_and_confidence_show(dbs: Any) -> None:
+    conn = dbs.research
+    sessions = cal.trading_days(START, START + timedelta(days=90))
+    for i in range(40):                    # shown 70% profit, but only a quarter really finished in profit
+        _expired(conn, sessions[i], 1, 0.3 if i % 4 == 0 else -0.5, touch=None, profit=0.7)
+    pl.grade_events(StocksMarket(dbs.market), StocksResearch(conn), NOW)
+    groups = pl.calibration(StocksResearch(conn))
+    play = {"event": "itm", "probability_targets": {"returns": {"0": 0.7, "25": 0.4, "50": 0.3, "100": 0.1},
+                                                    "max_gain_probability": None}, "touch_kestrel": 0.5}
+    shown = pl.calibrated(play, groups, "debit_spreads", 8)
+    assert shown["profit"]["level"] == "this category at this expiry" and shown["profit"]["shown"] < 0.5
+    assert shown["profit"]["raw"] == 0.7 and shown["touch"] == {"raw": 0.5, "shown": 0.5, "level": None}
+    check = pp.confidence({"structure": "bull_call_debit", "profit_kestrel": 0.7, "calibrated": shown,
+                           "expected_value": 5.0, "committee": 60.0, "liquidity": "A", "spread_pct": 0.02}, None)
+    odds = check["checks"][0]
+    assert not odds["ok"] and "calibrated on this category at this expiry" in odds["detail"]
+    view = perf.event_calibration(conn)
+    assert view["profit"]["resolved"] == 40 and view["profit"]["points"][0]["observed"] == 0.25
+    assert set(view) == set(pl.GRADED_EVENTS)
+    expiry = perf.calibration(perf.returns_table(conn))                 # the History view is the third line
+    assert expiry["itm_history"]["label"] == "History" and expiry["itm_history"]["resolved"] == 40
+    assert expiry["itm_history"]["points"][0]["predicted"] == 0.35

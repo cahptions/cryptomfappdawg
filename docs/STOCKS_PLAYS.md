@@ -122,9 +122,10 @@ Cards show the underlying price next to the ticker, as of the play's quote. Dedi
 price at identification. Separate meters show the original event odds, **profit at expiry**, and a **+50% return on
 maximum risk at expiry**, with +25%/+100% targets in the expandable explanation. `play_targets.py` integrates the
 favorable regions of the exact piecewise terminal payoff under the recorded lognormal forecast, after opening
-fees. These target probabilities are **model estimates, not empirically calibrated target-hit rates**; they do
-not estimate selling at a peak or hitting a target before expiry. The original ITM calibration does not calibrate
-these profit targets. Older saved ideas may not contain target estimates.
+fees. They do not estimate selling at a peak or hitting a target before expiry. Each recorded play's profit,
++25/50/100% and maximum-gain chances are **graded at expiry** against its real return, and once a group has 30
+resolved plays the chance shown is **calibrated** on them, like the in-the-money chance (see "Every chance,
+graded"). The meters say "calibrated" when that has happened and "model" before.
 
 Finite credit spreads can show the probability of maximum expiry gain. Long calls have unbounded maximum gain;
 long puts reach their theoretical maximum only with the underlying at zero. The UI explains these cases instead
@@ -156,7 +157,8 @@ Code: `company_profiles.py`, SEC submissions parser and market migration `0006_c
 **Confidence** is five plain checks, and the meter is how many pass (never a disguised probability; the chance of
 profit is shown separately). Open it on any card to see each check and why:
 
-1. **Better than even odds**: KESTREL's chance of a profit at expiry is 50% or more.
+1. **Better than even odds**: KESTREL's chance of a profit at expiry is 50% or more (calibrated on graded plays
+   once 30 have resolved in its group).
 2. **KESTREL's math favours it**: its expected value after fees is above zero.
 3. **The research agrees**: bullish plays need a bullish committee lean (≥ 58), bearish ones a bearish lean (< 42),
    condors and butterflies no strong lean (42–58), straddles and strangles a stock moving more than its options price.
@@ -236,6 +238,23 @@ it has 30 resolved plays (see Learning). Until then the page says "not yet calib
 Also shown: the chance of **profit** at expiry (beyond break-even), the chance the price **touches** the strike
 before expiry (reflection formula for geometric Brownian motion; "already in the money" when it has), and the
 **expected value** per contract under KESTREL's forecast, after fees.
+
+### Every chance, graded
+
+Every chance a recorded play showed is graded once it can be decided, append-only (`stk_play_grades`, research
+migration `0014_play_grades.sql`), and calibrated the same way once a group has 30 resolved plays (this category
+at this expiry, then the category, then every play), always learning from the model's own number before any
+calibration:
+
+| Chance | Graded against |
+|---|---|
+| Take-profit before the stop or leave-by date | the play's own quoted closing marks and settlement (above) |
+| Profit at expiry; +25%, +50%, +100%; maximum gain | the play's graded return at expiry, after its opening fees |
+| Touch | the stock's stored daily highs and lows from the session after the pick through expiry |
+| In the money (KESTREL, market and history) | the stock's close at expiry |
+
+Performance charts each against what happened, in tenths, with its Brier score; the expiry event shows KESTREL,
+the market and the stock's history as three lines. **Confidence**'s odds check reads the calibrated profit chance.
 
 ## The categories
 

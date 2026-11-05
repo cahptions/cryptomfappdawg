@@ -53,14 +53,17 @@ def _research(play: Mapping[str, Any]) -> tuple[bool, str]:
 
 
 def confidence(play: Mapping[str, Any], record: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Five plain checks; the meter is how many pass."""
-    p, ev = play.get("profit_kestrel"), play.get("expected_value")
+    """Five plain checks; the meter is how many pass. The odds check reads the chance of a profit at expiry as shown:
+    calibrated on graded recorded plays once enough have resolved (``plays.calibrated``), otherwise the model's."""
+    profit = (play.get("calibrated") or {}).get("profit") or {}
+    p, ev = profit.get("shown", play.get("profit_kestrel")), play.get("expected_value")
     agrees, why = _research(play)
     n = int((record or {}).get("resolved") or 0)
     mean = (record or {}).get("mean_return")
     checks = [
         ("odds", "Better than even odds", p is not None and p >= 0.5,
-         "No chance of profit computed" if p is None else f"{p:.0%} chance of a profit at expiry"),
+         "No chance of profit computed" if p is None else f"{p:.0%} chance of a profit at expiry"
+         + (f" (calibrated on {profit['level']})" if profit.get("level") else "")),
         ("math", "KESTREL's math favours it", ev is not None and ev > 0,
          "No expected value computed" if ev is None else
          f"Expects {'+' if ev >= 0 else '−'}${abs(ev):,.0f} per position after fees"),

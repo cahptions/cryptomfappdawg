@@ -66,6 +66,9 @@ const KestrelPlays = (() => {
   // forecast paths. Finishing in the money is not the goal of a managed trade (a bought option can finish in the
   // money and still lose its premium), so it, profit at expiry and the market's view sit underneath.
   const takeChance = (play) => play.exit_plan?.odds?.take_profit;
+  // Profit at expiry as shown: calibrated on graded plays once its group has 30, otherwise the model's own.
+  const profitChance = (play) =>
+    play.calibrated?.profit?.shown ?? play.profit_kestrel;
   function expiryChance(play) {
     const value = play.itm_kestrel ?? play.itm_market,
       label =
@@ -101,12 +104,12 @@ const KestrelPlays = (() => {
     if (odds && take) {
       label = `Chance to hit take-profit (${signed(100 * take.return, 0)}%)`;
       shown = odds.take_profit;
-      detail = `${odds.at_entry === "stop" ? "Already past its stop at today's fair value (the bid/ask spread is wider than the stop allows) · " : ""}Stop first ${pct(odds.stop)} · Profit at expiry ${pct(play.profit_kestrel)} · ${expiry.label} ${pct(expiry.shown)} (market ${pct(market)}${history === null ? "" : `, history ${pct(history)}`})`;
+      detail = `${odds.at_entry === "stop" ? "Already past its stop at today's fair value (the bid/ask spread is wider than the stop allows) · " : ""}Stop first ${pct(odds.stop)} · Profit at expiry ${pct(profitChance(play))} · ${expiry.label} ${pct(expiry.shown)} (market ${pct(market)}${history === null ? "" : `, history ${pct(history)}`})`;
       box.title = `KESTREL's forecast paths, each leg repriced at its quoted volatility: the share that reach the exit plan's take-profit before its stop or its leave-by date. Every recorded play's own plan is graded on its quoted closing marks (take-profit first, stop first or neither); ${odds.calibration ? `this chance is calibrated on them (${odds.calibration})` : "after 30 have resolved this chance is calibrated on them"}.`;
     } else {
       label = `${expiry.label} at expiry`;
       shown = expiry.shown;
-      detail = `Market ${pct(market)} · History ${history === null ? "—" : pct(history)} · Profit ${pct(play.profit_kestrel)}`;
+      detail = `Market ${pct(market)} · History ${history === null ? "—" : pct(history)} · Profit ${pct(profitChance(play))}`;
     }
     fill.style.width = `${Math.max(0, Math.min(100, 100 * (shown ?? 0)))}%`;
     bar.setAttribute("aria-label", `${label}: ${pct(shown)}`);
@@ -334,7 +337,9 @@ const KestrelPlays = (() => {
         play.breakevens
           ? "Touch a break-even before expiry"
           : "Touch strike before expiry",
-        play.in_the_money ? "Already in the money" : pct(play.touch_kestrel),
+        play.in_the_money
+          ? "Already in the money"
+          : pct(play.calibrated?.touch?.shown ?? play.touch_kestrel),
       ],
       [
         "1σ move by expiry",
@@ -475,7 +480,7 @@ const KestrelPlays = (() => {
         p.action === "SELL" ? `+${money(p.credit)}` : money(p.cost),
         pct(takeChance(p)),
         pct(p.itm_kestrel),
-        pct(p.profit_kestrel),
+        pct(profitChance(p)),
         p.confidence ? `${p.confidence.score}/${p.confidence.of}` : "—",
         greek(p.delta, 2),
         greek(p.theta, 2),
@@ -950,7 +955,7 @@ const KestrelPlays = (() => {
           el("small", `${strikeLabel(p)} · ${p.expiration}`),
           el(
             "small",
-            `Profit at expiry ${pct(p.profit_kestrel)} · liquidity ${p.liquidity}`,
+            `Profit at expiry ${pct(profitChance(p))} · liquidity ${p.liquidity}`,
           ),
         );
         group.append(item);

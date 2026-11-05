@@ -125,20 +125,37 @@ const KestrelPlayWorkflow = (() => {
   }
   function targets(play) {
     const box = el("div", undefined, "play-targets"),
-      data = play.probability_targets;
-    const meter = (name, value) => {
+      data = play.probability_targets,
+      cal = play.calibrated || {};
+    // As shown: calibrated on graded recorded plays once a group has 30 resolved, otherwise the model's own number.
+    const shown = (event, raw) => cal[event]?.shown ?? raw;
+    const tag = (event) =>
+      cal[event]?.level ? ` (calibrated on ${cal[event].level})` : " (model)";
+    const meter = (name, value, event) => {
       const row = el("div", undefined, "play-target"),
         bar = el("meter");
       bar.min = 0;
       bar.max = 1;
       bar.value = value ?? 0;
       bar.setAttribute("aria-label", `${name}: ${percent(value)}`);
-      row.append(el("span", name), el("strong", percent(value)), bar);
+      row.append(
+        el("span", event ? `${name}${tag(event)}` : name),
+        el("strong", percent(value)),
+        bar,
+      );
       box.append(row);
     };
-    meter("Profit at expiry", data?.returns?.["0"] ?? play.profit_kestrel);
+    meter(
+      "Profit at expiry",
+      shown("profit", data?.returns?.["0"] ?? play.profit_kestrel),
+      "profit",
+    );
     if (data) {
-      meter("+50% on risk at expiry", data.returns["50"]);
+      meter(
+        "+50% on risk at expiry",
+        shown("target50", data.returns["50"]),
+        "target50",
+      );
       const details = el("details"),
         more = el("div");
       details.append(el("summary", "Profit targets & what the odds mean"));
@@ -146,7 +163,7 @@ const KestrelPlayWorkflow = (() => {
         more.append(
           el(
             "p",
-            `+${target}% on maximum risk at expiry: ${percent(data.returns[target])}`,
+            `+${target}% on maximum risk at expiry: ${percent(shown(`target${target}`, data.returns[target]))}${tag(`target${target}`)}`,
           ),
         );
       }
@@ -154,7 +171,7 @@ const KestrelPlayWorkflow = (() => {
         more.append(
           el(
             "p",
-            `Maximum gain at expiry: ${percent(data.max_gain_probability)}`,
+            `Maximum gain at expiry: ${percent(shown("max_gain", data.max_gain_probability))}${tag("max_gain")}`,
           ),
         );
       more.append(el("p", data.max_gain_note), el("p", data.note));

@@ -119,7 +119,7 @@ def _bucket(value: float, buckets: Sequence[tuple[float, float, str]]) -> str:
 def calibration(rows: Sequence[PlayReturn]) -> dict[str, Any]:
     """Predicted chance of the play's event vs how often it happened, in tenths."""
     out: dict[str, Any] = {}
-    for key, label in (("itm_kestrel", "KESTREL"), ("itm_market", "Market")):
+    for key, label in (("itm_kestrel", "KESTREL"), ("itm_market", "Market"), ("itm_history", "History")):
         bins: dict[int, list[tuple[float, bool]]] = defaultdict(list)
         for r in rows:
             p = r.play.get(key)
@@ -135,7 +135,10 @@ def calibration(rows: Sequence[PlayReturn]) -> dict[str, Any]:
     return out
 
 
-EVENT_LABELS = {"take_profit": "Take-profit before the stop or leave-by date"}
+EVENT_LABELS = {"take_profit": "Take-profit before the stop or leave-by date", "profit": "Profit at expiry",
+                "target25": "+25% on the money at risk at expiry", "target50": "+50% on the money at risk at expiry",
+                "target100": "+100% on the money at risk at expiry", "max_gain": "Maximum gain at expiry",
+                "touch": "The stock touching the level before expiry"}
 
 
 def event_calibration(research: sqlite3.Connection) -> dict[str, Any]:

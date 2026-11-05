@@ -1209,7 +1209,35 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
 
     play["probability_targets"] = target_probabilities(play, sigma, drift, t)
     play["forecast"] = {"sigma": round(float(sigma), 4), "drift": round(float(drift), 4)}   # for the plan's odds
+    play["calibrated"] = calibrated(play, ctx.calibration, c.category, days)
     return play
+
+
+def raw_chances(play: Mapping[str, Any]) -> dict[str, float]:
+    """The model's own chance of each graded expiry event, before any calibration (older records: what they showed,
+    which was the same thing)."""
+    targets = (play.get("probability_targets") or {}).get("returns") or {}
+    out = {f"target{k}": float(targets[k]) for k in ("25", "50", "100") if targets.get(k) is not None}
+    if targets.get("0") is not None:
+        out["profit"] = float(targets["0"])
+    elif play.get("event") == "itm" and play.get("profit_kestrel") is not None:
+        out["profit"] = float(play["profit_kestrel"])           # the chance beyond break-even, uncalibrated
+    if (play.get("probability_targets") or {}).get("max_gain_probability") is not None:
+        out["max_gain"] = float(play["probability_targets"]["max_gain_probability"])
+    if play.get("touch_kestrel") is not None:
+        out["touch"] = float(play["touch_kestrel"])
+    return out
+
+
+def calibrated(play: Mapping[str, Any], calibrations: Mapping[str, od.Calibration], category: str,
+               days: int) -> dict[str, dict[str, Any]]:
+    """Each expiry chance (profit, the +25/50/100% targets, the maximum gain, touch) as shown: calibrated on graded
+    recorded plays once a group has 30 (most specific group first), otherwise the model's own number."""
+    out = {}
+    for event, raw in raw_chances(play).items():
+        found, level = calibrator(calibrations, event, category, days)
+        out[event] = {"raw": round(raw, 4), "shown": round(found.apply(raw), 4), "level": level}
+    return out
 
 
 # ── the track record ─────────────────────────────────────────────────────────────────────────────
@@ -1496,17 +1524,69 @@ def _plan_grade(play: Mapping[str, Any], session: date, expiration: date,
     return shown, float(odds.get("take_profit_raw", shown)), outcome
 
 
+def _touched(market: StocksMarket, p: sqlite3.Row) -> bool | None:
+    """Did the stock reach the play's touch level after the pick, on its daily highs and lows through the settlement?
+    None while a session's bar is missing and nothing has touched yet."""
+    from desk.stocks.play_marks import settle_day
+
+    session, settles = date.fromordinal(p["session"]), settle_day(date.fromordinal(p["expiration"]))
+    if p["event"] == "move":
+        up: float | None = p["event_strike"] + p["event_width"]
+        down: float | None = p["event_strike"] - p["event_width"]
+    else:
+        up, down = (p["event_strike"], None) if p["event_kind"] == "call" else (None, p["event_strike"])
+    bars = market.conn.execute("SELECT high, low FROM stk_bars WHERE symbol = ? AND day > ? AND day <= ?",
+                               (p["symbol"], p["session"], day_of(settles))).fetchall()
+    if any((up is not None and b["high"] >= up) or (down is not None and b["low"] <= down) for b in bars):
+        return True
+    return False if len(bars) >= _after(session, settles) else None
+
+
+def _expiry_grades(market: StocksMarket, p: sqlite3.Row, play: Mapping[str, Any],
+                   done: set[tuple[Any, ...]]) -> list[tuple[str, float, float, bool]]:
+    """(event, shown, raw, happened) for each expiry chance of a graded play not graded yet."""
+    shown = {k: float(v["shown"]) for k, v in (play.get("calibrated") or {}).items()}
+    net, out = float(p["net_return"]), []
+    for event, raw in raw_chances(play).items():
+        if (p["session"], p["category"], p["rank"], event) in done:
+            continue
+        if event == "touch":
+            hit = _touched(market, p)
+            if hit is None:
+                continue
+        elif event == "max_gain":
+            if not play.get("max_gain") or not p["max_loss"]:
+                continue
+            hit = net >= float(play["max_gain"]) / float(p["max_loss"]) - 1e-3
+        else:
+            hit = net > 0 if event == "profit" else net >= int(event[6:]) / 100 - 1e-9
+        out.append((event, shown.get(event, raw), raw, bool(hit)))
+    return out
+
+
 def grade_events(market: StocksMarket, research: StocksResearch, now: datetime) -> int:
-    """Grade every shown chance that has become decidable, once (append-only), for calibration and Performance.
-    Uses quoted closing marks and settlements only; makes no provider request."""
+    """Grade every shown chance that has become decidable, once (append-only), for calibration and Performance: the
+    exit plan's take-profit on quoted closing marks and settlements only, the expiry chances on the graded return and
+    the stock's stored daily highs and lows. Makes no provider request."""
     conn = research.conn
     done = {(r[0], r[1], r[2], r[3]) for r in conn.execute("SELECT session, category, rank, event FROM stk_play_grades")}
     rows: list[tuple[Any, ...]] = []
-    for p in conn.execute("SELECT session, category, rank, expiration, play_json FROM stk_plays "
-                          "WHERE json_extract(play_json, '$.exit_plan.odds.take_profit') IS NOT NULL"):
+    for p in conn.execute("SELECT p.session, p.category, p.rank, p.symbol, p.expiration, p.event, p.event_kind, "
+                          "p.event_strike, p.event_width, p.max_loss, p.play_json, o.net_return FROM stk_plays p "
+                          "JOIN stk_play_outcomes o USING (session, category, rank) WHERE NOT EXISTS (SELECT 1 FROM "
+                          "stk_play_grades g WHERE g.session = p.session AND g.category = p.category AND g.rank = p.rank"
+                          " AND g.event = 'profit') OR (json_extract(p.play_json, '$.touch_kestrel') IS NOT NULL AND "
+                          "NOT EXISTS (SELECT 1 FROM stk_play_grades g WHERE g.session = p.session AND g.category = "
+                          "p.category AND g.rank = p.rank AND g.event = 'touch'))"):
+        play = json.loads(p["play_json"])
+        for event, shown, raw, hit in _expiry_grades(market, p, play, done):
+            rows.append((p["session"], p["category"], p["rank"], event, shown, raw, int(play.get("odds_version") or 1),
+                         "hit" if hit else "miss", int(hit), p["expiration"] - p["session"], to_iso(now)))
+    for p in conn.execute("SELECT session, category, rank, expiration, play_json FROM stk_plays p WHERE "
+                          "json_extract(play_json, '$.exit_plan.odds.take_profit') IS NOT NULL AND NOT EXISTS (SELECT 1 "
+                          "FROM stk_play_grades g WHERE g.session = p.session AND g.category = p.category AND g.rank = "
+                          "p.rank AND g.event = 'take_profit')"):
         key = (p["session"], p["category"], p["rank"])
-        if (*key, "take_profit") in done:
-            continue
         marks = conn.execute("SELECT day, status, pnl_pct FROM stk_play_marks WHERE session = ? AND category = ? AND "
                              "rank = ? AND twin = 0 ORDER BY day", key).fetchall()
         if not marks:
@@ -1809,7 +1889,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
 
 
 __all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "RECORDED", "RETIRED", "Candidate", "Category",
-           "Context", "Table", "Underlying", "build", "calibration", "calibration_summary", "calibrator", "committee_ic",
-           "dte_bucket", "event_history", "finish", "flagged_before", "followups", "grade", "grade_events",
-           "history_line", "horizon_plays", "implied_vols", "load", "method", "record", "record_twins", "records",
-           "session_closed", "settle_value", "signature", "table", "twin"]
+           "Context", "Table", "Underlying", "build", "calibrated", "calibration", "calibration_summary", "calibrator",
+           "committee_ic", "dte_bucket", "event_history", "finish", "flagged_before", "followups", "grade",
+           "grade_events", "history_line", "horizon_plays", "implied_vols", "load", "method", "raw_chances", "record",
+           "record_twins", "records", "session_closed", "settle_value", "signature", "table", "twin"]

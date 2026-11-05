@@ -1,8 +1,10 @@
 """Expiry profit-target probabilities, distinct from ITM and from touching a profit target before expiry.
 
 Option payoffs are piecewise linear in the stock price. Integrate the favorable intervals under the already
-recorded KESTREL lognormal forecast. These target probabilities are model estimates, not empirically calibrated
-target-hit rates, path predictions, or a claim that an option can be sold at its theoretical maximum.
+recorded KESTREL lognormal forecast. These are the model's own numbers: each recorded play's targets are graded at
+expiry against its real return (``plays.grade_events``) and, once 30 have resolved in a group, the chance shown is
+calibrated on them (``plays.calibrated``). They are not path predictions, nor a claim that an option can be sold at
+its theoretical maximum.
 """
 
 from __future__ import annotations
@@ -75,4 +77,5 @@ def build(play: dict[str, Any], sigma: float, drift: float, years: float) -> dic
                 "is estimated." if structure == "long_put" else
                 "The theoretical maximum gain is unlimited; use a practical profit target instead."),
             "note": "Model estimates of profit at expiration after opening fees, not the chance of hitting a "
-                    "sale target earlier. These target probabilities have not been empirically calibrated."}
+                    "sale target earlier. Each recorded play's targets are graded at expiry against its real return; "
+                    "once 30 have resolved, the chance shown is calibrated on them."}
