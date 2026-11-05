@@ -17,7 +17,8 @@ and settlements only.
 the smallest period that covers the gap), else from the underlying price Schwab reported with the closing option
 quotes. Holidays are not sessions and are never filled. A gap with no later quote yet is shown as *provisional*
 (volatility held at the last quote) and replaced by permanent estimates once a quote or the expiry brackets it.
-For gap sessions Schwab still keeps minute bars for (about five), the intraday path is estimated the same way.
+For gap sessions within Schwab's minute-bar history (it serves up to ten days, which gap repair asks for), the
+intraday path is estimated the same way.
 Estimates inside a gap that contains a results filing, a results window or a stock move beyond four standard
 deviations are flagged as unreliable.
 
@@ -51,7 +52,7 @@ VERSION = 1
 REPAIR_BUDGET_OPEN = 5             # history requests a pass while the market is open (live quotes come first)
 REPAIR_BUDGET_CLOSED = 20
 HALT_SESSIONS = 10                 # no price for this many sessions: quarantined as halted or delisted
-MINUTE_HISTORY_SESSIONS = 5        # Schwab keeps one-minute bars for about five sessions
+MINUTE_HISTORY_DAYS = 10           # Schwab's price history serves one-minute bars for at most ten days (period=10)
 JUMP_SIGMAS = 4.0
 ASSIGNMENT_TIME_VALUE = 0.05
 STATUS_ORDER = {"quoted": 0, "modelled": 1, "estimated": 2}
@@ -61,7 +62,7 @@ class History(Protocol):
     @property
     def configured(self) -> bool: ...
     async def daily_since(self, symbol: str, since: date, today: date) -> list[Bar]: ...
-    async def intraday_history(self, symbol: str) -> list[IntradayBar]: ...
+    async def intraday_history(self, symbol: str, *, days: int) -> list[IntradayBar]: ...
 
 
 # ── valuing a position ───────────────────────────────────────────────────────────────────────────
@@ -429,7 +430,8 @@ async def estimate_intraday(research: sqlite3.Connection, history: History, esti
                             last_closed: date, rate: Callable[[date], float], now: datetime,
                             budget: int) -> tuple[int, list[str]]:
     """Estimated five-minute paths for recent gap sessions, from Schwab's minute bars of the stock."""
-    recent = set(cal.trading_days(last_closed - timedelta(days=10), last_closed)[-MINUTE_HISTORY_SESSIONS:])
+    # ten days of history (period=10) reaches back to the trading days of the last ten business days
+    recent = set(cal.trading_days(last_closed - timedelta(days=16), last_closed)[-MINUTE_HISTORY_DAYS:])
     by_symbol: dict[str, list[tuple[str, date, float]]] = defaultdict(list)
     for occ, d, iv in estimated:
         if d in recent and not research.execute("SELECT 1 FROM stk_track_intraday WHERE occ = ? AND session = ?",
@@ -441,7 +443,7 @@ async def estimate_intraday(research: sqlite3.Connection, history: History, esti
             break
         requests += 1
         try:
-            bars = await history.intraday_history(symbol)
+            bars = await history.intraday_history(symbol, days=MINUTE_HISTORY_DAYS)
         except DeskError as exc:
             errors.append(f"{symbol} minute bars: {exc}"[:200])
             continue

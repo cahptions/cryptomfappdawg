@@ -411,9 +411,13 @@ class SchwabClient:
             "symbol": symbol, "periodType": period_type, "period": period, "frequencyType": "daily", "frequency": 1,
             "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)
 
-    async def intraday_history(self, symbol: str, now: datetime | None = None) -> list[IntradayBar]:
+    async def intraday_history(self, symbol: str, now: datetime | None = None, *, days: int = 5) -> list[IntradayBar]:
         # Several sessions allow a real previous session at weekends, holidays and before today's open. The end is
         # always now: without it Schwab ends at the previous business day's close, so today's session never showed.
+        # ``days``: Schwab documents periodType=day with period 1, 2, 3, 4, 5 or 10 (the stock page's week chart asks
+        # for 5; Plays gap repair asks for 10, the most it keeps).
+        if days not in (1, 2, 3, 4, 5, 10):
+            raise ValueError("Schwab minute history takes 1-5 or 10 days")
         return parse_intraday(await self._get("pricehistory", {
-            "symbol": symbol, "periodType": "day", "period": 5, "frequencyType": "minute", "frequency": 1,
+            "symbol": symbol, "periodType": "day", "period": days, "frequencyType": "minute", "frequency": 1,
             "endDate": _millis(now), "needExtendedHoursData": "false", "needPreviousClose": "false"}), symbol)

@@ -154,7 +154,8 @@ class FakeHistory:
         self.daily.append((symbol, since))
         return [Bar(symbol, d, c, c, c, c, 1e6) for d, c in sorted(self.closes.get(symbol, {}).items())]
 
-    async def intraday_history(self, symbol: str) -> list[IntradayBar]:
+    async def intraday_history(self, symbol: str, *, days: int) -> list[IntradayBar]:
+        assert days == pm.MINUTE_HISTORY_DAYS == 10          # gap repair asks for all ten days Schwab serves
         self.intraday.append(symbol)
         out: list[IntradayBar] = []
         for d, s in self.minutes.items():
