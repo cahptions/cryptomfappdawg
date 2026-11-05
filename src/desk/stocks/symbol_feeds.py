@@ -1,5 +1,6 @@
 """Company context for a viewed stock, cached per source: Massive details, news and icon; Wikidata facts and a
-Wikipedia summary; Finnhub analyst ratings, EPS surprises and the next earnings date (optional free key).
+Wikipedia summary; Finnhub analyst ratings, EPS surprises and the next earnings date (optional free key). Headlines
+come from the market-wide news already stored (``stored_news``); the per-stock Massive call is only a fallback.
 
 Display only, never research inputs. Viewing a stock registers interest; a bounded background pass fetches what is
 due, a few requests at a time inside each source's shared rate budget, and keeps the last good value on failure.
@@ -44,6 +45,23 @@ FEEDS: dict[str, Feed] = {
 }
 ACTIVE = timedelta(minutes=10)          # a page polls every 30 s; older interest is not refreshed
 PER_PASS = {"massive": 2, "wikimedia": 1, "finnhub": 3}
+STORED_NEWS_DAYS = 30                   # the stock page's headlines: the newest stored articles naming it, this recent
+
+
+def stored_news(conn: sqlite3.Connection, symbol: str, now: datetime, limit: int = 12) -> list[dict[str, Any]]:
+    """The newest articles naming ``symbol`` in the market-wide news KESTREL already stores every half hour
+    (desk.stocks.news_flow), in the shape of Massive's per-stock answer, with Massive's sentiment for this stock.
+    No request: the per-stock call is only a fallback for a stock the stored news does not name."""
+    try:
+        rows = conn.execute(
+            "SELECT n.title, n.url, n.source, n.published_at, n.summary, t.sentiment, t.reasoning FROM stk_news_tickers t "
+            "JOIN stk_news n ON n.id = t.news_id WHERE t.symbol = ? AND n.published_at >= ? "
+            "ORDER BY n.published_at DESC LIMIT ?", (symbol, (now - timedelta(days=STORED_NEWS_DAYS)).isoformat(), limit)
+        ).fetchall()
+    except sqlite3.OperationalError:          # a database from before news collection
+        return []
+    return [{"title": r[0], "url": r[1], "source": r[2], "published": r[3], "summary": r[4],
+             "insights": [{"ticker": symbol, "sentiment": r[5], "reasoning": r[6]}] if r[5] else []} for r in rows]
 
 
 def request(conn: sqlite3.Connection, symbol: str, now: datetime) -> None:
@@ -168,6 +186,9 @@ async def refresh(paths: DeskPaths, loaded: LoadedConfig) -> None:
         for row in sorted(rows, key=lambda r: order.index(r["feed"])):
             symbol, feed = row["symbol"], row["feed"]
             source = FEEDS[feed].source
+            if feed == "news" and (stored := stored_news(conn, symbol, now)):
+                _save(conn, symbol, feed, stored, utc_now())     # from the stored news: no request, no budget
+                continue
             if budget[source] <= 0:
                 continue
             reason = _blocked(suite, conn, symbol, feed)
@@ -190,4 +211,4 @@ async def refresh(paths: DeskPaths, loaded: LoadedConfig) -> None:
         runtime.close()
 
 
-__all__ = ["FEEDS", "Feed", "explain", "fetch", "logo", "read", "refresh", "request"]
+__all__ = ["FEEDS", "Feed", "explain", "fetch", "logo", "read", "refresh", "request", "stored_news"]

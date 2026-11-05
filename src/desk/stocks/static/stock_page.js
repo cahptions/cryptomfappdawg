@@ -449,7 +449,7 @@ const KestrelStockPage = (() => {
         el(
           "p",
           state?.error ||
-            "Headlines load in the background from Massive and refresh every half hour while you view this stock.",
+            "No stored article names this stock in the last 30 days. Its own Massive headlines load in the background and are asked for again every half hour while you view it.",
           "sp-caption",
         ),
       );
@@ -483,7 +483,9 @@ const KestrelStockPage = (() => {
     box.append(
       list,
       source(
-        `Massive news${state?.updated_at ? ` · updated ${fmt.ago(state.updated_at)}` : ""}. Sentiment is the publisher feed's per-ticker label, not a KESTREL signal.`,
+        profile.news_source === "stored"
+          ? "Massive's market-wide news, which KESTREL stores every half hour: the newest articles naming this stock in the last 30 days. Sentiment is the publisher feed's per-ticker label, not a KESTREL signal."
+          : `Massive news for this stock${state?.updated_at ? ` · updated ${fmt.ago(state.updated_at)}` : ""}. Sentiment is the publisher feed's per-ticker label, not a KESTREL signal.`,
       ),
     );
     return box;

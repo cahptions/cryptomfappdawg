@@ -13,7 +13,7 @@ import pytest
 
 from desk.core.paths import DeskPaths
 from desk.stocks import market_events as me
-from desk.stocks import news_flow
+from desk.stocks import news_flow, stock_page, symbol_feeds
 from desk.stocks.contracts import Company, Listing
 from desk.stocks.repo import StocksDatabases, StocksMarket
 from desk.stocks.sectors import sector
@@ -114,3 +114,49 @@ def test_massive_is_asked_only_for_a_recent_stock_move_the_stored_news_cannot_co
     later = asyncio.run(me.fetch_headlines(massive, dbs.research, datetime(2026, 11, 6, 16, 0, tzinfo=UTC),
                                            market=dbs.market))
     assert later["stored_headlines"] == 1 and massive.calls == ["AMD"]
+
+
+# ── the stock page ────────────────────────────────────────────────────────────────────────────────
+class Suite:
+    def __init__(self) -> None:
+        self.massive = Massive()
+
+
+def test_the_stock_page_shows_stored_headlines_and_asks_massive_only_for_a_stock_none_name(dbs, tmp_path: Path,
+                                                                                         monkeypatch) -> None:
+    stored_news(dbs.market)
+    recent = datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
+    news_flow.save(dbs.market, [article("msft-1", recent, ["MSFT"]), article("msft-2", recent + timedelta(hours=1),
+                                                                                    ["MSFT", "ORCL"])], NOW)
+    page = stock_page.headlines(dbs.market, "MSFT", NOW, {})
+    titles = ["msft-2", "msft-1", "one-tech", "two-tech", "googl-roundup"]          # the last 30 days, newest first
+    assert page["news_source"] == "stored" and [n["title"].removeprefix("Headline ") for n in page["news"]] == titles
+    assert page["news"][0]["insights"] == [{"ticker": "MSFT", "sentiment": "negative", "reasoning": "fixture"}]
+    assert page["news"][0]["summary"] == "About msft-2"
+    feeds = {"news": {"value": [{"title": "From the per-stock call"}], "updated_at": None, "error": None, "label": ""}}
+    assert stock_page.headlines(dbs.market, "AAPL", NOW, feeds) == {"news": [{"title": "From the per-stock call"}],
+                                                                   "news_source": "per_stock"}   # none in 30 days
+
+    # the background pass: stored headlines are saved without a request; only AAPL is asked for
+    paths = DeskPaths(tmp_path / "home", REPO / "config", tmp_path / "secrets.env")
+    for symbol in ("MSFT", "AAPL"):
+        symbol_feeds.request(dbs.market, symbol, NOW)
+    dbs.market.execute("DELETE FROM stk_symbol_feeds WHERE feed != 'news'")
+    suite = Suite()
+    monkeypatch.setattr(symbol_feeds, "utc_now", lambda: NOW)
+    monkeypatch.setattr(symbol_feeds, "build_stocks_suite", lambda *a, **k: suite)
+
+    async def closed() -> None:
+        return None
+
+    suite.aclose = closed  # type: ignore[attr-defined]
+    monkeypatch.setattr(Massive, "news", _per_stock)
+    asyncio.run(symbol_feeds.refresh(paths, None))  # type: ignore[arg-type]
+    assert suite.massive.calls == ["AAPL"]
+    saved = symbol_feeds.read(dbs.market, "MSFT")["news"]
+    assert [n["title"].removeprefix("Headline ") for n in saved["value"]] == titles and saved["error"] is None
+
+
+async def _per_stock(self: Massive, symbol: str, limit: int = 20, **_: Any) -> list[dict[str, Any]]:
+    self.calls.append(symbol)
+    return [{"title": f"{symbol} from Massive", "url": "https://example.com/m"}]
