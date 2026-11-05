@@ -173,9 +173,14 @@ def stale_companies(market: StocksMarket, now: datetime, *, max_age: timedelta =
 
 
 async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, *, start: date,
-                       max_days: int = 10) -> dict[str, Any]:
+                       max_days: int = 10, budget_seconds: float | None = None,
+                       clock: Callable[[], float] = time.monotonic) -> dict[str, Any]:
     """The SEC daily index: Form 4s of universe companies are parsed (one request each), and companies with new
-    periodic or current reports are refreshed. Resumes from the last processed day."""
+    periodic or current reports are refreshed. Resumes from the last processed day.
+
+    A pass handles at most ``max_days`` trading days and starts no new day once ``budget_seconds`` have gone by (a
+    busy day is a few hundred Form 4s, minutes at the SEC's polite rate), so catching up after downtime never holds
+    the collector for long; ``behind`` says days remain, and the runner then comes back on its next pass."""
     async def work() -> dict[str, Any]:
         state = market.jobs().get("filings_feed", {}).get("detail", {})
         first = date.fromisoformat(state["through"]) + timedelta(days=1) if state.get("through") else start
@@ -184,12 +189,16 @@ async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, 
         processed: list[str] = []
         trades, refresh = 0, set()
         through = state.get("through")
-        d = first
-        while d < today and len(processed) < max_days:
+        d, began, behind = first, clock(), False
+        while d < today:
             if not cal.is_trading_day(d):
                 d += timedelta(days=1)
                 through = (d - timedelta(days=1)).isoformat()
                 continue
+            if len(processed) >= max_days or (budget_seconds is not None and processed
+                                              and clock() - began >= budget_seconds):
+                behind = True
+                break
             try:
                 entries = await suite.sec.daily_index(d)
             except DeskError as exc:
@@ -210,28 +219,49 @@ async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, 
             processed.append(d.isoformat())
             through = d.isoformat()
             d += timedelta(days=1)
-        report: dict[str, Any] = {"days": processed, "insider_rows": trades, "through": through}
+        report: dict[str, Any] = {"days": processed, "insider_rows": trades, "through": through, "behind": behind}
         if refresh:
             report["companies"] = await companies(suite, market, now, sorted(refresh))
         return report
     return await _job(market, "filings_feed", now, work)
 
 
-async def insider_history(suite: StocksSuite, market: StocksMarket, now: datetime, *, quarters: int = 4) -> dict[str, Any]:
-    """The SEC's quarterly insider data sets (one small download per quarter) for history before the daily feed."""
+INSIDER_QUARTERS = 9     # two years and a quarter: a year-on-year comparison of insider buying, with a quarter to spare
+
+
+async def insider_history(suite: StocksSuite, market: StocksMarket, now: datetime, *, quarters: int = INSIDER_QUARTERS,
+                          per_pass: int | None = None) -> dict[str, Any]:
+    """The SEC's quarterly insider data sets (one ~9 MB download per quarter) for the history before the daily feed.
+
+    The newest ``quarters`` published are loaded, each once, at most ``per_pass`` new ones per call (each is parsed in
+    memory, so a pass stays small); ``remaining`` says how many are still to come. Filings the daily feed already
+    stored are skipped, so one filing never holds rows from two parsers. A failure keeps the quarters already loaded,
+    so the next run resumes instead of downloading them again."""
     async def work() -> dict[str, Any]:
         state = market.jobs().get("insider_history", {}).get("detail", {})
         loaded = set(state.get("loaded", []))
         universe = {int(r["cik"]) for r in research_listings(market) if r["cik"]}
-        rows = 0
-        for path in (await suite.sec.insider_dataset_paths())[:quarters]:
-            if path in loaded:
-                continue
-            data = await suite.sec.insider_dataset(path)
-            rows += market.save_insider_trades([(t, f) for t, f in data if t.issuer_cik in universe])
-            loaded.add(path)
-        newest = max((p.rsplit("/", 1)[-1][:6] for p in loaded), default=None)
-        return {"loaded": sorted(loaded), "rows": rows, "newest_quarter": newest}
+        rows, fetched = 0, list[str]()
+
+        def detail(remaining: int) -> dict[str, Any]:
+            newest = max((p.rsplit("/", 1)[-1][:6] for p in loaded), default=None)
+            return {"loaded": sorted(loaded), "rows": rows, "newest_quarter": newest, "this_pass": fetched,
+                    "remaining": remaining}
+
+        todo: list[str] = []
+        try:
+            paths = sorted(await suite.sec.insider_dataset_paths(), key=lambda p: p.rsplit("/", 1)[-1], reverse=True)
+            todo = [p for p in paths[:quarters] if p not in loaded]
+            for path in todo[:per_pass] if per_pass else todo:
+                data = await suite.sec.insider_dataset(path)
+                stored = market.insider_accessions(min(f for _, f in data)) if data else set()
+                rows += market.save_insider_trades([(t, f) for t, f in data
+                                                    if t.issuer_cik in universe and t.accession not in stored])
+                loaded.add(path)
+                fetched.append(path)
+        except DeskError as exc:
+            raise IncompleteJob(str(exc), detail(len(todo) - len(fetched))) from exc
+        return detail(len(todo) - len(fetched))
     return await _job(market, "insider_history", now, work)
 
 
