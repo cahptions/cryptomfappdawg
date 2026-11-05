@@ -411,7 +411,8 @@ class StocksMarket:
         if any(r[0] != source for r in existing):
             raise StorageError("Refusing to mix option providers for one asset/session; use a separate data directory")
         rows = [[q.occ, q.kind, q.strike, q.bid, q.ask, q.last, q.volume, q.open_interest, q.average_volume,
-                 to_iso(q.quoted_at) if q.quoted_at else None] for q in quotes]
+                 to_iso(q.quoted_at) if q.quoted_at else None,
+                 *([q.bid_size, q.ask_size] if q.bid_size is not None or q.ask_size is not None else [])] for q in quotes]
         self.conn.execute(
             "INSERT OR REPLACE INTO stk_option_chains(underlying, day, expiration, observed_at, underlying_price, contracts,"
             " chain_zlib, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -430,7 +431,7 @@ class StocksMarket:
                                    "AND observed_at<=? ORDER BY expiration", (underlying, row["d"], cutoff)):
             expiration = date_of(r["expiration"])
             out[expiration] = [OptionQuote(q[0], underlying, q[1], q[2], expiration, q[3], q[4], q[5], q[6], q[7], q[8],
-                                           datetime.fromisoformat(q[9]) if q[9] else None)
+                                           datetime.fromisoformat(q[9]) if q[9] else None, *q[10:12])
                                for q in _unpack(r["chain_zlib"])]
         return date_of(row["d"]), out
 

@@ -1,6 +1,7 @@
 """Learning quotes every held and pending leg contract by contract each minute (Schwab /quotes, 100 a request), so
 fills and exits no longer wait for the chain rotation; the rotation keeps serving new entries."""
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -56,8 +57,9 @@ def suite(schwab, chains):
 
 
 def test_a_per_contract_quote_has_the_chain_shape():
-    q = learning_service.leg_quote(tick("SPY261120P00102500", AT))
+    q = learning_service.leg_quote(replace(tick("SPY261120P00102500", AT), bid_size=6, ask_size=11))
     assert (q.underlying, q.kind, q.strike, q.expiration, q.open_interest) == ("SPY", "put", 102.5, EXP, 2_000_000)
+    assert (q.bid_size, q.ask_size) == (6, 11)                                 # the displayed sizes carry through
 
 
 async def test_held_and_pending_legs_are_quoted_first_and_their_quotes_fill_orders(tmp_path, monkeypatch):

@@ -562,7 +562,7 @@ const KestrelLearning = (() => {
         ),
         el(
           "p",
-          "Research spending, trade count, position count and contract quantity have no policy ceiling. Market-data and estimated execution capacity still apply.",
+          "Research spending, trade count, position count and contract quantity have no policy ceiling. Market data and the size displayed at the bid or ask still apply.",
           "caption",
         ),
       );
@@ -627,7 +627,7 @@ const KestrelLearning = (() => {
           el(
             "p",
             a.policy?.note ||
-              "Orders wait for a later fresh quote. Fees, spreads and execution capacity apply.",
+              "Orders wait for a later fresh quote. Fees, spreads and the size displayed at the ask apply.",
             "muted",
           ),
           el(
@@ -822,7 +822,7 @@ const KestrelLearning = (() => {
                 el(
                   "p",
                   order.note ||
-                    "Waiting for a later fresh quote and modeled capacity",
+                    "Waiting for a later fresh quote with size at the ask",
                   "muted",
                 ),
               );

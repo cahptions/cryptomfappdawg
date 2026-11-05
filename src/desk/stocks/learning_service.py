@@ -60,7 +60,7 @@ def leg_quote(t: OptionTick) -> OptionQuote:
     """A per-contract quote in the chain's shape; the contract terms come from its OCC symbol."""
     return OptionQuote(t.occ, t.occ[:-15], "call" if t.occ[-9] == "C" else "put", int(t.occ[-8:]) / 1000,
                        datetime.strptime(t.occ[-15:-9], "%y%m%d").date(), t.bid, t.ask, t.last, t.volume or 0,
-                       t.open_interest or 0, None, t.quoted_at)
+                       t.open_interest or 0, None, t.quoted_at, t.bid_size, t.ask_size)
 
 
 async def quote_legs(conn: sqlite3.Connection, suite: StocksSuite, occs: list[str]) -> dict[str, Any]:

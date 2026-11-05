@@ -211,16 +211,29 @@ def quote_key(q: OptionQuote) -> str:
     return sha256_hex(canonical_json({"occ": q.occ, "at": to_iso(q.quoted_at) if q.quoted_at else None}))
 
 
-def capacity(conn: sqlite3.Connection, account: str, quotes: list[OptionQuote]) -> int:
-    # Depth is unavailable: explicit estimated capacity, shared across orders using the same quote timestamp.
+def capacity(conn: sqlite3.Connection, account: str, quotes: list[OptionQuote], opening: bool = True) -> int:
+    """Contracts one quote timestamp can still fill in this account's book: the size displayed at the side traded (the
+    ask to buy, the bid to sell) where the quote reports it, never more than 0.1% of open interest (at least one). There
+    is no depth beyond the top of the book, so a fill never takes more than was displayed. Usage is shared across orders
+    on the same quote timestamp, and a later quote brings fresh size."""
     available = []
     for q in quotes:
         limit = max(1, int(q.open_interest * 0.001))
+        size = q.ask_size if opening else q.bid_size
+        if size is not None:
+            limit = min(limit, size)
         row = conn.execute(
             "SELECT used FROM stk_learning_capacity WHERE account=? AND quote_key=?", (account, quote_key(q))
         ).fetchone()
         available.append(max(0, limit - (row[0] if row else 0)))
     return min(available, default=0)
+
+
+def capacity_basis(quotes: list[OptionQuote], opening: bool) -> str:
+    side = "ask" if opening else "bid"
+    if all((q.ask_size if opening else q.bid_size) is not None for q in quotes):
+        return f"Size displayed at the {side}, capped at 0.1% of open interest, per quote timestamp; top of book only"
+    return f"Estimated: 0.1% of open interest per quote timestamp; no size was displayed at the {side}"
 
 
 def consume(conn: sqlite3.Connection, account: str, quotes: list[OptionQuote], units: int) -> None:
@@ -332,7 +345,7 @@ def fill_orders(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: d
             plan={
                 **plan,
                 "filled_units": units,
-                "capacity_basis": "Estimated: 0.1% of OI per fresh quote timestamp; depth unavailable",
+                "capacity_basis": capacity_basis(actual, True),
             },
         )
         conn.execute("INSERT INTO stk_learning_fills VALUES (?,?,?,?)", (order.id, pid, units, to_iso(now)))
@@ -349,7 +362,8 @@ def fill_orders(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: d
                 "requested_units": intent["desired_units"],
                 "filled_units": units,
                 "unfilled_units": remaining - units,
-                "capacity_estimated": True,
+                "capacity_estimated": any(q.ask_size is None for q in actual),
+                "quoted_size": [q.ask_size for q in actual],
             },
         )
         if units >= remaining:
@@ -383,9 +397,9 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
         units = position.plan["filled_units"]
         unit_legs = [{**leg, "quantity": 1} for leg in position.legs]
         closing = impact(unit_legs, quotes, units, False)
-        book.mark(
-            position.id, closing.debit, marks={"at": to_iso(now), "basis": "bid less modeled impact", "capacity_estimated": True}
-        )
+        sized = all(q.bid_size is not None for q in actual)
+        book.mark(position.id, closing.debit, marks={"at": to_iso(now), "basis": "bid less modeled impact",
+                                                     "capacity_estimated": not sized})
         elapsed = now - datetime.fromisoformat(position.opened_at)
         paid = position.entry_cost + position.entry_fees
         for days in position.plan.get("checkpoints") or ():
@@ -399,7 +413,7 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
         if elapsed < timedelta(minutes=position.plan["hold_minutes"]) and not expiring:
             continue
         # Exit capacity is shared too. An oversized position waits instead of receiving a fictional full fill.
-        if capacity(conn, position.account, actual) < units:
+        if capacity(conn, position.account, actual, opening=False) < units:
             continue
         pnl = book.close_position(
             position,
@@ -410,7 +424,8 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
             reason=(f"Expiry approaching: sold with {left} days left; later executable quote" if expiring and
                     elapsed < timedelta(minutes=position.plan["hold_minutes"]) else
                     "Registered holding horizon reached; later executable quote"),
-            evidence={"quote_times": [to_iso(q.quoted_at) for q in actual if q.quoted_at], "capacity_estimated": True},
+            evidence={"quote_times": [to_iso(q.quoted_at) for q in actual if q.quoted_at], "capacity_estimated": not sized,
+                      "quoted_size": [q.bid_size for q in actual], "capacity_basis": capacity_basis(actual, False)},
         )
         consume(conn, position.account, actual, units)
         book.decide(
@@ -1001,7 +1016,9 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
         ],
         "pending": conn.execute("SELECT COUNT(*) FROM stk_pending WHERE state='PENDING'").fetchone()[0],
         "limits": {"trade_count": None, "position_count": None, "contract_quantity": None, "virtual_spending": None},
-        "execution_note": "Estimated depth: 0.1% of OI per quote timestamp, adverse impact and $0.65/contract/side. "
+        "execution_note": "Capacity per quote timestamp: the size displayed at the ask to buy or the bid to sell, capped "
+        "at 0.1% of open interest (that rule alone when no size is reported); no depth beyond the top of the book. "
+        "Adverse impact and $0.65/contract/side. "
         "Unfilled quantities receive no invented P/L. Only long calls, puts and straddles are supported. "
         "Lifecycle recipes buy weekly, 1-, 3-, 6-month and LEAPS options and value each position at real quotes "
         "after 1, 7, 14, 30, 60, 90, 120 and 180 days, selling at the horizon or before expiry. "

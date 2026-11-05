@@ -31,6 +31,12 @@ def _f(value: Any) -> float | None:
         return None
 
 
+def _size(value: Any) -> int | None:
+    """A displayed bid/ask size in contracts; missing or malformed stays missing (never zero)."""
+    n = _f(value)
+    return None if n is None else int(n)
+
+
 def _time(value: Any) -> datetime | None:
     n = _f(value)
     if n is None or n <= 0:
@@ -102,7 +108,8 @@ def parse_chain(body: bytes, symbol: str, expiration: date) -> list[OptionQuote]
                         out[occ] = OptionQuote(occ, symbol, kind, strike, exp, _f(row.get("bid")), _f(row.get("ask")),
                                                _f(row.get("last")), int(_f(row.get("totalVolume")) or 0),
                                                int(_f(row.get("openInterest")) or 0), None,
-                                               _time(row.get("quoteTimeInLong")))
+                                               _time(row.get("quoteTimeInLong")), _size(row.get("bidSize")),
+                                               _size(row.get("askSize")))
         return list(out.values())
     except (ValueError, TypeError, AttributeError) as exc:
         raise SchemaError("schwab chains: invalid expiration/strike map") from exc
@@ -262,7 +269,8 @@ def parse_option_quotes(body: bytes, wanted: set[str]) -> list[OptionTick]:
                                   None if _f(q.get("totalVolume")) is None else int(_f(q.get("totalVolume")) or 0),
                                   None if _f(q.get("openInterest")) is None else int(_f(q.get("openInterest")) or 0),
                                   iv, _signed(q.get("delta")), _signed(q.get("gamma")), _signed(q.get("theta")),
-                                  _signed(q.get("vega")), _f(q.get("underlyingPrice")), _time(q.get("quoteTime")))
+                                  _signed(q.get("vega")), _f(q.get("underlyingPrice")), _time(q.get("quoteTime")),
+                                  _size(q.get("bidSize")), _size(q.get("askSize")))
         return list(out.values())
     except (ValueError, TypeError, AttributeError) as exc:
         raise SchemaError("schwab option quotes: invalid quote map") from exc

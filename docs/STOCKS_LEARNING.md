@@ -98,11 +98,16 @@ the future, and have a usable two-sided spread. Long entries pay ask plus advers
 minus impact. Fees are $0.65 per contract per side. Long premium plus fees is fully cash-collateralized; virtual funding
 can provide that cash. Naked shorts, assignment/exercise financing and short-leg structures are not supported by this lab.
 
-There is no order-book depth feed. Capacity is **explicitly estimated** at 0.1% of open interest per contract quote timestamp
-(minimum one); usage is shared across all orders in each independent hypothetical book. Repeated snapshots with the same
-contract timestamp do not replenish capacity or repeatedly count cumulative daily volume. Orders can partially fill,
-and the remainder stays unfilled until a later quote or its 90-minute timeout. The GUI shows requested, filled and
-unfilled quantities. Unconstrained requested exposure is not represented as executable profit.
+**Capacity** per contract quote timestamp is the **size displayed at the side traded**: the ask size when buying, the
+bid size when selling, as Schwab reports it on chain rows and per-contract quotes. It is capped at 0.1% of open interest
+(minimum one), and that rule alone applies when a quote carries no size (another provider, or chain rows saved before
+sizes were kept). Usage is shared across all orders in each independent hypothetical book. Repeated snapshots with the
+same contract timestamp do not replenish capacity or repeatedly count cumulative daily volume. Orders can partially
+fill, and the remainder stays unfilled until a later quote or its 90-minute timeout; an exit waits until one quote shows
+enough size at the bid. The GUI shows requested, filled and unfilled quantities, and each fill and exit records the
+size it saw. The genuine limit is that there is **no depth beyond the top of the book**: the size behind the best bid
+and ask is unknown, so a fill never takes more than was displayed. Unconstrained requested exposure is not represented
+as executable profit.
 
 The holding horizon is elapsed clock time. Positions exit on the first later usable quote with sufficient modeled
 capacity, so actual holding can exceed the target. Missing, stale or too-wide quotes do not generate imaginary exits.
