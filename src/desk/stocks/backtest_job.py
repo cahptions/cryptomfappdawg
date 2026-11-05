@@ -14,8 +14,7 @@ from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
 from desk.core.worker_lock import WorkerLock
 from desk.stocks import options_history
-from desk.stocks.analysis import MIN_BARS
-from desk.stocks.backtest import VERSION, replay
+from desk.stocks.backtest import VERSION, WARMUP_SESSIONS, replay
 from desk.stocks.connection import _atomic_private
 from desk.stocks.evidence_job import EvidenceWorker, publish
 from desk.stocks.repo import MARKET_FILE, StocksMarket
@@ -75,8 +74,8 @@ class BacktestWorker(EvidenceWorker):
                 "lab": ",".join(sorted(s.id for s in lab_strategies(self.paths))),   # a new lab strategy replays too
                 "sessions": row[0],
                 "latest": date.fromordinal(row[1]).isoformat() if row[1] else None,
-                "warmup_sessions": MIN_BARS,
-                "eligible_sessions": max(0, row[0] - MIN_BARS),
+                "warmup_sessions": WARMUP_SESSIONS,
+                "eligible_sessions": max(0, row[0] - WARMUP_SESSIONS),
                 "earliest": date.fromordinal(row[2]).isoformat() if row[2] else None,
                 "rows": row[3] or 0,
                 "option_prices": option_prices,
@@ -115,7 +114,7 @@ class BacktestWorker(EvidenceWorker):
             if WorkerLock(self.paths, "stocks-evidence").held():
                 raise DeskError("Evidence evaluation is running. Finish or cancel it in Evidence first.")
             coverage = self.coverage()
-            needed = (sessions or 2) + MIN_BARS
+            needed = (sessions or 2) + WARMUP_SESSIONS
             if coverage["sessions"] < needed:
                 raise DeskError(
                     f"Replay needs {needed} stored sessions including warm-up; "

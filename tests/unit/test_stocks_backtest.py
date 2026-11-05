@@ -57,18 +57,33 @@ def test_replay_records_actual_simulated_positions_without_mutating_source_resea
 
 
 def test_all_history_begins_at_earliest_eligible_session_after_warmup(tmp_path, monkeypatch):
-    from desk.stocks.analysis import MIN_BARS
-    from desk.stocks.backtest import HistoricalMarket
+    from desk.stocks.backtest import WARMUP_SESSIONS, HistoricalMarket
 
     world = make_world(tmp_path, n=12)
-    selected = world.days[:MIN_BARS+8]
+    selected = world.days[:WARMUP_SESSIONS+8]
     monkeypatch.setattr(HistoricalMarket, "bar_days", lambda _: selected)
     try:
         result = replay(world.paths, load_config(REPO / "config").settings.stocks, 0)
         assert result["window"] == "all_available"
         assert result["requested_sessions"] == 8
-        assert result["first_day"] == selected[MIN_BARS].isoformat()
+        assert result["first_day"] == selected[WARMUP_SESSIONS].isoformat()
         assert result["last_day"] == selected[-1].isoformat()
+        assert result["warmup_sessions"] == 252 and any("252 earlier sessions" in x for x in result["limitations"])
+    finally:
+        world.close()
+
+
+def test_replay_and_its_automation_wait_for_a_full_year_of_warmup(tmp_path, monkeypatch):
+    from desk.stocks.backtest import WARMUP_SESSIONS, HistoricalMarket
+
+    world = make_world(tmp_path, n=12)
+    try:
+        coverage = BacktestWorker(world.paths).coverage()
+        assert coverage["warmup_sessions"] == 252 and coverage["eligible_sessions"] == len(world.days) - 252
+        short = world.days[:WARMUP_SESSIONS + 1]
+        monkeypatch.setattr(HistoricalMarket, "bar_days", lambda _: short)
+        with pytest.raises(DeskError, match="252 warm-up sessions"):
+            replay(world.paths, load_config(REPO / "config").settings.stocks, 0)
     finally:
         world.close()
 
@@ -206,7 +221,7 @@ def test_automatic_replay_can_start_before_63_sessions_and_retries_failed_inputs
     monkeypatch.setattr("desk.stocks.evidence_job.subprocess.Popen", spawn)
     try:
         worker = BacktestWorker(world.paths)
-        monkeypatch.setattr(worker,"coverage",lambda: {"sessions":65,"eligible_sessions":5,"warmup_sessions":60,
+        monkeypatch.setattr(worker,"coverage",lambda: {"sessions":257,"eligible_sessions":5,"warmup_sessions":252,
                                                        "latest":"2026-10-21","earliest":"2026-07-01","rows":1000})
         worker.maintain()
         assert spawn.call_count == 1

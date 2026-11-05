@@ -309,7 +309,7 @@ const KestrelPaper = (() => {
     limits.append(
       el(
         "p",
-        `${report.requested_sessions} simulated sessions · ${report.warmup_sessions || 60} earlier warm-up sessions · ${report.skipped_sessions?.length || 0} skipped. Saved daily snapshots and the complete replay trade ledger remain separate from forward PAPER.`,
+        `${report.requested_sessions} simulated sessions · ${report.warmup_sessions || 252} earlier warm-up sessions · ${report.skipped_sessions?.length || 0} skipped. Saved daily snapshots and the complete replay trade ledger remain separate from forward PAPER.`,
         "muted",
       ),
     );

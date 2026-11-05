@@ -25,7 +25,7 @@ from desk.core.paths import DeskPaths
 from desk.stats.core import max_drawdown
 from desk.stocks import calendar as cal
 from desk.stocks import option_model
-from desk.stocks.analysis import MIN_BARS, Analyzer, Day
+from desk.stocks.analysis import Analyzer, Day
 from desk.stocks.contracts import Bar, OptionQuote, Split
 from desk.stocks.desks import DEFAULT_WEIGHTS
 from desk.stocks.fundamentals import Fundamentals
@@ -43,6 +43,9 @@ from desk.stocks.validation import evaluation_window
 from desk.storage.db import DbKind, migrate
 
 VERSION = 5
+# Earlier sessions every replayed day needs: 12-month momentum, the 52-week high/low and the 200-day average read a
+# year of prices (desk.stocks.features), so a replay starting after the analysis' 60-bar floor would rank on partial ones.
+WARMUP_SESSIONS = 252
 SHORT_MIN_SETTLEMENTS = 24     # a year of FINRA's twice-monthly settlements
 SHORT_MAX_GAP_DAYS = 35        # at most one missed release between stored settlements
 SHORT_MIN_SHARE = 0.5          # a settlement holding under half the typical settlement's symbols is a partial backfill
@@ -286,10 +289,10 @@ def replay(
         days = [d for d in market.bar_days() if d >= start]
         requested = sessions
         if sessions == 0:
-            sessions = max(0, len(days) - MIN_BARS)
-        if sessions < 2 or len(days) < sessions + MIN_BARS:
+            sessions = max(0, len(days) - WARMUP_SESSIONS)
+        if sessions < 2 or len(days) < sessions + WARMUP_SESSIONS:
             raise DeskError(
-                f"Replay needs {sessions} sessions plus {MIN_BARS} warm-up sessions; {len(days)} are saved. "
+                f"Replay needs {max(sessions, 2)} sessions plus {WARMUP_SESSIONS} warm-up sessions; {len(days)} are saved. "
                 "Collection can continue automatically; see Settings for missing price access."
             )
         selected = days[-sessions:]
@@ -298,7 +301,7 @@ def replay(
         raw = load_panel(market, days[0], days[-1], adjust=False)
         if "SPY" not in raw.index:
             raise DeskError("SPY closing history is needed for the benchmark before replay can start")
-        if raw.day_index(selected[0]) < MIN_BARS:
+        if raw.day_index(selected[0]) < WARMUP_SESSIONS:
             raise DeskError("The selected replay window does not have enough earlier warm-up history")
         shorts = short_history(market, selected[0], selected[-1])
         replayed = {*option_model.REPLAYED, *(option_model.SHORT_REPLAYED if shorts["replayed"] else ())}
@@ -374,7 +377,7 @@ def replay(
             "record": "historical",
             "requested_sessions": sessions,
             "window": "all_available" if requested == 0 else "recent_sessions",
-            "warmup_sessions": MIN_BARS,
+            "warmup_sessions": WARMUP_SESSIONS,
             "days": [d.isoformat() for d in selected if not any(s["day"] == d.isoformat() for s in skipped)],
             "first_day": selected[0].isoformat(),
             "last_day": selected[-1].isoformat(),
@@ -415,6 +418,8 @@ def replay(
                 shorts["message"],
                 "Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints, read only through each "
                 "decision date as first stored. Crowd counts are excluded: they are collected going forward only.",
+                f"Every replayed day has at least {WARMUP_SESSIONS} earlier sessions of prices, so 12-month momentum, "
+                "the 52-week high and low and the 200-day average are complete from the first replayed day.",
                 "Signals use only data through each decision date. Fills occur at the next available open with the "
                 "existing stock spread/slippage/fee model and prior-session liquidity.",
                 "Open positions at the end remain marked, not fictitiously closed. Each strategy has its own capital.",
