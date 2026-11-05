@@ -1342,8 +1342,9 @@ def exit_rule_for(rule: Mapping[str, Any], play: Mapping[str, Any]) -> tuple[Map
 
 
 def record(research: StocksResearch, session: date, categories: dict[str, list[dict[str, Any]]], now: datetime,
-           m: str | None = None) -> list[str]:
-    """Append each category's plays for a closed session once (an empty category too). Returns the categories added."""
+           m: str | None = None, *, keep: Sequence[str] | None = None) -> list[str]:
+    """Append each category's plays for a closed session once (an empty category too). Returns the categories added.
+    ``keep`` limits the stored play to those fields (the table's own columns are always stored)."""
     added = []
     m = m or method()
     for category, plays in categories.items():
@@ -1361,7 +1362,8 @@ def record(research: StocksResearch, session: date, categories: dict[str, list[d
                   day_of(date.fromisoformat(p["expiration"])), p["event"], p["event_kind"], p["event_strike"],
                   p["event_width"], p["entry"], p["max_loss"], canonical_json(p["legs"]), p["underlying_price"],
                   p["itm_market"], p["itm_history"], p["itm_kestrel"], p["itm_kestrel_raw"], p["profit_kestrel"],
-                  canonical_json(p), m, to_iso(now)) for p in plays])
+                  canonical_json(p if keep is None else {k: p[k] for k in keep if k in p}), m, to_iso(now))
+                 for p in plays])
             added.append(category)
     return added
 
@@ -1594,28 +1596,37 @@ def _expiry_grades(market: StocksMarket, p: sqlite3.Row, play: Mapping[str, Any]
     return out
 
 
+GRADE_WINDOW = timedelta(days=45)   # a chance still undecided this long after it could be decided never will be
+
+
 def grade_events(market: StocksMarket, research: StocksResearch, now: datetime) -> int:
     """Grade every shown chance that has become decidable, once (append-only), for calibration and Performance: the
     exit plan's take-profit on quoted closing marks and settlements only, the expiry chances on the graded return and
-    the stock's stored daily highs and lows. Makes no provider request."""
+    the stock's stored daily highs and lows. Makes no provider request. Each build reads only plays that can still
+    be decided (outcomes from the last 45 days; take-profits of daily-marked plays expiring within it), so its cost
+    does not grow with the history; the first run after the grades table appears reads everything once."""
     conn = research.conn
     done = {(r[0], r[1], r[2], r[3]) for r in conn.execute("SELECT session, category, rank, event FROM stk_play_grades")}
+    first = not done
+    resolved_since = "" if first else to_iso(now - GRADE_WINDOW)
+    expiring_since = 0 if first else day_of(now.date() - GRADE_WINDOW)
     rows: list[tuple[Any, ...]] = []
     for p in conn.execute("SELECT p.session, p.category, p.rank, p.symbol, p.expiration, p.event, p.event_kind, "
-                          "p.event_strike, p.event_width, p.max_loss, p.play_json, o.net_return FROM stk_plays p "
-                          "JOIN stk_play_outcomes o USING (session, category, rank) WHERE NOT EXISTS (SELECT 1 FROM "
-                          "stk_play_grades g WHERE g.session = p.session AND g.category = p.category AND g.rank = p.rank"
-                          " AND g.event = 'profit') OR (json_extract(p.play_json, '$.touch_kestrel') IS NOT NULL AND "
-                          "NOT EXISTS (SELECT 1 FROM stk_play_grades g WHERE g.session = p.session AND g.category = "
-                          "p.category AND g.rank = p.rank AND g.event = 'touch'))"):
+                          "p.event_strike, p.event_width, p.max_loss, p.play_json, o.net_return FROM "
+                          "stk_play_outcomes o JOIN stk_plays p USING (session, category, rank) WHERE o.resolved_at >= ?"
+                          " AND (NOT EXISTS (SELECT 1 FROM stk_play_grades g WHERE g.session = p.session AND "
+                          "g.category = p.category AND g.rank = p.rank AND g.event = 'profit') OR (NOT EXISTS (SELECT 1 "
+                          "FROM stk_play_grades g WHERE g.session = p.session AND g.category = p.category AND g.rank = "
+                          "p.rank AND g.event = 'touch') AND json_extract(p.play_json, '$.touch_kestrel') IS NOT NULL))",
+                          (resolved_since,)):
         play = json.loads(p["play_json"])
         for event, shown, raw, hit in _expiry_grades(market, p, play, done):
             rows.append((p["session"], p["category"], p["rank"], event, shown, raw, int(play.get("odds_version") or 1),
                          "hit" if hit else "miss", int(hit), p["expiration"] - p["session"], to_iso(now)))
-    for p in conn.execute("SELECT session, category, rank, expiration, play_json FROM stk_plays p WHERE "
-                          "json_extract(play_json, '$.exit_plan.odds.take_profit') IS NOT NULL AND NOT EXISTS (SELECT 1 "
-                          "FROM stk_play_grades g WHERE g.session = p.session AND g.category = p.category AND g.rank = "
-                          "p.rank AND g.event = 'take_profit')"):
+    for p in conn.execute("SELECT session, category, rank, expiration, play_json FROM stk_plays p WHERE expiration >= ? "
+                          "AND instr(category, '@') = 0 AND NOT EXISTS (SELECT 1 FROM stk_play_grades g WHERE g.session "
+                          "= p.session AND g.category = p.category AND g.rank = p.rank AND g.event = 'take_profit') AND "
+                          "json_extract(play_json, '$.exit_plan.odds.take_profit') IS NOT NULL", (expiring_since,)):
         key = (p["session"], p["category"], p["rank"])
         marks = conn.execute("SELECT day, status, pnl_pct FROM stk_play_marks WHERE session = ? AND category = ? AND "
                              "rank = ? AND twin = 0 ORDER BY day", key).fetchall()
@@ -1843,6 +1854,10 @@ def horizon_plays(category: str, tables: list[Table], ctx: Context, promoted: st
 
 
 HORIZON_MARK = "@"                  # a horizon cohort's category: "<section>@<band>"
+# what a horizon cohort pick keeps beyond the table's columns: what grading its expiry chances reads (several hundred
+# picks a session, so the shown-only parts, the exit plan, confidence and reasons, are not stored a second time)
+HORIZON_KEPT = ("category", "horizon", "event", "profit_kestrel", "touch_kestrel", "probability_targets", "calibrated",
+                "max_gain", "odds_version", "forecast")
 
 
 def horizon_method(m: str) -> str:
@@ -1956,7 +1971,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
             entry["followups"] = followups(ctx.flagged, tables, research)
         out_categories.append(entry)
     added = record(research, session, recorded, now, m) if closed else []
-    horizon_added = record(research, session, by_horizon, now, horizon_method(m)) if closed else []
+    horizon_added = record(research, session, by_horizon, now, horizon_method(m), keep=HORIZON_KEPT) if closed else []
     twins = record_twins(research, session, {c: recorded[c] for c in added}, tables, now) if added else 0
     shadows = lrn.record_shadow(research.conn, session, shadow, now) if added and shadow else 0
     cal_itm = ctx.calibration["itm"]

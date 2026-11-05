@@ -24,6 +24,8 @@ for them the filter only narrows. Expiry-band plays open like any play and are s
 History, once opened. Separately, at the closing build each band's picks are recorded as **their own cohort**
 (category `<section>@<band>`, under their own rule version) and graded at expiry on the stock's close, which needs no
 provider request; they are not tracked intraday or marked daily (so they have no take-profit grade or random twin).
+Each keeps only what its grades read (about 1 KB rather than the 4–5 KB of a full play), since a session records
+several hundred.
 With a band chosen, a section shows that band's own track record, and Performance lists every band's results under
 "Expiry filter picks". They never count in a section's usual record.
 
@@ -277,7 +279,9 @@ calibration:
 | In the money (KESTREL, market and history) | the stock's close at expiry |
 
 Performance charts each against what happened, in tenths, with its Brier score; the expiry event shows KESTREL,
-the market and the stock's history as three lines. **Confidence**'s odds check reads the calibrated profit chance.
+the market and the stock's history as three lines. **Confidence**'s odds check reads the calibrated profit chance. Each
+build reads only what can still be decided (outcomes from the last 45 days, take-profits of plays expiring within
+them; the first run reads everything once), so grading does not slow down as the history grows.
 
 ## The categories
 

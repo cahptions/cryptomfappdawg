@@ -78,12 +78,12 @@ def insiders(market: StocksMarket, asof: date, *, days: int = 90) -> dict[str, d
 
 # ── filings, earnings and events ─────────────────────────────────────────────────────────────────
 def _session_after(accepted: datetime | None, filed: date) -> date:
-    """The first session whose close reflects a filing: the filing day if accepted before 16:00 New York, else the
-    next trading day."""
+    """The first session whose close reflects a filing: the filing day if accepted before that day's close in New York
+    (4:00 PM, or 1:00 PM on an early close), else the next trading day."""
     if accepted is not None:
         local = cal.new_york(accepted)
         d = local.date()
-        if cal.is_trading_day(d) and local.hour < 16:
+        if cal.is_trading_day(d) and local.time() < cal.close_time(d):
             return d
         return cal.next_trading_day(d)
     return filed if cal.is_trading_day(filed) else cal.next_trading_day(filed)

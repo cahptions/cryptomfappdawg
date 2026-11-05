@@ -218,7 +218,7 @@ class StocksSection(_Section):
     min_price_usd: Decimal = Decimal("1")                       # the research universe: listed common stock and ADRs
     min_median_dollar_volume_usd: Decimal = Decimal("1000000")  # ... trading at least this much a day (median of 20)
     options_focus_symbols: int = Field(default=150, ge=0, le=1000)   # chains collected daily for this many names
-    refresh_after_close_minutes: int = Field(default=75, ge=15)      # daily refresh this long after the 16:00 close
+    refresh_after_close_minutes: int = Field(default=75, ge=15)      # daily refresh this long after the close
     # PAPER (operator request 2026-10-21: paper trade stocks and options to test and refine strategies)
     paper_starting_capital_usd: Decimal = Decimal("10000")
     # options accounts get more paper capital so 2% of it buys one contract of most liquid names (results are compared

@@ -133,7 +133,7 @@ def test_thirty_graded_plans_calibrate_the_headline_chance_and_the_card_quotes_t
 
 
 def _expired(conn: sqlite3.Connection, session: date, rank: int, net: float, *, touch: float | None = 0.6,
-             profit: float = 0.55) -> date:
+             profit: float = 0.55, resolved: str = "x") -> date:
     expiration = cal.trading_days(session + timedelta(days=1), session + timedelta(days=12))[5]
     play = {"odds_version": od.MODEL_VERSION, "event": "itm", "touch_kestrel": touch, "max_gain": 300.0,
             "itm_history": 0.35,
@@ -146,8 +146,8 @@ def _expired(conn: sqlite3.Connection, session: date, rank: int, net: float, *, 
         " itm_kestrel_raw, profit_kestrel, play_json, method, recorded_at) VALUES (?, 'debit_spreads', ?, 'AAA', 'BUY',"
         " 'bull_call_debit', ?, 'itm', 'call', 110, 0, 2, 201.3, '[]', 100, 0.4, 0.35, 0.45, 0.45, 0.5, ?, 'm', 'x')",
         (day_of(session), rank, day_of(expiration), json.dumps(play)))
-    conn.execute("INSERT INTO stk_play_outcomes VALUES (?, 'debit_spreads', ?, 'x', 112, ?, 0, ?)",
-                 (day_of(session), rank, int(net > 0), net))
+    conn.execute("INSERT INTO stk_play_outcomes VALUES (?, 'debit_spreads', ?, ?, 112, ?, 0, ?)",
+                 (day_of(session), rank, resolved, int(net > 0), net))
     return expiration
 
 
@@ -238,3 +238,39 @@ def test_a_play_is_judged_by_its_sections_record_at_its_own_expiry(dbs: Any) -> 
     assert pl.exit_rule_for(older, {"dte": 45})[0] is older
     assert pl.exit_rule_for(older, {"dte": 45, "discovery": "horizon"})[0] is None
     assert pl.exit_rule_for({"suggested": False}, {"dte": 400}) == ({"suggested": False}, None)
+
+
+def test_each_build_reads_only_plays_that_can_still_be_decided(dbs: Any) -> None:
+    """After the first run, grading reads outcomes from the last 45 days and take-profits of daily-marked plays
+    expiring within them, so its cost does not grow with the history. Expiry filter picks are never marked."""
+    conn = dbs.research
+    market = StocksMarket(dbs.market)
+    old = cal.trading_days(START, START + timedelta(days=10))[0]
+    _record(conn, old, 1, 0.42, 0.40)
+    _marks(conn, old, 1, [(0.0, "quoted"), (0.2, "quoted"), (0.6, "quoted")])
+    assert pl.grade_events(market, StocksResearch(conn), NOW) == 1           # the first run reads everything
+    _record(conn, old, 2, 0.42, 0.40)                                        # expired months ago: no longer read
+    _marks(conn, old, 2, [(0.0, "quoted"), (0.6, "quoted")])
+    _expired(conn, old, 3, 0.2, resolved=(NOW - timedelta(days=60)).isoformat())   # resolved two months ago
+    assert pl.grade_events(market, StocksResearch(conn), NOW) == 0
+    recent = cal.trading_days(NOW.date() - timedelta(days=30), NOW.date())[0]
+    _record(conn, recent, 4, 0.42, 0.40)
+    _marks(conn, recent, 4, [(0.0, "quoted"), (0.6, "quoted")])
+    _record(conn, recent, 5, 0.42, 0.40, category="edge@month")                 # an Expiry filter pick
+    _marks(conn, recent, 5, [(0.0, "quoted"), (0.6, "quoted")], category="edge@month")
+    assert pl.grade_events(market, StocksResearch(conn), NOW) == 1
+    assert {r[0] for r in conn.execute("SELECT rank FROM stk_play_grades")} == {1, 4}
+
+
+def test_expiry_filter_picks_store_what_their_grades_need(dbs: Any) -> None:
+    research = StocksResearch(dbs.research)
+    pick = {"rank": 1, "symbol": "AAA", "action": "BUY", "structure": "long_call", "expiration": "2025-04-17",
+            "event": "itm", "event_kind": "call", "event_strike": 110.0, "event_width": 0.0, "entry": 2.0,
+            "max_loss": 201.3, "legs": [], "underlying_price": 100.0, "itm_market": 0.4, "itm_history": 0.35,
+            "itm_kestrel": 0.45, "itm_kestrel_raw": 0.45, "profit_kestrel": 0.5, "touch_kestrel": 0.6,
+            "probability_targets": {"returns": {"0": 0.55}}, "odds_version": od.MODEL_VERSION, "horizon": "month",
+            "exit_plan": {"odds": {"take_profit": 0.4}}, "confidence": {"score": 70}, "reasons": ["a" * 500]}
+    pl.record(research, START, {"edge@month": [pick]}, NOW, "m", keep=pl.HORIZON_KEPT)
+    stored = json.loads(dbs.research.execute("SELECT play_json FROM stk_plays").fetchone()[0])
+    assert pl.raw_chances(stored) == pl.raw_chances(pick) == {"profit": 0.55, "touch": 0.6}
+    assert "exit_plan" not in stored and "reasons" not in stored and stored["horizon"] == "month"

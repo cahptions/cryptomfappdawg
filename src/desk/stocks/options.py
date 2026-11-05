@@ -1,4 +1,5 @@
-"""Options analytics, computed by the desk itself from bid/ask (the free sources have no greeks).
+"""Options analytics, computed by the desk itself from bid/ask, so every source is valued the same way (Schwab's own
+IV and greeks are stored and shown alongside where Schwab supplies them).
 
 Black-Scholes-Merton with a continuous dividend yield; implied volatility solved from the mid price. "Chance of
 profit" is the probability the option market's own volatility implies (risk-neutral, lognormal): what prices imply,
@@ -29,7 +30,7 @@ def norm_pdf(x: float) -> float:
 
 
 def year_fraction(today: date, expiration: date) -> float:
-    """Calendar time to the 16:00 expiry, with a floor of a quarter day so expiry-day options stay defined."""
+    """Calendar time to the expiry close, with a floor of a quarter day so expiry-day options stay defined."""
     return max((expiration - today).days, 0.25) / YEAR_DAYS
 
 

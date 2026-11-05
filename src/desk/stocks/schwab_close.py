@@ -1,6 +1,6 @@
-"""The same-evening close from Schwab: five minutes after the 16:00 New York close, every stored stock's regular-session
-open, high, low, close and volume, in batches of 100, so the day's research runs that evening instead of waiting for
-the free bulk feed's next-morning publication.
+"""The same-evening close from Schwab: five minutes after the New York close (4:00 PM, or 1:00 PM on an early close),
+every stored stock's regular-session open, high, low, close and volume, in batches of 100, so the day's research runs
+that evening instead of waiting for the free bulk feed's next-morning publication.
 
 Massive stays the history source and the fallback (Schwab signed out, a thin answer). When Massive publishes the same
 day, its closes are compared with Schwab's. Stored bars are never rewritten, and if Schwab's closes disagree too often
@@ -22,7 +22,7 @@ from desk.stocks.universe import stored_symbols
 
 JOB = "schwab_close"
 SOURCE = "schwab_close"
-WAIT = timedelta(minutes=5)            # after the 16:00 close, for closing prints to settle
+WAIT = timedelta(minutes=5)            # after the close, for closing prints to settle
 WINDOW = timedelta(hours=4)            # until extended hours end; later, the next morning's Massive file is used
 RETRY = timedelta(minutes=15)
 BATCH = 100

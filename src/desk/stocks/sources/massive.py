@@ -32,7 +32,7 @@ SENTIMENTS = {"positive", "negative", "neutral"}
 
 
 def _market_day(epoch_ms: int) -> date:
-    """A grouped daily bar is stamped at the 16:00 New York close (20:00 or 21:00 UTC; documented example
+    """A grouped daily bar is stamped at the New York close (20:00 or 21:00 UTC on a full day; documented example
     1602705600000 = 2020-10-14 20:00 UTC), so its UTC date is the trading day."""
     return datetime.fromtimestamp(epoch_ms / 1000, UTC).date()
 

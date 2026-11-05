@@ -72,3 +72,14 @@ def test_a_half_days_closing_quote_is_its_one_oclock_quote(tmp_path: Path) -> No
     packed = dbs.research.execute("SELECT points FROM stk_track_intraday WHERE occ = ?", (occs[0],)).fetchone()
     assert packed is not None and packed[0] == 1
     dbs.close()
+
+
+def test_a_filing_after_a_half_days_close_counts_from_the_next_session() -> None:
+    from desk.stocks import signals
+
+    half, full = date(2026, 11, 27), date(2026, 11, 25)
+    ny = lambda d, h, m: datetime.combine(d, time(h, m), cal.NEW_YORK)  # noqa: E731
+    assert signals._session_after(ny(half, 12, 59), half) == half
+    assert signals._session_after(ny(half, 14, 0), half) == cal.next_trading_day(half)      # after the 1:00 PM close
+    assert signals._session_after(ny(full, 14, 0), full) == full                            # a full day: still open
+    assert signals._session_after(ny(full, 16, 0), full) == cal.next_trading_day(full)
