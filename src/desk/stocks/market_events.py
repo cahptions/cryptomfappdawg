@@ -19,7 +19,7 @@ import warnings
 from bisect import bisect_right
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import numpy as np
@@ -43,8 +43,15 @@ RECORD_HISTORY = 250        # returns needed before a move can be called the lar
 RUN_SESSIONS = 5
 MOST_TRADED = 100           # single stocks: only the most traded US stocks (median dollar volume, prior 20 sessions)
 BASKET_COVERAGE = 0.6       # a basket's day counts when this share of its members traded
-HEADLINE_DAYS = 30
-HEADLINES_PER_PASS = 2
+HEADLINE_DAYS = 30          # the per-stock Massive call, for a recent stock move the stored news does not cover
+HEADLINES_PER_PASS = 2      # such calls a pass, inside Massive's shared 5 a minute
+STORED_PER_PASS = 300       # events given headlines from the stored news a pass (database reads only)
+BROAD = ("SPY", "QQQ", "DIA", "IWM")
+# A sector ETF's members, by the Fama-French sector of their SIC code (desk.stocks.sectors) or by SIC code
+GROUP_SECTORS: dict[str, tuple[str, ...]] = {"XLK": ("BusEq",), "XLF": ("Money",), "XLV": ("Hlth",), "XLE": ("Enrgy",),
+                                             "XLI": ("Manuf",), "XLY": ("Durbl", "Shops"), "XLP": ("NoDur",),
+                                             "XLU": ("Utils",), "XLB": ("Chems",), "XLC": ("Telcm",)}
+GROUP_SICS = {"XLRE": ("6798",), "SMH": ("3674",)}
 SPLIT_WAIT = timedelta(days=2)
 
 INDEXES = {"SPY": "S&P 500", "QQQ": "Nasdaq 100", "IWM": "Russell 2000", "DIA": "Dow Jones"}
@@ -747,12 +754,97 @@ def save_headlines(research: sqlite3.Connection, day: date, subject: str, items:
              json.dumps(keep) if keep is not None else None, error))
 
 
-async def fetch_headlines(massive: Any, research: sqlite3.Connection, now: datetime) -> dict[str, Any]:
+def news_span(market: sqlite3.Connection) -> tuple[datetime, datetime] | None:
+    """The stretch of time the stored company news covers (desk.stocks.news_flow keeps it unbroken)."""
+    try:
+        first, last = market.execute("SELECT MIN(published_at), MAX(published_at) FROM stk_news").fetchone()
+    except sqlite3.OperationalError:          # a database from before news collection
+        return None
+    return None if first is None else (datetime.fromisoformat(first), datetime.fromisoformat(last))
+
+
+def _matching(market: sqlite3.Connection, subject: str) -> tuple[set[str], set[str], int]:
+    """What makes a stored article about ``subject``: (tickers that do on their own, member stocks, how many members
+    it must name). A stock: articles naming it. An index, a broad market day or a rates day: articles tagged with the
+    broad market ETFs. A sector or theme: its ETF, or articles naming at least two of its stocks."""
+    if subject in INDEXES:
+        return {subject, "SPY", "QQQ"}, set(), 0
+    if subject in ("market", "VIX", *RATE_SERIES):
+        return set(BROAD), set(), 0
+    basket = next((b for b in BASKETS if b.id == subject), None)
+    if basket is not None:
+        return set(), set(basket.members), 2
+    if subject in GROUP_SECTORS or subject in GROUP_SICS:
+        column, values = ("c.sector", GROUP_SECTORS[subject]) if subject in GROUP_SECTORS else ("c.sic", GROUP_SICS[subject])
+        rows = market.execute(f"SELECT l.symbol FROM stk_listings l JOIN stk_companies c ON c.cik = l.cik "  # noqa: S608
+                              f"WHERE l.active = 1 AND l.etf = 0 AND {column} IN ({','.join('?' * len(values))})",
+                              values).fetchall()
+        return {subject}, {r[0] for r in rows}, 2
+    return {subject}, set(), 0                # a stock, or bonds and gold: the symbol itself
+
+
+def stored_headlines(market: sqlite3.Connection, subject: str, day: date, limit: int = 5) -> list[dict[str, Any]]:
+    """Up to ``limit`` stored articles about ``subject`` published in the event's window: the ones that name it (or its
+    ETF) first, then those naming more of its members, then those naming fewer other stocks, newest first."""
+    direct, members, need = _matching(market, subject)
+    tickers = sorted(direct | members)
+    if not tickers:
+        return []
+    start, end = (t.astimezone(UTC).isoformat() for t in headline_window(day))
+    found: dict[str, dict[str, Any]] = {}
+    for chunk in range(0, len(tickers), 500):
+        part = tickers[chunk:chunk + 500]
+        sql = ("SELECT n.id, n.title, n.url, n.source, n.published_at, t.symbol, (SELECT COUNT(*) FROM "  # noqa: S608
+               "stk_news_tickers a WHERE a.news_id = n.id) FROM stk_news n JOIN stk_news_tickers t ON t.news_id = n.id "
+               f"WHERE n.published_at BETWEEN ? AND ? AND t.symbol IN ({','.join('?' * len(part))})")
+        for r in market.execute(sql, (start, end, *part)):
+            item = found.setdefault(r[0], {"title": r[1], "url": r[2], "source": r[3], "published": r[4],
+                                           "direct": False, "named": 0, "tickers": r[6]})
+            item["direct"] |= r[5] in direct
+            item["named"] += r[5] in members
+    picked = [a for a in found.values() if a["direct"] or (need and a["named"] >= need)]
+    picked.sort(key=lambda a: (not a["direct"], -a["named"], a["tickers"], a["published"]))
+    picked = sorted(picked[:limit], key=lambda a: a["published"], reverse=True) if picked else []
+    return [{k: a[k] for k in ("title", "url", "source", "published")} for a in picked]
+
+
+def stored_due(research: sqlite3.Connection, span: tuple[datetime, datetime],
+               limit: int = STORED_PER_PASS) -> list[tuple[date, str]]:
+    """Logged days without headlines whose whole window lies inside the stored news, newest first."""
+    first, last = span
+    rows = research.execute(
+        "SELECT DISTINCT e.day, e.subject FROM stk_market_events e LEFT JOIN stk_market_event_news n "
+        "ON n.day = e.day AND n.subject = e.subject WHERE e.spec_sha256 = ? AND e.day BETWEEN ? AND ? "
+        "AND n.items_json IS NULL ORDER BY e.day DESC, e.subject LIMIT ?",
+        (SPEC_SHA256, day_of(cal.new_york(first).date()), day_of(cal.new_york(last).date()), limit)).fetchall()
+    out = []
+    for r in rows:
+        day = date_of(r[0])
+        start, end = headline_window(day)
+        if first <= start and end <= last:
+            out.append((day, r[1]))
+    return out
+
+
+async def fetch_headlines(massive: Any, research: sqlite3.Connection, now: datetime, *,
+                          market: sqlite3.Connection | None = None) -> dict[str, Any]:
+    """Headlines for logged days, read from the stored company news wherever it covers the day's window: every kind
+    of event (index, sector, theme, rates and stock days) and any age, at no request cost. Only a recent single-stock
+    move whose window the stored news cannot cover (older than it, or news collection is behind by more than a day)
+    falls back to Massive's per-stock call, two a pass."""
     fetched, errors = 0, []
+    span = news_span(market) if market is not None else None
+    stored = 0
+    if market is not None and span is not None:
+        for day, subject in stored_due(research, span):
+            save_headlines(research, day, subject, stored_headlines(market, subject, day), now)
+            stored += 1
     if not getattr(massive, "configured", False):
-        return {"headlines": 0}
+        return {"headlines": 0, "stored_headlines": stored}
     for day, subject in headlines_due(research, now):
         start, end = headline_window(day)
+        if span is not None and span[0] <= start and (end <= span[1] or now < end + timedelta(days=1)):
+            continue                          # stored news covers it, or will once the window has closed
         try:
             items = await massive.news(subject, limit=5, published_after=start, published_before=end)
         except DeskError as exc:
@@ -761,7 +853,7 @@ async def fetch_headlines(massive: Any, research: sqlite3.Connection, now: datet
             continue
         save_headlines(research, day, subject, items, now)
         fetched += 1
-    return {"headlines": fetched, **({"headline_errors": errors} if errors else {})}
+    return {"headlines": fetched, "stored_headlines": stored, **({"headline_errors": errors} if errors else {})}
 
 
 async def job(suite: Any, market: StocksMarket, research: sqlite3.Connection, now: datetime, *,
@@ -771,7 +863,7 @@ async def job(suite: Any, market: StocksMarket, research: sqlite3.Connection, no
 
     async def work() -> dict[str, Any]:
         report = scan(market, research, now, guard=guard)
-        return report | await fetch_headlines(suite.massive, research, now)
+        return report | await fetch_headlines(suite.massive, research, now, market=market.conn)
     return await _job(market, "market_events", now, work)
 
 

@@ -312,7 +312,7 @@ const KestrelEvents = (() => {
       el(
         "p",
         "Each session is judged once, from data through its own close. The rules below decide everything; " +
-          "headlines are fetched afterwards for big single-stock moves and never decide what is logged.",
+          "headlines are added afterwards from the stored news (and, for a recent stock move it does not cover, one Massive request) and never decide what is logged.",
         "muted",
       ),
       rules,
