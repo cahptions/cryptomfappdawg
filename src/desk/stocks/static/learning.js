@@ -2,7 +2,8 @@
 const KestrelLearning = (() => {
   let account = "uncapped_research",
     view = "open",
-    offset = 0;
+    offset = 0,
+    registered = ""; // the last recipe registration's outcome, kept across the redraw it causes
   // Sign after rounding to cents, so a tiny negative remainder never reads "−$0.00".
   const signed = (value) => {
     const cents = Math.round(value * 100) / 100;
@@ -921,42 +922,50 @@ const KestrelLearning = (() => {
         content.append(
           el(
             "p",
-            "Seed experiments run automatically. Optionally register another size or holding-period hypothesis; the reference account never restricts research capital.",
+            `The 15 seed recipes run automatically. Register another recipe to test a different holding time: pick a structure, an expiry and how long to hold. Every recipe buys the 0.5-delta strike, ${money(data.lifecycle_debit ?? 5000)} an entry (at least one contract), values the position at real quotes as it ages, and sells at the holding time or when expiry gets close, whichever comes first.`,
             "muted",
           ),
         );
-        const form = el("form", undefined, "evidence-actions"),
+        const buckets = data.buckets || [],
+          form = el("form", undefined, "evidence-actions"),
           structure = el("select"),
-          budget = el("input"),
+          bucket = el("select"),
           hold = el("input"),
-          cadence = el("input"),
-          submit = el("button", "Register experiment", "primary"),
-          result = el("p", "", "muted");
+          limit = el("small", "", "caption muted"),
+          submit = el("button", "Register recipe", "primary"),
+          result = el("p", registered, "muted");
+        registered = "";
         structure.setAttribute("aria-label", "Experiment structure");
         for (const s of ["long_call", "long_put", "long_straddle"]) {
           const o = el("option", s.replaceAll("_", " "));
           o.value = s;
           structure.append(o);
         }
-        budget.type = "number";
-        budget.min = "0.01";
-        budget.step = "any";
-        budget.value = "1000000";
-        budget.setAttribute("aria-label", "Target virtual debit");
+        bucket.setAttribute("aria-label", "Expiry");
+        for (const b of buckets) {
+          const o = el("option", `${b.title} (${b.dte[0]}–${b.dte[1]} days)`);
+          o.value = b.id;
+          bucket.append(o);
+        }
         hold.type = "number";
-        hold.min = "1";
-        hold.value = "60";
-        hold.setAttribute("aria-label", "Holding minutes");
-        cadence.type = "number";
-        cadence.min = "0";
-        cadence.value = "30";
-        cadence.setAttribute("aria-label", "Minutes between entries");
+        hold.step = "1";
+        hold.setAttribute("aria-label", "Holding days");
+        // Each expiry has its own longest hold: it is sold when a few days remain before expiry.
+        const fit = () => {
+          const b = buckets.find((x) => x.id === bucket.value);
+          if (!b) return;
+          hold.min = "1";
+          hold.max = String(b.longest_hold);
+          hold.value = String(b.hold_days);
+          limit.textContent = `1 to ${b.longest_hold} days; sold when ${b.exit_days_left} day${b.exit_days_left > 1 ? "s" : ""} remain. Seed recipe: ${b.hold_days} days.`;
+        };
+        bucket.onchange = fit;
+        fit();
         submit.type = "submit";
         for (const [label, field] of [
           ["Structure", structure],
-          ["Target virtual debit ($)", budget],
-          ["Holding minutes", hold],
-          ["Minutes between entries (0 = every new eligible quote)", cadence],
+          ["Expiry", bucket],
+          ["Hold up to (days)", hold],
         ]) {
           const wrapper = el("label", label);
           wrapper.append(field);
@@ -967,12 +976,14 @@ const KestrelLearning = (() => {
           e.preventDefault();
           submit.disabled = true;
           try {
-            await api("learning/experiments", {
+            const out = await api("learning/experiments", {
               structure: structure.value,
-              budget: +budget.value,
-              hold_minutes: +hold.value,
-              repeat_minutes: +cadence.value,
+              bucket: bucket.value,
+              hold_days: +hold.value,
             });
+            registered = out.registered
+              ? "Registered. The new recipe starts buying on the next fresh quotes."
+              : "That recipe is already registered; nothing was added.";
             data = await api("learning");
             draw();
           } catch (error) {
@@ -980,7 +991,7 @@ const KestrelLearning = (() => {
             submit.disabled = false;
           }
         };
-        content.append(form, result);
+        content.append(form, limit, result);
         // Current recipes first; the minute-hold seeds retired on Oct 31 stay folded away with their record.
         const grid = el("div", undefined, "paper-trade-grid"),
           old = el("div", undefined, "paper-trade-grid"),

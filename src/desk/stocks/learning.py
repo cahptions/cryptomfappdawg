@@ -38,7 +38,7 @@ STRUCTURES = ("long_call", "long_put", "long_straddle")
 BUCKETS = {"weekly": ("Weekly", (5, 12), 7, 1), "1m": ("About 1 month", (21, 45), 30, 3),
            "3m": ("About 3 months", (60, 120), 90, 14), "6m": ("About 6 months", (150, 240), 120, 30),
            "leaps": ("LEAPS (9+ months)", (270, 800), 180, 60)}
-CHECKPOINTS = (1, 7, 14, 30, 60, 90, 120, 180)      # calendar days after entry
+CHECKPOINTS = (1, 7, 14, 30, 60, 90, 120, 180, 270, 365)   # calendar days after entry (270/365: long LEAPS holds)
 LIFECYCLE_DEBIT = 5_000.0
 LIFECYCLE_CADENCE_DAYS = 7                            # a recipe re-enters the same stock at most once a week
 LIFECYCLE_DAILY_ENTRIES = 2                           # per recipe per day: evidence from many days, not one burst
@@ -114,16 +114,32 @@ def add_experiment(
     return ident
 
 
-def add_lifecycle(conn: sqlite3.Connection, now: datetime, structure: str, bucket: str) -> str:
+def longest_hold(bucket: str) -> int:
+    """The longest holding time a bucket's position can reach: its latest expiry less the days left when it is sold."""
+    _title, (_lo, hi), _hold, days_left = BUCKETS[bucket]
+    return hi - days_left
+
+
+def add_lifecycle(conn: sqlite3.Connection, now: datetime, structure: str, bucket: str, hold_days: int | None = None
+                  ) -> str:
     """One recipe: ``structure`` at the 0.5-delta strike in ``bucket``'s expiries, $5,000 an entry, valued at every
-    checkpoint it lives to and sold at its horizon or before expiry, whichever comes first."""
-    title, (lo, hi), hold_days, days_left = BUCKETS[bucket]
+    checkpoint it lives to and sold at ``hold_days`` (the bucket's own horizon unless another is chosen on the Learning
+    page) or when expiry gets close, whichever comes first. The same choices always make the same recipe, so choosing a
+    seed's own horizon adds nothing."""
+    if structure not in STRUCTURES or bucket not in BUCKETS:
+        raise DeskError("Choose a long call, long put or long straddle and one of the expiry buckets")
+    title, (lo, hi), seed_days, days_left = BUCKETS[bucket]
+    hold_days = seed_days if hold_days is None else hold_days
+    if not 1 <= hold_days <= longest_hold(bucket):
+        raise DeskError(f"{title} options can be held from 1 to {longest_hold(bucket)} days: they are sold when "
+                        f"{days_left} day{'s' if days_left > 1 else ''} remain before expiry")
     spec = {"version": 3, "kind": "lifecycle", "structure": structure, "bucket": bucket,
             "label": f"{title}, held up to {hold_days} days", "target_debit": LIFECYCLE_DEBIT,
             "hold_minutes": hold_days * 1440, "repeat_minutes": LIFECYCLE_CADENCE_DAYS * 1440,
             "exit_days_left": days_left, "checkpoints": [d for d in CHECKPOINTS if d <= hold_days],
             "daily_entries": LIFECYCLE_DAILY_ENTRIES, "dte": [lo, hi], "delta": 0.5, "parent_experiment": None,
-            "change": "Lifecycle seed: every expiry, valued as it ages",
+            "change": "Lifecycle seed: every expiry, valued as it ages" if hold_days == seed_days else
+                      f"Holding-time variant registered on the Learning page: up to {hold_days} days, not {seed_days}",
             "execution": "next timestamped quote, bid/ask, impact and capacity v1"}
     digest = sha256_hex(canonical_json(spec))
     ident = digest[:20]
@@ -1016,6 +1032,9 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
         ],
         "pending": conn.execute("SELECT COUNT(*) FROM stk_pending WHERE state='PENDING'").fetchone()[0],
         "limits": {"trade_count": None, "position_count": None, "contract_quantity": None, "virtual_spending": None},
+        "buckets": [{"id": key, "title": title, "dte": list(window), "hold_days": hold, "exit_days_left": left,
+                     "longest_hold": longest_hold(key)} for key, (title, window, hold, left) in BUCKETS.items()],
+        "lifecycle_debit": LIFECYCLE_DEBIT,
         "execution_note": "Capacity per quote timestamp: the size displayed at the ask to buy or the bid to sell, capped "
         "at 0.1% of open interest (that rule alone when no size is reported); no depth beyond the top of the book. "
         "Adverse impact and $0.65/contract/side. "

@@ -89,8 +89,14 @@ holding longer does. So the registry trades **every expiry** and values each pos
   recipes (retired results are history); until lifecycle results mature they use the 1-month call starter. Lifecycle
   recipes are compared at a fixed size, so no size-doubling follow-up is created from them.
 
-Experiments registered through the form afterwards remain the earlier minute-based kind and stay active. A zero entry
-spacing permits each new eligible source observation, subject to unresolved order deduplication. Positions may overlap.
+**Registering a recipe.** The Experiments tab's form registers another lifecycle recipe: a structure, an expiry bucket
+and how long to hold it, from 1 day up to the bucket's longest hold (its latest expiry less the days left when it is
+sold: 11, 42, 106, 210 or 740 days). It buys and is paced like the seeds ($5,000 an entry at the 0.5-delta strike, at
+most once a week per stock and twice a day), is valued at every checkpoint up to its holding time (with 270- and
+365-day checkpoints for long LEAPS holds), and runs beside the seeds with an equal share of the research account. The
+same choices always make the same recipe, so choosing a seed's own holding time adds nothing. The form no longer
+registers minute-long holds: minute-hold experiments registered earlier keep running under their own rules, and a
+promotion's doubled-size follow-up for one of them is unchanged. Positions may overlap.
 
 For every decision, the ledger freezes its hypothesis, policy hash, underlying price, original timestamped chain and
 provisional expected return. Entry waits for a **strictly later** quote. Quotes must be at most 120 seconds old, not from
@@ -177,11 +183,13 @@ the experiment results warrant one.
 
 ## Verification
 
-Offline tests cover funding after losses, exclusion of deposits from P/L/drawdown, later-quote execution, shared estimated
-capacity, partial fills, immutable history, temporal label separation, losing held-out results, policy lineage, independent
-collection, CSRF and persisted pauses. Small-account tests also cover different affordable strikes, later-quote price
-jumps, no overdrafts/top-ups, retained losses on restart, prior-only research evidence and exclusion of repeated or finite
-account outcomes from independent research counts. The `learning-workflows` and `learning-retail` browser fixtures exercise
-engine-generated synthetic trades, funding, comparisons, account selection, trade details, custom experiments and downloads
-at desktop and phone widths.
+Offline tests cover funding after losses, exclusion of deposits from P/L/drawdown, later-quote execution, shared
+capacity at the displayed bid/ask size, partial fills, expiry settlement at intrinsic on the official close, per-contract
+quotes of held legs, immutable history, temporal label separation, losing held-out results, policy lineage, independent
+collection, recipe registration, CSRF and persisted pauses. Small-account tests also cover different affordable
+strikes, later-quote price jumps, no overdrafts/top-ups, retained losses on restart, prior-only research evidence
+(including the holding time), and exclusion of repeated or finite account outcomes from independent research counts.
+The `learning-workflows` and `learning-retail` browser fixtures exercise engine-generated synthetic trades, funding,
+comparisons, account selection, trade details, registering a lifecycle recipe and downloads at desktop and phone
+widths.
 These checks validate implementation; they are not live provider or profitability evidence.

@@ -158,36 +158,46 @@ try {
     const before = (
       await (await page.request.get(`${base}/api/stocks/learning`)).json()
     ).experiment_total;
-    const targetDebit = 2000000 + width + before;
+    // A lifecycle recipe: a 6-month put held for a holding time no recipe has yet (the seed holds 120 days).
+    let holdDays = 1 + ((width + before) % 200);
+    if (holdDays === 120) holdDays += 1;
     await page
-      .getByRole("spinbutton", { name: "Target virtual debit", exact: true })
-      .fill(String(targetDebit));
+      .getByRole("combobox", { name: "Experiment structure", exact: true })
+      .selectOption("long_put");
     await page
-      .getByRole("spinbutton", { name: "Holding minutes", exact: true })
-      .fill("15");
-    await page
-      .getByRole("spinbutton", { name: "Minutes between entries", exact: true })
-      .fill("5");
+      .getByRole("combobox", { name: "Expiry", exact: true })
+      .selectOption("6m");
+    const holding = page.getByRole("spinbutton", {
+      name: "Holding days",
+      exact: true,
+    });
+    assert.equal(await holding.inputValue(), "120");
+    assert.equal(await holding.getAttribute("max"), "210");
+    await holding.fill(String(holdDays));
     await page.evaluate(async () => {
       snapshot.collection = {
         fixture: "force ordinary collection status refresh",
       };
       await refresh();
     });
-    assert.equal(
-      await page
-        .getByRole("spinbutton", { name: "Target virtual debit", exact: true })
-        .inputValue(),
-      String(targetDebit),
-    );
+    assert.equal(await holding.inputValue(), String(holdDays));
     await page
-      .getByRole("button", { name: "Register experiment", exact: true })
+      .getByRole("button", { name: "Register recipe", exact: true })
       .click();
     await page
       .getByRole("heading", {
         name: `${before + 1} registered hypotheses`,
         exact: true,
       })
+      .waitFor();
+    await page
+      .getByText(`About 6 months, held up to ${holdDays} days`, {
+        exact: false,
+      })
+      .first()
+      .waitFor();
+    await page
+      .getByText("Registered. The new recipe starts buying", { exact: false })
       .waitFor();
     await page.getByRole("button", { name: "Check-ins", exact: true }).click();
     await page.locator(".paper-walk").first().waitFor();
@@ -238,7 +248,7 @@ try {
     await page.close();
   }
   console.log(
-    "Learning desktop/mobile: accounting, persisted pause/resume, P/L chart, closed trades, original hypotheses, partial order quantities, funding, finite reference, custom sizing/cadence and check-in downloads passed.",
+    "Learning desktop/mobile: accounting, persisted pause/resume, P/L chart, closed trades, original hypotheses, partial order quantities, funding, finite reference, lifecycle recipe registration and check-in downloads passed.",
   );
 } finally {
   await browser.close();
