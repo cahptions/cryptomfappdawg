@@ -106,15 +106,21 @@ STOCKS_UNIT = "desk-stocks-dashboard.service"
 def render_stocks_unit(paths: DeskPaths, python_executable: str, port: int) -> str:
     """Stocks on the computer that holds the Schwab sign-in, always on: started when the computer starts (with
     lingering, before anyone logs in) and restarted 10 seconds after it stops for any reason. No memory cap: the
-    research worker it starts runs in the same service."""
+    research worker it starts runs in the same service.
+
+    Like the crypto engines, it runs under ``systemd-inhibit --what=idle:sleep``: while Stocks is running the
+    computer does not go to sleep when it is left idle, which would stop collection and the PAPER books overnight.
+    Closing a laptop's lid is a separate system setting (logind's HandleLidSwitch) that this does not change."""
     if not Path(python_executable).is_absolute():
         raise ValueError("an absolute Python executable is required")
     environment = _environment(paths)
     root = str(REPO_ROOT)
     folder = f"WorkingDirectory={root.replace('%', '%%')}\n" if not any(c.isspace() for c in root) else ""
+    why = _quote("--why=KESTREL Stocks collects market data and runs PAPER research", command=True)
     return ("[Unit]\nDescription=KESTREL Stocks (always on)\nStartLimitIntervalSec=600\nStartLimitBurst=20\n"
             f"\n[Service]\nType=simple\n{environment}\n{folder}"
-            f"ExecStart={_quote(python_executable, command=True)} -m desk stocks dashboard --port {int(port)}\n"
+            f"ExecStart={INHIBITOR}{why} {_quote(python_executable, command=True)} -m desk stocks dashboard "
+            f"--port {int(port)}\n"
             "Restart=always\nRestartSec=10\nTimeoutStopSec=60\nUMask=0077\nNoNewPrivileges=true\n"
             "\n[Install]\nWantedBy=default.target\n")
 

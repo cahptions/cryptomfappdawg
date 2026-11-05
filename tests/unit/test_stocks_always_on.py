@@ -1,6 +1,9 @@
 """Stocks on the HP is an always-on user service: started at power-on (lingering) and restarted after it stops.
 It ran as a plain background process before, so a failed restart left it off until something opened it again."""
 
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,13 +19,28 @@ def paths(tmp_path: Path) -> DeskPaths:
 
 def test_the_unit_restarts_stocks_whenever_it_stops_and_starts_with_the_computer(tmp_path: Path) -> None:
     unit = services.render_stocks_unit(paths(tmp_path), "/home/neo/kestrel/.venv/bin/python", 8767)
-    assert 'ExecStart="/home/neo/kestrel/.venv/bin/python" -m desk stocks dashboard --port 8767' in unit
+    assert ('ExecStart=/usr/bin/systemd-inhibit --what=idle:sleep --mode=block --who=KESTREL "--why=KESTREL Stocks '
+            'collects market data and runs PAPER research" "/home/neo/kestrel/.venv/bin/python" -m desk stocks '
+            'dashboard --port 8767\n') in unit                                   # the computer stays awake while it runs
     assert "Restart=always\nRestartSec=10" in unit and "WantedBy=default.target" in unit
     assert f"WorkingDirectory={REPO_ROOT}\n" in unit and "MemoryMax" not in unit   # the research worker lives here too
     assert f'Environment="DESK_HOME={tmp_path / "data"}"' in unit
     assert launcher.DESKS["stocks"]["service"] == services.STOCKS_UNIT                 # what a restart starts
     with pytest.raises(ValueError):
         services.render_stocks_unit(paths(tmp_path), "python", 8767)
+
+
+@pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze is not installed")
+def test_systemd_accepts_the_units_it_installs(tmp_path: Path) -> None:
+    """Rendered with this Python and the real repository folder; any warning (an unknown key, a command that is not
+    executable, a quoting mistake) fails the test, not only an outright error."""
+    units = {services.STOCKS_UNIT: services.render_stocks_unit(paths(tmp_path), sys.executable, 8767),
+             **services.render_backup_units(paths(tmp_path), sys.executable)}
+    for name, content in units.items():
+        (tmp_path / name).write_text(content)
+    checked = subprocess.run(["systemd-analyze", "verify", *(str(tmp_path / n) for n in units)],
+                             capture_output=True, text=True, timeout=60, check=False)
+    assert checked.returncode == 0 and checked.stderr.strip() == "", checked.stderr
 
 
 class Systemd:

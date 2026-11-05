@@ -155,6 +155,10 @@ needs an administrator once:
 sudo loginctl enable-linger neo
 ```
 
+While it runs, the service holds a sleep lock (`systemd-inhibit --what=idle:sleep`, as the crypto engines do), so
+the computer does not go to sleep when it is left idle. Closing a laptop's lid is a separate system setting this
+does not change; leave the HP open or set its lid action to "do nothing". `systemd-inhibit --list` shows the lock.
+
 Until 2026-11-04 the app ran as a plain background process, so anything that stopped it left it off (and the
 research for that day's close unrun) until something opened it again. Its log is in the journal:
 `journalctl --user -u desk-stocks-dashboard.service -n 50`.
