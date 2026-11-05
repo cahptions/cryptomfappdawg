@@ -419,9 +419,12 @@ const KestrelPlays = (() => {
   function flagBox(r) {
     const box = el("article", undefined, "setup-card play-card");
     // opened = new open interest as a share of the flagged volume (the server's verdict uses 0.5 and 0.1)
+    const from = r.source ? followSource(r) : "";
     const opened =
       r.opened === null
-        ? "This contract wasn't in today's collected chains, so whether the trades opened new positions isn't known yet."
+        ? r.source
+          ? `${from} carries no open interest, so whether the trades opened new positions can't be told from it.`
+          : "This contract wasn't in today's collected chains and tracking has no later quote of it yet, so whether the trades opened new positions isn't known yet."
         : r.opened >= 0.5
           ? `Open interest grew by ${pct(r.opened)} of the flagged volume: most of the flagged trades were new positions held overnight.`
           : r.opened <= 0.1
@@ -442,9 +445,10 @@ const KestrelPlays = (() => {
       el(
         "p",
         r.price_change === null
-          ? "The contract's price since then isn't known yet."
+          ? "No later quote of the contract is stored yet, so its price since then isn't known."
           : `The contract's price has moved ${r.price_change >= 0 ? "+" : ""}${pct(r.price_change, 1)} since it was flagged.`,
       ),
+      el("p", `Source: ${from || "—"}.`, "muted caption"),
       el("p", `Verdict: ${r.verdict}`, "play-confirm"),
       link(
         `${r.symbol} stock page and option chain ↗`,
@@ -640,13 +644,25 @@ const KestrelPlays = (() => {
     return box;
   }
 
+  // Where a follow-up's open interest and price came from: today's chains, or the contract's own tracked quotes.
+  function followSource(r) {
+    if (!r.source) return "";
+    if (r.source === "today's collected chains")
+      return "Today's collected chains";
+    const at = r.source_at
+      ? r.source_at.length === 10
+        ? r.source_at
+        : when(r.source_at)
+      : "";
+    return `${r.source[0].toUpperCase()}${r.source.slice(1)}${at ? ` (${at})` : ""}`;
+  }
   function followupTable(rows) {
     const box = el("details", undefined, "play-followups");
     box.open = true;
     box.append(
       el(
         "summary",
-        `Did the last flags open positions? ${rows[0].session} flags, checked against today's open interest`,
+        `Did the last flags open positions? ${rows[0].session} flags, checked against the latest open interest`,
       ),
       table(
         [
@@ -656,6 +672,7 @@ const KestrelPlays = (() => {
           "Opened",
           "Price since",
           "Verdict",
+          "From",
         ],
         rows.map((r) => [
           (() => {
@@ -677,6 +694,7 @@ const KestrelPlays = (() => {
             ? "—"
             : `${r.price_change >= 0 ? "+" : ""}${pct(r.price_change, 1)}`,
           r.verdict,
+          followSource(r) || "—",
         ]),
       ),
     );

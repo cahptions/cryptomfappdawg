@@ -1682,21 +1682,55 @@ def flagged_before(research: StocksResearch, session: date) -> dict[str, dict[st
     return out
 
 
-def followups(flagged: dict[str, dict[str, Any]], tables: Sequence[Table]) -> list[dict[str, Any]]:
-    """Did the last session's flagged volume open positions? Today's open interest against that day's, per contract."""
+def tracked_quote(research: StocksResearch, occ: str, after: date) -> dict[str, Any] | None:
+    """A flagged contract's latest tracked quote from a session after ``after`` (open interest is published once a
+    day, so the flagged session's own quotes cannot show it): a live tick of today, else a stored closing quote.
+    Only real quotes; an estimated or modelled day is not one."""
+    tick = research.conn.execute(
+        "SELECT bid, ask, open_interest, quoted_at, at FROM stk_track_ticks WHERE occ = ? AND session > ? AND bid IS NOT"
+        " NULL AND ask IS NOT NULL ORDER BY at DESC LIMIT 1", (occ, day_of(after))).fetchone()
+    if tick is not None:
+        return {"open_interest": tick["open_interest"], "mid": (tick["bid"] + tick["ask"]) / 2,
+                "source": "tracking's latest quote", "at": tick["quoted_at"] or tick["at"]}
+    day = research.conn.execute(
+        "SELECT session, bid, ask, open_interest, quoted_at FROM stk_track_days WHERE occ = ? AND session > ? AND "
+        "status = 'quoted' AND bid IS NOT NULL AND ask IS NOT NULL ORDER BY session DESC LIMIT 1",
+        (occ, day_of(after))).fetchone()
+    if day is not None:
+        return {"open_interest": day["open_interest"], "mid": (day["bid"] + day["ask"]) / 2,
+                "source": "tracking's closing quote",
+                "at": day["quoted_at"] or date.fromordinal(day["session"]).isoformat()}
+    return None
+
+
+def followups(flagged: dict[str, dict[str, Any]], tables: Sequence[Table],
+              research: StocksResearch | None = None) -> list[dict[str, Any]]:
+    """Did the last session's flagged volume open positions? Today's open interest against that day's, per contract:
+    from today's collected chains, else (a flagged play is tracked) from its latest tracked quote, labelled."""
     now = {q.occ: (int(tb.oi[i]), float(tb.mid[i])) for tb in tables for i, q in enumerate(tb.quotes)}
     out = []
     for occ, f in flagged.items():
-        if occ not in now:
-            out.append({**f, "occ": occ, "open_interest_now": None, "opened": None, "price_change": None,
-                        "verdict": "Not in today's collected chains"})
+        source, at = "today's collected chains", None
+        if occ in now:
+            oi, mid = now[occ]
+        else:
+            found = None if research is None else tracked_quote(research, occ, date.fromisoformat(f["session"]))
+            if found is None:
+                out.append({**f, "occ": occ, "open_interest_now": None, "opened": None, "price_change": None,
+                            "source": None, "source_at": None,
+                            "verdict": "Not in today's collected chains, and tracking has no later quote yet"})
+                continue
+            oi, mid, source, at = found["open_interest"], found["mid"], found["source"], found["at"]
+        price = round(mid / f["entry"] - 1, 4) if f["entry"] and mid else None
+        if oi is None:
+            out.append({**f, "occ": occ, "open_interest_now": None, "opened": None, "price_change": price,
+                        "source": source, "source_at": at, "verdict": "The later quote has no open interest"})
             continue
-        oi, mid = now[occ]
         opened = (oi - f["open_interest"]) / max(f["volume"], 1)
         verdict = ("Opened: new positions held overnight" if opened >= 0.5 else
                    "Mostly closing trades or same-day round trips" if opened <= 0.1 else "Partly opened")
-        out.append({**f, "occ": occ, "open_interest_now": oi, "opened": round(opened, 3),
-                    "price_change": round(mid / f["entry"] - 1, 4) if f["entry"] else None, "verdict": verdict})
+        out.append({**f, "occ": occ, "open_interest_now": int(oi), "opened": round(opened, 3), "price_change": price,
+                    "verdict": verdict, "source": source, "source_at": at})
     return sorted(out, key=lambda r: -(r["opened"] if r["opened"] is not None else -9))
 
 
@@ -1913,7 +1947,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                  "label": (learned.get("labels") or {}).get(cat.id), "live_rules": live.get(cat.id),
                  "exit": exit_rule if exit_rule.get("suggested") else None}
         if cat.id == "unusual":
-            entry["followups"] = followups(ctx.flagged, tables)
+            entry["followups"] = followups(ctx.flagged, tables, research)
         out_categories.append(entry)
     added = record(research, session, recorded, now, m) if closed else []
     horizon_added = record(research, session, by_horizon, now, horizon_method(m)) if closed else []
@@ -1953,4 +1987,4 @@ __all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "HORIZON_MA
            "calibrator", "committee_ic", "dte_bucket", "event_history", "exit_rule_for", "finish", "flagged_before",
            "followups", "grade", "grade_events", "history_line", "horizon_cohort", "horizon_method", "horizon_plays",
            "implied_vols", "load", "method", "raw_chances", "record", "record_for", "record_twins", "records",
-           "session_closed", "settle_value", "signature", "table", "twin"]
+           "session_closed", "settle_value", "signature", "table", "tracked_quote", "twin"]

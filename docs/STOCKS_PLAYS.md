@@ -328,7 +328,10 @@ open interest), ⚡ Unusual.
 
 **Next-session confirmation**: open interest is reported once a day, after the close. The next session, every
 contract flagged the session before is checked: how much of its volume became new open interest ("Opened",
-"Partly opened", "Mostly closing trades or same-day round trips"), and how its price has moved since. That table
+"Partly opened", "Mostly closing trades or same-day round trips"), and how its price has moved since: from today's
+collected chains, or, when the contract is not in them, from its own tracked quotes (a flagged play is recorded and
+tracked: today's latest tick, else a later session's closing quote; never an estimate), labelled with the source and
+time. That table
 sits at the top of the Unusual activity tab. Over time the category's track record shows how often unusual
 activity actually finished in the money — a number paid feeds rarely publish.
 
