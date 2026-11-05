@@ -1109,7 +1109,7 @@ const KestrelPlays = (() => {
         evidence.append(
           el(
             "p",
-            `Suggested exit (chosen walk-forward over ${cat.exit.test_sessions} unseen sessions, +${pct(cat.exit.mean_improvement, 1)} a play better than holding): ${cat.exit.best_in_sample.rule}.`,
+            `Suggested exit (chosen walk-forward over ${cat.exit.test_sessions} unseen sessions, +${pct(cat.exit.mean_improvement, 1)} a play better than holding): ${cat.exit.best_in_sample.rule}.${cat.exit.dte_bucket ? ` Used for plays with ${cat.exit.dte_bucket} to expiry, the group it was learned on; other expiries keep the standard rule.` : ""}`,
             "caption",
           ),
         );

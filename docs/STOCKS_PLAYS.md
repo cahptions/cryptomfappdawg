@@ -167,7 +167,10 @@ profit is shown separately). Open it on any card to see each check and why:
 3. **The research agrees**: bullish plays need a bullish committee lean (≥ 58), bearish ones a bearish lean (< 42),
    condors and butterflies no strong lean (42–58), straddles and strangles a stock moving more than its options price.
 4. **Easy to trade**: liquidity A or B (spreads ≤ 12%, open interest ≥ 250).
-5. **Proven category**: at least 20 of the category's plays resolved, averaging a profit on the money at risk.
+5. **Proven category**: at least 20 of the category's plays **at the same days to expiry** (≤ 7, 8–30, 31–90 or
+   over 90 days, from every recorded cohort of the section, Expiry filter bands included) resolved, averaging a
+   profit on the money at risk. A 9-month play is judged by 9-month results, never by the section's 30-to-75-day
+   record; with none yet the check says "Not proven yet: 0 of 20 plays resolved at over 90 days to expiry".
 
 5 is Very strong, 4 Strong, 3 Moderate, 2 Weak, 0–1 Very weak. New categories start without check 5.
 
@@ -179,7 +182,9 @@ months before expiry; lottos +200% and no stop; debit spreads
 half the maximum gain / −50%; straddles and strangles +50% / −40%; credit spreads and condors half the credit / a loss
 of twice the credit; iron butterflies a quarter of the credit / −50%; cash-secured puts half the premium / a loss of
 twice the premium. Bought plays leave 21 days before expiry (a third of the time for short-dated ones). Once a
-category's walk-forward exit rule is proven better than holding, that **learned** rule replaces the standard one. On
+category's walk-forward exit rule is proven better than holding, that **learned** rule replaces the standard one,
+for plays in the days-to-expiry group it was learned on (the group most of its plays were in); a budget or Expiry
+filter play at other expiries keeps the standard rule, and its plan says so. On
 a play you track, the detail page says where it stands: take-profit reached, stop reached, time to leave, odds
 improved (adding is allowed: KESTREL's chance of a profit from here is 10+ points above the same chance at your own
 entry, 21+ days remain, and it is not losing more than 25%), or hold.

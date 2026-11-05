@@ -1293,23 +1293,49 @@ def calibration_summary(research: StocksResearch | sqlite3.Connection) -> dict[s
 
 
 def records(research: StocksResearch) -> dict[str, dict[str, Any]]:
-    """Each recorded cohort's graded record at expiry: a section's usual picks under its id, an Expiry filter band's
-    under ``<section>@<band>``."""
+    """Graded records at expiry. Each recorded cohort under its own key (a section's usual picks under its id, an
+    Expiry filter band's under ``<section>@<band>``), and each section at each days-to-expiry group under
+    ``<section>|<group>`` (``CALIBRATION_DTE``), from every cohort of that section: a play is judged by the record of
+    plays like it, so a 9-month play is not called proven on 30-to-75-day results (``record_for``)."""
     out: dict[str, dict[str, Any]] = {}
     grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
     for r in research.conn.execute(
-            "SELECT p.category, p.itm_kestrel, p.itm_kestrel_raw, p.action, o.hit, o.net_return FROM stk_plays p "
-            "JOIN stk_play_outcomes o USING (session, category, rank)"):
+            "SELECT p.category, p.session, p.expiration, p.itm_kestrel, p.itm_kestrel_raw, p.action, o.hit, "
+            "o.net_return FROM stk_plays p JOIN stk_play_outcomes o USING (session, category, rank)"):
         grouped[r["category"]].append(r)
-    for category, rows in grouped.items():
+        grouped[f"{r['category'].split(HORIZON_MARK)[0]}|{dte_bucket(r['expiration'] - r['session'])}"].append(r)
+    for key, rows in grouped.items():
         predicted = [r["itm_kestrel"] for r in rows if r["itm_kestrel"] is not None]
-        out[category] = {"resolved": len(rows), "itm_rate": sum(r["hit"] for r in rows) / len(rows),
-                         "predicted_itm": statistics.fmean(predicted) if predicted else None,
-                         "median_return": statistics.median(r["net_return"] for r in rows),
-                         "mean_return": statistics.fmean(r["net_return"] for r in rows),
-                         "brier": od.brier([r["itm_kestrel_raw"] for r in rows if r["itm_kestrel_raw"] is not None],
-                                           [bool(r["hit"]) for r in rows if r["itm_kestrel_raw"] is not None])}
+        out[key] = {"resolved": len(rows), "itm_rate": sum(r["hit"] for r in rows) / len(rows),
+                    "predicted_itm": statistics.fmean(predicted) if predicted else None,
+                    "median_return": statistics.median(r["net_return"] for r in rows),
+                    "mean_return": statistics.fmean(r["net_return"] for r in rows),
+                    "brier": od.brier([r["itm_kestrel_raw"] for r in rows if r["itm_kestrel_raw"] is not None],
+                                      [bool(r["hit"]) for r in rows if r["itm_kestrel_raw"] is not None]),
+                    **({"dte_bucket": key.split("|", 1)[1]} if "|" in key else {})}
     return out
+
+
+def record_for(track: Mapping[str, Mapping[str, Any]], category: str, dte: int) -> dict[str, Any]:
+    """The record a play is judged by: its section's graded plays in its own days-to-expiry group (none yet: an empty
+    record of that group, never the section's other expiries)."""
+    bucket = dte_bucket(dte)
+    return dict(track.get(f"{category}|{bucket}") or {"resolved": 0, "dte_bucket": bucket})
+
+
+def exit_rule_for(rule: Mapping[str, Any], play: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None, str | None]:
+    """A learned exit rule applies only to plays in the days-to-expiry group it was learned on; (rule, why not)."""
+    if not rule.get("suggested"):
+        return rule, None
+    learned_on, bucket = rule.get("dte_bucket"), dte_bucket(int(play["dte"]))
+    if learned_on is None:              # a report from before the group was kept: only the section's usual picks
+        return (rule, None) if play.get("discovery") is None else (None, "The learned rule was chosen on this "
+                                                                    "section's usual expiries; the standard rule "
+                                                                    "applies at this one")
+    if learned_on == bucket:
+        return rule, None
+    return None, (f"The learned rule was chosen on {learned_on} plays; this one has {play['dte']} days, so the "
+                  "standard rule applies")
 
 
 
@@ -1873,8 +1899,11 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         cheaper = budget_plays(cat.id, tables, ctx, live.get(cat.id))
         longer = horizon_plays(cat.id, tables, ctx, live.get(cat.id), plays)
         for p in [*plays, *cheaper, *longer]:                 # how far to trust it, when to leave, for every play
-            plan.attach(p, cat.id, track.get(cat.id), exit_rule, ctx.rate, session, calibrations=ctx.calibration,
-                        history=take_history)
+            rule, unused = exit_rule_for(exit_rule, p)
+            plan.attach(p, cat.id, record_for(track, cat.id, int(p["dte"])), rule, ctx.rate, session,
+                        calibrations=ctx.calibration, history=take_history)
+            if unused:
+                p["exit_plan"]["why"] += f". {unused}"
         by_horizon.update(horizon_cohort(cat.id, longer))
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
                  "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
@@ -1919,8 +1948,9 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     }
 
 
-__all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "RECORDED", "RETIRED", "Candidate", "Category",
-           "Context", "Table", "Underlying", "build", "calibrated", "calibration", "calibration_summary", "calibrator",
-           "committee_ic", "dte_bucket", "event_history", "finish", "flagged_before", "followups", "grade",
-           "grade_events", "history_line", "horizon_plays", "implied_vols", "load", "method", "raw_chances", "record",
-           "record_twins", "records", "session_closed", "settle_value", "signature", "table", "twin"]
+__all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "HORIZON_MARK", "RECORDED", "RETIRED", "Candidate",
+           "Category", "Context", "Table", "Underlying", "build", "calibrated", "calibration", "calibration_summary",
+           "calibrator", "committee_ic", "dte_bucket", "event_history", "exit_rule_for", "finish", "flagged_before",
+           "followups", "grade", "grade_events", "history_line", "horizon_cohort", "horizon_method", "horizon_plays",
+           "implied_vols", "load", "method", "raw_chances", "record", "record_for", "record_twins", "records",
+           "session_closed", "settle_value", "signature", "table", "twin"]

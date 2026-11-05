@@ -53,13 +53,16 @@ def _research(play: Mapping[str, Any]) -> tuple[bool, str]:
 
 
 def confidence(play: Mapping[str, Any], record: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Five plain checks; the meter is how many pass. The odds check reads the chance of a profit at expiry as shown:
+    """Five plain checks; the meter is how many pass. ``record`` is the section's record at the play's own days to
+    expiry (``plays.record_for``). The odds check reads the chance of a profit at expiry as shown:
     calibrated on graded recorded plays once enough have resolved (``plays.calibrated``), otherwise the model's."""
     profit = (play.get("calibrated") or {}).get("profit") or {}
     p, ev = profit.get("shown", play.get("profit_kestrel")), play.get("expected_value")
     agrees, why = _research(play)
     n = int((record or {}).get("resolved") or 0)
     mean = (record or {}).get("mean_return")
+    bucket = (record or {}).get("dte_bucket")
+    where = f" at {bucket} to expiry" if bucket else ""
     checks = [
         ("odds", "Better than even odds", p is not None and p >= 0.5,
          "No chance of profit computed" if p is None else f"{p:.0%} chance of a profit at expiry"
@@ -71,8 +74,8 @@ def confidence(play: Mapping[str, Any], record: Mapping[str, Any] | None) -> dic
         ("market", "Easy to trade", play.get("liquidity") in ("A", "B"),
          f"Liquidity {play.get('liquidity')}: widest leg quoted {float(play.get('spread_pct') or 0):.0%} wide"),
         ("record", "Proven category", n >= PROVEN and mean is not None and mean > 0,
-         f"{n} resolved, averaging {mean:+.0%} on the money at risk" if n >= PROVEN and mean is not None else
-         f"Not proven yet: {n} of {PROVEN} plays resolved"),
+         f"{n} resolved{where}, averaging {mean:+.0%} on the money at risk" if n >= PROVEN and mean is not None else
+         f"Not proven yet: {n} of {PROVEN} plays resolved{where}"),
     ]
     score = sum(ok for _, _, ok, _ in checks)
     return {"score": score, "of": len(checks), "label": LABELS[score],

@@ -200,3 +200,41 @@ def test_graded_profit_chances_calibrate_what_the_card_and_confidence_show(dbs: 
     expiry = perf.calibration(perf.returns_table(conn))                 # the History view is the third line
     assert expiry["itm_history"]["label"] == "History" and expiry["itm_history"]["resolved"] == 40
     assert expiry["itm_history"]["points"][0]["predicted"] == 0.35
+
+
+def test_a_play_is_judged_by_its_sections_record_at_its_own_expiry(dbs: Any) -> None:
+    conn = dbs.research
+    sessions = cal.trading_days(START, START + timedelta(days=60))
+    for i in range(25):                         # the usual 40-day picks won; the 200-day band picks lost
+        for category, dte, net in (("trend_calls", 40, 0.3), ("trend_calls@half_year", 200, -0.4)):
+            expiration = sessions[i] + timedelta(days=dte)
+            conn.execute(
+                "INSERT INTO stk_plays(session, category, rank, symbol, action, structure, expiration, event,"
+                " event_kind, event_strike, event_width, entry, max_loss, legs_json, underlying, itm_market,"
+                " itm_history, itm_kestrel, itm_kestrel_raw, profit_kestrel, play_json, method, recorded_at) VALUES"
+                " (?, ?, 1, 'X', 'BUY', 'long_call', ?, 'itm', 'call', 10, 0, 1, 101, '[]', 10, 0.5, 0.5, 0.5, 0.5,"
+                " 0.4, '{}', 'm', 'x')", (day_of(sessions[i]), category, day_of(expiration)))
+            conn.execute("INSERT INTO stk_play_outcomes VALUES (?, ?, 1, 'x', 10, ?, 0, ?)",
+                         (day_of(sessions[i]), category, int(net > 0), net))
+    track = pl.records(StocksResearch(conn))
+    assert track["trend_calls"]["resolved"] == 25 and track["trend_calls@half_year"]["mean_return"] == -0.4
+    usual, far = pl.record_for(track, "trend_calls", 45), pl.record_for(track, "trend_calls", 270)
+    assert usual["dte_bucket"] == "31–90 days" and usual["mean_return"] == pytest.approx(0.3)
+    assert far["dte_bucket"] == "over 90 days" and far["mean_return"] == pytest.approx(-0.4)
+    assert pl.record_for(track, "trend_calls", 5) == {"resolved": 0, "dte_bucket": "≤ 7 days"}
+    play = {"structure": "long_call", "profit_kestrel": 0.55, "expected_value": 12.0, "committee": 64.0,
+            "liquidity": "A", "spread_pct": 0.03}
+    assert pp.confidence(play, usual)["checks"][4]["ok"]
+    check = pp.confidence(play, far)["checks"][4]
+    assert not check["ok"] and "25 resolved at over 90 days to expiry, averaging -40%" in check["detail"]
+    assert "0 of 20 plays resolved at ≤ 7 days" in pp.confidence(play, pl.record_for(track, "x", 5))["checks"][4][
+        "detail"]
+    # a learned exit rule is applied only in the days-to-expiry group it was learned on
+    rule = {"suggested": True, "dte_bucket": "31–90 days", "best_in_sample": {"params": [0.5, 0.5, None]}}
+    assert pl.exit_rule_for(rule, {"dte": 45}) == (rule, None)
+    skipped, why = pl.exit_rule_for(rule, {"dte": 200})
+    assert skipped is None and why and "chosen on 31–90 days plays; this one has 200 days" in why
+    older = {"suggested": True, "best_in_sample": {"params": [0.5, 0.5, None]}}
+    assert pl.exit_rule_for(older, {"dte": 45})[0] is older
+    assert pl.exit_rule_for(older, {"dte": 45, "discovery": "horizon"})[0] is None
+    assert pl.exit_rule_for({"suggested": False}, {"dte": 400}) == ({"suggested": False}, None)

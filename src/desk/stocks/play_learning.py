@@ -436,8 +436,12 @@ def learn(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
     categories = [c.id for c in pl.CATEGORIES]
     current = [r for r in rows if r.method == m] or rows
     tests = challengers(research, categories)
-    exits: dict[str, dict[str, Any]] = {c: walk_forward([r for r in current if r.category == c]) for c in categories
-                                        if any(r.category == c for r in current)}
+    exits: dict[str, dict[str, Any]] = {}
+    for c in categories:
+        mine = [r for r in current if r.category == c]
+        if mine:          # the days-to-expiry group it was learned on: the rule is applied only to plays in it
+            exits[c] = {**walk_forward(mine),
+                        "dte_bucket": Counter(pl.dte_bucket(r.dte) for r in mine).most_common(1)[0][0]}
     report: dict[str, Any] = {"version": VERSION, "session": session.isoformat(), "method": m,
               "generated_at": now.isoformat(),
               "graded_challenger_picks": graded, "promoted": live,

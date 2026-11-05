@@ -318,5 +318,7 @@ def test_challengers_run_in_shadow_and_learning_reports_once_per_session(history
     assert all(label["state"] == "unproven" for label in report["labels"].values())
     assert report["calibration"]["groups"]["itm"]["applied"] is False
     assert {f["feature"] for f in report["features"]} >= {"edge", "iv", "spread_pct"}
+    labels = {label for _, _, label in pl.CALIBRATION_DTE}                # each rule keeps the group it was learned on
+    assert report["exits"] and all(e["dte_bucket"] in labels for e in report["exits"].values())
     out = perf.build(history.market.conn, conn, when, report["labels"])
     assert all(c["label"]["state"] == "unproven" for c in out["categories"])

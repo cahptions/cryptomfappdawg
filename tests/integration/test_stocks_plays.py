@@ -231,7 +231,8 @@ def test_a_closed_session_is_recorded_once_and_graded_at_expiration(world: Stock
             assert r["net_return"] == pytest.approx(-1.0)                  # expired worthless: all of it lost
     assert pl.grade(world.market, world.research, NOW) == 0               # graded once
     track = pl.records(world.research)
-    assert sum(v["resolved"] for v in track.values()) == len(rows)
+    assert sum(v["resolved"] for k, v in track.items() if "|" not in k) == len(rows)
+    assert sum(v["resolved"] for k, v in track.items() if "|" in k) == len(rows)   # each play in its expiry group
     from desk.stocks import play_performance as perf
 
     bands = perf.horizon_records(world.research.conn)
