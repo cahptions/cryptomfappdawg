@@ -117,8 +117,12 @@ calculators (OptionStrat, optionsprofitcalculator.com).
   sets the price window, and clicking a cell sets the scenario.
 - **Controls:** price, date and IV, plus the position's Greeks.
 
-Chance of profit is the options market's own view: a risk-neutral lognormal at the legs' implied volatility, with the
-same expiration for every leg. It is not KESTREL's calibrated chance on the Plays cards and not a forecast.
+Chance of profit is the options market's own view: a risk-neutral lognormal at the legs' implied volatility. It is
+not KESTREL's calibrated chance on the Plays cards and not a forecast. With one expiration the payoff, maximum
+profit and loss and break-evens are exact. With **mixed expirations** (a calendar or diagonal) they are given **at
+the first expiry, modeled**: legs expiring then at intrinsic value, later legs at Black-Scholes on their implied
+volatility, after entry and closing fees, over prices from $0 to three times the highest strike; the chance of
+profit is the lognormal to the first expiry at the near legs' volatility, and every number is labelled modeled.
 
 Code: `play_selections.py`, `static/play_workflow.js`; research migration `0010_personal_plays.sql`.
 
