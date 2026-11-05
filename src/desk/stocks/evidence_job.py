@@ -8,7 +8,6 @@ import subprocess
 import sys
 import threading
 from contextlib import suppress
-from datetime import timedelta
 from typing import Any
 
 from desk.core.clock import utc_now
@@ -121,7 +120,7 @@ def evaluate(paths: DeskPaths) -> None:
     from desk.stocks.prices import load_panel
     from desk.stocks.repo import StocksDatabases, StocksMarket, StocksResearch
     from desk.stocks.runner import _memory_guard
-    from desk.stocks.validation import rebuild, report
+    from desk.stocks.validation import evaluation_window, rebuild, report
 
     with WorkerLock(paths, "stocks-evidence"):
         try:
@@ -133,7 +132,9 @@ def evaluate(paths: DeskPaths) -> None:
                 days = market.bar_days()
                 if not days:
                     raise DeskError("No closing prices are saved yet. Connect stock history in Settings and resume collection.")
-                panel = load_panel(market, days[-1] - timedelta(days=loaded.settings.stocks.history_days), days[-1])
+                since, limited = evaluation_window(market, loaded.settings.stocks)
+                _memory_guard()
+                panel = load_panel(market, since, days[-1])
                 publish(paths, status="running", phase="Building historical comparisons from saved observations",
                         completed=0, total=0)
 
@@ -147,6 +148,7 @@ def evaluate(paths: DeskPaths) -> None:
                 result = report(market, research, panel, today=days[-1])
                 result.update(advisory_only=True, generated_at=utc_now().isoformat(),
                               note="Evaluation only. Proposed model weights are not adopted by this action.")
+                result["prices"]["memory_note"] = limited
                 # Separate from stk_validation: viewing evidence must not change Analyzer.weights().
                 _atomic_private(paths.home / "stocks-evidence-report.json", json.dumps(result, allow_nan=False))
                 publish(paths, status="completed", phase="Evaluation complete", completed=1, total=1)

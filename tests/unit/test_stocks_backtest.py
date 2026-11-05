@@ -57,18 +57,33 @@ def test_replay_records_actual_simulated_positions_without_mutating_source_resea
 
 
 def test_all_history_begins_at_earliest_eligible_session_after_warmup(tmp_path, monkeypatch):
-    from desk.stocks.analysis import MIN_BARS
-    from desk.stocks.backtest import HistoricalMarket
+    from desk.stocks.backtest import WARMUP_SESSIONS, HistoricalMarket
 
     world = make_world(tmp_path, n=12)
-    selected = world.days[:MIN_BARS+8]
+    selected = world.days[:WARMUP_SESSIONS+8]
     monkeypatch.setattr(HistoricalMarket, "bar_days", lambda _: selected)
     try:
         result = replay(world.paths, load_config(REPO / "config").settings.stocks, 0)
         assert result["window"] == "all_available"
         assert result["requested_sessions"] == 8
-        assert result["first_day"] == selected[MIN_BARS].isoformat()
+        assert result["first_day"] == selected[WARMUP_SESSIONS].isoformat()
         assert result["last_day"] == selected[-1].isoformat()
+        assert result["warmup_sessions"] == 252 and any("252 earlier sessions" in x for x in result["limitations"])
+    finally:
+        world.close()
+
+
+def test_replay_and_its_automation_wait_for_a_full_year_of_warmup(tmp_path, monkeypatch):
+    from desk.stocks.backtest import WARMUP_SESSIONS, HistoricalMarket
+
+    world = make_world(tmp_path, n=12)
+    try:
+        coverage = BacktestWorker(world.paths).coverage()
+        assert coverage["warmup_sessions"] == 252 and coverage["eligible_sessions"] == len(world.days) - 252
+        short = world.days[:WARMUP_SESSIONS + 1]
+        monkeypatch.setattr(HistoricalMarket, "bar_days", lambda _: short)
+        with pytest.raises(DeskError, match="252 warm-up sessions"):
+            replay(world.paths, load_config(REPO / "config").settings.stocks, 0)
     finally:
         world.close()
 
@@ -206,7 +221,7 @@ def test_automatic_replay_can_start_before_63_sessions_and_retries_failed_inputs
     monkeypatch.setattr("desk.stocks.evidence_job.subprocess.Popen", spawn)
     try:
         worker = BacktestWorker(world.paths)
-        monkeypatch.setattr(worker,"coverage",lambda: {"sessions":65,"eligible_sessions":5,"warmup_sessions":60,
+        monkeypatch.setattr(worker,"coverage",lambda: {"sessions":257,"eligible_sessions":5,"warmup_sessions":252,
                                                        "latest":"2026-10-21","earliest":"2026-07-01","rows":1000})
         worker.maintain()
         assert spawn.call_count == 1
@@ -235,5 +250,24 @@ def test_malformed_retry_clock_is_repairable_without_crashing_automation(tmp_pat
         worker.maintain()
         assert worker.status()["preference_error"]
         assert worker.automatic(True, 0)["auto_enabled"]
+    finally:
+        world.close()
+
+
+def test_lab_strategies_replay_and_get_a_current_historical_grade(tmp_path):
+    from desk.stocks.paper import lab
+    from desk.stocks.replay_grades import current
+
+    world = make_world(tmp_path, n=12)
+    try:
+        learned = lab.as_strategy("valuation+momentum/10", {"variants": 1, "why": "Synthetic lab fixture"})
+        lab.promote(world.research, learned, {}, NOW)
+        research = list(world.dbs.research.iterdump())
+        result = replay(world.paths, load_config(REPO / "config").settings.stocks, 8)
+        account = next(a for a in result["accounts"] if a["id"] == learned.id)
+        assert account["sessions"] == 8 and account["historical_grade"]["spec_sha256"] == learned.spec_sha256
+        assert current(result, (learned,))[learned.id]["status"] == "current"
+        assert any("in-sample" in x for x in result["limitations"])
+        assert list(world.dbs.research.iterdump()) == research       # read-only
     finally:
         world.close()

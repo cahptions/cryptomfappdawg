@@ -120,6 +120,9 @@ const KestrelPaper = (() => {
         `${forward?.sessions || 0} recorded market sessions${forward?.start ? ` · since ${forward.start}` : ""}.`,
         "caption muted",
       ),
+      ...(forward?.recovery_sessions
+        ? [el("p", `Recovery sessions: ${forward.recovery_note}`, "caption")]
+        : []),
       el(
         "p",
         `Return ${percent(forward?.return)} · Drawdown ${percent(forward?.max_drawdown)}`,
@@ -143,7 +146,7 @@ const KestrelPaper = (() => {
         ),
         el(
           "p",
-          `Return ${percent(historical.return)} · Drawdown ${percent(historical.max_drawdown)} · SPY price return ${percent(historical.spy_return)}`,
+          `Return ${percent(historical.return)} · Drawdown ${percent(historical.max_drawdown)} · SPY total return (dividends reinvested) ${percent(historical.spy_return)}`,
           "caption",
         ),
       );
@@ -309,7 +312,7 @@ const KestrelPaper = (() => {
     limits.append(
       el(
         "p",
-        `${report.requested_sessions} simulated sessions · ${report.warmup_sessions || 60} earlier warm-up sessions · ${report.skipped_sessions?.length || 0} skipped. Saved daily snapshots and the complete replay trade ledger remain separate from forward PAPER.`,
+        `${report.requested_sessions} simulated sessions · ${report.warmup_sessions || 252} earlier warm-up sessions · ${report.skipped_sessions?.length || 0} skipped. Saved daily snapshots and the complete replay trade ledger remain separate from forward PAPER.`,
         "muted",
       ),
     );
@@ -451,7 +454,7 @@ const KestrelPaper = (() => {
           "p",
           job.preference_error ||
             job.phase ||
-            "Replay past stock strategies with a separate simulated ledger.",
+            "Replay past stock and option strategies with a separate simulated ledger.",
           "muted",
         );
         message.setAttribute("role", "status");
@@ -500,7 +503,7 @@ const KestrelPaper = (() => {
           el("h2", "Historical strategy replay"),
           el(
             "p",
-            "Signals are reconstructed in date order; entries fill at a later open. Historical results stay separate from the forward PAPER record.",
+            "Signals are reconstructed in date order. Stock orders fill at the next session's open; option orders fill at the next session's option prices (rebuilt from stock history, real where Massive has them). Historical results stay separate from the forward PAPER record.",
             "muted",
           ),
           controls,
@@ -548,7 +551,7 @@ const KestrelPaper = (() => {
             "p",
             record === "live"
               ? "PAPER starts with the app unless paused. Eligible strategies begin when their data is available; 63/126-session evidence thresholds do not block entries."
-              : "Replay starts automatically when enough bulk history and warm-up sessions are saved. You can also start it above. Option-chain histories cannot be reconstructed from stock prices.",
+              : "Replay starts automatically when enough bulk history and warm-up sessions are saved. You can also start it above. Option strategies whose signal comes from the stock replay on option prices rebuilt from stock history, with Massive's real daily option prices where they exist.",
             "muted",
           ),
           link("Review data connections ↗", "#settings"),
@@ -634,7 +637,7 @@ const KestrelPaper = (() => {
           ? "This portfolio selects holdings at monthly rebalances. It marks positions each processed daily close; it is not expected to buy and sell every day. Inspect its decision timeline for entry and exit reasons."
           : account.style === "hold"
             ? "This buy-and-hold baseline normally holds its original position; changing account value does not imply another trade."
-            : "This event strategy waits for qualifying evidence and executable prices; its decision timeline records trade and skip reasons.",
+            : "This event strategy waits for qualifying evidence and executable prices; its decision timeline records why it traded and, for up to five candidates a session, why it passed one over (no price, liquidity, chain or fitting contract, or over budget).",
         "muted caption",
       );
       app.append(behavior);

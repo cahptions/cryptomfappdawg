@@ -216,7 +216,7 @@ const KestrelReplay = (() => {
               ),
               el(
                 "p",
-                `Decided ${order.fill_after}; waits for a later eligible opening price.`,
+                `Decided ${order.fill_after}; ${order.order.asset === "option" ? "fills at the next session's option prices" : "waits for the next eligible opening price"}.`,
               ),
             );
             content.append(row);

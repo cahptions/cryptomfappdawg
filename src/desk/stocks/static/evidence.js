@@ -156,7 +156,12 @@ const KestrelEvidence = (() => {
         [
           "Historical comparisons",
           report?.rebuild?.months ?? "—",
-          "Reconstructed history is a separate record",
+          report?.prices?.first
+            ? `A separate record, rebuilt from ${number(report.prices.sessions)} stored sessions since ${report.prices.first}` +
+              (report.prices.memory_note
+                ? `. ${report.prices.memory_note}`
+                : "")
+            : "Reconstructed history is a separate record",
         ],
         [
           "Latest evaluated close",
@@ -264,7 +269,7 @@ const KestrelEvidence = (() => {
         explain.append(el("h2", "Read the result correctly"));
         for (const text of [
           "Recorded forward: lists saved at the time, assessed after their holding period ends.",
-          "Historical reconstruction: what the rules would have selected from the available history. It can miss companies delisted before collection began.",
+          "Historical reconstruction: what the rules would have selected from the available history, using the listings as they stood each day. Companies delisted since collection began are included; companies delisted before collection began are missing.",
           "A positive comparison is not proof of a lasting edge. Costs, uncertainty, overlapping observations and multiple tests matter.",
           "Option volume does not reveal whether a trade opened a position or predict its direction. Missing history stays visible.",
         ])

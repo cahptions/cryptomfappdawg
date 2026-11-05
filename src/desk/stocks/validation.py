@@ -5,10 +5,12 @@ Two records, never mixed:
 * **live**: every day's lists and desk scores, appended to stocks-research.db once (``desk.stocks.daily``) and
   scored as their forward returns arrive. This is the record that counts.
 * **rebuilt**: the same code run as of each past month's last session on only what was public that day
-  (``Analyzer.build`` is point in time), kept in ``stk_rebuild_months``. It starts from today's listings, so companies
-  delisted before collection began are missing (survivorship bias: it flatters lists that buy and hurts lists that
+  (``Analyzer.build`` is point in time), kept in ``stk_rebuild_months``. Its universe is the listings as they stood
+  that day, so companies delisted since collection began are included; companies delisted before collection began
+  never appeared in a listing file and are missing (survivorship bias: it flatters lists that buy and hurts lists that
   avoid). Crowd and options data exist only from the first day of collection, so those desks and the lists built on
-  them have a live record only.
+  them have a live record only. The News desk is rebuilt from trade actions alone (published by each month's end);
+  its company news and world shocks are collected going forward, so it earns a vote only from its live record.
 
 A list is bought at the next session's open and held 5, 21, 63 or 252 sessions, sold at that session's close (a stock
 that stops trading is sold at its last close), price-only, against SPY and the stock's sector fund over the same
@@ -29,12 +31,14 @@ import warnings
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from itertools import pairwise
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from desk.core.config import StocksSection
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stats.core import holm, mean_interval, stationary_bootstrap_means
 from desk.stocks import calendar as cal
@@ -42,9 +46,9 @@ from desk.stocks import desks as dk
 from desk.stocks.analysis import Analyzer
 from desk.stocks.lists import LISTS
 from desk.stocks.prices import Panel, last_valid
-from desk.stocks.repo import StocksMarket, StocksResearch
+from desk.stocks.repo import StocksMarket, StocksResearch, date_of
 from desk.stocks.sectors import sector
-from desk.stocks.universe import SECTOR_FUNDS, research_listings
+from desk.stocks.universe import RESEARCH_KINDS, SECTOR_FUNDS
 
 Array = np.ndarray
 
@@ -62,10 +66,15 @@ MIN_CROSS_SECTION = 10
 MIN_TRAIN_MONTHS = 6
 SHRINK_MONTHS = 12               # learned weights are shrunk toward the defaults by n / (n + 12) months of evidence
 LIVE_DESK_STEP = 5               # live desk scores are judged weekly (every fifth recorded session)
-LIVE_ONLY_DESKS = ("crowd", "options", "news")   # collected going forward only: graded live
+LIVE_ONLY_DESKS = ("crowd", "options", "news")   # earn a vote only from their live record (never a learned weight)
+NOT_REBUILT = ("crowd", "options")               # nothing dated to rebuild them from: graded live only
+PARTLY_REBUILT = {"news": "Rebuilt from trade actions only, each read once published; company news and world shocks "
+                          "are collected going forward, so the full desk is graded live."}
 PROVEN_LIVE_WEIGHT = 0.4
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")
+EVALUATION_BYTES_PER_BAR = 600   # a stored bar while an evaluation panel loads and the desks score it (generous)
+EVALUATION_RESERVE_KB = 1_500_000  # the memory guard's floor (desk.stocks.runner._memory_guard) stays free
 
 
 def content() -> dict[str, Any]:
@@ -77,13 +86,59 @@ def content() -> dict[str, Any]:
             "exit": "close of the horizon's last session", "returns": "price only"}
 
 
+REBUILD_INPUTS = ("listed_on_the_day", "trade_actions")    # what a rebuilt month reads beyond the desks' own rules
+
+
 def rebuild_sha256() -> str:
-    """Everything a rebuilt month depends on: the desks and the lists."""
-    return sha256_hex(canonical_json({"desks": dk.method_content(), "lists": [s.content() for s in LISTS]}))
+    """Everything a rebuilt month depends on: the desks, the lists and the inputs a past day reads."""
+    return sha256_hex(canonical_json({"desks": dk.method_content(), "lists": [s.content() for s in LISTS],
+                                      "inputs": list(REBUILD_INPUTS)}))
 
 
 def method_sha256() -> str:
     return sha256_hex(canonical_json({"rebuild": rebuild_sha256(), "validation": content()}))
+
+
+# ── the evaluation window ────────────────────────────────────────────────────────────────────────
+def _available_kb() -> int | None:
+    info = Path("/proc/meminfo")
+    if not info.exists():
+        return None
+    for line in info.read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1])
+    return None
+
+
+def evaluation_window(market: StocksMarket, settings: StocksSection, *, available_kb: int | None = None
+                      ) -> tuple[date, str | None]:
+    """The first stored day an offline evaluation (evidence, rebuild, learning lab, replay) loads, and why if memory
+    cut it short.
+
+    Collection asks Massive only for its last ``history_days`` (older days are refused on the free plan, which would
+    fail the prices job), but stored bars are never pruned. A rebuild needs 252 warm-up sessions plus 12 independent
+    months, more than two years hold, so evaluations read every stored day by default (``evaluation_history_days`` =
+    0) or the configured span. Newest days are kept first; a span that would not fit beside the memory guard's 1.5 GB
+    floor stops early, but never shorter than the ``history_days`` the daily analysis already loads."""
+    rows = market.conn.execute("SELECT day, rows FROM stk_bar_days WHERE rows > 0 ORDER BY day DESC").fetchall()
+    if not rows:
+        return date.min, None
+    newest = date_of(rows[0][0])
+    floor = newest - timedelta(days=settings.history_days)
+    limit = newest - timedelta(days=settings.evaluation_history_days) if settings.evaluation_history_days else date.min
+    kb = _available_kb() if available_kb is None else available_kb
+    budget = None if kb is None else max(0, kb - EVALUATION_RESERVE_KB) * 1024
+    start, total = newest, 0
+    for ordinal, n in rows:
+        day = date_of(ordinal)
+        if day < limit:
+            break
+        total += n
+        if budget is not None and day < floor and total * EVALUATION_BYTES_PER_BAR > budget:
+            return start, (f"Available memory limited this evaluation to prices from {start.isoformat()}; older stored "
+                           f"prices from {date_of(rows[-1][0]).isoformat()} are kept for a run with more free memory.")
+        start = day
+    return start, None
 
 
 # ── statistics ───────────────────────────────────────────────────────────────────────────────────
@@ -390,7 +445,7 @@ def rebuild(analyzer: Analyzer, panel: Panel, *, now: datetime, force: bool = Fa
     done = set(analyzer.research.rebuilt_days(key))
     todo = [d for d in rebuild_days(panel, min_history=min_history) if force or d not in done]
     for k, asof in enumerate(todo):
-        day = analyzer.build(panel, asof, now=now, crowd_and_options=False, weights=dict(dk.DEFAULT_WEIGHTS))
+        day = analyzer.build(panel, asof, now=now, historical=True, weights=dict(dk.DEFAULT_WEIGHTS))
         lists = {spec.id: [r["symbol"] for r in spec.select(day)] for spec in LISTS if spec.history}
         analyzer.research.save_rebuild(asof, key, _encode(day), lists, day.universe_size, now)
         if progress is not None:
@@ -571,9 +626,12 @@ def _apply_holm(stats: list[dict[str, Any]]) -> None:
 
 # ── the report ───────────────────────────────────────────────────────────────────────────────────
 def current_sectors(market: StocksMarket) -> dict[str, str]:
+    """Each research listing's sector, delisted ones included (a rebuilt month can hold them)."""
     companies = market.companies()
     out: dict[str, str] = {}
-    for r in research_listings(market):
+    for r in market.listings(active=False):
+        if r["kind"] not in RESEARCH_KINDS or r["etf"] or r["test"]:
+            continue
         c = companies.get(int(r["cik"])) if r["cik"] else None
         out[r["symbol"]] = sector(c["sic"] if c else None)
     return out
@@ -612,8 +670,8 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
                          else [(m.asof, {s: v[0] for s, v in m.scores.get(d, {}).items()}) for m in history])
         desks[d] = {"label": dk.DESK_LABELS.get(d, "Committee"), "claim": claim,
                     "live": desk_record(fw, live_obs_d, claim, step=LIVE_DESK_STEP) if live_scores else None,
-                    "rebuilt": None if d in LIVE_ONLY_DESKS or not history else
-                    desk_record(fw, rebuilt_obs_d, claim, step=MONTH_SESSIONS)}
+                    "rebuilt": None if d in NOT_REBUILT or not history else
+                    desk_record(fw, rebuilt_obs_d, claim, step=MONTH_SESSIONS), "rebuilt_note": PARTLY_REBUILT.get(d)}
     options = options_truth(market, fw, live_lists.get("cheap_iv", []))
     for source in ("live", "rebuilt"):
         family = [v[source][PRIMARY] for v in lists.values() if v["claim"] in TESTED_CLAIMS and v[source]]
@@ -625,6 +683,8 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
         v["grade"] = _headline((v["live"] or {}).get(PRIMARY), (v["rebuilt"] or {}).get(PRIMARY), v["claim"])
     for v in desks.values():
         v["grade"] = _headline(v["live"], v["rebuilt"], v["claim"])
+        if v["rebuilt_note"] and v["grade"]["source"] == "rebuilt":
+            v["grade"]["text"] += "; trade actions only"
     options["cheap_iv"]["grade"] = grade(options["cheap_iv"], "iv_cheap", "live")
     learning = learn(fw, history)
     weights = dict(learning["candidate"]) if learning["adopted"] and learning["candidate"] else dict(dk.DEFAULT_WEIGHTS)
@@ -650,9 +710,12 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
 
 
 REBUILD_CAVEATS = [
-    "Rebuilt months use today's listings: companies delisted before collection began are missing, which flatters "
-    "lists that buy and hurts lists that avoid.",
+    "Rebuilt months use the listings as they stood each month, so companies delisted since collection began are "
+    "included. Companies delisted before collection began never appeared in a listing file and are missing, which "
+    "flatters lists that buy and hurts lists that avoid.",
     "Crowd and options data start on the first day of collection, so those desks and lists have a live record only.",
+    "The News desk's rebuilt record reads trade actions only (stored from January 20, 2025, each once published); "
+    "its company news and world shocks are collected going forward.",
     "Returns are price only (no dividends) on both sides of every comparison.",
 ]
 

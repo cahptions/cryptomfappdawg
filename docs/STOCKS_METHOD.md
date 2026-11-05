@@ -24,8 +24,9 @@ Every number is computed as of a day using only what was public before it:
 | Treasury yields | dated before D |
 | Prices | the close of D and earlier |
 
-Prices are adjusted for splits when read (history is never rewritten) and are price-only: dividends are not added on
-either side of any comparison. The NYSE calendar is computed by rule (holidays, observed days, Juneteenth from 2022).
+Prices are adjusted for splits when read (history is never rewritten). Research-list and desk comparisons are
+price-only: dividends are not added on either side. PAPER accounts are paid cash dividends on the ex-date, so they are
+compared with SPY's total return, dividends reinvested ([STOCKS_PAPER.md](STOCKS_PAPER.md)). The NYSE calendar is computed by rule (holidays, observed days, Juneteenth from 2022).
 `tests/integration/test_stocks_analysis.py` plants a filing and an insider trade after a day and checks that day's
 analysis is unchanged; `tests/integration/test_stocks_validation.py` checks that a rebuilt month equals an analysis
 run with no prices after that month.
@@ -121,9 +122,11 @@ day's prices.
 
 **Two records, never mixed.** The *live* record is the daily lists above. The *rebuilt* record runs the same code as
 of each past month's last session (with at least a year of prices before it), on only what was public that day, and
-keeps the result in `stk_rebuild_months` keyed by the methodology's hash. The rebuild starts from today's listings,
-so companies delisted before collection began are missing: this survivorship bias flatters lists that buy and hurts
-lists that avoid, and the report says so. The live record has no such bias.
+keeps the result in `stk_rebuild_months` keyed by the methodology's hash. Each rebuilt month's universe is the
+listings as they stood that day (from when a listing first appeared in the files to the last file that had it), so
+companies delisted since collection began are included. Companies delisted before collection began never appeared in
+a listing file and are missing: this remaining survivorship bias flatters lists that buy and hurts lists that avoid,
+and the report says so. The live record has no such bias.
 
 **Forward returns.** A list is bought at the next session's open and held 5, 21, 63 or 252 sessions (1 week, 1
 month, 3 months, 12 months), sold at that session's close; a stock that stops trading is sold at its last close. Each
@@ -166,10 +169,15 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
 
 ## 9. Known limits
 
-- The free price source keeps two years of daily bars, so the rebuild covers about a year of months at first and
-  every grade starts as *too early*. A longer price history (Schwab, when connected) lengthens the rebuild.
+- The free price source serves two years of daily bars, so the rebuild covers about a year of months at first and
+  every grade starts as *too early*. Stored bars are never pruned, and the evidence check, the rebuild and the
+  historical replay read every stored day (`evaluation_history_days`, 0 = all; free memory permitting, never less
+  than `history_days`), so the rebuild gains a month for each month of collection. Schwab's longer chart history is
+  kept apart for stock-page charts and never enters the rebuild.
 - Rebuilt months carry survivorship bias (section 8). The live record does not.
-- Returns are price only; dividends are ignored on both sides.
+- Research-list and desk returns are price only; dividends are ignored on both sides (PAPER includes them on both).
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.
 - Crowd counts are a snapshot of Reddit attention from one aggregator, not sentiment.
-- Option chains are collected for the most-traded names only, once a day after the close (no intraday history).
+- Option chains are collected for a ranked focus list (`options_focus_symbols`: dollar-volume leaders interleaved with
+  liquid lower-priced stocks, plus held contracts), in rotating batches every 15 minutes during market hours, so a
+  name's chain is a snapshot from some time in the session rather than a continuous intraday history.

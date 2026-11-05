@@ -7,8 +7,14 @@ account through that session, in the order a real account would live it:
 4. options that expired, settled at intrinsic value on the close;
 5. mark everything at today's close (stocks) and mids (options), and raise trailing stops;
 6. decide exits (time, take-profit, stop, days to expiry, results passed, rebalance) and entries from today's
-   analysis, as orders for the next session — nothing decided on a close fills at that close;
+   analysis, as orders for the next session — nothing decided on a close fills at that close. A candidate an event
+   or option strategy passes over (no price, no liquidity, no chain, no fitting contract, over budget) is recorded
+   as a SKIP with its reason: once per stock, at most ``MAX_SKIPS`` per strategy and session;
 7. record each account's equity for the day (once; a day is never stepped twice).
+
+A session stepped without its own analysis (a missed session caught up later, or one whose analysis never arrived) is
+recovery simulation: exits, stops, expiries and marks only. It is recorded as a RECOVERY event so the evaluation
+identifies it (``desk.stocks.paper.report.recovery_sessions``).
 """
 
 from __future__ import annotations
@@ -16,9 +22,10 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from desk.core.clock import to_iso
 from desk.core.config import StocksSection
 from desk.stocks import calendar as cal
 from desk.stocks import options as opt
@@ -32,6 +39,7 @@ from desk.stocks.repo import StocksMarket
 STALE_STOCK_SESSIONS = 5           # an order that can't fill for this many sessions is cancelled
 STALE_OPTION_SESSIONS = 3
 CASH_BUFFER = 0.995                # keep half a percent in cash for fees and rounding
+MAX_SKIPS = 5                      # skip reasons recorded per strategy and session: the reasons, not a flood
 DEFAULT_RATE = 0.04
 
 
@@ -70,6 +78,7 @@ class PaperEngine:
         self._splits: dict[str, list[tuple[date, float]]] = {}
         self.rate = DEFAULT_RATE
         self._observed_by: datetime | None = None
+        self._dividends = fills.Dividends((), ())
 
     # ── data ───────────────────────────────────────────────────────────────────────────────────────
     def _bars(self, asof: date) -> dict[str, Bar]:
@@ -94,6 +103,10 @@ class PaperEngine:
         self._chain_today(symbol, asof)
         day, chains = self._chains[symbol]
         return chains if day == asof else None
+
+    def _q(self, symbol: str, asof: date, s: float | None) -> float:
+        """The stock's trailing-12-month dividend yield, for option prices the model fills in."""
+        return self._dividends.yield_on(symbol, asof, s)
 
     def shares(self, p: Position, on: date) -> float:
         factor = math.prod(ratio for d, ratio in self._splits.get(p.symbol, []) if p.entry_day < d <= on)
@@ -129,8 +142,10 @@ class PaperEngine:
         self._observed_by = now
         self._chains = {}
         self._splits = defaultdict(list)
-        for sp in self.market.splits():
+        splits = self.market.splits()
+        for sp in splits:
             self._splits[sp.symbol].append((sp.execution_date, sp.ratio))
+        self._dividends = fills.Dividends(self.market.dividends(asof - timedelta(days=400)), splits)
         for st in self.strategies.values():
             self.market.register_spec(f"stocks_paper_{st.id}", st.version, st.content(), now)
             capital = self.settings.paper_option_capital_usd if st.asset == "option" else self.settings.paper_starting_capital_usd
@@ -140,6 +155,9 @@ class PaperEngine:
                 if order.order["action"] == "ENTER":
                     self.book.resolve(order.id, "CANCELLED", now, "STOP: new entries disabled")
                     rep.cancelled += 1
+        if day is None or day.asof != asof:
+            self.book.event(now, None, "RECOVERY", None, {"session": asof.isoformat(), "entries": False,
+                                                          "why": "stepped without that session's analysis"})
         self._fill(asof, now, bars, day, rep)
         self._corporate_actions(asof, now, last, rep)
         self._stops(asof, now, bars, day, rep)
@@ -191,13 +209,33 @@ class PaperEngine:
     def _position(self, pid: str) -> Position | None:
         return next((p for p in self.book.positions() if p.id == pid), None)
 
+    def _delisted_close(self, symbol: str, asof: date) -> float | None:
+        """The last stored close of a stock gone from the listing files before ``asof`` (delisted), which an exit
+        sells at, as the evidence report does; a halted or briefly missing stock that is still listed just waits."""
+        listed = self.market.conn.execute("SELECT active, last_seen FROM stk_listings WHERE symbol = ?",
+                                          (symbol,)).fetchone()
+        if listed is None or listed[0] or listed[1] >= to_iso(datetime.combine(asof, time(0, 0), cal.NEW_YORK)):
+            return None
+        row = self.market.conn.execute("SELECT close FROM stk_bars WHERE symbol = ? AND day < ? ORDER BY day DESC LIMIT 1",
+                                       (symbol, asof.toordinal())).fetchone()
+        return None if row is None else float(row[0])
+
     def _fill_stock(self, o: Order, asof: date, now: datetime, bars: dict[str, Bar], day: Day | None,
                     rep: StepReport) -> bool:
         spec = o.order
         bar = bars.get(spec["symbol"])
-        if bar is None:
-            return False
         dv = self._dv(spec["symbol"], day, bars)
+        if bar is None:
+            last = self._delisted_close(spec["symbol"], asof) if spec["action"] == "EXIT" else None
+            p = self._position(spec["position_id"]) if last is not None else None
+            if last is None or p is None:
+                return False
+            f = fills.sell_at(last, self.shares(p, asof), dv, "last close before delisting")
+            self.book.close_position(p, at=now, day=asof, credit=f.cost, fees=f.fees,
+                                     reason=f"{spec['reason']} (delisted: sold at its last close)",
+                                     evidence={"fill_price": f.price, "order": o.id, "delisted": True})
+            rep.closed += 1
+            return True
         if spec["action"] == "EXIT":
             p = self._position(spec["position_id"])
             if p is None:
@@ -250,7 +288,8 @@ class PaperEngine:
             stale = sessions_between(o.fill_after, asof) >= STALE_OPTION_SESSIONS
             if quotes is None and not stale:
                 return False
-            f = fills.close_legs(self._with_marks(p), quotes or {}, None if bar is None else bar.close, asof, self.rate)
+            s = None if bar is None else bar.close
+            f = fills.close_legs(self._with_marks(p), quotes or {}, s, asof, self.rate, self._q(symbol, asof, s))
             if f.problem:
                 if not stale:
                     return False
@@ -280,8 +319,8 @@ class PaperEngine:
             raise _Cancel(f"not enough cash (${cash:,.2f})")
         for leg in f.legs:
             t = opt.year_fraction(asof, date.fromisoformat(leg["expiration"]))
-            leg["entry_iv"] = opt.implied_vol(leg["kind"], leg["entry_price"], bar.close, leg["strike"], t, self.rate) or leg.get(
-                "entry_iv")
+            leg["entry_iv"] = opt.implied_vol(leg["kind"], leg["entry_price"], bar.close, leg["strike"], t, self.rate,
+                                              self._q(symbol, asof, bar.close)) or leg.get("entry_iv")
         expires = min(date.fromisoformat(leg["expiration"]) for leg in f.legs)
         st = self.strategies[o.account]
         self.book.open_position(account=o.account, spec_sha256=st.spec_sha256, asset="option", symbol=symbol,
@@ -380,8 +419,9 @@ class PaperEngine:
                 self.book.mark(p.id, value, stop_price=stop)
             else:
                 quotes = self._chain_today(p.symbol, asof) or {}
-                v, legs, modelled = fills.mark_legs(self._with_marks(p), quotes, None if bar is None else bar.close, asof,
-                                                    self.rate)
+                s = None if bar is None else bar.close
+                v, legs, modelled = fills.mark_legs(self._with_marks(p), quotes, s, asof, self.rate,
+                                                    self._q(p.symbol, asof, s))
                 value = p.last_value or 0.0 if v is None else v
                 self.book.mark(p.id, value, marks={"day": asof.isoformat(), "modelled": modelled,
                                                    "legs": {leg["occ"]: {"mark": leg.get("mark"), "iv": leg.get("last_iv")}
@@ -457,6 +497,13 @@ class PaperEngine:
                     self._enter_stock(st, c, asof, now, size, {}, rep)
             return
         room = min(p["max_open"], int(self.settings.paper_max_open_positions)) - len(held) - len(entering)
+        skipped: set[str] = set()
+
+        def skip(symbol: str, reason: str, evidence: dict[str, Any] | None = None) -> None:
+            if symbol not in skipped and len(skipped) < MAX_SKIPS:
+                skipped.add(symbol)
+                self.book.decide(now, asof, st.id, st.spec_sha256, symbol, "SKIP", [reason], evidence or {})
+
         if st.asset == "stock":
             plan: dict[str, Any] = {k: p[k] for k in ("stop", "trail", "hold") if k in p}
             fraction = min(p["size"], cap)
@@ -466,10 +513,14 @@ class PaperEngine:
             for c in picks:
                 if room <= 0 or available < 1:
                     break
-                if c.symbol in held or c.symbol in entering or c.symbol not in bars:
+                if c.symbol in held or c.symbol in entering:
+                    continue
+                if c.symbol not in bars:
+                    skip(c.symbol, "no price for this stock today")
                     continue
                 dv = self._dv(c.symbol, day, bars)
                 if dv is None or not math.isfinite(dv) or dv <= 0:
+                    skip(c.symbol, "no recent trading volume to size the order against")
                     continue
                 size = min(equity * fraction, available * CASH_BUFFER,
                            dv * float(self.settings.paper_stock_participation_fraction))
@@ -483,22 +534,26 @@ class PaperEngine:
         for c in picks:
             if room <= 0:
                 break
-            if c.symbol in held or c.symbol in entering or c.symbol not in bars:
+            if c.symbol in held or c.symbol in entering:
+                continue
+            if c.symbol not in bars:
+                skip(c.symbol, "no price for this stock today")
                 continue
             structure = c.evidence.get("structure") or p["structure"]      # a followed contract names its own
             legs = self._structure(structure, c.symbol, asof, bars[c.symbol].close, p, c.evidence)
             if not legs:
+                skip(c.symbol, self._no_contract(c.symbol, asof))
                 continue
             if structure == "random_lotto":
                 structure = f"long_{legs[0]['kind']}"
             unit = sum(leg["quantity"] * (leg["decision_price"] or 0) * fills.CONTRACT for leg in legs)
             fee = fills.OPTION_FEE_PER_CONTRACT * sum(abs(leg["quantity"]) for leg in legs)
             if unit <= 0:
+                skip(c.symbol, "the chosen contracts have no price to trade at today", {"legs": legs})
                 continue
             units = int(budget // (unit + fee))
             if units < 1:
-                self.book.decide(now, asof, st.id, st.spec_sha256, c.symbol, "SKIP",
-                                 [f"one unit costs ${unit + fee:,.2f}, over the ${budget:,.2f} budget"], {"legs": legs})
+                skip(c.symbol, f"one unit costs ${unit + fee:,.2f}, over the ${budget:,.2f} budget", {"legs": legs})
                 continue
             max_debit = units * (sum(leg["quantity"] * (fills.limit(leg["decision_price"]) if leg["quantity"] > 0 else
                                          leg["decision_price"]) * fills.CONTRACT for leg in legs) + fee)
@@ -526,6 +581,12 @@ class PaperEngine:
                    evidence: dict[str, Any]) -> list[dict[str, Any]] | None:
         chains = self._chain_full(symbol, asof)
         return build_structure(structure, chains, s, asof, self.rate, p, evidence) if chains else None
+
+    def _no_contract(self, symbol: str, asof: date) -> str:
+        """Why ``_structure`` found nothing to trade."""
+        if not self._chain_full(symbol, asof):
+            return "no option chain was collected for this stock today"
+        return "no contract in today's chain fits the rule's expiry, strike and spread"
 
     def _enter_stock(self, st: Strategy, c: Candidate, asof: date, now: datetime, notional: float, plan: dict[str, Any],
                      rep: StepReport) -> None:

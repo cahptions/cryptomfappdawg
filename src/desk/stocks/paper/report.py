@@ -1,10 +1,17 @@
 """How each PAPER strategy is doing, honestly: its equity against SPY and against the baseline it has to beat (random
 stocks for stock strategies, random calls for option strategies), its closed trades, and a grade that waits for
 enough evidence. Daily excess returns get a stationary-bootstrap interval and one-sided p-value; the strategies tested
-together are Holm-adjusted."""
+together are Holm-adjusted.
+
+Sessions stepped as recovery simulation (``recovery_sessions``) are counted and flagged per account: they managed
+existing positions without that day's analysis, so they are not a normal forward session.
+
+Strategy accounts are paid cash dividends on the ex-date (``desk.stocks.paper.engine``), so SPY is compared on its total
+return too: each close plus any dividend that went ex that day, reinvested, with splits applied (``spy_total``)."""
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Sequence
 from datetime import date
@@ -50,8 +57,22 @@ def trade_stats(closed: Sequence[Position]) -> dict[str, Any]:
             "total_pnl": sum(p.pnl or 0 for p in closed)}
 
 
-def _spy_closes(market: StocksMarket, since: date) -> dict[date, float]:
-    return {b.day: b.close for b in market.bars("SPY", since)}
+def spy_total(market: StocksMarket, since: date) -> dict[date, float]:
+    """SPY's total-return index from ``since``: a day's return is (close + cash dividend ex that day) over the prior
+    close, in that day's shares (a split's ratio applied to the prior close), reinvested."""
+    bars = market.bars("SPY", since)
+    paid: dict[date, float] = {}
+    for d in market.dividends(since):
+        if d.symbol == "SPY" and d.cash_amount > 0:
+            paid[d.ex_date] = paid.get(d.ex_date, 0.0) + float(d.cash_amount)
+    ratio = {sp.execution_date: sp.ratio for sp in market.splits() if sp.symbol == "SPY"}
+    out: dict[date, float] = {}
+    level, prior = 1.0, None
+    for b in bars:
+        if prior is not None and prior > 0:
+            level *= (b.close + paid.get(b.day, 0.0)) / (prior / ratio.get(b.day, 1.0))
+        out[b.day], prior = level, b.close
+    return out
 
 
 def _aligned(a: dict[date, float], b: dict[date, float]) -> tuple[np.ndarray, np.ndarray]:
@@ -59,9 +80,22 @@ def _aligned(a: dict[date, float], b: dict[date, float]) -> tuple[np.ndarray, np
     return daily_returns([a[d] for d in days]), daily_returns([b[d] for d in days])
 
 
+def recovery_sessions(book: PaperBook) -> set[date]:
+    """Sessions the ledger stepped without their own analysis: each RECOVERY event the engine records and, for a
+    ledger from before that event, each session recorded in the same pass as a later one (a missed session is caught
+    up in the pass that steps the next analysed session, at the same time)."""
+    out = {date.fromisoformat(json.loads(r[0])["session"]) for r in book.conn.execute(
+        "SELECT payload_json FROM stk_events WHERE kind = 'RECOVERY'")}
+    out |= {date.fromordinal(r[0]) for r in book.conn.execute(
+        "SELECT DISTINCT e.day FROM stk_equity e JOIN (SELECT at, MAX(day) AS last FROM stk_equity GROUP BY at) m "
+        "ON e.at = m.at WHERE e.day < m.last")}
+    return out
+
+
 def account_report(book: PaperBook, market: StocksMarket, st: Strategy, baseline: dict[date, float] | None,
-                   spy: dict[date, float]) -> dict[str, Any]:
+                   spy: dict[date, float], recovery: set[date] | None = None) -> dict[str, Any]:
     rows = book.equity(st.id)
+    recovered = sorted(d for d, *_ in rows if d in (recovery or set()))
     equity = {d: e for d, _, _, e in rows}
     closed = book.positions(st.id, state="CLOSED")
     open_ = book.positions(st.id)
@@ -77,6 +111,11 @@ def account_report(book: PaperBook, market: StocksMarket, st: Strategy, baseline
         "recorded_specifications": sorted(recorded_specs),
         "mixed_specifications": bool(recorded_specs - {st.spec_sha256}),
         "start": rows[0][0].isoformat() if rows else None, "sessions": len(rows), "deposits": start,
+        "recovery_sessions": len(recovered), "recovery_days": [d.isoformat() for d in recovered[-20:]],
+        "recovery_note": None if not recovered else (
+            f"{len(recovered)} of {len(rows)} sessions were recovery simulation: stepped after the fact without that "
+            "day's analysis, so they only managed existing positions (exits, stops, expiries and marks; no new "
+            "entries)."),
         "equity": None if last is None else last[3], "cash": None if last is None else last[1],
         "invested": None if last is None or not last[3] else last[2] / last[3],
         "return": None if last is None or not start else last[3] / start - 1,
@@ -122,12 +161,13 @@ def grade(acct: dict[str, Any]) -> dict[str, Any]:
 
 def report(book: PaperBook, market: StocksMarket, strategies: Sequence[Strategy]) -> dict[str, Any]:
     first = min((rows[0][0] for s in strategies if (rows := book.equity(s.id))), default=None)
-    spy = _spy_closes(market, first) if first else {}
+    spy = spy_total(market, first) if first else {}
     # Each strategy is judged against its asset's random baseline, or the one it names ("compare": lottos vs lottos).
     wanted = {*BASELINE_FOR.values(), *(s.p["compare"] for s in strategies if s.p.get("compare"))}
     baselines = {sid: {d: e for d, _, _, e in book.equity(sid)} for sid in wanted}
-    accounts = [account_report(book, market, s, baselines.get(s.p.get("compare") or BASELINE_FOR.get(s.asset, "")), spy)
-                for s in strategies]
+    recovery = recovery_sessions(book)
+    accounts = [account_report(book, market, s, baselines.get(s.p.get("compare") or BASELINE_FOR.get(s.asset, "")), spy,
+                               recovery) for s in strategies]
     tested = [a["vs_baseline"] for a in accounts if a["vs_baseline"] and a["vs_baseline"].get("p") is not None]
     for stat, adjusted in zip(tested, holm([t["p"] for t in tested]), strict=True):
         stat["p_holm"] = adjusted
@@ -135,8 +175,10 @@ def report(book: PaperBook, market: StocksMarket, strategies: Sequence[Strategy]
         a["grade"] = grade(a)
     accounts.sort(key=lambda a: (a["baseline"], -(a["return"] if a["return"] is not None else -1e9)))
     return {"accounts": accounts, "first_day": first.isoformat() if first else None,
+            "recovery_sessions": len({d for d in recovery if first and d >= first}),
             "rules": {"min_sessions": MIN_SESSIONS, "min_sessions_portfolio": MIN_SESSIONS_PORTFOLIO,
                       "min_trades": MIN_TRADES, "baselines": BASELINE_FOR}}
 
 
-__all__ = ["BASELINE_FOR", "account_report", "daily_returns", "grade", "report", "trade_stats"]
+__all__ = ["BASELINE_FOR", "account_report", "daily_returns", "grade", "recovery_sessions", "report", "spy_total",
+           "trade_stats"]

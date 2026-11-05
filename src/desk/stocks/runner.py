@@ -443,7 +443,8 @@ def evaluate(paths: DeskPaths, loaded: LoadedConfig, *, learning: bool = False) 
         days = market.bar_days()
         if not days:
             raise DeskError("No stored price history yet; run desk stocks refresh first")
-        panel = load_panel(market, days[-1] - timedelta(days=loaded.settings.stocks.history_days), days[-1])
+        since, _ = validation.evaluation_window(market, loaded.settings.stocks)   # every stored day, memory allowing
+        panel = load_panel(market, since, days[-1])
         validation.rebuild(Analyzer(market, research, loaded.settings.stocks), panel, now=now)
         if learning:
             return lab.run(research, panel, now=now, mode=loaded.settings.stocks.learning)

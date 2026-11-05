@@ -8,7 +8,8 @@ to open as anything but PAPER.
 
 For the product audit and next build priorities, see [STOCKS_PRODUCT_REVIEW.md](STOCKS_PRODUCT_REVIEW.md).
 
-Historical backtests now default to all eligible saved sessions after warm-up. The main Paper page links directly to the
+Historical backtests now default to all eligible saved sessions after warm-up: a year (252 sessions) of earlier prices,
+so 12-month momentum, 52-week highs and the 200-day average are complete on every replayed day. The main Paper page links directly to the
 replay; its date slider and first/previous/next/play controls review archived daily cash, holdings, marks, decisions and
 closed trades as they existed on the selected date. Playback is a review of an actual chronological computation, not a
 claim that an animation trains a model. The complete run has its own retained ledger under `stocks-replays/`.
@@ -23,7 +24,12 @@ Completed stock replays use the same session/trade thresholds, daily baseline co
 Holm correction as the forward grader, using the replay's own sessions. The result is stored in its retained archive
 with the strategy specification, date range and tested family. An older specification is labeled outdated; use
 **Run replay** to open the existing controls. Automatic replay also refreshes older report versions when enabled.
-Rules needing unavailable publication-timed inputs (short interest) remain explicitly unsupported.
+Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints and are read as of each replayed day. Short
+interest joins the replay automatically once the stored FINRA settlements cover the replayed window (24 or more
+twice-monthly settlements, the latest published by the first replayed day, each counted 12 days after settlement, with
+no gap or partial settlement after it); **Squeeze runners** and **Squeeze calls** replay then. Until it does, they say so
+and short interest is left out. Lab strategies replay too; they were chosen on the same rebuilt months, so their replay
+is in-sample and says so.
 
 ### Option strategies in the historical replay
 
@@ -36,21 +42,29 @@ trading (`desk.stocks.option_model`):
   a week) prices it at that day's stock price.
 - **The model everywhere else.** Before Massive's window, or for a contract that never traded, the price is
   Black-Scholes at the stock's realized volatility (half 20-day, half 60-day) times how options on that stock have been
-  priced against it, with a put skew and the stock's typical quoted spread. All three are calibrated on every replay
-  from the chains this app collected and from Massive's real prices, falling back to stated market-wide values.
+  priced against it, with a put skew and the stock's typical quoted spread. All three are calibrated from the chains
+  this app collected and from Massive's real prices on an expanding window: refit at the start of each replayed month
+  from observations dated before it, so no session is priced with what options did later, falling back to stated
+  market-wide values until there are enough.
 - **Listings.** Monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid stand in for
-  the real listings. Open interest and dividends are not modeled.
+  the real listings. Open interest isn't stored historically: where Massive was asked about the days before a
+  decision, a contract that traded fewer than 10 contracts in the 10 days up to it is passed over as illiquid, and any
+  other rebuilt contract is assumed to clear the rules' 100-contract floor (the replay reports how many were checked).
+  Option strategies trade only the stocks whose chains this app has collected at some point. Dividends are: every option price and implied volatility reads
+  the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for later splits), in
+  the replay's model, its calibration and the PAPER fills and marks.
 - **Choosing never follows a real price.** Contracts are chosen from the model's prices, so one contract's real price
   can't pull a rule toward it; the decision then sees that day's real price where there is one.
 - **Downloading.** Each collection pass fetches up to 12 of the contracts the latest replay traded (about 2½ minutes at
   Massive's 5 requests a minute), so all of a replay's contracts arrive within hours. When a batch finishes, the
-  automatic replay runs once more to use them (never mid-download). Nothing else in the app uses Massive's option data. `kestrel options-history` shows how many are downloaded and how long the
+  automatic replay runs once more to use them (never mid-download). The Lottos history (`desk.stocks.lotto_history`)
+  also reads Massive's option data, from the same 5-requests-a-minute budget. `kestrel options-history` shows how many are downloaded and how long the
   rest will take; each option account's replay view shows what share of its held days were priced by real trades.
 
 Strategies whose signal is option data itself are not replayed: **Calls when IV is cheap** (a model built from the
 stock's movement can't show options priced cheaply against it), **Cheap earnings straddles** (needs the move options
-priced before each report), **Follow unusual call buying** (needs each day's real volume) and **Squeeze calls** (needs
-short interest as published). They are tested forward on collected chains.
+priced before each report) and **Follow unusual call buying** (needs each day's real volume). They are tested forward
+on collected chains. **Squeeze calls** follows short interest, not option data, and replays with it (above).
 
 Historical rules were designed with knowledge of past data, and the stored listing universe/filing history can be
 incomplete. A favorable replay is exploratory reconstruction, not fresh prospective evidence. Replayed days never
@@ -109,8 +123,11 @@ intrinsic-value fill. Model-based option exits are explicitly labeled; they are 
 Every decision (ENTER, EXIT, and SKIP with its reason), order, fill, cash movement and daily equity is append-only.
 A position's entry never changes and a closed position never changes (SQLite triggers refuse it).
 The whole ledger session commits in one transaction. STOP cancels pending entries and suppresses new ones while
-existing positions remain managed. Recovery through missed sessions is simulation and must be identified in the
-evaluation; it is not evidence of fills while a laptop was asleep.
+existing positions remain managed. Recovery through missed sessions is simulation, not evidence of fills while a
+laptop was asleep: a session stepped without its own analysis (exits, stops, expiries and marks only) is recorded as a
+RECOVERY event, and the report counts and lists each account's recovery sessions, which the Strategy evidence card
+shows beside its forward sessions. Ledgers from before that event are read the same way: a session stepped in the same
+pass as a later one was caught up.
 
 ## The strategies
 
@@ -192,8 +209,9 @@ in, how many expired worthless, reached 3× and 10×, the best pick, and KESTREL
 ## Grading
 
 `desk.stocks.paper.report` compares each account's daily returns with its baseline's (random stocks for stock
-strategies, random calls for option strategies, random lottos for the lotto strategies) and with SPY, with a stationary-bootstrap interval and one-sided
-p-value, Holm-adjusted across strategies. A strategy is *too early* until it has three months of sessions (six for
+strategies, random calls for option strategies, random lottos for the lotto strategies) and with SPY's total return
+(each close plus any dividend that went ex that day, reinvested, since the accounts are paid dividends too), with a
+stationary-bootstrap interval and one-sided p-value, Holm-adjusted across strategies. A strategy is *too early* until it has three months of sessions (six for
 monthly portfolios) and, for event and options strategies, 20 closed trades. Then: *working* (Holm p < 0.05),
 *promising* (p < 0.10), *backwards* (p > 0.95) or *not working*. The report also shows return, drawdown, volatility,
 Sharpe, win rate, profit factor, average holding time and the best and worst trades.

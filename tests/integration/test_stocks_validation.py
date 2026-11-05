@@ -43,7 +43,7 @@ def test_rebuild_is_point_in_time_and_done_once(world: StocksWorld) -> None:
     # what the rebuild stored for a month equals an analysis run with no prices after that month
     m = months[3]
     alone = Analyzer(world.market, world.research, SETTINGS).build(load_panel(world.market, world.days[0], m.asof), m.asof,
-                                                                     now=NOW, crowd_and_options=False,
+                                                                     now=NOW, historical=True,
                                                                      weights=dict(dk.DEFAULT_WEIGHTS))
     for d in dk.DESKS:
         expect = {s: round(r.score, 2) for s, r in alone.results[d].items() if r.score is not None}
@@ -80,6 +80,7 @@ def test_report_grades_lists_and_desks_and_learns_weights(world: StocksWorld) ->
     for name in ("valuation", "momentum", "risk", "committee"):
         assert out["desks"][name]["rebuilt"]["ic"]["n"] >= 9, name
     assert out["desks"]["crowd"]["rebuilt"] is None
+    assert out["desks"]["news"]["rebuilt_note"] and out["desks"]["valuation"]["rebuilt_note"] is None
     tested = [v["rebuilt"]["1m"] for v in out["lists"].values() if v["claim"] in val.TESTED_CLAIMS and v["rebuilt"]]
     assert all(s["p_holm"] is None or s["p_holm"] >= s["p"] for s in tested)
     learning = out["committee"]

@@ -122,7 +122,8 @@ def test_completed_replay_keeps_statistical_grades_with_its_immutable_archive(tm
             payload=client.get("/api/stocks/paper").json()
             assert payload["report"]==forward and payload["historical_replays"]["momentum"]["sessions"]==8
             assert payload["historical_replays"]["momentum"]["status"]=="current"
-            assert payload["historical_replays"][learned.id]["status"]=="unsupported"
+            # A lab strategy is replayable (it blends desks the replay computes); this one was promoted afterwards.
+            assert payload["historical_replays"][learned.id]["status"]=="missing"
             a["spec_sha256"]="old-specification"
             (w.paths.home/"stocks-backtest-report.json").write_text(json.dumps(result))
             stale=client.get("/api/stocks/paper").json()["historical_replays"]["momentum"]

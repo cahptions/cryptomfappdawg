@@ -4,11 +4,15 @@ test issues), with a SEC CIK when one exists. Liquidity is applied from prices, 
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, datetime, time, timedelta
 from itertools import zip_longest
 
+from desk.core.clock import to_iso
+from desk.stocks import calendar as cal
 from desk.stocks.repo import StocksMarket
 
 RESEARCH_KINDS = frozenset({"common", "adr"})
+FIRST_FILE_DAYS = 7          # listings first seen this soon after collection began were already listed before it
 # benchmarks and sector funds the desk compares against (stored with the universe's bars)
 BENCHMARKS = ("SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC",
               "SMH", "TLT", "HYG", "GLD")
@@ -18,6 +22,23 @@ SECTOR_FUNDS = {"BusEq": "XLK", "Money": "XLF", "Enrgy": "XLE", "Hlth": "XLV", "
 
 def research_listings(market: StocksMarket) -> list[sqlite3.Row]:
     return [r for r in market.listings(active=True) if r["kind"] in RESEARCH_KINDS and not r["etf"] and not r["test"]]
+
+
+def listed_on(market: StocksMarket, asof: date) -> list[sqlite3.Row]:
+    """The research universe as it stood on a rebuilt or replayed day, delisted companies included.
+
+    A listing counts from the day it first appeared in the listing files (an IPO or a new ticker) until the last file
+    that still had it. Listings in the first files this app collected were already listed before collection began, so
+    they count on any earlier day; their stored prices decide when they actually traded. Companies delisted before
+    collection began never appeared in a file, so they are still missing (the remaining survivorship bias)."""
+    began = market.conn.execute("SELECT MIN(first_seen) FROM stk_listings").fetchone()[0]
+    if began is None:
+        return []
+    already = to_iso(datetime.fromisoformat(began) + timedelta(days=FIRST_FILE_DAYS))
+    start, end = (to_iso(datetime.combine(asof, t, cal.NEW_YORK)) for t in (time(0, 0), time(23, 59, 59)))
+    return [r for r in market.conn.execute(
+        "SELECT * FROM stk_listings WHERE etf = 0 AND test = 0 AND (first_seen <= ? OR first_seen <= ?) "
+        "AND (active = 1 OR last_seen >= ?) ORDER BY symbol", (end, already, start)) if r["kind"] in RESEARCH_KINDS]
 
 
 def stored_symbols(market: StocksMarket) -> set[str]:
@@ -48,4 +69,5 @@ def option_focus(research: sqlite3.Connection, limit: int, min_price: float, min
     return list(mixed)[:limit]
 
 
-__all__ = ["BENCHMARKS", "RESEARCH_KINDS", "SECTOR_FUNDS", "option_focus", "research_listings", "stored_symbols", "symbol_ciks"]
+__all__ = ["BENCHMARKS", "RESEARCH_KINDS", "SECTOR_FUNDS", "listed_on", "option_focus", "research_listings", "stored_symbols",
+           "symbol_ciks"]
