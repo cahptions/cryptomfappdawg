@@ -42,7 +42,7 @@ def finish(conn, entered, *, symbol="SPY", net=-.1, account=lab.RESEARCH, mature
     end = matured or entered+timedelta(minutes=30)
     book.close_position(position,at=end,day=end.date(),credit=100*(1+net),fees=0.,reason="Synthetic progress fixture",evidence={})
     if record:
-        conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?,'sold at a quote')",
             (pid,cfg["id"],to_iso(entered),to_iso(end),entered.date().isoformat()+":"+symbol,net,net*100,1,1))
     return cfg["id"]
 

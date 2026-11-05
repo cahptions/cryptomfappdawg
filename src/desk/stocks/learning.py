@@ -19,7 +19,7 @@ from desk.stocks import calendar as cal
 from desk.stocks.backtest import position_view
 from desk.stocks.contracts import OptionQuote
 from desk.stocks.paper import fills
-from desk.stocks.paper.book import MICRO, Order, PaperBook, to_micros
+from desk.stocks.paper.book import MICRO, Order, PaperBook, Position, _position, to_micros
 from desk.stocks.paper.strategies import build_structure
 from desk.stocks.repo import StocksMarket
 from desk.storage.db import DbKind, connect, migrate
@@ -46,6 +46,7 @@ LIFECYCLE_SWITCH = "lifecycle_switch"
 MIN_COMPARISON_DAYS = 4
 MIN_COMPARISON_BLOCKS = 12
 CHECK_METHOD_VERSION = 2
+SOLD, SETTLED = "sold at a quote", "settled at intrinsic"     # stk_learning_outcomes.basis
 
 
 def open_book(paths: DeskPaths) -> sqlite3.Connection:
@@ -386,23 +387,82 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
             ["Registered holding horizon reached"],
             {"position_id": position.id, "pnl": pnl},
         )
-        if position.account == RESEARCH:
-            conn.execute(
-                "INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
-                (
-                    position.id,
-                    position.plan["experiment_id"],
-                    position.opened_at,
-                    to_iso(now),
-                    position.entry_day.isoformat() + ":" + position.symbol,
-                    pnl / (position.entry_cost + position.entry_fees),
-                    pnl,
-                    position.plan["desired_units"],
-                    units,
-                ),
-            )
+        record_outcome(conn, position, now, pnl, units, SOLD)
         count += 1
     return count
+
+
+def record_outcome(conn: sqlite3.Connection, position: Position, now: datetime, pnl: float, units: int,
+                   basis: str) -> None:
+    """A research position's finished result, a training label from ``now`` on (never earlier, so no decision made
+    before it could see it). ``basis`` says how it finished: sold at a quote, or settled at intrinsic at expiry."""
+    if position.account != RESEARCH:
+        return
+    paid = position.entry_cost + position.entry_fees
+    conn.execute("INSERT INTO stk_learning_outcomes(position_id,experiment_id,entered_at,matured_at,block,net_return,"
+                 "pnl,requested_units,filled_units,basis) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                 (position.id, position.plan["experiment_id"], position.opened_at, to_iso(now),
+                  position.entry_day.isoformat() + ":" + position.symbol, pnl / paid if paid else 0.0, pnl,
+                  position.plan["desired_units"], units, basis))
+
+
+def settle_expired(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> int:
+    """Expired positions settle at intrinsic value on the official close of their last trading day (``stk_bars``), as
+    PaperEngine._expiries settles the ordinary PAPER books. This is a real outcome, not a stand-in: an expiring
+    contract's value is fixed by that close. Learning holds only long calls, puts and straddles, so nothing is ever
+    assigned: an in-the-money leg is worth its intrinsic value and pays the exit fee (it is exercised and the shares
+    sold at the close), an out-of-the-money leg is worth nothing and pays no fee (nothing is traded).
+
+    Runs on every tick, including while the market is closed, once the expiry day's close has passed and its official
+    close is stored. The outcome matures when it is settled, never back-dated to the expiry, so no earlier decision
+    sees it. A position whose stock split while it was held stays open: its contract was adjusted, and the
+    unadjusted strike would settle the wrong amount."""
+    book = PaperBook(conn)
+    today = cal.new_york(now).date()
+    count = 0
+    for row in conn.execute("SELECT * FROM stk_positions WHERE state='OPEN' AND asset='option' AND expires_day<=? "
+                            "ORDER BY expires_day,id", (today.toordinal(),)).fetchall():
+        position = _position(row)
+        if position.expires is None or not position.legs:
+            continue
+        expiry = position.expires
+        last = expiry if cal.is_trading_day(expiry) else cal.previous_trading_day(expiry)
+        if now < cal.session_close(last):
+            continue
+        bar = market.conn.execute("SELECT close FROM stk_bars WHERE symbol=? AND day=?",
+                                  (position.symbol, last.toordinal())).fetchone()
+        if bar is None or not bar[0] or not math.isfinite(bar[0]) or bar[0] <= 0:
+            continue                                   # waits for the official close; stays visibly unresolved
+        if market.conn.execute("SELECT 1 FROM stk_splits WHERE symbol=? AND execution_date>? AND execution_date<=? "
+                               "LIMIT 1", (position.symbol, position.entry_day.toordinal(),
+                                           expiry.toordinal())).fetchone():
+            continue
+        close = float(bar[0])
+        value = fills.settle(position.legs, close)
+        exercised = sum(abs(int(leg["quantity"])) for leg in position.legs if fills.intrinsic(leg, close) > 0)
+        fee = round(exercised * fills.OPTION_FEE_PER_CONTRACT, 2) if value > 0 else 0.0
+        reason = (f"Expired {expiry.isoformat()}: settled at intrinsic on the ${close:,.2f} official close"
+                  + ("" if value > 0 else " (worthless)"))
+        evidence = {"settlement": SETTLED, "underlying_close": close, "close_day": last.isoformat(),
+                    "source": "official daily close (stk_bars)", "exercised_contracts": exercised}
+        pnl = book.close_position(position, at=now, day=today, credit=value, fees=fee, reason=reason,
+                                  evidence=evidence, cash_reason="EXPIRE")
+        book.decide(now, today, position.account, position.spec_sha256, position.symbol, "EXIT", [reason],
+                    {"position_id": position.id, "pnl": pnl, **evidence})
+        book.event(now, position.account, "EXPIRY_SETTLEMENT", position.id, {**evidence, "value": value, "fees": fee})
+        record_outcome(conn, position, now, pnl, int(position.plan.get("filled_units") or 0), SETTLED)
+        count += 1
+    return count
+
+
+def record_nav(conn: sqlite3.Connection, now: datetime) -> None:
+    book = PaperBook(conn)
+    for account, _title, _capital in ACCOUNTS:
+        marked = conn.execute("SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions WHERE state='OPEN' "
+                              "AND account=?", (account,)).fetchone()[0] / MICRO
+        equity, contributed = book.cash(account) + marked, book.deposits(account)
+        conn.execute("INSERT OR IGNORE INTO stk_learning_nav VALUES (?,?,?,?,?)",
+                     (to_iso(now), account, equity, contributed, equity - contributed))
 
 
 def forecast(conn: sqlite3.Connection, experiment: str, now: datetime) -> dict[str, Any]:
@@ -566,9 +626,12 @@ def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]
         "julianday(opened_at)+COALESCE(json_extract(plan_json,'$.hold_minutes'),0)/1440.0<=julianday(?)) due "
         "FROM stk_positions WHERE account=? AND state='OPEN'",
         (cal.new_york(now).date().toordinal(),cal.new_york(now).date().toordinal(),to_iso(now),RESEARCH)).fetchone()
+    settled = conn.execute("SELECT COUNT(*) FROM stk_learning_outcomes o JOIN stk_positions p ON p.id=o.position_id "
+                           "AND p.account=? WHERE o.matured_at<=? AND o.basis=?", (RESEARCH, to_iso(now), SETTLED)).fetchone()[0]
     reasons = []
     if not total:
-        reasons.append("No eligible completed research outcomes yet. Open trades need a later executable exit quote.")
+        reasons.append("No eligible completed research outcomes yet. Open trades finish when sold at a later executable "
+                       "quote or, at expiry, when settled at intrinsic value on the official close.")
     if len(days)<MIN_COMPARISON_DAYS:
         reasons.append(f"Need {MIN_COMPARISON_DAYS-len(days)} more entry days with completed research outcomes.")
     if blocks<MIN_COMPARISON_BLOCKS:
@@ -591,7 +654,7 @@ def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]
         "min_entry_days":MIN_COMPARISON_DAYS,"min_blocks":MIN_COMPARISON_BLOCKS,
         "ready_for_comparison":len(days)>=MIN_COMPARISON_DAYS and blocks>=MIN_COMPARISON_BLOCKS and bool(train) and bool(test),
         "open_research_trades":open_["n"],"exit_horizon_reached":int(open_["due"] or 0),
-        "unresolved_expiries":int(open_["expired"] or 0),"blockers":reasons,
+        "unresolved_expiries":int(open_["expired"] or 0),"settled_at_expiry":settled,"blockers":reasons,
         "families":shown,"family_total":len(comparisons),
         "latest_source_at":conn.execute("SELECT MAX(observed_at) FROM stk_learning_sources WHERE observed_at<=?",
                                          (to_iso(now),)).fetchone()[0],
@@ -713,8 +776,11 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
     local = cal.new_york(now)
     if not cal.is_trading_day(local.date()) or not (9, 30) <= (local.hour, local.minute) < (16, 0):
         with PaperBook(conn).atomic():
+            settled = settle_expired(conn, market, now)
+            if settled:
+                record_nav(conn, now)
             check_in(conn,now)
-        result = {"phase": "Market closed; saved experiments and losses are retained", "orders": 0}
+        result = {"phase": "Market closed; saved experiments and losses are retained", "orders": 0, "settled": settled}
         set_state(conn, "progress", result)
         return result
     rows = market.conn.execute(
@@ -722,6 +788,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
         (local.date().toordinal(), to_iso(now), to_iso(now - timedelta(minutes=3))),
     ).fetchall()
     with PaperBook(conn).atomic():
+        settled = settle_expired(conn, market, now)
         for row in rows:
             symbol = row[0]
             _, chains = market.option_chain(symbol, local.date(), observed_by=now)
@@ -755,19 +822,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
         from desk.stocks.learning_retail import propose as propose_retail
 
         orders += propose_retail(conn,now,quotes,snapshots)
-        book = PaperBook(conn)
-        for account, _title, _capital in ACCOUNTS:
-            marked = (
-                conn.execute(
-                    "SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions WHERE state='OPEN' AND account=?", (account,)
-                ).fetchone()[0]
-                / MICRO
-            )
-            equity, contributed = book.cash(account) + marked, book.deposits(account)
-            conn.execute(
-                "INSERT OR IGNORE INTO stk_learning_nav VALUES (?,?,?,?,?)",
-                (to_iso(now), account, equity, contributed, equity - contributed),
-            )
+        record_nav(conn, now)
         check_in(conn, now)
         result = {
             "phase": "Observing fresh quotes and running registered experiments"
@@ -777,6 +832,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
             "orders": orders,
             "filled": filled,
             "closed": closed,
+            "settled": settled,
             "at": to_iso(now),
         }
         set_state(conn, "progress", result)
@@ -843,6 +899,8 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
                 "capital_employed": marked[0] / MICRO,
                 "trading_pnl_drawdown": drawdown,
                 "unresolved_expiries": unresolved,
+                "expiry_settlements": conn.execute("SELECT COUNT(*) FROM stk_cash WHERE account=? AND reason='EXPIRE'",
+                                                   (account,)).fetchone()[0],
                 "pnl_per_contributed_dollar": (equity - contributed) / contributed if contributed else None,
                 "open_positions": marked[1],
                 "closed_trades": closed[0],
@@ -908,7 +966,8 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
         "Unfilled quantities receive no invented P/L. Only long calls, puts and straddles are supported. "
         "Lifecycle recipes buy weekly, 1-, 3-, 6-month and LEAPS options and value each position at real quotes "
         "after 1, 7, 14, 30, 60, 90, 120 and 180 days, selling at the horizon or before expiry. "
-        "Expiry/assignment settlement without fresh tradable quotes remains unresolved and is not a training label.",
+        "A position still held at expiry settles at intrinsic value on that day's official close (exit fee only when "
+        "in the money; long options are never assigned); that is a real outcome and a training label.",
         "mode": "PAPER",
         "orders_enabled": False,
     }

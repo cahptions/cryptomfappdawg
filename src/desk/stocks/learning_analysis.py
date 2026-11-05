@@ -18,7 +18,7 @@ from statistics import fmean, median, stdev
 from typing import Any
 
 from desk.stocks import calendar as cal
-from desk.stocks.learning import ACCOUNTS, BUCKETS, REFERENCE, RESEARCH, STRUCTURES, state
+from desk.stocks.learning import ACCOUNTS, BUCKETS, REFERENCE, RESEARCH, SETTLED, STRUCTURES, state
 from desk.stocks.paper.book import MICRO, PaperBook
 
 
@@ -105,16 +105,18 @@ def lifecycle(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                 (RESEARCH, e["id"], days))]
             steps.append({"days": days, "n": len(rows), "mean": fmean(rows) if rows else None,
                           "win_rate": sum(r > 0 for r in rows) / len(rows) if rows else None})
-        final = [r[0] for r in conn.execute(
-            "SELECT o.net_return FROM stk_learning_outcomes o JOIN stk_positions p ON p.id=o.position_id "
-            "WHERE p.account=? AND o.experiment_id=?", (RESEARCH, e["id"]))]
+        finished = conn.execute(
+            "SELECT o.net_return,o.basis FROM stk_learning_outcomes o JOIN stk_positions p ON p.id=o.position_id "
+            "WHERE p.account=? AND o.experiment_id=?", (RESEARCH, e["id"])).fetchall()
+        final = [r[0] for r in finished]
         open_ = conn.execute("SELECT COUNT(*) FROM stk_positions WHERE account=? AND state='OPEN' AND "
                              "json_extract(plan_json,'$.experiment_id')=?", (RESEARCH, e["id"])).fetchone()[0]
         ready = [s for s in steps if s["n"] >= 10 and s["mean"] is not None]
         recipes.append({"id": e["id"], "structure": cfg["structure"], "bucket": cfg["bucket"], "label": cfg["label"],
                         "checkpoints": steps, "open": open_,
                         "final": {"n": len(final), "mean": fmean(final) if final else None,
-                                  "win_rate": sum(r > 0 for r in final) / len(final) if final else None},
+                                  "win_rate": sum(r > 0 for r in final) / len(final) if final else None,
+                                  "settled": sum(r[1] == SETTLED for r in finished)},
                         "best_so_far": max(ready, key=lambda s: s["mean"])["days"] if ready else None})
     order = list(BUCKETS)
     return sorted(recipes, key=lambda r: (order.index(r["bucket"]), STRUCTURES.index(r["structure"])))
@@ -260,8 +262,9 @@ def render(a: dict[str, Any]) -> str:
             cells = " · ".join(f"{s['days']}d {_pct(s['mean'], 0)} ({_share(s['win_rate'])}; {s['n']})"
                                for s in r["checkpoints"] if s["n"])
             best = f" · best so far: {r['best_so_far']} days" if r["best_so_far"] else ""
+            settled = f" ({r['final']['settled']} settled at expiry)" if r["final"].get("settled") else ""
             out.append(f"  {r['structure'].replace('_', ' ')}, {r['label']}: {cells or 'no checkpoint yet'} · "
-                       f"{r['final']['n']} sold, {r['open']} open{best}")
+                       f"{r['final']['n']} finished{settled}, {r['open']} open{best}")
     d = a["daily"]
     out += ["", f"Per entry day: {d['days']} days, average trade {_pct(d['mean'])}"
                 + ("" if d["t"] is None else f", t = {d['t']:.2f} "

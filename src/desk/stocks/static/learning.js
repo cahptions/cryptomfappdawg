@@ -136,7 +136,15 @@ const KestrelLearning = (() => {
       section.append(
         el(
           "p",
-          `${number(evidence.unresolved_expiries)} expired research positions await verified settlement; they are not completed training evidence.`,
+          `${number(evidence.unresolved_expiries)} expired research positions are waiting for the official close of their expiry day. Each settles at intrinsic value as soon as that close is stored.`,
+          "caption muted",
+        ),
+      );
+    if (evidence.settled_at_expiry)
+      section.append(
+        el(
+          "p",
+          `${number(evidence.settled_at_expiry)} research trades were held to expiry and settled at intrinsic value on the official close. These are real results and count as completed outcomes.`,
           "caption muted",
         ),
       );
@@ -223,14 +231,14 @@ const KestrelLearning = (() => {
       el("h2", "Does holding longer pay?"),
       el(
         "p",
-        "Each position is bought once and valued at real quotes as it ages. A cell is the average return on the money paid if sold then (win rate; positions). Cells fill as positions live that long; a best holding time is named once a checkpoint has 10 positions.",
+        "Each position is bought once and valued at real quotes as it ages. A cell is the average return on the money paid if sold then (win rate; positions). Cells fill as positions live that long; a best holding time is named once a checkpoint has 10 positions. Finished counts every sale, and every position held to expiry and settled at intrinsic value on the official close.",
         "muted caption",
       ),
     );
     const head = el("tr");
     head.append(el("th", "Recipe"));
     for (const d of days) head.append(el("th", `${d}d`));
-    head.append(el("th", "Sold"), el("th", "Open"));
+    head.append(el("th", "Finished"), el("th", "Open"));
     grid.append(head);
     for (const r of recipes) {
       const row = el("tr");
@@ -264,7 +272,7 @@ const KestrelLearning = (() => {
         el(
           "td",
           r.final.n
-            ? `${percent(r.final.mean)} (${Math.round(100 * r.final.win_rate)}%; ${r.final.n})`
+            ? `${percent(r.final.mean)} (${Math.round(100 * r.final.win_rate)}%; ${r.final.n}${r.final.settled ? `, ${r.final.settled} at expiry` : ""})`
             : "—",
         ),
         el("td", String(r.open)),
@@ -680,7 +688,7 @@ const KestrelLearning = (() => {
         app.append(
           el(
             "p",
-            `${a.unresolved_expiries} expired positions await verified settlement data. Their marks may be stale; they do not become training outcomes.`,
+            `${a.unresolved_expiries} expired positions are waiting for the official close of their expiry day. They settle at intrinsic value once it is stored; until then they show their last quoted value.`,
             "notice",
           ),
         );
@@ -742,6 +750,8 @@ const KestrelLearning = (() => {
                   `Entry ${money(p.entry_cost + p.entry_fees)} · ${p.plan.label || `${p.plan.hold_minutes}-minute hypothesis`}`,
                 ),
               );
+              if (p.state === "CLOSED" && p.exit_reason)
+                b.append(el("small", p.exit_reason));
               if (p.plan.transfer_policy)
                 b.append(el("small", policyName(p.plan.transfer_policy.mode)));
               b.onclick = () =>

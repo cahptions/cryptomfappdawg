@@ -98,7 +98,7 @@ def test_retired_research_is_history_for_the_small_accounts_and_lifecycle_is_nev
         position = next(p for p in book.positions(learning.RESEARCH) if p.id == pid)
         book.close_position(position, at=AT + timedelta(hours=2), day=AT.date(), credit=190., fees=0.,
                             reason="Old seed", evidence={})
-        conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?,'sold at a quote')",
                      (pid, old, AT.isoformat(), (AT + timedelta(hours=2)).isoformat(), "2026-10-21:SPY", 0.9, 90., 1, 1))
         # A +90% retired put is not something the $1k/$5k accounts copy: they start from the 1-month call instead.
         policies = retail.policies(conn, AT + timedelta(days=1))

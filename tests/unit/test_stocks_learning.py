@@ -257,7 +257,7 @@ def test_chronological_selection_uses_prior_labels_and_preserves_losing_held_out
                         evidence={},
                     )
                     conn.execute(
-                        "INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
+                        "INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?,'sold at a quote')",
                         (pid, exp["id"], to_iso(entered), to_iso(mature), day.isoformat() + ":SPY", net, 100 * net, 1, 1),
                     )
         learning.check_in(conn, datetime(2026, 1, 1, tzinfo=UTC))

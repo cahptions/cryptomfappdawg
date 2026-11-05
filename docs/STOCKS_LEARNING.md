@@ -76,7 +76,7 @@ holding longer does. So the registry trades **every expiry** and values each pos
   (at least one contract), at the expiry nearest the middle of the bucket's window.
 - **One purchase, many answers:** a position is bought once, and at each checkpoint the first later fresh quote records
   what selling it then would have returned (bid less impact and exit fees), in `stk_learning_checkpoints` (append-only).
-  The position itself is sold at its horizon, or earlier when expiry gets close, so no LEAPS result waits on settlement.
+  The position itself is sold at its horizon, or earlier when expiry gets close, so no LEAPS result waits for expiry.
   **Does holding longer pay?** is then read from the same entries: Learning shows each recipe's average return, win rate
   and count at every checkpoint, and names a best holding time once a checkpoint has 10 positions.
 - **Pacing:** a recipe re-enters the same stock at most once a week and at most twice a day across stocks, so evidence
@@ -106,9 +106,19 @@ unfilled quantities. Unconstrained requested exposure is not represented as exec
 
 The holding horizon is elapsed clock time. Positions exit on the first later usable quote with sufficient modeled
 capacity, so actual holding can exceed the target. Missing, stale or too-wide quotes do not generate imaginary exits.
-Expired positions without verified settlement remain visibly unresolved, retain their last marks, and do not train the
-model. This is a material limitation; retained marked equity can be stale. The app does not claim these modeled results
-prove real execution capacity.
+
+**Expiry settlement.** A position still held when its options expire (its quotes were missing, too wide or too thin to
+sell before then) settles at **intrinsic value on the official close** of its expiry day, the close stored in the
+market database's daily bars, exactly as the ordinary PAPER books settle expiring options. This is a real outcome, not
+a stand-in: an expiring contract's value is fixed by that close. Learning holds only long calls, puts and straddles, so
+nothing is ever assigned. An in-the-money leg pays the $0.65 exit fee (it is exercised and sold at the close); a
+worthless leg pays nothing. Settlement runs on every Learning cycle, including evenings and weekends, as soon as the
+close is stored; the cash entry is `EXPIRE`, the trade's exit reason names the close, and the research outcome is
+recorded with basis `settled at intrinsic` (sold trades: `sold at a quote`). It matures when it is settled, never
+back-dated to the expiry, so no earlier decision can see it. Until the close arrives the position is shown as waiting
+for it, with its last quoted value. One case stays open on purpose: if the stock split while the position was held, the
+contract was adjusted and the unadjusted strike would settle the wrong amount. The app does not claim these modeled
+results prove real execution capacity.
 
 Provider polling and machine scheduling are separate from financial limits: provider collection is paced to a minute,
 rotates two underlyings and two expirations per pass, and shares the existing provider rate limiter. Saved observations
