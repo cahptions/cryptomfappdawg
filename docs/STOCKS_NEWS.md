@@ -10,7 +10,7 @@ stock and graded on live data, and it gets a vote only if its record proves it p
 | Angle | Source | How often | What it gives a stock |
 |---|---|---|---|
 | Company news | Massive's market-wide news feed (your existing key): every article once, with the stocks it names and Massive's sentiment for each | every 30 minutes | the week's tone (positive minus negative articles) and attention (articles in 3 days vs its usual) |
-| World events | GDELT's 15-minute event files: news in 65+ languages, machine-translated and coded (fighting, threats, sanctions, strikes and protests, seizures), by country, with the source articles | every pass (the last week back-filled first) | a supply shock when coverage of those events where a key supply comes from runs 1.8× its usual level |
+| World events | GDELT's 15-minute event files: news in 65+ languages, machine-translated and coded (fighting, threats, sanctions, strikes and protests, seizures), by country, with the source articles | every pass, newest first, 40 files a pass: 32 whole days are kept filled (the 30-day usual level plus the last two days), and a file missed while the computer was off is fetched later | a supply shock when coverage of those events where a key supply comes from runs 1.8× its usual level |
 | Policy | Federal Register presidential documents (executive orders, proclamations, memoranda) since January 20, 2025, tagged for trade actions, sanctions, sectors and countries | every 6 hours | trade actions in the last 15 days that name a product this company makes (helped) or buys (hurt) |
 
 All three are free; only company news needs a key (Massive, already configured). Research reads only what was

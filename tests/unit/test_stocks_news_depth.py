@@ -9,10 +9,11 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from desk.core.paths import DeskPaths
-from desk.stocks import desks, news_flow
+from desk.stocks import desks, news_flow, world
 from desk.stocks.repo import StocksDatabases, StocksMarket
 from tests.conftest import REPO
 
@@ -109,3 +110,28 @@ def test_attention_is_measured_against_the_days_actually_stored(conn) -> None:
     assert not any("more than usual" in r for r in reasons)          # it read about 2.6× before the fix
     thin, _, covered = attention(15)                                 # under two weeks to compare with: no measure
     assert covered < news_flow.EARLIER_MIN_DAYS and thin is None
+
+
+# ── world events ─────────────────────────────────────────────────────────────────────────────────
+def test_world_events_backfill_32_whole_days_and_fill_holes_newest_first(conn) -> None:
+    window = world.stamps(NOW, since=world.window_start(NOW))
+    assert window[-1] == "20261004000000" and window[0] == "20261105143000"   # day today-32, whole, through now
+    holes = [window[3], window[1500], window[-1]]
+    conn.executemany("INSERT INTO stk_world_files VALUES (?,?,0)",
+                     [(name, NOW.isoformat()) for name in window if name not in holes])
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path.rsplit("/", 1)[-1][:14])
+        return httpx.Response(404)                                     # GDELT skipped it: recorded as empty
+
+    async def run() -> dict[str, Any]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            return await world.collect(conn, client, NOW, limit=2)
+
+    first = asyncio.run(run())
+    assert asked == holes[:2] and first["missing"] == 1                # newest first, a bounded number a pass
+    second = asyncio.run(run())
+    assert asked == holes and second["missing"] == 0
+    nodes = world.status(conn, TODAY)
+    assert {n["baseline_days"] for n in nodes} == {31} and all(n["ready"] for n in nodes)
