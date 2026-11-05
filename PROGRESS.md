@@ -17,6 +17,24 @@ is presented as clearly as it can be. Before adding a step, screen, setting or p
 
 Correctness and honesty rules still hold: research and PAPER only, and no fabricated data.
 
+## 2026-11-05 — Audit fixes, round 2b: Plays and odds (Stocks)
+
+- Every chance a play shows is now graded against what happened, append-only (`stk_play_grades`, research migration
+  0014), and calibrated once a group has 30: the headline take-profit chance on the play's own quoted closing marks
+  (an estimated mark before the outcome means not graded), profit, +25/50/100%, maximum gain and touch at expiry.
+  The card, saved ideas, Confidence and Performance show the calibrated numbers and their history.
+- The Expiry filter's picks are recorded and graded as their own cohort per band (`<section>@<band>`), with their own
+  track record on the board and in Performance, never mixed into a section's usual record; each stores only what
+  its grades read (about 1 KB). Plays are judged by their section's record at their own days to expiry.
+- NYSE 1:00 PM early closes are followed everywhere (tracking, recording, PAPER entries, filings). Unusual follow-ups
+  fall back to the contract's own tracked or closing quotes; sections show how their picks stand before the first
+  expiry; recovered sightings show the nearest stored stock price, labelled; saved ideas from before price targets
+  get them computed later, labelled; gap repair uses all ten days of Schwab minute bars; "chance of a profit from
+  here" uses the play's own forecast; the calculator values mixed expirations at the first expiry, modeled; gap
+  days use the contract's own stored daily bar where one exists (still estimated, never graded).
+- Review after the merge: grading reads only plays that can still be decided, so a build does not slow down as the
+  history grows. 1,728 tests and every Plays, Calculator, Personal, Archive and Learning browser test pass.
+
 ## 2026-11-05 — Audit fixes, round 2a: Learning (Stocks)
 
 - Expired positions settle at intrinsic on the official close (a real outcome, written to the outcomes); every held
@@ -24,7 +42,7 @@ Correctness and honesty rules still hold: research and PAPER only, and no fabric
   for new entries; capacity uses the size displayed at the side traded (no depth beyond the top of the book); the
   experiment form registers lifecycle recipes; the small accounts sell at the recipe's best checkpoint so far (only
   checkpoints matured before each decision); recipe families include the expiry bucket; the calendar's session close
-  replaces hard-coded 4 PM. 1,699 tests and both Learning browser tests pass. Plays (round 2b) is finishing.
+  replaces hard-coded 4 PM. 1,699 tests and both Learning browser tests pass.
 
 ## 2026-11-05 — Audit fixes, round 1: data, operations, replay and validation (Stocks)
 
