@@ -104,8 +104,9 @@ def tracked_set(research: sqlite3.Connection, today: date, board: dict[str, Any]
             wanted[occ] = min(priority, wanted.get(occ, 9))
 
     cutoff, soon = day_of(_recent_cutoff(today)), day_of(today + timedelta(days=SHORT_DATED_DAYS))
-    for r in research.execute("SELECT session, expiration, legs_json FROM stk_plays WHERE expiration >= ?",
-                              (day_of(today),)):
+    # Expiry filter cohorts ("<section>@<band>") are graded on the stock's close alone and are not followed here.
+    for r in research.execute("SELECT session, expiration, legs_json FROM stk_plays WHERE expiration >= ? AND "
+                              "instr(category, '@') = 0", (day_of(today),)):
         priority = 0 if r["session"] >= cutoff or r["expiration"] <= soon else 1
         for leg in json.loads(r["legs_json"]):
             want(leg["occ"], priority)

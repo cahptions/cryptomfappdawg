@@ -612,15 +612,20 @@ const KestrelPlays = (() => {
     run();
   }
 
-  function record(cat) {
+  // The section's usual record, or with an Expiry filter band chosen, that band's own recorded picks.
+  function record(cat, band) {
     const box = el("div", undefined, "play-record");
-    const r = cat.record;
+    const own = band && !cat.horizon_free && cat.horizon_records,
+      r = own ? cat.horizon_records[band.id] : cat.record,
+      where = own ? ` at ${band.label.toLowerCase()}` : "";
     box.append(
       el(
         "p",
         r && r.resolved
-          ? `Track record: ${r.resolved} past plays resolved · ${pct(r.itm_rate)} finished in the money (KESTREL predicted ${pct(r.predicted_itm)}) · median return at expiry ${pct(r.median_return)}`
-          : "Track record: no plays in this category have expired yet. Each day's plays are saved once and graded at expiry.",
+          ? `Track record${where}: ${r.resolved} past plays resolved · ${pct(r.itm_rate)} finished in the money (KESTREL predicted ${pct(r.predicted_itm)}) · median return at expiry ${pct(r.median_return)}`
+          : own
+            ? `Track record${where}: none of this section's picks at this expiry have expired yet. Each closing session's picks here are saved once and graded at expiry on the stock's close.`
+            : "Track record: no plays in this category have expired yet. Each day's plays are saved once and graded at expiry.",
         "muted caption",
       ),
     );
@@ -1136,7 +1141,7 @@ const KestrelPlays = (() => {
             cat.horizon_free
               ? `${cat.title} keeps its own expiries (${cat.id === "lottos" ? "cheap and short-dated by design" : cat.id === "earnings" ? "the first expiry after the results date" : "the contracts people actually traded"}), so ${band.label.toLowerCase()} only narrows its list.`
               : data.horizons
-                ? `${band.label}: this section's rules searched at that expiry, every other rule unchanged. These alternatives open like any play and are followed in History once you open one; the section's track record stays its usual expiries.`
+                ? `${band.label}: this section's rules searched at that expiry, every other rule unchanged. Each closing session's picks at this expiry are saved as their own record and graded at expiry on the stock's close, separate from the section's usual expiries; a play opened here is also followed quote by quote in History.`
                 : "This saved board predates expiry search. The next collection pass rebuilds it from saved chains; for now the filter only narrows the usual list.",
             "caption muted",
           ),
@@ -1154,7 +1159,7 @@ const KestrelPlays = (() => {
         );
         body.append(el("h3", "Overall ranking · all prices"));
       }
-      if (!budget) body.append(evidence, record(cat));
+      if (!budget) body.append(evidence, record(cat, band));
       if (!shown.length) {
         if (
           !budget &&

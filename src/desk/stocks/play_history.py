@@ -31,7 +31,8 @@ def _iso(n: int) -> str:
 
 
 def sessions(research: sqlite3.Connection) -> dict[str, Any]:
-    rows = research.execute("SELECT session, COUNT(*) n FROM stk_plays GROUP BY session ORDER BY session DESC").fetchall()
+    rows = research.execute("SELECT session, COUNT(*) n FROM stk_plays WHERE instr(category, '@') = 0 GROUP BY session "
+                            "ORDER BY session DESC").fetchall()
     return {"version": VERSION, "sessions": [{"session": _iso(r["session"]), "plays": r["n"]} for r in rows],
             "repair": get_state(research, "repair")}
 
@@ -129,7 +130,8 @@ def label(play: dict[str, Any]) -> str:
 # ── one session ──────────────────────────────────────────────────────────────────────────────────
 def session_view(research: sqlite3.Connection, session: date, now: datetime) -> dict[str, Any]:
     n = day_of(session)
-    plays = [dict(r) for r in research.execute("SELECT * FROM stk_plays WHERE session = ? ORDER BY category, rank", (n,))]
+    plays = [dict(r) for r in research.execute("SELECT * FROM stk_plays WHERE session = ? AND instr(category, '@') = 0 "
+                                               "ORDER BY category, rank", (n,))]
     if not plays:
         recorded = [r[0] for r in research.execute("SELECT DISTINCT session FROM stk_plays ORDER BY session")]
         return {"version": VERSION, "session": session.isoformat(), "categories": [], "summary": None,

@@ -71,7 +71,7 @@ class PlayReturn:
 
 def returns_table(research: sqlite3.Connection) -> list[PlayReturn]:
     rows = research.execute("SELECT p.*, o.hit FROM stk_plays p LEFT JOIN stk_play_outcomes o USING (session, category,"
-                            " rank) ORDER BY p.session, p.category, p.rank").fetchall()
+                            " rank) WHERE instr(p.category, '@') = 0 ORDER BY p.session, p.category, p.rank").fetchall()
     if not rows:
         return []
     first = date.fromordinal(rows[0]["session"])
@@ -159,6 +159,36 @@ def event_calibration(research: sqlite3.Connection) -> dict[str, Any]:
     return out
 
 
+def horizon_records(research: sqlite3.Connection) -> list[dict[str, Any]]:
+    """The Expiry filter's recorded picks (``<section>@<band>`` cohorts), by band and section: graded at expiry on
+    the stock's close, with no daily marks or twins, so only the return at expiry is shown."""
+    from desk.stocks.plays import BY_CATEGORY, HORIZONS
+
+    groups: dict[str, dict[str, list[sqlite3.Row]]] = defaultdict(lambda: defaultdict(list))
+    for r in research.execute("SELECT p.category, o.net_return, o.hit FROM stk_plays p LEFT JOIN stk_play_outcomes o "
+                              "USING (session, category, rank) WHERE instr(p.category, '@') > 0"):
+        section, band = r["category"].split("@", 1)
+        groups[band][section].append(r)
+
+    def row(items: Sequence[sqlite3.Row]) -> dict[str, Any]:
+        done = [r for r in items if r["net_return"] is not None]
+        return {"plays": len(items), "open": len(items) - len(done),
+                "expiry": stats([float(r["net_return"]) for r in done]),
+                "itm_rate": round(sum(r["hit"] for r in done) / len(done), 4) if done else None}
+
+    out = []
+    for band, label, lo, hi in HORIZONS:
+        sections = groups.get(band) or {}
+        if not sections:
+            continue
+        every = [r for items in sections.values() for r in items]
+        out.append({"id": band, "label": label, "days": [lo, hi], **row(every),
+                    "categories": [{"id": c, "title": BY_CATEGORY[c].title if c in BY_CATEGORY else c,
+                                    "emoji": BY_CATEGORY[c].emoji if c in BY_CATEGORY else "", **row(items)}
+                                   for c, items in sorted(sections.items())]})
+    return out
+
+
 def spy_closes(market: sqlite3.Connection) -> dict[int, float]:
     return {r["day"]: float(r["close"]) for r in market.execute("SELECT day, close FROM stk_bars WHERE symbol = 'SPY'")}
 
@@ -234,6 +264,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
             "sessions": len({r.session for r in rows}),
             "categories": categories, "overall": by_horizon(graded),
             "dte": buckets("dte", DTE_BUCKETS), "price": buckets("entry", PRICE_BUCKETS),
+            "horizons": horizon_records(research),
             "calibration": {**calibration(rows), "events": event_calibration(research)}, "cumulative": curves,
             "titles": {c.id: {"title": c.title, "emoji": c.emoji} for c in RECORDED},
             "note": "Returns are on the money at risk after fees, from quoted closing marks and exact settlements only. "
@@ -265,4 +296,4 @@ def refresh(paths: DeskPaths, market: sqlite3.Connection, research: sqlite3.Conn
 
 
 __all__ = ["DTE_BUCKETS", "EVENT_LABELS", "HORIZONS", "PRICE_BUCKETS", "PlayReturn", "build", "by_horizon",
-           "calibration", "cumulative", "event_calibration", "refresh", "returns_table", "stats"]
+           "calibration", "cumulative", "event_calibration", "horizon_records", "refresh", "returns_table", "stats"]

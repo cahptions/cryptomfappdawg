@@ -86,7 +86,7 @@ def recover(research: sqlite3.Connection, now: datetime) -> dict[str, int]:
 def sessions(research: sqlite3.Connection) -> dict[str, Any]:
     # Group by the day actually identified in New York, not by an old quote session on a stale board.
     keys: dict[date, set[tuple[str, str]]] = defaultdict(set)
-    for row in research.execute("SELECT session,category,legs_json FROM stk_plays"):
+    for row in research.execute("SELECT session,category,legs_json FROM stk_plays WHERE instr(category,'@')=0"):
         keys[date.fromordinal(row["session"])].add((row["category"], legs_key(json.loads(row["legs_json"]))))
     for row in research.execute("SELECT identified_at,category,legs_key FROM stk_play_ideas"):
         keys[cal.new_york(datetime.fromisoformat(row["identified_at"])).date()].add((row["category"], row["legs_key"]))
@@ -138,7 +138,8 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
 def session_view(research: sqlite3.Connection, session: date, now: datetime) -> dict[str, Any]:
     closing = ph.session_view(research, session, now)
     keys = {(r["category"],r["rank"]):legs_key(json.loads(r["legs_json"])) for r in research.execute(
-        "SELECT category,rank,legs_json FROM stk_plays WHERE session=?", (session.toordinal(),))}
+        "SELECT category,rank,legs_json FROM stk_plays WHERE session=? AND instr(category,'@')=0",
+        (session.toordinal(),))}
     rows = {(r["category"],keys[(r["category"],r["rank"])]):r
             for category in closing["categories"] for r in category["plays"]}
     closed_keys = set(rows)

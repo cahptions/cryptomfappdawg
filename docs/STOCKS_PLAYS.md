@@ -20,8 +20,12 @@ Choosing one does not just hide the rest: the worker has already searched each s
 (its direction, delta, liquidity and spread rules unchanged; only the days to expiry differ), one per stock, twelve per
 band, so "About 6 months" shows that section's best 6-month plays rather than an empty list. Unusual activity, Earnings
 plays and Lottos keep their own expiries (the contracts traded, the first expiry after results, short-dated by design);
-for them the filter only narrows. Expiry-band plays open like any play and are saved, and followed in History, once
-opened; they are not part of the section's graded record, which keeps its usual expiries.
+for them the filter only narrows. Expiry-band plays open like any play and are saved, and followed quote by quote in
+History, once opened. Separately, at the closing build each band's picks are recorded as **their own cohort**
+(category `<section>@<band>`, under their own rule version) and graded at expiry on the stock's close, which needs no
+provider request; they are not tracked intraday or marked daily (so they have no take-profit grade or random twin).
+With a band chosen, a section shows that band's own track record, and Performance lists every band's results under
+"Expiry filter picks". They never count in a section's usual record.
 
 ## Affordable plays and filters
 

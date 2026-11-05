@@ -186,8 +186,28 @@ def test_a_closed_session_is_recorded_once_and_graded_at_expiration(world: Stock
     assert first["session_closed"] and set(first["recorded"]) == {c.id for c in pl.CATEGORIES}
     again = pl.build(world.market, world.research, CLOSED + timedelta(minutes=5))
     assert again["recorded"] == []                                        # never recorded twice
-    stored = world.research.conn.execute("SELECT COUNT(*) FROM stk_plays").fetchone()[0]
+    stored = world.research.conn.execute("SELECT COUNT(*) FROM stk_plays WHERE instr(category, '@') = 0").fetchone()[0]
     assert stored == sum(len(c["plays"]) for c in first["categories"])
+    # every Expiry filter band's picks are their own cohort, under their own rule version, never followed intraday
+    longer: dict[tuple[str, str], int] = {}
+    for c in first["categories"]:
+        for p in c["horizon_plays"]:
+            longer[(c["id"], p["horizon"])] = longer.get((c["id"], p["horizon"]), 0) + 1
+    cohort = {(r[0], r[1]): r[2] for r in world.research.conn.execute(
+        "SELECT category, method, size FROM stk_play_days WHERE instr(category, '@') > 0")}
+    searched = [c.id for c in pl.CATEGORIES if c.id not in pl.HORIZON_FREE]
+    assert set(first["recorded_horizons"]) == {f"{c}@{band}" for c in searched for band, *_ in pl.HORIZONS}
+    assert {k[1] for k in cohort} == {pl.horizon_method(first["method"])}
+    assert {k[0]: n for k, n in cohort.items() if n} == {f"{c}@{b}": n for (c, b), n in longer.items()}
+    assert sum(longer.values()) > 0
+    from desk.stocks.play_marks import positions
+    from desk.stocks.play_tracking import tracked_set
+
+    horizon_legs = {leg["occ"] for c in first["categories"] for p in c["horizon_plays"] for leg in p["legs"]}
+    usual_legs = {leg["occ"] for c in first["categories"] for p in [*c["plays"], *c["budget_plays"]]
+                  for leg in p["legs"]}
+    assert not (set(tracked_set(world.research.conn, ASOF, None)) & (horizon_legs - usual_legs))
+    assert all("@" not in p.category for p in positions(world.research.conn))
     with pytest.raises(Exception, match="append-only"):
         world.research.conn.execute("UPDATE stk_plays SET itm_kestrel = 1")
     # the earliest expiry arrives: every play expiring then is graded on that day's close
@@ -212,6 +232,13 @@ def test_a_closed_session_is_recorded_once_and_graded_at_expiration(world: Stock
     assert pl.grade(world.market, world.research, NOW) == 0               # graded once
     track = pl.records(world.research)
     assert sum(v["resolved"] for v in track.values()) == len(rows)
+    from desk.stocks import play_performance as perf
+
+    bands = perf.horizon_records(world.research.conn)
+    graded_bands = [r for r in rows if "@" in r["category"]]
+    assert sum(b["plays"] - b["open"] for b in bands) == len(graded_bands)
+    for key in {r["category"] for r in graded_bands}:
+        assert track[key]["resolved"] == sum(r["category"] == key for r in graded_bands)
 
 
 def test_the_next_session_confirms_whether_flagged_volume_opened(world: StocksWorld) -> None:

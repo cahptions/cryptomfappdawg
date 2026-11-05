@@ -47,8 +47,10 @@ def _save_idea(research: sqlite3.Connection, session: str, category: str, method
 
 def register(research: sqlite3.Connection, board: dict[str, Any], now: datetime) -> dict[str, Any]:
     """Freeze the first identification of an exact structure/version, and attach stable detail-page identities.
-    Expiry filter plays (``horizon_plays``) get identities but are saved only when opened (``open_horizon_play``):
-    saving every band's picks would follow hundreds of untouched ideas a day until they expire."""
+    Expiry filter plays (``horizon_plays``) get identities but are saved as ideas only when opened
+    (``open_horizon_play``): every saved idea is followed quote by quote until it expires, and that for every band's
+    picks would be hundreds of untouched ideas a day. Their track record does not need it: each closing session's
+    band picks are recorded as their own cohort and graded at expiry on the stock's close (``plays.horizon_cohort``)."""
     if not board.get("asof"):
         return board
     session, method = board["asof"], str(board.get("method", "unknown"))

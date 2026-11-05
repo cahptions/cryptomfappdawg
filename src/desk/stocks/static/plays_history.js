@@ -1450,6 +1450,33 @@ const KestrelPlaysHistory = (() => {
     app.append(cats, calibrationChart(data.calibration));
     if (data.learning)
       app.append(learningSection(data.learning, data.titles || {}));
+    if (data.horizons?.length) {
+      const section = el("section", undefined, "pf-section"),
+        rows = [];
+      for (const band of data.horizons)
+        for (const c of [
+          { title: "Every section", ...band },
+          ...band.categories,
+        ])
+          rows.push([
+            c.title === "Every section"
+              ? el("strong", band.label)
+              : `${c.emoji} ${c.title}`,
+            `${c.plays} (${c.open} open)`,
+            chance(c.itm_rate),
+            cell(c.expiry),
+          ]);
+      section.append(
+        el("h2", "Expiry filter picks"),
+        el(
+          "p",
+          "Each closing session's picks for every Expiry filter band, recorded as their own cohort and graded at expiry on the stock's close (no daily marks and no random twins, so only the return at expiry is shown). They never count in a section's usual record.",
+          "muted",
+        ),
+        table(["Expiry", "Plays", "In the money", "At expiry"], rows),
+      );
+      app.append(section);
+    }
     for (const [title, key, first] of [
       ["By days to expiry when picked", "dte", "Days to expiry"],
       ["By price per share when picked", "price", "Entry price"],

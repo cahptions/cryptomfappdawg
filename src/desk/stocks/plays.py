@@ -1293,6 +1293,8 @@ def calibration_summary(research: StocksResearch | sqlite3.Connection) -> dict[s
 
 
 def records(research: StocksResearch) -> dict[str, dict[str, Any]]:
+    """Each recorded cohort's graded record at expiry: a section's usual picks under its id, an Expiry filter band's
+    under ``<section>@<band>``."""
     out: dict[str, dict[str, Any]] = {}
     grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
     for r in research.conn.execute(
@@ -1760,7 +1762,8 @@ def horizon_plays(category: str, tables: list[Table], ctx: Context, promoted: st
                   shown: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The section's own rules searched inside each Expiry filter band, so choosing "About 6 months" or "LEAPS
     (9+ months)" finds that section's best plays there instead of filtering its usual 2-to-8-week list to nothing.
-    Shown and opened like other plays; not recorded in the section's track record."""
+    Shown and opened like other plays. At the closing build each band's picks are recorded as their own cohort
+    (``horizon_cohort``), graded at expiry on the stock's close, never mixed into the section's usual record."""
     if category in HORIZON_FREE:
         return []
     from desk.stocks import play_learning as lrn
@@ -1774,6 +1777,28 @@ def horizon_plays(category: str, tables: list[Table], ctx: Context, promoted: st
             if key not in seen and lo <= int(p["dte"]) <= hi:
                 seen.add(key)
                 out.append({**p, "horizon": band, "horizon_version": HORIZON_VERSION, "discovery": "horizon"})
+    return out
+
+
+HORIZON_MARK = "@"                  # a horizon cohort's category: "<section>@<band>"
+
+
+def horizon_method(m: str) -> str:
+    """The horizon cohort's own rule version: the section's rules and the band search's version."""
+    return sha256_hex(canonical_json({"method": m, "horizon_version": HORIZON_VERSION}))[:16]
+
+
+def horizon_cohort(category: str, plays: Sequence[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Each Expiry filter band's picks as their own recorded cohort, ``<section>@<band>``, ranked as shown (every band
+    of a searched section, an empty one too, so a session's search is on record). Graded at expiry by ``grade`` on
+    the stock's close alone: they are not tracked intraday or marked daily, so following them costs no provider
+    request, and they have no take-profit grade (that needs daily marks)."""
+    if category in HORIZON_FREE:
+        return {}
+    out: dict[str, list[dict[str, Any]]] = {f"{category}{HORIZON_MARK}{band}": [] for band, *_ in HORIZONS}
+    for p in plays:
+        rows = out[f"{category}{HORIZON_MARK}{p['horizon']}"]
+        rows.append({**p, "rank": len(rows) + 1})
     return out
 
 
@@ -1812,6 +1837,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     unrecorded = closed and research.conn.execute("SELECT 1 FROM stk_play_days WHERE session = ?",
                                                   (day_of(session),)).fetchone() is None
     shadow: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(dict)
+    by_horizon: dict[str, list[dict[str, Any]]] = {}
     for cat in CATEGORIES:
         found = [c for tb in tables for c in SELECTORS[cat.id](tb, ctx)]
         found.sort(key=lambda c: (-c.score, c.table.u.symbol))
@@ -1849,15 +1875,19 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         for p in [*plays, *cheaper, *longer]:                 # how far to trust it, when to leave, for every play
             plan.attach(p, cat.id, track.get(cat.id), exit_rule, ctx.rate, session, calibrations=ctx.calibration,
                         history=take_history)
+        by_horizon.update(horizon_cohort(cat.id, longer))
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
                  "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
                  "budget_plays": cheaper, "horizon_plays": longer, "horizon_free": cat.id in HORIZON_FREE,
+                 "horizon_records": {} if cat.id in HORIZON_FREE else
+                 {band: track.get(f"{cat.id}{HORIZON_MARK}{band}") for band, *_ in HORIZONS},
                  "label": (learned.get("labels") or {}).get(cat.id), "live_rules": live.get(cat.id),
                  "exit": exit_rule if exit_rule.get("suggested") else None}
         if cat.id == "unusual":
             entry["followups"] = followups(ctx.flagged, tables)
         out_categories.append(entry)
     added = record(research, session, recorded, now, m) if closed else []
+    horizon_added = record(research, session, by_horizon, now, horizon_method(m)) if closed else []
     twins = record_twins(research, session, {c: recorded[c] for c in added}, tables, now) if added else 0
     shadows = lrn.record_shadow(research.conn, session, shadow, now) if added and shadow else 0
     cal_itm = ctx.calibration["itm"]
@@ -1878,7 +1908,8 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                                         "applied": bool(ctx.calibration["take_profit"].buckets)}},
         "model": {"ic": ic, "ic_months": round(months, 1), "ic_source": source, "iv_weight": od.IV_WEIGHT,
                   "rate": round(ctx.rate, 4)},
-        "recorded": added, "twins": twins, "shadow_picks": shadows, "graded": graded, "session_closed": closed,
+        "recorded": added, "recorded_horizons": horizon_added, "twins": twins, "shadow_picks": shadows,
+        "graded": graded, "session_closed": closed,
         "categories": out_categories,
         "budget_search": {"version":BUDGET_VERSION,"bands":[list(b) for b in BUDGET_BANDS],
                           "max_risk":1000.0,"entry_fees_included":True,

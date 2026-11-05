@@ -153,12 +153,14 @@ def assignment_risk(position: Position, close: float | None, quotes: dict[str, L
 
 # ── what is recorded ─────────────────────────────────────────────────────────────────────────────
 def positions(research: sqlite3.Connection, since: date | None = None) -> list[Position]:
-    """Every recorded play and its twin, oldest first."""
+    """Every recorded play and its twin, oldest first. Expiry filter cohorts ("<section>@<band>") are left out: they
+    are graded at expiry on the stock's close alone, so marking them would only add estimates and history requests."""
     out = []
     floor = day_of(since) if since else 0
     for r in research.execute("SELECT session, category, rank, symbol, action, structure, expiration, legs_json, entry,"
                               " max_loss, underlying, json_extract(play_json, '$.earnings') AS earnings FROM stk_plays"
-                              " WHERE session >= ? ORDER BY session, category, rank", (floor,)):
+                              " WHERE session >= ? AND instr(category, '@') = 0 ORDER BY session, category, rank",
+                              (floor,)):
         out.append(Position(date.fromordinal(r["session"]), r["category"], r["rank"], 0, r["symbol"], r["action"],
                             r["structure"], date.fromordinal(r["expiration"]), json.loads(r["legs_json"]), r["entry"],
                             r["max_loss"], r["underlying"], date.fromisoformat(r["earnings"]) if r["earnings"] else None))

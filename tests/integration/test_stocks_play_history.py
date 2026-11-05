@@ -126,7 +126,10 @@ def history(tmp_path_factory: pytest.TempPathFactory) -> Any:
 def test_every_pick_and_its_twin_is_marked_every_session_until_it_settles(history: Any) -> None:
     conn = history.research.conn
     plays = [(r[0], r[1], r[2], 0, r[3]) for r in conn.execute("SELECT session, category, rank, expiration FROM "
-                                                               "stk_plays")]
+                                                               "stk_plays WHERE instr(category, '@') = 0")]
+    # the Expiry filter cohorts are graded at expiry on the stock's close alone: never marked, never fetched for
+    assert conn.execute("SELECT COUNT(*) FROM stk_plays WHERE instr(category, '@') > 0").fetchone()[0] > 0
+    assert not conn.execute("SELECT 1 FROM stk_play_marks WHERE instr(category, '@') > 0").fetchone()
     twins = [(r[0], r[1], r[2], 1, r[3]) for r in conn.execute("SELECT session, category, rank, expiration FROM "
                                                                "stk_play_twins")]
     assert len(plays) > 20 and len(twins) >= 0.8 * len(plays)
@@ -165,7 +168,7 @@ def test_tracked_sessions_are_quoted_the_laptop_off_session_is_estimated_and_exp
                                         (day_of(off),))]
     assert notes and all("laptop was off" in n for n in notes)
     settled = conn.execute("SELECT COUNT(*) FROM stk_play_marks WHERE status = 'settled'").fetchone()[0]
-    expired = conn.execute("SELECT COUNT(*) FROM stk_plays WHERE expiration <= ?",
+    expired = conn.execute("SELECT COUNT(*) FROM stk_plays WHERE expiration <= ? AND instr(category, '@') = 0",
                            (day_of(history.sessions[-1]),)).fetchone()[0]
     assert settled >= expired > 0
     # the settlement agrees with the existing grade at expiration
@@ -193,7 +196,8 @@ def test_exit_chart_keeps_intraday_observations_but_never_offers_a_close_basis_b
 
     session = history.sessions[0]
     row = history.research.conn.execute("SELECT category, rank FROM stk_plays WHERE session = ? AND category != "
-                                        "'lottos' ORDER BY category, rank LIMIT 1", (day_of(session),)).fetchone()
+                                        "'lottos' AND instr(category, '@') = 0 ORDER BY category, rank LIMIT 1",
+                                        (day_of(session),)).fetchone()
     data = play_view(history.research.conn, session, row["category"], row["rank"], at(history.sessions[-1], 17))
     assert len(data["intraday"]) > len(data["daily"])
     entry = datetime.fromisoformat(data["entry_times"]["close"])
