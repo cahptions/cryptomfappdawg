@@ -261,9 +261,10 @@ def _advance(market: sqlite3.Connection, research: sqlite3.Connection, now: date
                        "received_at": to_iso(now), "note": "Intrinsic expiry comparison; no exercise or assignment"})
                 changed += 1
             continue
-        if not (cal.is_trading_day(cal.new_york(now).date()) and
-                time(9, 30) <= cal.new_york(now).time() < time(16)):
-            continue
+        local = cal.new_york(now)
+        if not (cal.is_trading_day(local.date()) and time(9, 30) <= local.time()
+                and now < cal.session_close(local.date())):
+            continue                                   # entries and exits only in the regular session (a half day too)
         entry = current["entry"]
         requested = _event(research, row["id"], "CLOSE_REQUEST")
         after = datetime.fromisoformat(requested["at"] if requested else row["eligible_at"])

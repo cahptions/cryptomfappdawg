@@ -25,7 +25,7 @@ import statistics
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import numpy as np
@@ -1718,7 +1718,7 @@ def paper_records(ledger: PaperBook | None) -> dict[str, dict[str, Any]]:
 
 # ── the build ────────────────────────────────────────────────────────────────────────────────────
 def session_closed(session: date, now: datetime) -> bool:
-    return now >= datetime.combine(session, time(16, 0), cal.NEW_YORK) + CLOSE_GRACE
+    return now >= cal.session_close(session) + CLOSE_GRACE           # 1:00 PM on a half day
 
 
 def signature(market: StocksMarket, research: StocksResearch, session: date, now: datetime, m: str | None = None) -> str:

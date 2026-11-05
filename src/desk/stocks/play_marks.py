@@ -448,11 +448,13 @@ async def estimate_intraday(research: sqlite3.Connection, history: History, esti
         for occ, d, iv in items:
             _, kind, strike, expiration = parse_occ(occ)
             expiry_close = cal.session_close(expiration)
+            closed = cal.session_close(d)
             points: list[list[float | None]] = []
             for b in bars:
                 local = cal.new_york(b.at)
                 minute = local.hour * 60 + local.minute + 1      # the bar's close
-                if local.date() != d or minute % 5 or not 9 * 60 + 35 <= minute <= 16 * 60:
+                if (local.date() != d or minute % 5
+                        or not 9 * 60 + 35 <= minute <= closed.hour * 60 + closed.minute):
                     continue
                 t = max((expiry_close - b.at).total_seconds() / (opt.YEAR_DAYS * 86400), 1e-4)
                 price = round(opt.bs_price(kind, b.close, strike, t, iv, rate(d)), 4)

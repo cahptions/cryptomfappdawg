@@ -79,7 +79,9 @@ Premarket confirmations become eligible at **9:30 AM New York time on the next t
 confirmation made during the regular session becomes eligible immediately and cannot backdate to that morning's
 open. After close, weekends and exchange holidays queue for the next session. The default is the opening session;
 **no validated adaptive entry-timing model is active**. The dashboard must be running with collection enabled to
-capture an entry. This calendar currently assumes a 16:00 close and does not implement exchange half days.
+capture an entry. The calendar follows NYSE's early closes (1:00 PM on the day after Thanksgiving, and on Christmas
+Eve and July 3 when each is a trading day): on a half day the regular session, and so entries and exits, ends at
+1:00 PM.
 
 On a tracking pass, every exact leg must have a positive, noncrossed bid/ask, a provider timestamp at or after
 eligibility, and a quote age of at most two minutes. Entry uses asks for bought legs and bids for sold legs. The
@@ -332,7 +334,8 @@ activity actually finished in the money — a number paid feeds rarely publish.
 
 ## The record
 
-A session's plays are **recorded once**, at the first build after that session closes (16:15 New York), in
+A session's plays are **recorded once**, at the first build after that session closes (16:15 New York; 13:15 on a
+half day), in
 `stocks-research.db` (`stk_play_days`, `stk_plays`; append-only), each with the rule version it was picked under. At
 expiration each play is **graded once** on the underlying's close (`stk_play_outcomes`): did its event happen
 (finished in the money, or moved past a straddle's break-even), what it paid per share, and its net return on the
@@ -427,8 +430,9 @@ endpoint, 100 option symbols a request (stored OCC symbols are padded to Schwab'
 is checked against its strike, call/put, expiry, 100 multiplier and underlying; adjusted contracts are dropped), with
 Schwab's own IV and greeks. Contracts it misses fall back to the selected provider's per-expiry chains; anything the
 research collector fetched since the last pass is used free. Priorities: the live board, plays from the last five
-sessions and anything expiring within a week every pass; older plays every 15 minutes; twins hourly; from 15:50 every
-contract once more for its close. A pass spends at most 40 requests (under a tenth of the 90-a-minute Schwab budget,
+sessions and anything expiring within a week every pass; older plays every 15 minutes; twins hourly; in the
+session's last ten minutes (from 3:50 PM, 12:50 PM on a half day) every contract once more for its close; a closing
+row needs a quote from the session's last hour, measured from that day's own close. A pass spends at most 40 requests (under a tenth of the 90-a-minute Schwab budget,
 which is shared with research collection). Streaming quotes are not used: the streamer needs Schwab's account-scoped
 user preferences, and this integration requests market data only.
 
