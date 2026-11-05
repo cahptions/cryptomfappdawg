@@ -264,6 +264,13 @@ class MassiveClient:
                   "published_utc.gte": published_after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
         return parse_news(await self._get("news", params=params), limit)
 
+    async def market_news_before(self, published_before: datetime, limit: int = 1000) -> list[dict[str, Any]]:
+        """Every stock's news up to ``published_before``, newest first (page backward from the oldest article stored;
+        the boundary second is included, so articles sharing it are not skipped)."""
+        params = {"order": "desc", "sort": "published_utc", "limit": limit,
+                  "published_utc.lte": published_before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        return parse_news(await self._get("news", params=params), limit)
+
     async def icon(self, path: str) -> tuple[str, bytes]:
         body = await self._get("branding", path=path)
         return icon_type(body), body

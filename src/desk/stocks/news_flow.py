@@ -19,8 +19,10 @@ from desk.core.errors import DeskError
 from desk.stocks import calendar as cal
 from desk.stocks import policy, world
 
-FIRST_BACKFILL = timedelta(days=30)
-CALLS_PER_PASS = 3
+HISTORY = timedelta(days=70)          # attention compares the last 3 days with days 8-67 before: 70 kept, 3 to spare
+FIRST_FORWARD = timedelta(days=7)     # an empty store starts with the week tone reads; history then fills backward
+CALLS_PER_PASS = 3                    # forward and history together: Massive's 5 a minute is shared by the whole app
+EARLIER_MIN_DAYS = 14                 # fewer stored days of the comparison window: no attention measure at all
 
 
 def save(conn: sqlite3.Connection, articles: list[dict[str, Any]], now: datetime) -> int:
@@ -44,25 +46,71 @@ def save(conn: sqlite3.Connection, articles: list[dict[str, Any]], now: datetime
 
 
 async def collect(conn: sqlite3.Connection, massive: Any, now: datetime) -> dict[str, Any]:
-    """Forward from the newest article stored (30 days back the first time), a few pages a pass."""
+    """New articles forward from the newest stored (the last 7 days the first time), then, once caught up, history
+    backward from the oldest stored until 70 days are kept: at most three calls a pass in all.
+
+    Both directions extend one unbroken stretch of time, so ``company`` can tell how much of a window is stored. A
+    store begun with less history (30 days until 2026-11) is extended back the same way."""
     if not getattr(massive, "configured", False):
         return {"new": 0, "note": "No Massive key: company news needs MASSIVE_API_KEY"}
     newest = conn.execute("SELECT MAX(published_at) FROM stk_news").fetchone()[0]
-    since = datetime.fromisoformat(newest) if newest else now - FIRST_BACKFILL
+    since = datetime.fromisoformat(newest) if newest else now - FIRST_FORWARD
     new = calls = 0
+    caught_up = False
     while calls < CALLS_PER_PASS:
         articles = await massive.market_news(since)
         calls += 1
         new += save(conn, articles, now)
         if len(articles) < 1000:
+            caught_up = True
             break
         since = datetime.fromisoformat(articles[-1]["published"])
-    return {"new": new, "calls": calls, "through": since.isoformat()}
+    out: dict[str, Any] = {"new": new, "calls": calls, "through": since.isoformat()}
+    if caught_up:
+        out["history"] = await _history(conn, massive, now, CALLS_PER_PASS - calls)
+    return out
+
+
+async def _history(conn: sqlite3.Connection, massive: Any, now: datetime, calls: int) -> dict[str, Any]:
+    """Older articles, newest first from the oldest stored, until it is 70 days old. A call that adds nothing older
+    means Massive has no more: that point is recorded (the ``news_history`` job) and not asked about again."""
+    from desk.stocks.repo import StocksMarket
+
+    market = StocksMarket(conn)
+    state = market.jobs().get("news_history", {}).get("detail", {})
+    target = now - HISTORY
+    used = added = 0
+    oldest = conn.execute("SELECT MIN(published_at) FROM stk_news").fetchone()[0]
+    exhausted = state.get("exhausted_at")
+    while oldest is not None and used < calls and datetime.fromisoformat(oldest) > target and exhausted != oldest:
+        added += save(conn, await massive.market_news_before(datetime.fromisoformat(oldest)), now)
+        used += 1
+        older = conn.execute("SELECT MIN(published_at) FROM stk_news").fetchone()[0]
+        if older == oldest:
+            exhausted = oldest
+        oldest = older
+    complete = oldest is not None and (datetime.fromisoformat(oldest) <= target or exhausted == oldest)
+    detail = {"oldest": oldest, "target": target.isoformat(), "complete": complete, "calls": used, "new": added,
+              "exhausted_at": exhausted if exhausted == oldest else None}
+    if used or state.get("complete") != complete:
+        market.job("news_history", now, detail=detail)
+    return detail
 
 
 def company(conn: sqlite3.Connection, asof: date, received_by: datetime) -> dict[str, dict[str, Any]]:
-    """Per stock: the last seven days' tone, attention against the 60 days before, and the newest headlines."""
+    """Per stock: the last seven days' tone, attention against the 60 days before, and the newest headlines.
+
+    ``earlier60`` is the comparison count for a full 60 days: when the store (as received by ``received_by``) begins
+    inside that window, the count over the days it does cover is scaled up to 60, and with under two weeks covered it
+    is 0, so the News desk reports no attention. Counting a 60-day usual level over 23 stored days made every stock
+    look about three times busier than usual. ``earlier_days`` says how many days were covered."""
     end = datetime.combine(asof, time(23, 59), cal.NEW_YORK)
+    first = conn.execute("SELECT MIN(published_at) FROM stk_news WHERE received_at<=?",
+                         (received_by.isoformat(),)).fetchone()[0]
+    window_start = end - timedelta(days=67)
+    if first is not None:
+        window_start = max(window_start, datetime.fromisoformat(first))
+    covered = max(0.0, (end - timedelta(days=7) - window_start).total_seconds() / 86400)
     rows = conn.execute(
         "SELECT t.symbol, t.sentiment, n.published_at, n.title, n.url, n.source FROM stk_news_tickers t "
         "JOIN stk_news n ON n.id=t.news_id WHERE n.published_at>=? AND n.published_at<=? AND n.received_at<=? "
@@ -83,6 +131,9 @@ def company(conn: sqlite3.Connection, asof: date, received_by: datetime) -> dict
             s["recent3"] += 1
         elif 7 < age <= 67:
             s["earlier60"] += 1
+    for s in out.values():
+        s["earlier60"] = round(s["earlier60"] * 60 / covered, 2) if covered >= EARLIER_MIN_DAYS else 0
+        s["earlier_days"] = round(covered, 1)
     return dict(out)
 
 

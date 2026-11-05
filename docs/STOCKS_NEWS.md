@@ -17,6 +17,14 @@ All three are free; only company news needs a key (Massive, already configured).
 received by its analysis time, and the historical replay of past years leaves news out (it can't be reconstructed
 as it was known then).
 
+**How far back.** Company news keeps 70 days, because attention compares a stock's last three days with its usual
+daily count over days 8–67 before them. The first collection takes the last week, then new articles come forward
+from the newest stored and history goes backward from the oldest stored, three Massive requests a pass in all (its
+5 a minute are shared by the whole app), until 70 days are in; a store begun with 30 days (before 2026-11) is
+extended the same way. If fewer than 60 comparison days are stored, the usual level is the average over the days
+that are (with under 14 days, no attention is reported): a 60-day level counted over 23 stored days made every stock
+look about three times busier than usual.
+
 ## The supply map
 
 `desk.stocks.world.NODES` ties a place to a supply and to the companies exposed to it, by name and by SIC code —
