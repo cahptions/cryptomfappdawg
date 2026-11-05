@@ -47,6 +47,7 @@ MIN_COMPARISON_DAYS = 4
 MIN_COMPARISON_BLOCKS = 12
 CHECK_METHOD_VERSION = 2
 SOLD, SETTLED = "sold at a quote", "settled at intrinsic"     # stk_learning_outcomes.basis
+HELD_LEGS = "(held legs)"     # stk_learning_sources.underlying of a per-contract quote observation of held/pending legs
 
 
 def open_book(paths: DeskPaths) -> sqlite3.Connection:
@@ -169,6 +170,41 @@ def fund(book: PaperBook, account: str, required: float, now: datetime) -> bool:
 
 def fresh(q: OptionQuote, now: datetime) -> bool:
     return bool(q.quoted_at and 0 <= (now - q.quoted_at).total_seconds() <= 120 and fills.fair_spread(q))
+
+
+def quote_payload(q: OptionQuote) -> dict[str, Any]:
+    return {**asdict(q), "expiration": q.expiration.isoformat(), "quoted_at": to_iso(q.quoted_at) if q.quoted_at else None}
+
+
+def quote_from(d: dict[str, Any]) -> OptionQuote:
+    return OptionQuote(**{**d, "expiration": date.fromisoformat(d["expiration"]),
+                          "quoted_at": datetime.fromisoformat(d["quoted_at"]) if d["quoted_at"] else None})
+
+
+def save_leg_quotes(conn: sqlite3.Connection, quotes: list[OptionQuote], now: datetime) -> str | None:
+    """This minute's per-contract quotes of every held and pending leg (Schwab ``/quotes``), kept as an immutable
+    observation like a chain snapshot; the latest is what the following ticks read (``leg_quotes``)."""
+    if not quotes:
+        return None
+    observation = {"symbol": HELD_LEGS, "source": "per-contract option quotes",
+                   "quotes": [quote_payload(q) for q in sorted(quotes, key=lambda q: q.occ)]}
+    key = sha256_hex(canonical_json(observation))
+    conn.execute("INSERT OR IGNORE INTO stk_learning_sources VALUES (?,?,?,?)",
+                 (key, HELD_LEGS, to_iso(now), zlib.compress(canonical_json(observation).encode())))
+    set_state(conn, "leg_quotes", {"source_key": key, "at": to_iso(now), "contracts": len(quotes)})
+    return key
+
+
+def leg_quotes(conn: sqlite3.Connection, now: datetime) -> dict[str, OptionQuote]:
+    """The latest saved held-leg quotes that are still fresh at ``now`` (never one observed after it)."""
+    saved = state(conn, "leg_quotes")
+    if not saved or not 0 <= (now - datetime.fromisoformat(saved["at"])).total_seconds() <= 120:
+        return {}
+    row = conn.execute("SELECT payload_zlib FROM stk_learning_sources WHERE source_key=?", (saved["source_key"],)).fetchone()
+    if row is None:
+        return {}
+    quotes = [quote_from(d) for d in json.loads(zlib.decompress(row[0]))["quotes"]]
+    return {q.occ: q for q in quotes if fresh(q, now)}
 
 
 def quote_key(q: OptionQuote) -> str:
@@ -804,11 +840,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
             flat = [q for qs in valid.values() for q in qs]
             if not flat:
                 continue
-            payload = [
-                {**asdict(q), "expiration": q.expiration.isoformat(), "quoted_at": to_iso(q.quoted_at) if q.quoted_at else None}
-                for q in flat
-            ]
-            observation = {"symbol": symbol, "quotes": payload, "underlying_price": spot}
+            observation = {"symbol": symbol, "quotes": [quote_payload(q) for q in flat], "underlying_price": spot}
             source_key = sha256_hex(canonical_json(observation))
             conn.execute(
                 "INSERT OR IGNORE INTO stk_learning_sources VALUES (?,?,?,?)",
@@ -816,6 +848,12 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
             )
             snapshots[symbol] = (source_key, spot, valid)
             quotes.update({q.occ: q for q in flat})
+        # Held and pending legs are quoted contract by contract every minute; the newer of that and a chain quote wins.
+        held = leg_quotes(conn, now)
+        for occ, q in held.items():
+            seen = quotes.get(occ)
+            if seen is None or not seen.quoted_at or (q.quoted_at and q.quoted_at >= seen.quoted_at):
+                quotes[occ] = q
         closed = manage(conn, quotes, now)
         filled = fill_orders(conn, quotes, now)
         orders = propose(conn, market, now, quotes, snapshots)
@@ -829,6 +867,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
             if quotes
             else "Waiting for fresh timestamped option quotes; no synthetic fills",
             "contracts": len(quotes),
+            "held_leg_quotes": len(held),
             "orders": orders,
             "filled": filled,
             "closed": closed,

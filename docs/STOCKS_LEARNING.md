@@ -83,7 +83,7 @@ holding longer does. So the registry trades **every expiry** and values each pos
   comes from many days rather than one burst; and each recipe holds at most an equal share (1/15) of the research
   account, so long-dated recipes cannot crowd out the rest.
 - **Collection** also keeps the expiry nearest 6 months (beside the weekly, ~30/60/90-day and ~1-year expiries), and
-  Learning's own collector keeps quoting every expiry its positions hold.
+  Learning's own collector quotes every contract its positions and pending orders hold, every minute (below).
 - **The minute-hold seeds are retired**, not deleted: on the switch they stop opening positions, their open positions
   still exit under their own rules, and their outcomes stay in the record. The $1,000/$5,000 accounts copy only active
   recipes (retired results are history); until lifecycle results mature they use the 1-month call starter. Lifecycle
@@ -120,9 +120,16 @@ for it, with its last quoted value. One case stays open on purpose: if the stock
 contract was adjusted and the unadjusted strike would settle the wrong amount. The app does not claim these modeled
 results prove real execution capacity.
 
-Provider polling and machine scheduling are separate from financial limits: provider collection is paced to a minute,
-rotates two underlyings and two expirations per pass, and shares the existing provider rate limiter. Saved observations
-are evaluated on a 15-second schedule with rotating batches for orders, positions and proposals. These batches advance
+Provider polling and machine scheduling are separate from financial limits. Provider collection is paced to a minute
+and shares the desk's provider rate limiter. Each minute it first quotes **every open position's and pending order's
+contracts** through Schwab's per-contract quotes, 100 contracts a request and up to 10 requests (1,000 contracts) a
+minute; a larger book rotates through its contracts over a few minutes. Those quotes, with their quote times, are saved
+as an observation and feed the next evaluations, so a fill, a checkpoint or an exit no longer waits for a chain pull to
+reach its stock and expiry. Then it rotates two underlyings and two expirations per pass for **new entries**, plus any
+held expiry the per-contract quotes did not reach (for example after a failed request). Per-contract quotes are used
+only while Schwab is the selected options provider, so one Learning book never mixes providers; with another provider
+the rotation serves held positions as before. Saved observations are evaluated on a 15-second schedule with rotating
+batches for orders, positions and proposals; a contract quoted both ways uses the newer quote. These batches advance
 their cursors rather than permanently discarding excess experiments. Collection has its own source-health job and never
 postpones the ordinary options collector. Closed markets and missing connections produce readable statuses and retry later.
 

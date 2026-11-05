@@ -128,7 +128,7 @@ const KestrelLearning = (() => {
       section.append(
         el(
           "p",
-          `${number(evidence.exit_horizon_reached)} open research trades have reached their planned exit time. They need fresh executable quotes and available estimated exit capacity before becoming outcomes.`,
+          `${number(evidence.exit_horizon_reached)} open research trades have reached their planned exit time. Their contracts are quoted every minute; each sells on the first fresh quote with a usable spread and enough buyers at the bid.`,
           "caption muted",
         ),
       );
