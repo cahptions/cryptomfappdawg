@@ -184,11 +184,24 @@ def test_learning_controls_and_gets_are_private_read_only_and_preserve_global_pa
                 "enabled": False
             }
             assert not client.get("/api/stocks/learning").json()["control"]["enabled"]
-            assert client.post(
-                "/api/stocks/learning/experiments",
-                headers=headers,
-                json={"structure": "long_put", "budget": 2000000, "hold_minutes": 15},
-            ).json()["registered"]
+            # The form registers lifecycle recipes: structure, expiry bucket and holding time.
+            recipe = {"structure": "long_put", "bucket": "3m", "hold_days": 45}
+            first = client.post("/api/stocks/learning/experiments", headers=headers, json=recipe).json()
+            assert first["registered"]
+            again = client.post("/api/stocks/learning/experiments", headers=headers, json=recipe).json()
+            assert again == {"id": first["id"], "registered": False}            # same choices, same recipe
+            seed = client.post("/api/stocks/learning/experiments", headers=headers,
+                               json={"structure": "long_put", "bucket": "3m", "hold_days": 90}).json()
+            assert seed["registered"] is False                                  # the seed's own horizon
+            too_long = client.post("/api/stocks/learning/experiments", headers=headers,
+                                   json={"structure": "long_call", "bucket": "weekly", "hold_days": 12})
+            assert too_long.status_code == 400 and "1 to 11 days" in too_long.json()["detail"]
+            minutes = client.post("/api/stocks/learning/experiments", headers=headers,
+                                  json={"structure": "long_put", "budget": 2000000, "hold_minutes": 15})
+            assert minutes.status_code == 422                                   # the retired minute-hold kind is gone
+            buckets = client.get("/api/stocks/learning").json()["buckets"]
+            assert [b["id"] for b in buckets] == list(learning.BUCKETS)
+            assert next(b for b in buckets if b["id"] == "6m")["longest_hold"] == 210
             assert (world.paths.home / "stocks-automation.json").read_text() == '{"enabled":false}'
     finally:
         world.close()
@@ -257,7 +270,7 @@ def test_chronological_selection_uses_prior_labels_and_preserves_losing_held_out
                         evidence={},
                     )
                     conn.execute(
-                        "INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
+                        "INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?,'sold at a quote')",
                         (pid, exp["id"], to_iso(entered), to_iso(mature), day.isoformat() + ":SPY", net, 100 * net, 1, 1),
                     )
         learning.check_in(conn, datetime(2026, 1, 1, tzinfo=UTC))

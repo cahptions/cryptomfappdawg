@@ -17,9 +17,15 @@ from desk.stocks import calendar as cal
 from desk.stocks import learning
 from desk.stocks.collect import pick_expirations
 from desk.stocks.connection import _atomic_private
+from desk.stocks.contracts import OptionQuote, OptionTick
 from desk.stocks.repo import MARKET_FILE, StocksMarket
-from desk.stocks.suite import build_stocks_suite
+from desk.stocks.suite import StocksSuite, build_stocks_suite
 from desk.storage.db import DbKind, connect
+
+LEG_BATCH = 100       # contracts per Schwab /quotes request
+LEG_REQUESTS = 10     # a minute: every held and pending leg up to 1,000 contracts each minute, more in rotation. With
+                      # the chain pulls that is under a fifth of Schwab's shared 90-a-minute budget (the desk's limiter
+                      # paces every request), beside play tracking's eight.
 
 
 def preferences(paths: DeskPaths) -> dict[str, Any]:
@@ -50,40 +56,76 @@ def allowed(paths: DeskPaths) -> bool:
     return ResearchWorker(paths)._enabled()
 
 
+def leg_quote(t: OptionTick) -> OptionQuote:
+    """A per-contract quote in the chain's shape; the contract terms come from its OCC symbol."""
+    return OptionQuote(t.occ, t.occ[:-15], "call" if t.occ[-9] == "C" else "put", int(t.occ[-8:]) / 1000,
+                       datetime.strptime(t.occ[-15:-9], "%y%m%d").date(), t.bid, t.ask, t.last, t.volume or 0,
+                       t.open_interest or 0, None, t.quoted_at, t.bid_size, t.ask_size)
+
+
+async def quote_legs(conn: sqlite3.Connection, suite: StocksSuite, occs: list[str]) -> dict[str, Any]:
+    """Every open position's and pending order's contracts through Schwab ``/quotes``, 100 a request, before any chain
+    pull: an exit or a fill no longer waits for the chain rotation to reach its stock and expiry. Only when Schwab is
+    the selected options provider, so one Learning book never mixes providers; otherwise the rotation still serves
+    them. Beyond ``LEG_REQUESTS`` pages a cursor rotates, so a large book is quoted over a few minutes."""
+    client = suite.schwab if suite.option_source == "schwab" else None
+    if client is None or not client.configured or not occs:
+        return {"quoted": set(), "requests": 0, "errors": []}
+    pages = -(-len(occs) // LEG_BATCH)
+    start = learning.state(conn, "leg_cursor", 0) % pages
+    chosen = [(start + i) % pages for i in range(min(LEG_REQUESTS, pages))]
+    learning.set_state(conn, "leg_cursor", (start + len(chosen)) % pages)
+    ticks: list[OptionTick] = []
+    errors: list[str] = []
+    requests = 0
+    for page in chosen:
+        requests += 1
+        try:
+            ticks += await client.option_quotes(occs[page * LEG_BATCH:(page + 1) * LEG_BATCH])
+        except DeskError:
+            errors.append("Schwab option quotes failed; held positions wait for the chain rotation. Verify access in Settings")
+            break
+    quotes = [leg_quote(t) for t in ticks if t.bid is not None and t.ask is not None and t.quoted_at]
+    learning.save_leg_quotes(conn, quotes, utc_now())
+    return {"quoted": {q.occ for q in quotes}, "requests": requests, "errors": errors}
+
+
 async def collect(
     paths: DeskPaths, loaded: LoadedConfig, conn: sqlite3.Connection, market: StocksMarket, now: datetime
 ) -> dict[str, Any]:
     local = cal.new_york(now)
-    if not cal.is_trading_day(local.date()) or not (9, 30) <= (local.hour, local.minute) < (16, 0):
+    if not learning.regular_session(now):
         return {"phase": "Market closed"}
     last = learning.state(conn, "collection_at")
     if last and now - datetime.fromisoformat(last) < timedelta(seconds=60):
         return {"phase": "Watching saved quotes; provider requests paced to one minute"}
     learning.set_state(conn, "collection_at", to_iso(now))
-    held: dict[str, set[Any]] = {}
     from datetime import date
 
     # Query only contract identities, rather than loading every historic position and order into memory.
-    for row in conn.execute(
-        "SELECT DISTINCT p.symbol,json_extract(j.value,'$.expiration') expiry "
+    legs = [(row[0], date.fromisoformat(row[1]), row[2]) for row in conn.execute(
+        "SELECT DISTINCT p.symbol,json_extract(j.value,'$.expiration') expiry,json_extract(j.value,'$.occ') occ "
         "FROM stk_positions p,json_each(p.legs_json) j WHERE p.state='OPEN' AND p.expires_day>=? "
-        "UNION SELECT DISTINCT json_extract(p.order_json,'$.symbol'),json_extract(j.value,'$.expiration') "
-        "FROM stk_pending p,json_each(p.order_json,'$.legs') j WHERE p.state='PENDING'",
-        (local.date().toordinal(),),
-    ):
-        if row[1]:
-            held.setdefault(row[0], set()).add(date.fromisoformat(row[1]))
-    known = [r[0] for r in market.conn.execute("SELECT DISTINCT underlying FROM stk_option_chains ORDER BY underlying")]
-    symbols = list(dict.fromkeys([*held, "SPY", "QQQ", *known]))
-    offset = learning.state(conn, "collection_cursor", 0) % len(symbols)
-    selected = (symbols + symbols)[offset : offset + min(2, len(symbols))]
-    learning.set_state(conn, "collection_cursor", (offset + len(selected)) % len(symbols))
+        "UNION SELECT DISTINCT json_extract(p.order_json,'$.symbol'),json_extract(j.value,'$.expiration'),"
+        "json_extract(j.value,'$.occ') FROM stk_pending p,json_each(p.order_json,'$.legs') j WHERE p.state='PENDING' "
+        "ORDER BY 3", (local.date().toordinal(),)) if row[1] and row[2]]
     runtime = connect(paths.db_dir / "runtime.db", DbKind.RUNTIME)
     suite = None
     try:
         suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), runtime)
         if not suite.options.configured:
             return {"phase": "Connect the selected options provider in Settings"}
+        legged = await quote_legs(conn, suite, list(dict.fromkeys(occ for _, _, occ in legs)))
+        # The chain rotation serves new entries, and any leg the per-contract quotes did not reach.
+        held: dict[str, set[date]] = {}
+        for symbol, expiry, occ in legs:
+            if occ not in legged["quoted"]:
+                held.setdefault(symbol, set()).add(expiry)
+        known = [r[0] for r in market.conn.execute("SELECT DISTINCT underlying FROM stk_option_chains ORDER BY underlying")]
+        symbols = list(dict.fromkeys([*held, "SPY", "QQQ", *known]))
+        offset = learning.state(conn, "collection_cursor", 0) % len(symbols)
+        selected = (symbols + symbols)[offset : offset + min(2, len(symbols))]
+        learning.set_state(conn, "collection_cursor", (offset + len(selected)) % len(symbols))
         spot_quotes = await suite.options.quotes(selected)
         quote_clock = utc_now()
         spots = {
@@ -92,7 +134,7 @@ async def collect(
             if q.last and q.last > 0 and q.quoted_at and 0 <= (quote_clock - q.quoted_at).total_seconds() <= 120
         }
         total = 0
-        errors = []
+        errors = list(legged["errors"])
         for symbol in selected:
             if not allowed(paths):
                 return {"phase": "Learning paused; collected observations preserved"}
@@ -126,7 +168,9 @@ async def collect(
             "learning_quotes",
             utc_now(),
             error="; ".join(errors) if errors else None,
-            detail={"contracts": total, "checked": selected, "queued": max(0, len(symbols) - len(selected))},
+            detail={"contracts": total, "checked": selected, "queued": max(0, len(symbols) - len(selected)),
+                    "held_legs": len({occ for _, _, occ in legs}), "held_legs_quoted": len(legged["quoted"]),
+                    "leg_requests": legged["requests"]},
         )
         return {
             "phase": "Bounded options collection complete",
@@ -134,6 +178,9 @@ async def collect(
             "errors": errors,
             "checked": selected,
             "queued": max(0, len(symbols) - len(selected)),
+            "held_legs": len({occ for _, _, occ in legs}),
+            "held_legs_quoted": len(legged["quoted"]),
+            "leg_requests": legged["requests"],
         }
     finally:
         if suite is not None:

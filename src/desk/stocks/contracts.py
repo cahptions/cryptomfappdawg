@@ -62,6 +62,8 @@ class OptionTick:
     vega: float | None
     underlying_price: float | None
     quoted_at: datetime | None
+    bid_size: int | None = None     # contracts displayed at the bid / ask (top of book only)
+    ask_size: int | None = None
 
     @property
     def mid(self) -> float | None:
@@ -238,6 +240,8 @@ class OptionQuote:
     open_interest: int
     average_volume: int | None
     quoted_at: datetime | None
+    bid_size: int | None = None     # contracts displayed at the bid / ask, when the provider reports them; there is
+    ask_size: int | None = None     # no depth beyond the top of the book
 
     @property
     def mid(self) -> float | None:

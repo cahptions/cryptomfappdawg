@@ -2,7 +2,8 @@
 const KestrelLearning = (() => {
   let account = "uncapped_research",
     view = "open",
-    offset = 0;
+    offset = 0,
+    registered = ""; // the last recipe registration's outcome, kept across the redraw it causes
   // Sign after rounding to cents, so a tiny negative remainder never reads "−$0.00".
   const signed = (value) => {
     const cents = Math.round(value * 100) / 100;
@@ -128,7 +129,7 @@ const KestrelLearning = (() => {
       section.append(
         el(
           "p",
-          `${number(evidence.exit_horizon_reached)} open research trades have reached their planned exit time. They need fresh executable quotes and available estimated exit capacity before becoming outcomes.`,
+          `${number(evidence.exit_horizon_reached)} open research trades have reached their planned exit time. Their contracts are quoted every minute; each sells on the first fresh quote with a usable spread and enough buyers at the bid.`,
           "caption muted",
         ),
       );
@@ -136,7 +137,15 @@ const KestrelLearning = (() => {
       section.append(
         el(
           "p",
-          `${number(evidence.unresolved_expiries)} expired research positions await verified settlement; they are not completed training evidence.`,
+          `${number(evidence.unresolved_expiries)} expired research positions are waiting for the official close of their expiry day. Each settles at intrinsic value as soon as that close is stored.`,
+          "caption muted",
+        ),
+      );
+    if (evidence.settled_at_expiry)
+      section.append(
+        el(
+          "p",
+          `${number(evidence.settled_at_expiry)} research trades were held to expiry and settled at intrinsic value on the official close. These are real results and count as completed outcomes.`,
           "caption muted",
         ),
       );
@@ -223,21 +232,21 @@ const KestrelLearning = (() => {
       el("h2", "Does holding longer pay?"),
       el(
         "p",
-        "Each position is bought once and valued at real quotes as it ages. A cell is the average return on the money paid if sold then (win rate; positions). Cells fill as positions live that long; a best holding time is named once a checkpoint has 10 positions.",
+        "Each position is bought once and valued at real quotes as it ages. A cell is the average return on the money paid if sold then (win rate; positions). Cells fill as positions live that long; a best holding time is named once a checkpoint has 10 positions. Finished counts every sale, and every position held to expiry and settled at intrinsic value on the official close. The $1,000 and $5,000 accounts sell at a recipe's best holding time, using only checkpoints valued before each of their decisions.",
         "muted caption",
       ),
     );
     const head = el("tr");
     head.append(el("th", "Recipe"));
     for (const d of days) head.append(el("th", `${d}d`));
-    head.append(el("th", "Sold"), el("th", "Open"));
+    head.append(el("th", "Finished"), el("th", "Open"));
     grid.append(head);
     for (const r of recipes) {
       const row = el("tr");
       row.append(
         el(
           "th",
-          `${r.structure.replaceAll("_", " ")} · ${r.label}${r.best_so_far ? ` · best ${r.best_so_far}d` : ""}`,
+          `${r.structure.replaceAll("_", " ")} · ${r.label}${r.best_so_far ? ` · best so far ${r.best_so_far}d` : ""}`,
         ),
       );
       for (const d of days) {
@@ -264,7 +273,7 @@ const KestrelLearning = (() => {
         el(
           "td",
           r.final.n
-            ? `${percent(r.final.mean)} (${Math.round(100 * r.final.win_rate)}%; ${r.final.n})`
+            ? `${percent(r.final.mean)} (${Math.round(100 * r.final.win_rate)}%; ${r.final.n}${r.final.settled ? `, ${r.final.settled} at expiry` : ""})`
             : "—",
         ),
         el("td", String(r.open)),
@@ -554,7 +563,7 @@ const KestrelLearning = (() => {
         ),
         el(
           "p",
-          "Research spending, trade count, position count and contract quantity have no policy ceiling. Market-data and estimated execution capacity still apply.",
+          "Research spending, trade count, position count and contract quantity have no policy ceiling. Market data and the size displayed at the bid or ask still apply.",
           "caption",
         ),
       );
@@ -619,7 +628,7 @@ const KestrelLearning = (() => {
           el(
             "p",
             a.policy?.note ||
-              "Orders wait for a later fresh quote. Fees, spreads and execution capacity apply.",
+              "Orders wait for a later fresh quote. Fees, spreads and the size displayed at the ask apply.",
             "muted",
           ),
           el(
@@ -628,6 +637,14 @@ const KestrelLearning = (() => {
             "caption muted",
           ),
         );
+        if (a.policy?.exit_days)
+          policy.append(
+            el(
+              "p",
+              `Sells after ${a.policy.exit_days} days. ${a.policy.exit_basis || ""}`,
+              "learning-exit-horizon",
+            ),
+          );
         if (e)
           policy.append(
             el(
@@ -680,7 +697,7 @@ const KestrelLearning = (() => {
         app.append(
           el(
             "p",
-            `${a.unresolved_expiries} expired positions await verified settlement data. Their marks may be stale; they do not become training outcomes.`,
+            `${a.unresolved_expiries} expired positions are waiting for the official close of their expiry day. They settle at intrinsic value once it is stored; until then they show their last quoted value.`,
             "notice",
           ),
         );
@@ -742,6 +759,8 @@ const KestrelLearning = (() => {
                   `Entry ${money(p.entry_cost + p.entry_fees)} · ${p.plan.label || `${p.plan.hold_minutes}-minute hypothesis`}`,
                 ),
               );
+              if (p.state === "CLOSED" && p.exit_reason)
+                b.append(el("small", p.exit_reason));
               if (p.plan.transfer_policy)
                 b.append(el("small", policyName(p.plan.transfer_policy.mode)));
               b.onclick = () =>
@@ -812,7 +831,7 @@ const KestrelLearning = (() => {
                 el(
                   "p",
                   order.note ||
-                    "Waiting for a later fresh quote and modeled capacity",
+                    "Waiting for a later fresh quote with size at the ask",
                   "muted",
                 ),
               );
@@ -891,7 +910,7 @@ const KestrelLearning = (() => {
             el("h2", `How the ${titleOf(a)} picks its trades`),
             el(
               "p",
-              `It does not run the experiments below at their sizes. It copies a research recipe (structure and expiry) whose results finished in the last 90 days are positive after costs, best first, then buys whole contracts it can afford: about 25% of its value per trade (${money(0.25 * (a.equity ?? a.starting_capital))} now), one contract above that only if its cash covers it, never more than its cash, and one order waiting at a time. Until research results finish, it uses a starter recipe: a call about a month out.`,
+              `It does not run the experiments below at their sizes. It copies a research recipe (structure and expiry) whose results finished in the last 90 days are positive after costs, best first, then buys whole contracts it can afford: about 25% of its value per trade (${money(0.25 * (a.equity ?? a.starting_capital))} now), one contract above that only if its cash covers it, never more than its cash, and one order waiting at a time. Until research results finish, it uses a starter recipe: a call about a month out. It sells at the recipe's best holding time so far: the checkpoint with the highest average return among those with at least 10 research positions valued before its decision, or the recipe's full holding time until one exists.`,
             ),
             el("p", `Now: ${a.policy?.phase || "Waiting for fresh quotes"}`),
           );
@@ -911,42 +930,50 @@ const KestrelLearning = (() => {
         content.append(
           el(
             "p",
-            "Seed experiments run automatically. Optionally register another size or holding-period hypothesis; the reference account never restricts research capital.",
+            `The 15 seed recipes run automatically. Register another recipe to test a different holding time: pick a structure, an expiry and how long to hold. Every recipe buys the 0.5-delta strike, ${money(data.lifecycle_debit ?? 5000)} an entry (at least one contract), values the position at real quotes as it ages, and sells at the holding time or when expiry gets close, whichever comes first.`,
             "muted",
           ),
         );
-        const form = el("form", undefined, "evidence-actions"),
+        const buckets = data.buckets || [],
+          form = el("form", undefined, "evidence-actions"),
           structure = el("select"),
-          budget = el("input"),
+          bucket = el("select"),
           hold = el("input"),
-          cadence = el("input"),
-          submit = el("button", "Register experiment", "primary"),
-          result = el("p", "", "muted");
+          limit = el("small", "", "caption muted"),
+          submit = el("button", "Register recipe", "primary"),
+          result = el("p", registered, "muted");
+        registered = "";
         structure.setAttribute("aria-label", "Experiment structure");
         for (const s of ["long_call", "long_put", "long_straddle"]) {
           const o = el("option", s.replaceAll("_", " "));
           o.value = s;
           structure.append(o);
         }
-        budget.type = "number";
-        budget.min = "0.01";
-        budget.step = "any";
-        budget.value = "1000000";
-        budget.setAttribute("aria-label", "Target virtual debit");
+        bucket.setAttribute("aria-label", "Expiry");
+        for (const b of buckets) {
+          const o = el("option", `${b.title} (${b.dte[0]}–${b.dte[1]} days)`);
+          o.value = b.id;
+          bucket.append(o);
+        }
         hold.type = "number";
-        hold.min = "1";
-        hold.value = "60";
-        hold.setAttribute("aria-label", "Holding minutes");
-        cadence.type = "number";
-        cadence.min = "0";
-        cadence.value = "30";
-        cadence.setAttribute("aria-label", "Minutes between entries");
+        hold.step = "1";
+        hold.setAttribute("aria-label", "Holding days");
+        // Each expiry has its own longest hold: it is sold when a few days remain before expiry.
+        const fit = () => {
+          const b = buckets.find((x) => x.id === bucket.value);
+          if (!b) return;
+          hold.min = "1";
+          hold.max = String(b.longest_hold);
+          hold.value = String(b.hold_days);
+          limit.textContent = `1 to ${b.longest_hold} days; sold when ${b.exit_days_left} day${b.exit_days_left > 1 ? "s" : ""} remain. Seed recipe: ${b.hold_days} days.`;
+        };
+        bucket.onchange = fit;
+        fit();
         submit.type = "submit";
         for (const [label, field] of [
           ["Structure", structure],
-          ["Target virtual debit ($)", budget],
-          ["Holding minutes", hold],
-          ["Minutes between entries (0 = every new eligible quote)", cadence],
+          ["Expiry", bucket],
+          ["Hold up to (days)", hold],
         ]) {
           const wrapper = el("label", label);
           wrapper.append(field);
@@ -957,12 +984,14 @@ const KestrelLearning = (() => {
           e.preventDefault();
           submit.disabled = true;
           try {
-            await api("learning/experiments", {
+            const out = await api("learning/experiments", {
               structure: structure.value,
-              budget: +budget.value,
-              hold_minutes: +hold.value,
-              repeat_minutes: +cadence.value,
+              bucket: bucket.value,
+              hold_days: +hold.value,
             });
+            registered = out.registered
+              ? "Registered. The new recipe starts buying on the next fresh quotes."
+              : "That recipe is already registered; nothing was added.";
             data = await api("learning");
             draw();
           } catch (error) {
@@ -970,7 +999,7 @@ const KestrelLearning = (() => {
             submit.disabled = false;
           }
         };
-        content.append(form, result);
+        content.append(form, limit, result);
         // Current recipes first; the minute-hold seeds retired on Oct 31 stay folded away with their record.
         const grid = el("div", undefined, "paper-trade-grid"),
           old = el("div", undefined, "paper-trade-grid"),

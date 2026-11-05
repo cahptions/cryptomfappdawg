@@ -63,10 +63,10 @@ class LearningControl(BaseModel):
 
 
 class LearningExperiment(BaseModel):
+    """A lifecycle recipe from the Learning page: structure, expiry bucket and holding time (learning.add_lifecycle)."""
     structure: Literal["long_call", "long_put", "long_straddle"]
-    budget: float = Field(gt=0, allow_inf_nan=False)
-    hold_minutes: int = Field(ge=1, le=129600)
-    repeat_minutes: int = Field(default=0, ge=0, le=129600)
+    bucket: Literal["weekly", "1m", "3m", "6m", "leaps"]
+    hold_days: int = Field(ge=1, le=800)
 
 
 class PlaySelection(BaseModel):
@@ -890,9 +890,10 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         conn = learning.open_book(paths)
         try:
-            ident = learning.add_experiment(conn, utc_now(), inputs.structure, inputs.budget,
-                                            inputs.hold_minutes, inputs.repeat_minutes)
-            return {"id": ident, "registered": True}
+            before = conn.execute("SELECT COUNT(*) FROM stk_learning_experiments").fetchone()[0]
+            ident = learning.add_lifecycle(conn, utc_now(), inputs.structure, inputs.bucket, inputs.hold_days)
+            after = conn.execute("SELECT COUNT(*) FROM stk_learning_experiments").fetchone()[0]
+            return {"id": ident, "registered": after > before}
         finally:
             conn.close()
 

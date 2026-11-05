@@ -4,6 +4,9 @@ retired without erasing their record."""
 import json
 from datetime import UTC, date, datetime, time, timedelta
 
+import pytest
+
+from desk.core.errors import DeskError
 from desk.stocks import learning
 from desk.stocks import learning_retail as retail
 from desk.stocks.contracts import OptionQuote
@@ -43,6 +46,35 @@ def test_old_seeds_retire_once_and_every_bucket_is_seeded(tmp_path):
         later = learning.add_experiment(conn, AT, "long_call", 50_000, 30)       # registered after: active
         learning.initialize(conn, AT + timedelta(days=1))
         assert learning.retired(conn) == {old} and later not in learning.retired(conn)
+    finally:
+        conn.close()
+        world.close()
+
+
+def test_a_registered_recipe_chooses_its_holding_time_and_runs_beside_the_seeds(tmp_path):
+    world = make_world(tmp_path, n=12)
+    conn = learning.open_book(world.paths)
+    try:
+        learning.initialize(conn, AT)
+        seeds = conn.execute("SELECT COUNT(*) FROM stk_learning_experiments").fetchone()[0]
+        assert learning.add_lifecycle(conn, AT, "long_call", "1m") == learning.add_lifecycle(conn, AT, "long_call", "1m", 30)
+        assert conn.execute("SELECT COUNT(*) FROM stk_learning_experiments").fetchone()[0] == seeds
+        ident = learning.add_lifecycle(conn, AT, "long_call", "1m", 14)
+        cfg = json.loads(conn.execute("SELECT config_json FROM stk_learning_experiments WHERE id=?", (ident,)).fetchone()[0])
+        assert cfg["kind"] == "lifecycle" and cfg["hold_minutes"] == 14 * 1440 and cfg["checkpoints"] == [1, 7, 14]
+        assert cfg["label"] == "About 1 month, held up to 14 days" and cfg["dte"] == [21, 45]
+        assert "Holding-time variant" in cfg["change"]
+        year = json.loads(conn.execute("SELECT config_json FROM stk_learning_experiments WHERE id=?",
+                                       (learning.add_lifecycle(conn, AT, "long_put", "leaps", 365),)).fetchone()[0])
+        assert year["checkpoints"][-3:] == [180, 270, 365]                     # long LEAPS holds valued to a year
+        for structure, bucket, days in (("long_call", "weekly", 12), ("long_call", "1m", 0), ("short_call", "1m", 7),
+                                        ("long_call", "2y", 7)):
+            with pytest.raises(DeskError):
+                learning.add_lifecycle(conn, AT, structure, bucket, days)
+        assert ident not in learning.retired(conn)
+        ladder(world, AT)
+        learning.tick(conn, world.market, AT)
+        assert conn.execute("SELECT COUNT(*) FROM stk_learning_intents WHERE experiment_id=?", (ident,)).fetchone()[0]
     finally:
         conn.close()
         world.close()
@@ -98,7 +130,7 @@ def test_retired_research_is_history_for_the_small_accounts_and_lifecycle_is_nev
         position = next(p for p in book.positions(learning.RESEARCH) if p.id == pid)
         book.close_position(position, at=AT + timedelta(hours=2), day=AT.date(), credit=190., fees=0.,
                             reason="Old seed", evidence={})
-        conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?,'sold at a quote')",
                      (pid, old, AT.isoformat(), (AT + timedelta(hours=2)).isoformat(), "2026-10-21:SPY", 0.9, 90., 1, 1))
         # A +90% retired put is not something the $1k/$5k accounts copy: they start from the 1-month call instead.
         policies = retail.policies(conn, AT + timedelta(days=1))

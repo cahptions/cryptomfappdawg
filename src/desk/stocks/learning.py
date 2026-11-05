@@ -19,7 +19,7 @@ from desk.stocks import calendar as cal
 from desk.stocks.backtest import position_view
 from desk.stocks.contracts import OptionQuote
 from desk.stocks.paper import fills
-from desk.stocks.paper.book import MICRO, Order, PaperBook, to_micros
+from desk.stocks.paper.book import MICRO, Order, PaperBook, Position, _position, to_micros
 from desk.stocks.paper.strategies import build_structure
 from desk.stocks.repo import StocksMarket
 from desk.storage.db import DbKind, connect, migrate
@@ -38,7 +38,7 @@ STRUCTURES = ("long_call", "long_put", "long_straddle")
 BUCKETS = {"weekly": ("Weekly", (5, 12), 7, 1), "1m": ("About 1 month", (21, 45), 30, 3),
            "3m": ("About 3 months", (60, 120), 90, 14), "6m": ("About 6 months", (150, 240), 120, 30),
            "leaps": ("LEAPS (9+ months)", (270, 800), 180, 60)}
-CHECKPOINTS = (1, 7, 14, 30, 60, 90, 120, 180)      # calendar days after entry
+CHECKPOINTS = (1, 7, 14, 30, 60, 90, 120, 180, 270, 365)   # calendar days after entry (270/365: long LEAPS holds)
 LIFECYCLE_DEBIT = 5_000.0
 LIFECYCLE_CADENCE_DAYS = 7                            # a recipe re-enters the same stock at most once a week
 LIFECYCLE_DAILY_ENTRIES = 2                           # per recipe per day: evidence from many days, not one burst
@@ -46,6 +46,8 @@ LIFECYCLE_SWITCH = "lifecycle_switch"
 MIN_COMPARISON_DAYS = 4
 MIN_COMPARISON_BLOCKS = 12
 CHECK_METHOD_VERSION = 2
+SOLD, SETTLED = "sold at a quote", "settled at intrinsic"     # stk_learning_outcomes.basis
+HELD_LEGS = "(held legs)"     # stk_learning_sources.underlying of a per-contract quote observation of held/pending legs
 
 
 def open_book(paths: DeskPaths) -> sqlite3.Connection:
@@ -112,16 +114,32 @@ def add_experiment(
     return ident
 
 
-def add_lifecycle(conn: sqlite3.Connection, now: datetime, structure: str, bucket: str) -> str:
+def longest_hold(bucket: str) -> int:
+    """The longest holding time a bucket's position can reach: its latest expiry less the days left when it is sold."""
+    _title, (_lo, hi), _hold, days_left = BUCKETS[bucket]
+    return hi - days_left
+
+
+def add_lifecycle(conn: sqlite3.Connection, now: datetime, structure: str, bucket: str, hold_days: int | None = None
+                  ) -> str:
     """One recipe: ``structure`` at the 0.5-delta strike in ``bucket``'s expiries, $5,000 an entry, valued at every
-    checkpoint it lives to and sold at its horizon or before expiry, whichever comes first."""
-    title, (lo, hi), hold_days, days_left = BUCKETS[bucket]
+    checkpoint it lives to and sold at ``hold_days`` (the bucket's own horizon unless another is chosen on the Learning
+    page) or when expiry gets close, whichever comes first. The same choices always make the same recipe, so choosing a
+    seed's own horizon adds nothing."""
+    if structure not in STRUCTURES or bucket not in BUCKETS:
+        raise DeskError("Choose a long call, long put or long straddle and one of the expiry buckets")
+    title, (lo, hi), seed_days, days_left = BUCKETS[bucket]
+    hold_days = seed_days if hold_days is None else hold_days
+    if not 1 <= hold_days <= longest_hold(bucket):
+        raise DeskError(f"{title} options can be held from 1 to {longest_hold(bucket)} days: they are sold when "
+                        f"{days_left} day{'s' if days_left > 1 else ''} remain before expiry")
     spec = {"version": 3, "kind": "lifecycle", "structure": structure, "bucket": bucket,
             "label": f"{title}, held up to {hold_days} days", "target_debit": LIFECYCLE_DEBIT,
             "hold_minutes": hold_days * 1440, "repeat_minutes": LIFECYCLE_CADENCE_DAYS * 1440,
             "exit_days_left": days_left, "checkpoints": [d for d in CHECKPOINTS if d <= hold_days],
             "daily_entries": LIFECYCLE_DAILY_ENTRIES, "dte": [lo, hi], "delta": 0.5, "parent_experiment": None,
-            "change": "Lifecycle seed: every expiry, valued as it ages",
+            "change": "Lifecycle seed: every expiry, valued as it ages" if hold_days == seed_days else
+                      f"Holding-time variant registered on the Learning page: up to {hold_days} days, not {seed_days}",
             "execution": "next timestamped quote, bid/ask, impact and capacity v1"}
     digest = sha256_hex(canonical_json(spec))
     ident = digest[:20]
@@ -166,24 +184,79 @@ def fund(book: PaperBook, account: str, required: float, now: datetime) -> bool:
     return to_micros(required, cost=True) <= to_micros(book.cash(account), cost=False)
 
 
+def regular_session(now: datetime) -> bool:
+    """Whether ``now`` is inside a regular NYSE session: 9:30 to the calendar's close, which is earlier on half days."""
+    local = cal.new_york(now)
+    day = local.date()
+    return cal.is_trading_day(day) and datetime.combine(day, time(9, 30), cal.NEW_YORK) <= local < cal.session_close(day)
+
+
 def fresh(q: OptionQuote, now: datetime) -> bool:
     return bool(q.quoted_at and 0 <= (now - q.quoted_at).total_seconds() <= 120 and fills.fair_spread(q))
+
+
+def quote_payload(q: OptionQuote) -> dict[str, Any]:
+    return {**asdict(q), "expiration": q.expiration.isoformat(), "quoted_at": to_iso(q.quoted_at) if q.quoted_at else None}
+
+
+def quote_from(d: dict[str, Any]) -> OptionQuote:
+    return OptionQuote(**{**d, "expiration": date.fromisoformat(d["expiration"]),
+                          "quoted_at": datetime.fromisoformat(d["quoted_at"]) if d["quoted_at"] else None})
+
+
+def save_leg_quotes(conn: sqlite3.Connection, quotes: list[OptionQuote], now: datetime) -> str | None:
+    """This minute's per-contract quotes of every held and pending leg (Schwab ``/quotes``), kept as an immutable
+    observation like a chain snapshot; the latest is what the following ticks read (``leg_quotes``)."""
+    if not quotes:
+        return None
+    observation = {"symbol": HELD_LEGS, "source": "per-contract option quotes",
+                   "quotes": [quote_payload(q) for q in sorted(quotes, key=lambda q: q.occ)]}
+    key = sha256_hex(canonical_json(observation))
+    conn.execute("INSERT OR IGNORE INTO stk_learning_sources VALUES (?,?,?,?)",
+                 (key, HELD_LEGS, to_iso(now), zlib.compress(canonical_json(observation).encode())))
+    set_state(conn, "leg_quotes", {"source_key": key, "at": to_iso(now), "contracts": len(quotes)})
+    return key
+
+
+def leg_quotes(conn: sqlite3.Connection, now: datetime) -> dict[str, OptionQuote]:
+    """The latest saved held-leg quotes that are still fresh at ``now`` (never one observed after it)."""
+    saved = state(conn, "leg_quotes")
+    if not saved or not 0 <= (now - datetime.fromisoformat(saved["at"])).total_seconds() <= 120:
+        return {}
+    row = conn.execute("SELECT payload_zlib FROM stk_learning_sources WHERE source_key=?", (saved["source_key"],)).fetchone()
+    if row is None:
+        return {}
+    quotes = [quote_from(d) for d in json.loads(zlib.decompress(row[0]))["quotes"]]
+    return {q.occ: q for q in quotes if fresh(q, now)}
 
 
 def quote_key(q: OptionQuote) -> str:
     return sha256_hex(canonical_json({"occ": q.occ, "at": to_iso(q.quoted_at) if q.quoted_at else None}))
 
 
-def capacity(conn: sqlite3.Connection, account: str, quotes: list[OptionQuote]) -> int:
-    # Depth is unavailable: explicit estimated capacity, shared across orders using the same quote timestamp.
+def capacity(conn: sqlite3.Connection, account: str, quotes: list[OptionQuote], opening: bool = True) -> int:
+    """Contracts one quote timestamp can still fill in this account's book: the size displayed at the side traded (the
+    ask to buy, the bid to sell) where the quote reports it, never more than 0.1% of open interest (at least one). There
+    is no depth beyond the top of the book, so a fill never takes more than was displayed. Usage is shared across orders
+    on the same quote timestamp, and a later quote brings fresh size."""
     available = []
     for q in quotes:
         limit = max(1, int(q.open_interest * 0.001))
+        size = q.ask_size if opening else q.bid_size
+        if size is not None:
+            limit = min(limit, size)
         row = conn.execute(
             "SELECT used FROM stk_learning_capacity WHERE account=? AND quote_key=?", (account, quote_key(q))
         ).fetchone()
         available.append(max(0, limit - (row[0] if row else 0)))
     return min(available, default=0)
+
+
+def capacity_basis(quotes: list[OptionQuote], opening: bool) -> str:
+    side = "ask" if opening else "bid"
+    if all((q.ask_size if opening else q.bid_size) is not None for q in quotes):
+        return f"Size displayed at the {side}, capped at 0.1% of open interest, per quote timestamp; top of book only"
+    return f"Estimated: 0.1% of open interest per quote timestamp; no size was displayed at the {side}"
 
 
 def consume(conn: sqlite3.Connection, account: str, quotes: list[OptionQuote], units: int) -> None:
@@ -295,7 +368,7 @@ def fill_orders(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: d
             plan={
                 **plan,
                 "filled_units": units,
-                "capacity_basis": "Estimated: 0.1% of OI per fresh quote timestamp; depth unavailable",
+                "capacity_basis": capacity_basis(actual, True),
             },
         )
         conn.execute("INSERT INTO stk_learning_fills VALUES (?,?,?,?)", (order.id, pid, units, to_iso(now)))
@@ -312,7 +385,8 @@ def fill_orders(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: d
                 "requested_units": intent["desired_units"],
                 "filled_units": units,
                 "unfilled_units": remaining - units,
-                "capacity_estimated": True,
+                "capacity_estimated": any(q.ask_size is None for q in actual),
+                "quoted_size": [q.ask_size for q in actual],
             },
         )
         if units >= remaining:
@@ -346,9 +420,9 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
         units = position.plan["filled_units"]
         unit_legs = [{**leg, "quantity": 1} for leg in position.legs]
         closing = impact(unit_legs, quotes, units, False)
-        book.mark(
-            position.id, closing.debit, marks={"at": to_iso(now), "basis": "bid less modeled impact", "capacity_estimated": True}
-        )
+        sized = all(q.bid_size is not None for q in actual)
+        book.mark(position.id, closing.debit, marks={"at": to_iso(now), "basis": "bid less modeled impact",
+                                                     "capacity_estimated": not sized})
         elapsed = now - datetime.fromisoformat(position.opened_at)
         paid = position.entry_cost + position.entry_fees
         for days in position.plan.get("checkpoints") or ():
@@ -362,7 +436,7 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
         if elapsed < timedelta(minutes=position.plan["hold_minutes"]) and not expiring:
             continue
         # Exit capacity is shared too. An oversized position waits instead of receiving a fictional full fill.
-        if capacity(conn, position.account, actual) < units:
+        if capacity(conn, position.account, actual, opening=False) < units:
             continue
         pnl = book.close_position(
             position,
@@ -373,7 +447,8 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
             reason=(f"Expiry approaching: sold with {left} days left; later executable quote" if expiring and
                     elapsed < timedelta(minutes=position.plan["hold_minutes"]) else
                     "Registered holding horizon reached; later executable quote"),
-            evidence={"quote_times": [to_iso(q.quoted_at) for q in actual if q.quoted_at], "capacity_estimated": True},
+            evidence={"quote_times": [to_iso(q.quoted_at) for q in actual if q.quoted_at], "capacity_estimated": not sized,
+                      "quoted_size": [q.bid_size for q in actual], "capacity_basis": capacity_basis(actual, False)},
         )
         consume(conn, position.account, actual, units)
         book.decide(
@@ -386,23 +461,82 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
             ["Registered holding horizon reached"],
             {"position_id": position.id, "pnl": pnl},
         )
-        if position.account == RESEARCH:
-            conn.execute(
-                "INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
-                (
-                    position.id,
-                    position.plan["experiment_id"],
-                    position.opened_at,
-                    to_iso(now),
-                    position.entry_day.isoformat() + ":" + position.symbol,
-                    pnl / (position.entry_cost + position.entry_fees),
-                    pnl,
-                    position.plan["desired_units"],
-                    units,
-                ),
-            )
+        record_outcome(conn, position, now, pnl, units, SOLD)
         count += 1
     return count
+
+
+def record_outcome(conn: sqlite3.Connection, position: Position, now: datetime, pnl: float, units: int,
+                   basis: str) -> None:
+    """A research position's finished result, a training label from ``now`` on (never earlier, so no decision made
+    before it could see it). ``basis`` says how it finished: sold at a quote, or settled at intrinsic at expiry."""
+    if position.account != RESEARCH or not position.plan.get("experiment_id"):
+        return                                    # a malformed plan stays reported as a closed trade without an outcome
+    paid = position.entry_cost + position.entry_fees
+    conn.execute("INSERT INTO stk_learning_outcomes(position_id,experiment_id,entered_at,matured_at,block,net_return,"
+                 "pnl,requested_units,filled_units,basis) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                 (position.id, position.plan["experiment_id"], position.opened_at, to_iso(now),
+                  position.entry_day.isoformat() + ":" + position.symbol, pnl / paid if paid else 0.0, pnl,
+                  position.plan.get("desired_units", units), units, basis))
+
+
+def settle_expired(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> int:
+    """Expired positions settle at intrinsic value on the official close of their last trading day (``stk_bars``), as
+    PaperEngine._expiries settles the ordinary PAPER books. This is a real outcome, not a stand-in: an expiring
+    contract's value is fixed by that close. Learning holds only long calls, puts and straddles, so nothing is ever
+    assigned: an in-the-money leg is worth its intrinsic value and pays the exit fee (it is exercised and the shares
+    sold at the close), an out-of-the-money leg is worth nothing and pays no fee (nothing is traded).
+
+    Runs on every tick, including while the market is closed, once the expiry day's close has passed and its official
+    close is stored. The outcome matures when it is settled, never back-dated to the expiry, so no earlier decision
+    sees it. A position whose stock split while it was held stays open: its contract was adjusted, and the
+    unadjusted strike would settle the wrong amount."""
+    book = PaperBook(conn)
+    today = cal.new_york(now).date()
+    count = 0
+    for row in conn.execute("SELECT * FROM stk_positions WHERE state='OPEN' AND asset='option' AND expires_day<=? "
+                            "ORDER BY expires_day,id", (today.toordinal(),)).fetchall():
+        position = _position(row)
+        if position.expires is None or not position.legs:
+            continue
+        expiry = position.expires
+        last = expiry if cal.is_trading_day(expiry) else cal.previous_trading_day(expiry)
+        if now < cal.session_close(last):
+            continue
+        bar = market.conn.execute("SELECT close FROM stk_bars WHERE symbol=? AND day=?",
+                                  (position.symbol, last.toordinal())).fetchone()
+        if bar is None or not bar[0] or not math.isfinite(bar[0]) or bar[0] <= 0:
+            continue                                   # waits for the official close; stays visibly unresolved
+        if market.conn.execute("SELECT 1 FROM stk_splits WHERE symbol=? AND execution_date>? AND execution_date<=? "
+                               "LIMIT 1", (position.symbol, position.entry_day.toordinal(),
+                                           expiry.toordinal())).fetchone():
+            continue
+        close = float(bar[0])
+        value = fills.settle(position.legs, close)
+        exercised = sum(abs(int(leg["quantity"])) for leg in position.legs if fills.intrinsic(leg, close) > 0)
+        fee = round(exercised * fills.OPTION_FEE_PER_CONTRACT, 2) if value > 0 else 0.0
+        reason = (f"Expired {expiry.isoformat()}: settled at intrinsic on the ${close:,.2f} official close"
+                  + ("" if value > 0 else " (worthless)"))
+        evidence = {"settlement": SETTLED, "underlying_close": close, "close_day": last.isoformat(),
+                    "source": "official daily close (stk_bars)", "exercised_contracts": exercised}
+        pnl = book.close_position(position, at=now, day=today, credit=value, fees=fee, reason=reason,
+                                  evidence=evidence, cash_reason="EXPIRE")
+        book.decide(now, today, position.account, position.spec_sha256, position.symbol, "EXIT", [reason],
+                    {"position_id": position.id, "pnl": pnl, **evidence})
+        book.event(now, position.account, "EXPIRY_SETTLEMENT", position.id, {**evidence, "value": value, "fees": fee})
+        record_outcome(conn, position, now, pnl, int(position.plan.get("filled_units") or 0), SETTLED)
+        count += 1
+    return count
+
+
+def record_nav(conn: sqlite3.Connection, now: datetime) -> None:
+    book = PaperBook(conn)
+    for account, _title, _capital in ACCOUNTS:
+        marked = conn.execute("SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions WHERE state='OPEN' "
+                              "AND account=?", (account,)).fetchone()[0] / MICRO
+        equity, contributed = book.cash(account) + marked, book.deposits(account)
+        conn.execute("INSERT OR IGNORE INTO stk_learning_nav VALUES (?,?,?,?,?)",
+                     (to_iso(now), account, equity, contributed, equity - contributed))
 
 
 def forecast(conn: sqlite3.Connection, experiment: str, now: datetime) -> dict[str, Any]:
@@ -514,6 +648,13 @@ def propose(
     return count
 
 
+def family(cfg: dict[str, Any]) -> tuple[str, str | None, int, int]:
+    """What makes two experiments the same recipe family: structure, expiry bucket (lifecycle recipes; none for the
+    minute-hold kind), holding time and entry spacing. Sizing variants share a family; a 30-day hold of 1-month options
+    and a 30-day hold of 3-month options do not."""
+    return (cfg["structure"], cfg.get("bucket"), cfg["hold_minutes"], cfg.get("repeat_minutes", 0))
+
+
 def outcome_rows(conn: sqlite3.Connection, now: datetime) -> list[sqlite3.Row]:
     """Only matured uncapped research; configuration variants within a block are not independent days."""
     return conn.execute(
@@ -543,19 +684,20 @@ def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]
     days,boundary,train,test = partition_outcomes(rows)
     blocks = len({r["block"] for r in rows})
     total = sum(r["outcomes"] for r in rows)
-    families: dict[tuple[str,int,int],dict[str,Any]] = {}
+    families: dict[tuple[str,str | None,int,int],dict[str,Any]] = {}
     for row in rows:
         cfg = json.loads(row["config_json"])
-        key = (cfg["structure"],cfg["hold_minutes"],cfg.get("repeat_minutes",0))
-        family = families.setdefault(key,{"structure":key[0],"hold_minutes":key[1],"repeat_minutes":key[2],
-                                         "label":cfg.get("label"),"outcomes":0,"returns":{}})
-        family["outcomes"] += row["outcomes"]
-        family["returns"].setdefault(row["block"],[]).append(row["net_return"])
+        key = family(cfg)
+        group = families.setdefault(key,{"structure":key[0],"bucket":key[1],"hold_minutes":key[2],"repeat_minutes":key[3],
+                                        "label":cfg.get("label"),"outcomes":0,"returns":{}})
+        group["outcomes"] += row["outcomes"]
+        group["returns"].setdefault(row["block"],[]).append(row["net_return"])
     comparisons = []
-    for family in families.values():
-        values = [mean(v) for v in family.pop("returns").values()]
-        comparisons.append({**family,"blocks":len(values),"mean_net_return":mean(values)})
-    comparisons.sort(key=lambda f:(-f["mean_net_return"],f["structure"],f["hold_minutes"],f["repeat_minutes"]))
+    for group in families.values():
+        values = [mean(v) for v in group.pop("returns").values()]
+        comparisons.append({**group,"blocks":len(values),"mean_net_return":mean(values)})
+    comparisons.sort(key=lambda f:(-f["mean_net_return"],f["structure"],f["bucket"] or "",f["hold_minutes"],
+                                   f["repeat_minutes"]))
     shown = comparisons if len(comparisons)<=8 else [*comparisons[:4],*comparisons[-4:]]
     raw = conn.execute("SELECT COUNT(*) n,MAX(o.matured_at) latest FROM stk_learning_outcomes o "
         "JOIN stk_positions p ON p.id=o.position_id AND p.account=? WHERE o.matured_at<=?",(RESEARCH,to_iso(now))).fetchone()
@@ -566,9 +708,12 @@ def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]
         "julianday(opened_at)+COALESCE(json_extract(plan_json,'$.hold_minutes'),0)/1440.0<=julianday(?)) due "
         "FROM stk_positions WHERE account=? AND state='OPEN'",
         (cal.new_york(now).date().toordinal(),cal.new_york(now).date().toordinal(),to_iso(now),RESEARCH)).fetchone()
+    settled = conn.execute("SELECT COUNT(*) FROM stk_learning_outcomes o JOIN stk_positions p ON p.id=o.position_id "
+                           "AND p.account=? WHERE o.matured_at<=? AND o.basis=?", (RESEARCH, to_iso(now), SETTLED)).fetchone()[0]
     reasons = []
     if not total:
-        reasons.append("No eligible completed research outcomes yet. Open trades need a later executable exit quote.")
+        reasons.append("No eligible completed research outcomes yet. Open trades finish when sold at a later executable "
+                       "quote or, at expiry, when settled at intrinsic value on the official close.")
     if len(days)<MIN_COMPARISON_DAYS:
         reasons.append(f"Need {MIN_COMPARISON_DAYS-len(days)} more entry days with completed research outcomes.")
     if blocks<MIN_COMPARISON_BLOCKS:
@@ -591,7 +736,7 @@ def evidence_progress(conn: sqlite3.Connection, now: datetime) -> dict[str, Any]
         "min_entry_days":MIN_COMPARISON_DAYS,"min_blocks":MIN_COMPARISON_BLOCKS,
         "ready_for_comparison":len(days)>=MIN_COMPARISON_DAYS and blocks>=MIN_COMPARISON_BLOCKS and bool(train) and bool(test),
         "open_research_trades":open_["n"],"exit_horizon_reached":int(open_["due"] or 0),
-        "unresolved_expiries":int(open_["expired"] or 0),"blockers":reasons,
+        "unresolved_expiries":int(open_["expired"] or 0),"settled_at_expiry":settled,"blockers":reasons,
         "families":shown,"family_total":len(comparisons),
         "latest_source_at":conn.execute("SELECT MAX(observed_at) FROM stk_learning_sources WHERE observed_at<=?",
                                          (to_iso(now),)).fetchone()[0],
@@ -637,7 +782,7 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
                 "test_blocks": len(held_values),
                 "test_net_return": mean(held_values) if held_values else None,
                 "promoted": False,
-                "note": "Overlapping days, modeled depth and multiple trials limit confidence",
+                "note": "Overlapping days, top-of-book-only size and multiple trials limit confidence",
             }
             daily: dict[str, list[float]] = {}
             for row in held:
@@ -646,7 +791,7 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
             values = [mean(v) for day, v in daily.items() if day > prior_promotion]
             # Conservative approximate multiple-comparison hurdle, using days rather than correlated fill count.
             if len(values) >= 20 and mean(values) - 3 * stdev(values) / math.sqrt(len(values)) > 0:
-                training.update(promoted=True, champion=chosen, status="PAPER challenger promoted; capacity remains modeled")
+                training.update(promoted=True, champion=chosen, status="PAPER challenger promoted; capacity is top-of-book only")
                 set_state(conn, "last_promotion_day", max(daily))
                 by_experiment: dict[str, list[Any]] = {}
                 for r in train:
@@ -711,10 +856,13 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
     quotes: dict[str, OptionQuote] = {}
     snapshots: dict[str, tuple[str, float, dict[Any, list[OptionQuote]]]] = {}
     local = cal.new_york(now)
-    if not cal.is_trading_day(local.date()) or not (9, 30) <= (local.hour, local.minute) < (16, 0):
+    if not regular_session(now):
         with PaperBook(conn).atomic():
+            settled = settle_expired(conn, market, now)
+            if settled:
+                record_nav(conn, now)
             check_in(conn,now)
-        result = {"phase": "Market closed; saved experiments and losses are retained", "orders": 0}
+        result = {"phase": "Market closed; saved experiments and losses are retained", "orders": 0, "settled": settled}
         set_state(conn, "progress", result)
         return result
     rows = market.conn.execute(
@@ -722,6 +870,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
         (local.date().toordinal(), to_iso(now), to_iso(now - timedelta(minutes=3))),
     ).fetchall()
     with PaperBook(conn).atomic():
+        settled = settle_expired(conn, market, now)
         for row in rows:
             symbol = row[0]
             _, chains = market.option_chain(symbol, local.date(), observed_by=now)
@@ -737,11 +886,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
             flat = [q for qs in valid.values() for q in qs]
             if not flat:
                 continue
-            payload = [
-                {**asdict(q), "expiration": q.expiration.isoformat(), "quoted_at": to_iso(q.quoted_at) if q.quoted_at else None}
-                for q in flat
-            ]
-            observation = {"symbol": symbol, "quotes": payload, "underlying_price": spot}
+            observation = {"symbol": symbol, "quotes": [quote_payload(q) for q in flat], "underlying_price": spot}
             source_key = sha256_hex(canonical_json(observation))
             conn.execute(
                 "INSERT OR IGNORE INTO stk_learning_sources VALUES (?,?,?,?)",
@@ -749,34 +894,30 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
             )
             snapshots[symbol] = (source_key, spot, valid)
             quotes.update({q.occ: q for q in flat})
+        # Held and pending legs are quoted contract by contract every minute; the newer of that and a chain quote wins.
+        held = leg_quotes(conn, now)
+        for occ, q in held.items():
+            seen = quotes.get(occ)
+            if seen is None or not seen.quoted_at or (q.quoted_at and q.quoted_at >= seen.quoted_at):
+                quotes[occ] = q
         closed = manage(conn, quotes, now)
         filled = fill_orders(conn, quotes, now)
         orders = propose(conn, market, now, quotes, snapshots)
         from desk.stocks.learning_retail import propose as propose_retail
 
         orders += propose_retail(conn,now,quotes,snapshots)
-        book = PaperBook(conn)
-        for account, _title, _capital in ACCOUNTS:
-            marked = (
-                conn.execute(
-                    "SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions WHERE state='OPEN' AND account=?", (account,)
-                ).fetchone()[0]
-                / MICRO
-            )
-            equity, contributed = book.cash(account) + marked, book.deposits(account)
-            conn.execute(
-                "INSERT OR IGNORE INTO stk_learning_nav VALUES (?,?,?,?,?)",
-                (to_iso(now), account, equity, contributed, equity - contributed),
-            )
+        record_nav(conn, now)
         check_in(conn, now)
         result = {
             "phase": "Observing fresh quotes and running registered experiments"
             if quotes
             else "Waiting for fresh timestamped option quotes; no synthetic fills",
             "contracts": len(quotes),
+            "held_leg_quotes": len(held),
             "orders": orders,
             "filled": filled,
             "closed": closed,
+            "settled": settled,
             "at": to_iso(now),
         }
         set_state(conn, "progress", result)
@@ -843,6 +984,8 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
                 "capital_employed": marked[0] / MICRO,
                 "trading_pnl_drawdown": drawdown,
                 "unresolved_expiries": unresolved,
+                "expiry_settlements": conn.execute("SELECT COUNT(*) FROM stk_cash WHERE account=? AND reason='EXPIRE'",
+                                                   (account,)).fetchone()[0],
                 "pnl_per_contributed_dollar": (equity - contributed) / contributed if contributed else None,
                 "open_positions": marked[1],
                 "closed_trades": closed[0],
@@ -904,11 +1047,17 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
         ],
         "pending": conn.execute("SELECT COUNT(*) FROM stk_pending WHERE state='PENDING'").fetchone()[0],
         "limits": {"trade_count": None, "position_count": None, "contract_quantity": None, "virtual_spending": None},
-        "execution_note": "Estimated depth: 0.1% of OI per quote timestamp, adverse impact and $0.65/contract/side. "
+        "buckets": [{"id": key, "title": title, "dte": list(window), "hold_days": hold, "exit_days_left": left,
+                     "longest_hold": longest_hold(key)} for key, (title, window, hold, left) in BUCKETS.items()],
+        "lifecycle_debit": LIFECYCLE_DEBIT,
+        "execution_note": "Capacity per quote timestamp: the size displayed at the ask to buy or the bid to sell, capped "
+        "at 0.1% of open interest (that rule alone when no size is reported); no depth beyond the top of the book. "
+        "Adverse impact and $0.65/contract/side. "
         "Unfilled quantities receive no invented P/L. Only long calls, puts and straddles are supported. "
         "Lifecycle recipes buy weekly, 1-, 3-, 6-month and LEAPS options and value each position at real quotes "
         "after 1, 7, 14, 30, 60, 90, 120 and 180 days, selling at the horizon or before expiry. "
-        "Expiry/assignment settlement without fresh tradable quotes remains unresolved and is not a training label.",
+        "A position still held at expiry settles at intrinsic value on that day's official close (exit fee only when "
+        "in the money; long options are never assigned); that is a real outcome and a training label.",
         "mode": "PAPER",
         "orders_enabled": False,
     }

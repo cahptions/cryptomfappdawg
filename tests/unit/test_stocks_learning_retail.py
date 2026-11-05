@@ -39,7 +39,7 @@ def outcome(conn,structure,net,entered,*,account=lab.RESEARCH):
     position=next(p for p in book.positions(account) if p.id==pid)
     mature=entered+timedelta(minutes=30)
     book.close_position(position,at=mature,day=mature.date(),credit=100*(1+net),fees=0.,reason="Synthetic maturity",evidence={})
-    conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO stk_learning_outcomes VALUES (?,?,?,?,?,?,?,?,?,'sold at a quote')",
         (pid,cfg["id"],to_iso(entered),to_iso(mature),entered.date().isoformat()+":SPY",net,100*net,1,1))
 
 
