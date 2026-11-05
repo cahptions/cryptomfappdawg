@@ -66,6 +66,9 @@ const KestrelPlays = (() => {
   // forecast paths. Finishing in the money is not the goal of a managed trade (a bought option can finish in the
   // money and still lose its premium), so it, profit at expiry and the market's view sit underneath.
   const takeChance = (play) => play.exit_plan?.odds?.take_profit;
+  // Profit at expiry as shown: calibrated on graded plays once its group has 30, otherwise the model's own.
+  const profitChance = (play) =>
+    play.calibrated?.profit?.shown ?? play.profit_kestrel;
   function expiryChance(play) {
     const value = play.itm_kestrel ?? play.itm_market,
       label =
@@ -101,13 +104,12 @@ const KestrelPlays = (() => {
     if (odds && take) {
       label = `Chance to hit take-profit (${signed(100 * take.return, 0)}%)`;
       shown = odds.take_profit;
-      detail = `${odds.at_entry === "stop" ? "Already past its stop at today's fair value (the bid/ask spread is wider than the stop allows) · " : ""}Stop first ${pct(odds.stop)} · Profit at expiry ${pct(play.profit_kestrel)} · ${expiry.label} ${pct(expiry.shown)} (market ${pct(market)}${history === null ? "" : `, history ${pct(history)}`})`;
-      box.title =
-        "KESTREL's forecast paths, each leg repriced at its quoted volatility: the share that reach the exit plan's take-profit before its stop or its leave-by date. A model estimate, checked against tracked plays as they resolve.";
+      detail = `${odds.at_entry === "stop" ? "Already past its stop at today's fair value (the bid/ask spread is wider than the stop allows) · " : ""}Stop first ${pct(odds.stop)} · Profit at expiry ${pct(profitChance(play))} · ${expiry.label} ${pct(expiry.shown)} (market ${pct(market)}${history === null ? "" : `, history ${pct(history)}`})`;
+      box.title = `KESTREL's forecast paths, each leg repriced at its quoted volatility: the share that reach the exit plan's take-profit before its stop or its leave-by date. Every recorded play's own plan is graded on its quoted closing marks (take-profit first, stop first or neither); ${odds.calibration ? `this chance is calibrated on them (${odds.calibration})` : "after 30 have resolved this chance is calibrated on them"}.`;
     } else {
       label = `${expiry.label} at expiry`;
       shown = expiry.shown;
-      detail = `Market ${pct(market)} · History ${history === null ? "—" : pct(history)} · Profit ${pct(play.profit_kestrel)}`;
+      detail = `Market ${pct(market)} · History ${history === null ? "—" : pct(history)} · Profit ${pct(profitChance(play))}`;
     }
     fill.style.width = `${Math.max(0, Math.min(100, 100 * (shown ?? 0)))}%`;
     bar.setAttribute("aria-label", `${label}: ${pct(shown)}`);
@@ -117,7 +119,15 @@ const KestrelPlays = (() => {
       bar,
       el("small", detail),
     );
+    if (odds && take && odds.history)
+      box.append(el("small", takeHistory(odds.history), "play-chance-history"));
     return box;
+  }
+  // How often recorded plays shown about this chance really reached their take-profit first.
+  function takeHistory(h) {
+    if (!h.plays)
+      return `History: no recorded play shown ${h.bucket} has resolved yet`;
+    return `History: ${h.plays} play${h.plays === 1 ? "" : "s"}${h.level === "this category" ? " in this category" : ""}, ${pct(h.reached)} reached take-profit when KESTREL said about ${pct(h.said)}`;
   }
 
   // A spread names both strikes ("$49.00 / $53.00 strikes"); one contract or a straddle names one.
@@ -327,7 +337,9 @@ const KestrelPlays = (() => {
         play.breakevens
           ? "Touch a break-even before expiry"
           : "Touch strike before expiry",
-        play.in_the_money ? "Already in the money" : pct(play.touch_kestrel),
+        play.in_the_money
+          ? "Already in the money"
+          : pct(play.calibrated?.touch?.shown ?? play.touch_kestrel),
       ],
       [
         "1σ move by expiry",
@@ -407,9 +419,12 @@ const KestrelPlays = (() => {
   function flagBox(r) {
     const box = el("article", undefined, "setup-card play-card");
     // opened = new open interest as a share of the flagged volume (the server's verdict uses 0.5 and 0.1)
+    const from = r.source ? followSource(r) : "";
     const opened =
       r.opened === null
-        ? "This contract wasn't in today's collected chains, so whether the trades opened new positions isn't known yet."
+        ? r.source
+          ? `${from} carries no open interest, so whether the trades opened new positions can't be told from it.`
+          : "This contract wasn't in today's collected chains and tracking has no later quote of it yet, so whether the trades opened new positions isn't known yet."
         : r.opened >= 0.5
           ? `Open interest grew by ${pct(r.opened)} of the flagged volume: most of the flagged trades were new positions held overnight.`
           : r.opened <= 0.1
@@ -430,9 +445,10 @@ const KestrelPlays = (() => {
       el(
         "p",
         r.price_change === null
-          ? "The contract's price since then isn't known yet."
+          ? "No later quote of the contract is stored yet, so its price since then isn't known."
           : `The contract's price has moved ${r.price_change >= 0 ? "+" : ""}${pct(r.price_change, 1)} since it was flagged.`,
       ),
+      el("p", `Source: ${from || "—"}.`, "muted caption"),
       el("p", `Verdict: ${r.verdict}`, "play-confirm"),
       link(
         `${r.symbol} stock page and option chain ↗`,
@@ -468,7 +484,7 @@ const KestrelPlays = (() => {
         p.action === "SELL" ? `+${money(p.credit)}` : money(p.cost),
         pct(takeChance(p)),
         pct(p.itm_kestrel),
-        pct(p.profit_kestrel),
+        pct(profitChance(p)),
         p.confidence ? `${p.confidence.score}/${p.confidence.of}` : "—",
         greek(p.delta, 2),
         greek(p.theta, 2),
@@ -600,15 +616,22 @@ const KestrelPlays = (() => {
     run();
   }
 
-  function record(cat) {
+  // The section's usual record, or with an Expiry filter band chosen, that band's own recorded picks.
+  function record(cat, band) {
     const box = el("div", undefined, "play-record");
-    const r = cat.record;
+    const own = band && !cat.horizon_free && cat.horizon_records,
+      r = own ? cat.horizon_records[band.id] : cat.record,
+      where = own ? ` at ${band.label.toLowerCase()}` : "";
     box.append(
       el(
         "p",
         r && r.resolved
-          ? `Track record: ${r.resolved} past plays resolved · ${pct(r.itm_rate)} finished in the money (KESTREL predicted ${pct(r.predicted_itm)}) · median return at expiry ${pct(r.median_return)}`
-          : "Track record: no plays in this category have expired yet. Each day's plays are saved once and graded at expiry.",
+          ? `Track record${where}: ${r.resolved} past plays resolved · ${pct(r.itm_rate)} finished in the money (KESTREL predicted ${pct(r.predicted_itm)}) · median return at expiry ${pct(r.median_return)}`
+          : own
+            ? `Track record${where}: none of this section's picks at this expiry have expired yet. Each closing session's picks here are saved once and graded at expiry on the stock's close.`
+            : cat.so_far
+              ? `Track record: no plays in this category have expired yet. So far: ${cat.so_far.label} after the pick, median ${signed(100 * cat.so_far.median, 0)}% on ${cat.so_far.n} play${cat.so_far.n === 1 ? "" : "s"} (${pct(cat.so_far.hit_rate)} up), from quoted closing marks.`
+              : "Track record: no plays in this category have expired yet. Each day's plays are saved once and graded at expiry.",
         "muted caption",
       ),
     );
@@ -623,13 +646,25 @@ const KestrelPlays = (() => {
     return box;
   }
 
+  // Where a follow-up's open interest and price came from: today's chains, or the contract's own tracked quotes.
+  function followSource(r) {
+    if (!r.source) return "";
+    if (r.source === "today's collected chains")
+      return "Today's collected chains";
+    const at = r.source_at
+      ? r.source_at.length === 10
+        ? r.source_at
+        : when(r.source_at)
+      : "";
+    return `${r.source[0].toUpperCase()}${r.source.slice(1)}${at ? ` (${at})` : ""}`;
+  }
   function followupTable(rows) {
     const box = el("details", undefined, "play-followups");
     box.open = true;
     box.append(
       el(
         "summary",
-        `Did the last flags open positions? ${rows[0].session} flags, checked against today's open interest`,
+        `Did the last flags open positions? ${rows[0].session} flags, checked against the latest open interest`,
       ),
       table(
         [
@@ -639,6 +674,7 @@ const KestrelPlays = (() => {
           "Opened",
           "Price since",
           "Verdict",
+          "From",
         ],
         rows.map((r) => [
           (() => {
@@ -660,6 +696,7 @@ const KestrelPlays = (() => {
             ? "—"
             : `${r.price_change >= 0 ? "+" : ""}${pct(r.price_change, 1)}`,
           r.verdict,
+          followSource(r) || "—",
         ]),
       ),
     );
@@ -943,7 +980,7 @@ const KestrelPlays = (() => {
           el("small", `${strikeLabel(p)} · ${p.expiration}`),
           el(
             "small",
-            `Profit at expiry ${pct(p.profit_kestrel)} · liquidity ${p.liquidity}`,
+            `Profit at expiry ${pct(profitChance(p))} · liquidity ${p.liquidity}`,
           ),
         );
         group.append(item);
@@ -966,7 +1003,7 @@ const KestrelPlays = (() => {
       grid,
       el(
         "p",
-        "These alternatives are tracked automatically in History. Their results are separate from the original category's performance record.",
+        "These alternatives are followed automatically in History → All identified plays, each with its own result. They are not part of any recorded track record; each is judged by its section's record at its own days to expiry.",
         "caption muted",
       ),
     );
@@ -998,7 +1035,7 @@ const KestrelPlays = (() => {
       el("h1", "Plays"),
       el(
         "p",
-        "Ranked option ideas from the desks, the options data and what past plays and PAPER trades actually did. Every chance is an estimate with its track record beside it. Research, not financial advice.",
+        "Ranked option ideas from the desks, the options data and what past plays and PAPER trades actually did. Every chance is a model estimate, graded against what happened on recorded plays (Performance charts each one) and calibrated once 30 have resolved. Research, not financial advice.",
         "muted",
       ),
     );
@@ -1092,7 +1129,7 @@ const KestrelPlays = (() => {
         evidence.append(
           el(
             "p",
-            `Suggested exit (chosen walk-forward over ${cat.exit.test_sessions} unseen sessions, +${pct(cat.exit.mean_improvement, 1)} a play better than holding): ${cat.exit.best_in_sample.rule}.`,
+            `Suggested exit (chosen walk-forward over ${cat.exit.test_sessions} unseen sessions, +${pct(cat.exit.mean_improvement, 1)} a play better than holding): ${cat.exit.best_in_sample.rule}.${cat.exit.dte_bucket ? ` Used for plays with ${cat.exit.dte_bucket} to expiry, the group it was learned on; other expiries keep the standard rule.` : ""}`,
             "caption",
           ),
         );
@@ -1110,7 +1147,7 @@ const KestrelPlays = (() => {
         const note = el(
           "p",
           data.budget_search
-            ? "Budget search considers affordable strikes and expirations before ranking. Category quality gates still apply; budget trades are followed automatically in History. The original category's performance record is separate."
+            ? "Budget search considers affordable strikes and expirations before ranking. Category quality gates still apply; budget trades are followed automatically in History → All identified plays, each with its own result, and judged by the section's record at their own days to expiry. They do not enter any recorded track record."
             : "This saved board predates budget search. The next collection pass rebuilds it from saved chains; current results only filter the original shortlist.",
           "caption muted",
         );
@@ -1124,7 +1161,7 @@ const KestrelPlays = (() => {
             cat.horizon_free
               ? `${cat.title} keeps its own expiries (${cat.id === "lottos" ? "cheap and short-dated by design" : cat.id === "earnings" ? "the first expiry after the results date" : "the contracts people actually traded"}), so ${band.label.toLowerCase()} only narrows its list.`
               : data.horizons
-                ? `${band.label}: this section's rules searched at that expiry, every other rule unchanged. These alternatives open like any play and are followed in History once you open one; the section's track record stays its usual expiries.`
+                ? `${band.label}: this section's rules searched at that expiry, every other rule unchanged. Each closing session's picks at this expiry are saved as their own record and graded at expiry on the stock's close, separate from the section's usual expiries; a play opened here is also followed quote by quote in History.`
                 : "This saved board predates expiry search. The next collection pass rebuilds it from saved chains; for now the filter only narrows the usual list.",
             "caption muted",
           ),
@@ -1142,7 +1179,7 @@ const KestrelPlays = (() => {
         );
         body.append(el("h3", "Overall ranking · all prices"));
       }
-      if (!budget) body.append(evidence, record(cat));
+      if (!budget) body.append(evidence, record(cat, band));
       if (!shown.length) {
         if (
           !budget &&
@@ -1237,7 +1274,7 @@ const KestrelPlays = (() => {
       ),
       el(
         "p",
-        "Cost / risk is for one contract per leg, including entry fees: purchase cost for buys; maximum loss for sells. Chance follows the card's expiry event: ITM, a break-even move, or a short option expiring worthless.",
+        "Cost / risk is for one contract per leg, including entry fees: purchase cost for buys; maximum loss for sells. Min chance filters on the card's headline chance: reaching the exit plan's take-profit before its stop or leave-by date (a card without a plan uses its expiry event: ITM, a break-even move, or a short option expiring worthless).",
         "caption muted play-filter-help",
       ),
       el(
@@ -1268,7 +1305,7 @@ const KestrelPlays = (() => {
           refused:
             "Schwab refused option symbols on its quotes endpoint; tracking uses per-expiry chains instead.",
         }[t.endpoint?.state] ||
-        "Schwab option quotes not verified yet: run uv run desk stocks doctor --online.",
+        "Schwab option quotes not tried yet: the next tracking pass in market hours tries them and records the result (uv run desk stocks doctor --online checks now).",
       mb =
         t.storage?.bytes === null || t.storage?.bytes === undefined
           ? "size not measurable on this SQLite"

@@ -257,7 +257,7 @@ const KestrelCalculator = (() => {
         },
         {
           id: "expiration",
-          label: "At expiration",
+          label: result.terminal_label || "At expiration",
           value: (p) => p.expiration,
           color: "var(--text-2)",
           dashed: true,
@@ -274,7 +274,12 @@ const KestrelCalculator = (() => {
           "Scenario P/L",
           `${money(p.scenario)}${basis && Number.isFinite(p.scenario) ? ` · ${signedPct(p.scenario / basis)}` : ""}`,
         ],
-        ["Expiration P/L", money(p.expiration)],
+        [
+          result.terminal_label === "At first expiry, modeled"
+            ? "First-expiry P/L (modeled)"
+            : "Expiration P/L",
+          money(p.expiration),
+        ],
       ],
       references: [
         { x: spot, label: "Now" },
@@ -289,7 +294,9 @@ const KestrelCalculator = (() => {
           : []),
       ],
       coverage:
-        "Drag or use arrow keys to explore. Click a price to set the scenario. Accent: the selected date and IV; dashed: the payoff at expiration. ±1σ: the options-implied one-standard-deviation move by expiration.",
+        result.terminal_label === "At first expiry, modeled"
+          ? "Drag or use arrow keys to explore. Click a price to set the scenario. Accent: the selected date and IV; dashed: the P/L at the first expiry, modeled (later legs at Black-Scholes on their IV). ±1σ: the options-implied one-standard-deviation move by the first expiry."
+          : "Drag or use arrow keys to explore. Click a price to set the scenario. Accent: the selected date and IV; dashed: the payoff at expiration. ±1σ: the options-implied one-standard-deviation move by expiration.",
       onSelect: (p) => onSelect(p.price, result.valuation_date),
       empty:
         "No inferable IV for these quotes. The payoff at expiration is still exact.",
@@ -682,7 +689,13 @@ const KestrelCalculator = (() => {
         risk.max_loss > 0
           ? `${(risk.max_profit / risk.max_loss).toFixed(2)}×`
           : "—";
-      const chance = r.chance;
+      const chance = r.chance,
+        // One expiry: exact. Mixed expirations: at the first expiry, modeled (later legs at Black-Scholes).
+        where = risk.exact
+          ? "At expiration"
+          : risk.modeled
+            ? `At first expiry (${shortDate(risk.at)}), modeled`
+            : "Needs IV for every later leg";
       stats.replaceChildren(
         stat(
           r.entry_cost < 0 ? "Net entry credit" : "Net entry debit",
@@ -692,26 +705,28 @@ const KestrelCalculator = (() => {
         stat(
           "Max profit",
           risk.unlimited_profit ? "Unlimited" : money(risk.max_profit),
-          risk.exact ? "At expiration" : "Needs one expiration",
+          where,
           "up",
         ),
         stat(
           "Max loss",
           risk.unlimited_loss ? "Unlimited" : money(risk.max_loss),
-          risk.exact ? "At expiration" : "Needs one expiration",
+          where,
           "down",
         ),
         stat(
           risk.breakevens.length > 1 ? "Break-evens" : "Break-even",
           be,
-          "Price at expiration",
+          risk.modeled
+            ? "Price at first expiry, modeled"
+            : "Price at expiration",
         ),
         stat(
           "Chance of profit",
           chance ? `${Math.round(chance.chance * 100)}%` : "—",
           chance
-            ? `Options-implied · ±${money(chance.expected_move)} (±${((chance.expected_move / r.underlying_price) * 100).toFixed(1)}%) 1σ move`
-            : "Needs one expiration and IV",
+            ? `${chance.modeled ? "At first expiry, modeled · options-implied" : "Options-implied"} · ±${money(chance.expected_move)} (±${((chance.expected_move / r.underlying_price) * 100).toFixed(1)}%) 1σ move`
+            : "Needs IV for every leg",
           "chance",
         ),
         stat(

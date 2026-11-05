@@ -3,6 +3,10 @@
 The chance of profit is the options market's own view: a risk-neutral lognormal at the legs' implied volatility, as
 broker and calculator tools show it. It is not KESTREL's calibrated chance and not a forecast. No strategy selection,
 order entry or mutation of PAPER occurs here.
+
+Mixed expirations (calendars, diagonals) have no single expiry payoff, so their maximum profit and loss, break-evens
+and chance of profit are given **at the first expiry, modeled**: legs expiring then at intrinsic value, later legs at
+Black-Scholes on their implied volatility (``mark``), over a grid of stock prices. Labelled as modeled, never exact.
 """
 
 from __future__ import annotations
@@ -89,6 +93,69 @@ def expiry_risk(legs: Sequence[ScenarioLeg], fee: float) -> dict[str, Any]:
             "message": "Expiration payoff after the selected entry and closing fees. Standard 100-share contracts only."}
 
 
+def first_expiry_risk(legs: Sequence[ScenarioLeg], spot: float, fee: float, rate: float, dividend: float,
+                      iv_change: float) -> dict[str, Any]:
+    """Maximum profit and loss and break-evens at the first expiry of a mixed-expiration position, modeled: the P/L
+    after entry and closing fees on a price grid from $0 to three times the highest strike, refined by bisection at
+    each sign change. Beyond the grid the P/L moves by the net call contracts (every call's delta tends to one)."""
+    first = min(leg.expiration for leg in legs)
+    if any(leg.iv is None for leg in legs if leg.expiration > first):
+        return {"max_profit": None, "max_loss": None, "unlimited_profit": False, "unlimited_loss": False,
+                "breakevens": [], "exact": False, "modeled": False,
+                "message": "Mixed expirations and a later leg has no implied volatility: the first-expiry P/L cannot "
+                           "be modeled."}
+
+    def pnl(s: float) -> float:
+        return float(mark(legs, s, first, fee, rate, dividend, iv_change) or 0.0)
+
+    top = 3 * max(spot, *(leg.strike for leg in legs))
+    xs = sorted({top * i / 600 for i in range(601)} | {leg.strike for leg in legs} | {spot})
+    values = [pnl(s) for s in xs]
+    roots = [s for s, v in zip(xs, values, strict=True) if abs(v) < 1e-8]
+    for (a, va), (b, vb) in pairwise(zip(xs, values, strict=True)):
+        if va * vb < 0:
+            for _ in range(40):
+                m = (a + b) / 2
+                vm = pnl(m)
+                a, va, b, vb = (a, va, m, vm) if va * vm <= 0 else (m, vm, b, vb)
+            roots.append((a + b) / 2)
+    slope = sum(leg.quantity * 100 for leg in legs if leg.kind == "call")
+    if slope and (root := xs[-1] - values[-1] / slope) > xs[-1]:
+        roots.append(root)
+    return {"max_profit": None if slope > 0 else max(0., max(values)),
+            "max_loss": None if slope < 0 else max(0., -min(values)),
+            "unlimited_profit": slope > 0, "unlimited_loss": slope < 0, "exact": False, "modeled": True,
+            "at": first.isoformat(), "breakevens": sorted({round(r, 4) for r in roots}),
+            "message": f"At the first expiry ({first.isoformat()}), modeled: legs expiring then at intrinsic value, "
+                       "later legs at Black-Scholes on their implied volatility (and the IV change chosen), after "
+                       "entry and closing fees, over prices from $0 to 3× the highest strike. Assignment, early "
+                       "exercise and later changes in the remaining legs' volatility are not modeled."}
+
+
+def first_expiry_chance(legs: Sequence[ScenarioLeg], spot: float, captured: date, fee: float, rate: float,
+                        dividend: float, iv_change: float) -> dict[str, Any] | None:
+    """Risk-neutral chance that the first-expiry P/L of a mixed-expiration position is above zero, modeled: the stock
+    lognormal to the first expiry at the contract-weighted IV of the legs expiring then, the P/L from ``mark``."""
+    first = min(leg.expiration for leg in legs)
+    near = [leg for leg in legs if leg.expiration == first]
+    if any(leg.iv is None for leg in legs):
+        return None
+    weight = sum(abs(leg.quantity) for leg in near)
+    sigma = max(.005, sum((leg.iv or 0) * abs(leg.quantity) for leg in near) / weight + iv_change)
+    days = max(1, (first - captured).days)
+    t, mu = days / 365, rate - dividend
+    risk = first_expiry_risk(legs, spot, fee, rate, dividend, iv_change)
+    edges = [0., *risk["breakevens"], math.inf]
+    chance = 0.
+    for lo, hi in pairwise(edges):
+        probe = (lo + hi) / 2 if math.isfinite(hi) else lo * 1.5 + 1
+        if (mark(legs, probe, first, fee, rate, dividend, iv_change) or 0.0) > 0:
+            chance += above(spot, lo, t, sigma, mu) - (above(spot, hi, t, sigma, mu) if math.isfinite(hi) else 0.)
+    return {"chance": min(1., max(0., chance)), "sigma": sigma, "days": days, "modeled": True,
+            "expected_move": spot * sigma * math.sqrt(t), "expiration": first.isoformat(),
+            "basis": "at first expiry, modeled"}
+
+
 def chance_of_profit(legs: Sequence[ScenarioLeg], spot: float, captured: date, fee: float, rate: float,
                      dividend: float, iv_change: float) -> dict[str, Any] | None:
     """Risk-neutral chance that the common-expiry payoff after fees is above zero, with the expected 1-sigma move.
@@ -161,7 +228,10 @@ def calculate(inputs: ScenarioInput, quotes: dict[str, OptionQuote], spot: float
                  *(spot * (1 - band + 2 * band * i / 160) for i in range(161) if spot * (1 - band + 2 * band * i / 160) > 0),
                  *strikes, inputs.underlying_price, spot})
     common = first == last
-    terminal = [expiry_payoff(legs, s, inputs.fee_per_contract) if common else None for s in xs]
+    # A common expiry's payoff is exact; mixed expirations show the first expiry's P/L, modeled (later legs by mark()).
+    terminal = [expiry_payoff(legs, s, inputs.fee_per_contract) if common else
+                mark(legs, s, first, inputs.fee_per_contract, inputs.rate, inputs.dividend_yield, inputs.iv_change)
+                for s in xs]
     curve = [{"price": s, "scenario": mark(legs, s, inputs.valuation_date, inputs.fee_per_contract, inputs.rate,
                                           inputs.dividend_yield, inputs.iv_change), "expiration": terminal[i]}
              for i, s in enumerate(xs)]
@@ -186,9 +256,11 @@ def calculate(inputs: ScenarioInput, quotes: dict[str, OptionQuote], spot: float
     heatmap = {"dates": [d.isoformat() for d in grid_dates], "prices": grid_prices,
                "values": [[mark(legs, s, d, inputs.fee_per_contract, inputs.rate, inputs.dividend_yield, inputs.iv_change)
                            for d in grid_dates] for s in grid_prices]}
-    return {"entry_cost": entry_cost(legs, inputs.fee_per_contract), "risk": expiry_risk(legs, inputs.fee_per_contract),
-            "chance": chance_of_profit(legs, spot, captured, inputs.fee_per_contract, inputs.rate, inputs.dividend_yield,
-                                       inputs.iv_change),
+    args = (inputs.fee_per_contract, inputs.rate, inputs.dividend_yield, inputs.iv_change)
+    return {"entry_cost": entry_cost(legs, inputs.fee_per_contract),
+            "risk": expiry_risk(legs, inputs.fee_per_contract) if common else first_expiry_risk(legs, spot, *args),
+            "chance": (chance_of_profit if common else first_expiry_chance)(legs, spot, captured, *args),
+            "terminal_label": "At expiration" if common else "At first expiry, modeled",
             "price_range": band,
             "scenario_pl": mark(legs, inputs.underlying_price, inputs.valuation_date, inputs.fee_per_contract,
                                 inputs.rate, inputs.dividend_yield, inputs.iv_change),

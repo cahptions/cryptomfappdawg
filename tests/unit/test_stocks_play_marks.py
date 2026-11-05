@@ -154,7 +154,8 @@ class FakeHistory:
         self.daily.append((symbol, since))
         return [Bar(symbol, d, c, c, c, c, 1e6) for d, c in sorted(self.closes.get(symbol, {}).items())]
 
-    async def intraday_history(self, symbol: str) -> list[IntradayBar]:
+    async def intraday_history(self, symbol: str, *, days: int) -> list[IntradayBar]:
+        assert days == pm.MINUTE_HISTORY_DAYS == 10          # gap repair asks for all ten days Schwab serves
         self.intraday.append(symbol)
         out: list[IntradayBar] = []
         for d, s in self.minutes.items():
@@ -208,6 +209,26 @@ async def test_a_laptop_off_gap_is_estimated_from_the_real_stock_path_and_flagge
         research.execute("UPDATE stk_play_marks SET pnl = 0")
     again = await pm.update(market, research, ny(D6, 18), history=history, rate=rate, budget=20)
     assert again["open"] == 0 and len(history.daily) == 1 and marks(research) == got
+
+
+async def test_a_gap_day_uses_the_contracts_own_massive_close_where_it_is_stored(dbs: Any) -> None:
+    research, market = dbs.research, dbs.market
+    call = leg("AAL", "call", 12, iv=0.5)
+    record(research, position([call]))
+    calm(market, "AAL")
+    bars(market, "AAL", {D0: 12.0, D1: 12.2, D2: 12.3, D3: 12.35, D4: 12.4, D5: 12.5})
+    quoted(research, call["occ"], D1, 1.15, 1.25, 0.50, 12.2)
+    quoted(research, call["occ"], D5, 1.60, 1.70, 0.60, 12.5)
+    market.executemany("INSERT INTO stk_option_bars(occ, day, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       [(call["occ"], day_of(D3), 1.3, 1.5, 1.3, 1.45, 120),
+                        (call["occ"], day_of(D4), 1.4, 1.4, 1.4, 1.4, 0)])             # no trades: not a price
+    await pm.update(market, research, ny(D5), history=None, rate=rate, budget=0)
+    rows = {date.fromordinal(r["session"]): r for r in research.execute("SELECT * FROM stk_track_days")}
+    assert rows[D3]["status"] == "estimated" and rows[D3]["bid"] == rows[D3]["ask"] == 1.45
+    assert rows[D3]["source"] == "massive daily bar" and "Massive" in rows[D3]["note"] and rows[D3]["iv"] > 0
+    assert "laptop was off" in rows[D2]["note"] and "laptop was off" in rows[D4]["note"]   # Black-Scholes elsewhere
+    got = marks(research)
+    assert got[(D3, 1)]["status"] == "estimated" and got[(D3, 1)]["value"] == pytest.approx(1.45)  # never graded
 
 
 async def test_an_expiry_inside_the_gap_is_settled_exactly_on_the_close(dbs: Any) -> None:

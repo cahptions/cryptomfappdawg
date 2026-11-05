@@ -470,9 +470,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def play_idea(ident: str) -> dict[str, Any]:
         from desk.stocks.play_selections import open_horizon_play, view
 
-        with reader(paths, RESEARCH_FILE) as conn:
+        with reader(paths, RESEARCH_FILE) as conn, reader(paths, MARKET_FILE) as market:
             if conn.execute("SELECT 1 FROM stk_play_ideas WHERE id=?", (ident,)).fetchone():
-                return view(conn, ident, utc_now())
+                return view(conn, ident, utc_now(), market=market)
         # An Expiry filter play is saved (and from then on followed) only once it is opened.
         conn = open_database(paths.db_dir / RESEARCH_FILE, DbKind.STOCKS_RESEARCH)
         try:
@@ -502,8 +502,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def my_play(ident: str) -> dict[str, Any]:
         from desk.stocks.play_selections import view
 
-        with reader(paths, RESEARCH_FILE) as conn:
-            return view(conn, ident, utc_now(), personal=True)
+        with reader(paths, RESEARCH_FILE) as conn, reader(paths, MARKET_FILE) as market:
+            return view(conn, ident, utc_now(), personal=True, market=market)
 
     @app.post("/api/stocks/plays/mine/{ident}/action")
     def my_play_action(ident: str, inputs: SelectionAction) -> dict[str, Any]:

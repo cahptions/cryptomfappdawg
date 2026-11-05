@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -69,9 +69,14 @@ class PlayReturn:
         return next((i for i, _, s in self.path if s == "settled"), None)
 
 
-def returns_table(research: sqlite3.Connection) -> list[PlayReturn]:
-    rows = research.execute("SELECT p.*, o.hit FROM stk_plays p LEFT JOIN stk_play_outcomes o USING (session, category,"
-                            " rank) ORDER BY p.session, p.category, p.rank").fetchall()
+def returns_table(research: sqlite3.Connection, categories: Sequence[str] | None = None) -> list[PlayReturn]:
+    """Every recorded play (Expiry filter cohorts aside: they have no daily marks) with its graded path; only the
+    given ``categories`` when named."""
+    only = "" if categories is None else f" AND p.category IN ({','.join('?' * len(categories))})"
+    base = ("SELECT p.*, o.hit FROM stk_plays p LEFT JOIN stk_play_outcomes o USING (session, category, rank) "
+            "WHERE instr(p.category, '@') = 0")
+    sql = f"{base}{only} ORDER BY p.session, p.category, p.rank"           # placeholders only; values are bound
+    rows = research.execute(sql, tuple(categories or ())).fetchall()
     if not rows:
         return []
     first = date.fromordinal(rows[0]["session"])
@@ -93,6 +98,21 @@ def returns_table(research: sqlite3.Connection) -> list[PlayReturn]:
         step = (index[m["day"]] - index[m["session"]], float(m["pnl_pct"]), m["status"])
         (p.twin if m["twin"] else p.path).append(step)
     return list(out.values())
+
+
+def so_far(research: sqlite3.Connection, categories: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """For sections none of whose plays has expired yet: how their picks stand so far, at the longest holding period
+    (1 month, 1 week, 1 day) with quoted closing marks, exactly as Performance's "By holding period" counts them."""
+    if not categories:
+        return {}
+    rows = returns_table(research, categories)
+    out: dict[str, dict[str, Any]] = {}
+    for c in categories:
+        for h in reversed(by_horizon([r for r in rows if r.category == c])[:-1]):
+            if h["plays"]:
+                out[c] = {"label": h["label"], "sessions": h["sessions"], **h["plays"]}
+                break
+    return out
 
 
 def stats(values: Sequence[float | None]) -> dict[str, Any] | None:
@@ -119,7 +139,7 @@ def _bucket(value: float, buckets: Sequence[tuple[float, float, str]]) -> str:
 def calibration(rows: Sequence[PlayReturn]) -> dict[str, Any]:
     """Predicted chance of the play's event vs how often it happened, in tenths."""
     out: dict[str, Any] = {}
-    for key, label in (("itm_kestrel", "KESTREL"), ("itm_market", "Market")):
+    for key, label in (("itm_kestrel", "KESTREL"), ("itm_market", "Market"), ("itm_history", "History")):
         bins: dict[int, list[tuple[float, bool]]] = defaultdict(list)
         for r in rows:
             p = r.play.get(key)
@@ -132,6 +152,60 @@ def calibration(rows: Sequence[PlayReturn]) -> dict[str, Any]:
         resolved = [(p, h) for v in bins.values() for p, h in v]
         out[key] = {"label": label, "points": points, "resolved": len(resolved),
                     "brier": round(statistics.fmean((p - h) ** 2 for p, h in resolved), 4) if resolved else None}
+    return out
+
+
+EVENT_LABELS = {"take_profit": "Take-profit before the stop or leave-by date", "profit": "Profit at expiry",
+                "target25": "+25% on the money at risk at expiry", "target50": "+50% on the money at risk at expiry",
+                "target100": "+100% on the money at risk at expiry", "max_gain": "Maximum gain at expiry",
+                "touch": "The stock touching the level before expiry"}
+
+
+def event_calibration(research: sqlite3.Connection) -> dict[str, Any]:
+    """Every other graded chance (``plays.grade_events``) against what happened, in tenths of the chance shown."""
+    out: dict[str, Any] = {}
+    for event, label in EVENT_LABELS.items():
+        rows = [(float(r["predicted"]), bool(r["hit"]), r["outcome"]) for r in research.execute(
+            "SELECT predicted, hit, outcome FROM stk_play_grades WHERE event = ?", (event,))]
+        bins: dict[int, list[tuple[float, bool]]] = defaultdict(list)
+        for p, hit, _ in rows:
+            bins[min(int(p * 10), 9)].append((p, hit))
+        out[event] = {"label": label, "resolved": len(rows),
+                      "points": [{"predicted": round(statistics.fmean(p for p, _ in v), 4),
+                                  "observed": round(sum(h for _, h in v) / len(v), 4), "n": len(v),
+                                  "bucket": f"{10 * b}–{10 * b + 10}%"} for b, v in sorted(bins.items())],
+                      "brier": round(statistics.fmean((p - h) ** 2 for p, h, _ in rows), 4) if rows else None,
+                      "outcomes": dict(Counter(o for _, _, o in rows))}
+    return out
+
+
+def horizon_records(research: sqlite3.Connection) -> list[dict[str, Any]]:
+    """The Expiry filter's recorded picks (``<section>@<band>`` cohorts), by band and section: graded at expiry on
+    the stock's close, with no daily marks or twins, so only the return at expiry is shown."""
+    from desk.stocks.plays import BY_CATEGORY, HORIZONS
+
+    groups: dict[str, dict[str, list[sqlite3.Row]]] = defaultdict(lambda: defaultdict(list))
+    for r in research.execute("SELECT p.category, o.net_return, o.hit FROM stk_plays p LEFT JOIN stk_play_outcomes o "
+                              "USING (session, category, rank) WHERE instr(p.category, '@') > 0"):
+        section, band = r["category"].split("@", 1)
+        groups[band][section].append(r)
+
+    def row(items: Sequence[sqlite3.Row]) -> dict[str, Any]:
+        done = [r for r in items if r["net_return"] is not None]
+        return {"plays": len(items), "open": len(items) - len(done),
+                "expiry": stats([float(r["net_return"]) for r in done]),
+                "itm_rate": round(sum(r["hit"] for r in done) / len(done), 4) if done else None}
+
+    out = []
+    for band, label, lo, hi in HORIZONS:
+        sections = groups.get(band) or {}
+        if not sections:
+            continue
+        every = [r for items in sections.values() for r in items]
+        out.append({"id": band, "label": label, "days": [lo, hi], **row(every),
+                    "categories": [{"id": c, "title": BY_CATEGORY[c].title if c in BY_CATEGORY else c,
+                                    "emoji": BY_CATEGORY[c].emoji if c in BY_CATEGORY else "", **row(items)}
+                                   for c, items in sorted(sections.items())]})
     return out
 
 
@@ -210,7 +284,8 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
             "sessions": len({r.session for r in rows}),
             "categories": categories, "overall": by_horizon(graded),
             "dte": buckets("dte", DTE_BUCKETS), "price": buckets("entry", PRICE_BUCKETS),
-            "calibration": calibration(rows), "cumulative": curves,
+            "horizons": horizon_records(research),
+            "calibration": {**calibration(rows), "events": event_calibration(research)}, "cumulative": curves,
             "titles": {c.id: {"title": c.title, "emoji": c.emoji} for c in RECORDED},
             "note": "Returns are on the money at risk after fees, from quoted closing marks and exact settlements only. "
                     "Holding periods count sessions after the pick; a play that expired sooner counts its settlement."}
@@ -240,5 +315,6 @@ def refresh(paths: DeskPaths, market: sqlite3.Connection, research: sqlite3.Conn
     return True
 
 
-__all__ = ["DTE_BUCKETS", "HORIZONS", "PRICE_BUCKETS", "PlayReturn", "build", "by_horizon", "calibration",
-           "cumulative", "refresh", "returns_table", "stats"]
+__all__ = ["DTE_BUCKETS", "EVENT_LABELS", "HORIZONS", "PRICE_BUCKETS", "PlayReturn", "build", "by_horizon",
+           "calibration", "cumulative", "event_calibration", "horizon_records", "refresh", "returns_table", "so_far",
+           "stats"]

@@ -20,8 +20,12 @@ Choosing one does not just hide the rest: the worker has already searched each s
 (its direction, delta, liquidity and spread rules unchanged; only the days to expiry differ), one per stock, twelve per
 band, so "About 6 months" shows that section's best 6-month plays rather than an empty list. Unusual activity, Earnings
 plays and Lottos keep their own expiries (the contracts traded, the first expiry after results, short-dated by design);
-for them the filter only narrows. Expiry-band plays open like any play and are saved, and followed in History, once
-opened; they are not part of the section's graded record, which keeps its usual expiries.
+for them the filter only narrows. Expiry-band plays open like any play and are saved, and followed quote by quote in
+History, once opened. Separately, at the closing build each band's picks are recorded as **their own cohort**
+(category `<section>@<band>`, under their own rule version) and graded at expiry on the stock's close, which needs no
+provider request; they are not tracked intraday or marked daily (so they have no take-profit grade or random twin).
+With a band chosen, a section shows that band's own track record, and Performance lists every band's results under
+"Expiry filter picks". They never count in a section's usual record.
 
 ## Affordable plays and filters
 
@@ -50,13 +54,16 @@ category, and all probabilities and expected-value estimates remain visible.
 Every nominated budget idea receives its own stable identity and first-seen quote archive automatically. It stays
 in quote rotation and **History → All identified plays** without requiring a click. Its exact-leg calculator and
 personal PAPER confirmation work like other ideas. Budget discoveries do not enter or rewrite the original
-closing-cohort calibration and performance record; the page distinguishes that record from budget results.
+closing-cohort calibration and performance record. There is no separate budget track record: each budget idea's own
+result is in History → All identified plays, and its Confidence reads its section's recorded plays at its own days to
+expiry (see Confidence).
 
 Badges and the result summary show filtered counts, considered candidates and the twelve-play/per-stock display
 limits. When filters hide all results, the page says loading is complete, lists exclusion counts, gives the lowest
 retained cost when relevant, and offers a reset. Filter failures and a category with no qualifying ideas have
-different messages. Chance filtering follows the card's displayed event and its market fallback when the KESTREL
-estimate is absent, including the short option's chance of expiring worthless.
+different messages. **Min chance** filters on the card's headline chance, reaching the exit plan's take-profit
+before its stop or leave-by date; a card without a plan falls back to its expiry event (and the market's chance when
+the KESTREL estimate is absent, including the short option's chance of expiring worthless).
 
 Coverage is limited to collected chains. The existing bounded rotation now interleaves dollar-volume leaders with
 stocks priced $5–$100 trading at least $25 million daily (or stricter operator research thresholds), while retaining
@@ -75,7 +82,9 @@ Premarket confirmations become eligible at **9:30 AM New York time on the next t
 confirmation made during the regular session becomes eligible immediately and cannot backdate to that morning's
 open. After close, weekends and exchange holidays queue for the next session. The default is the opening session;
 **no validated adaptive entry-timing model is active**. The dashboard must be running with collection enabled to
-capture an entry. This calendar currently assumes a 16:00 close and does not implement exchange half days.
+capture an entry. The calendar follows NYSE's early closes (1:00 PM on the day after Thanksgiving, and on Christmas
+Eve and July 3 when each is a trading day): on a half day the regular session, and so entries and exits, ends at
+1:00 PM.
 
 On a tracking pass, every exact leg must have a positive, noncrossed bid/ask, a provider timestamp at or after
 eligibility, and a quote age of at most two minutes. Entry uses asks for bought legs and bids for sold legs. The
@@ -111,8 +120,12 @@ calculators (OptionStrat, optionsprofitcalculator.com).
   sets the price window, and clicking a cell sets the scenario.
 - **Controls:** price, date and IV, plus the position's Greeks.
 
-Chance of profit is the options market's own view: a risk-neutral lognormal at the legs' implied volatility, with the
-same expiration for every leg. It is not KESTREL's calibrated chance on the Plays cards and not a forecast.
+Chance of profit is the options market's own view: a risk-neutral lognormal at the legs' implied volatility. It is
+not KESTREL's calibrated chance on the Plays cards and not a forecast. With one expiration the payoff, maximum
+profit and loss and break-evens are exact. With **mixed expirations** (a calendar or diagonal) they are given **at
+the first expiry, modeled**: legs expiring then at intrinsic value, later legs at Black-Scholes on their implied
+volatility, after entry and closing fees, over prices from $0 to three times the highest strike; the chance of
+profit is the lognormal to the first expiry at the near legs' volatility, and every number is labelled modeled.
 
 Code: `play_selections.py`, `static/play_workflow.js`; research migration `0010_personal_plays.sql`.
 
@@ -122,9 +135,13 @@ Cards show the underlying price next to the ticker, as of the play's quote. Dedi
 price at identification. Separate meters show the original event odds, **profit at expiry**, and a **+50% return on
 maximum risk at expiry**, with +25%/+100% targets in the expandable explanation. `play_targets.py` integrates the
 favorable regions of the exact piecewise terminal payoff under the recorded lognormal forecast, after opening
-fees. These target probabilities are **model estimates, not empirically calibrated target-hit rates**; they do
-not estimate selling at a peak or hitting a target before expiry. The original ITM calibration does not calibrate
-these profit targets. Older saved ideas may not contain target estimates.
+fees. They do not estimate selling at a peak or hitting a target before expiry. Each recorded play's profit,
++25/50/100% and maximum-gain chances are **graded at expiry** against its real return, and once a group has 30
+resolved plays the chance shown is **calibrated** on them, like the in-the-money chance (see "Every chance,
+graded"). The meters say "calibrated" when that has happened and "model" before. A saved idea from before targets
+existed gets them when its page is opened, **computed later** from its own saved legs, entry and stock price at its
+saved KESTREL forecast (else its saved one-standard-deviation move, with no drift), and says so; one that kept
+neither (or no stock price) says its targets cannot be computed.
 
 Finite credit spreads can show the probability of maximum expiry gain. Long calls have unbounded maximum gain;
 long puts reach their theoretical maximum only with the underlying at zero. The UI explains these cases instead
@@ -156,12 +173,16 @@ Code: `company_profiles.py`, SEC submissions parser and market migration `0006_c
 **Confidence** is five plain checks, and the meter is how many pass (never a disguised probability; the chance of
 profit is shown separately). Open it on any card to see each check and why:
 
-1. **Better than even odds**: KESTREL's chance of a profit at expiry is 50% or more.
+1. **Better than even odds**: KESTREL's chance of a profit at expiry is 50% or more (calibrated on graded plays
+   once 30 have resolved in its group).
 2. **KESTREL's math favours it**: its expected value after fees is above zero.
 3. **The research agrees**: bullish plays need a bullish committee lean (≥ 58), bearish ones a bearish lean (< 42),
    condors and butterflies no strong lean (42–58), straddles and strangles a stock moving more than its options price.
 4. **Easy to trade**: liquidity A or B (spreads ≤ 12%, open interest ≥ 250).
-5. **Proven category**: at least 20 of the category's plays resolved, averaging a profit on the money at risk.
+5. **Proven category**: at least 20 of the category's plays **at the same days to expiry** (≤ 7, 8–30, 31–90 or
+   over 90 days, from every recorded cohort of the section, Expiry filter bands included) resolved, averaging a
+   profit on the money at risk. A 9-month play is judged by 9-month results, never by the section's 30-to-75-day
+   record; with none yet the check says "Not proven yet: 0 of 20 plays resolved at over 90 days to expiry".
 
 5 is Very strong, 4 Strong, 3 Moderate, 2 Weak, 0–1 Very weak. New categories start without check 5.
 
@@ -173,10 +194,14 @@ months before expiry; lottos +200% and no stop; debit spreads
 half the maximum gain / −50%; straddles and strangles +50% / −40%; credit spreads and condors half the credit / a loss
 of twice the credit; iron butterflies a quarter of the credit / −50%; cash-secured puts half the premium / a loss of
 twice the premium. Bought plays leave 21 days before expiry (a third of the time for short-dated ones). Once a
-category's walk-forward exit rule is proven better than holding, that **learned** rule replaces the standard one. On
+category's walk-forward exit rule is proven better than holding, that **learned** rule replaces the standard one,
+for plays in the days-to-expiry group it was learned on (the group most of its plays were in); a budget or Expiry
+filter play at other expiries keeps the standard rule, and its plan says so. On
 a play you track, the detail page says where it stands: take-profit reached, stop reached, time to leave, odds
 improved (adding is allowed: KESTREL's chance of a profit from here is 10+ points above the same chance at your own
-entry, 21+ days remain, and it is not losing more than 25%), or hold.
+entry, 21+ days remain, and it is not losing more than 25%), or hold. "From here" uses the play's own stored KESTREL
+forecast (the volatility and drift behind every chance it showed) over the days left; an idea saved before
+forecasts were stored falls back to the latest quoted implied volatility with no drift, and the page says so.
 
 **💼 My bankroll** (the first Plays tab): enter what you have set aside for options and a level, and KESTREL picks the
 day's plays from every category, both the overall rankings and the price-range alternatives:
@@ -208,8 +233,16 @@ reach +100% weeks before expiry. Under the bar: the chance the **stop** comes fi
 history's views. When today's fair value is already past the stop (a bid/ask spread wider than the stop allows), the
 card says so and the chance is 0%. **Min chance (%)** filters on this headline number.
 
-The in-the-money chance below is the one graded and calibrated against how past plays finished; the take-profit
-chance is a model estimate until tracked plays grade it the same way.
+**How it is graded.** Every recorded play keeps its own plan (take-profit, stop, leave-by date) and the chance it
+showed. Once its quoted closing marks decide it, the play is graded once (append-only): **take-profit first**,
+**stop first** or **neither** by the leave-by date (or expiry). The settlement counts as the last mark; an estimated
+or modelled mark before the outcome is decided leaves the play ungraded, because a gap could hide either level. Under
+the bar, each card says how often recorded plays shown about the same chance (the same tenth: this category's once it
+has 10, otherwise every category's) really reached their take-profit: "History: N plays, X% reached take-profit when
+KESTREL said about Y%". Performance charts the graded chance against what happened, with its Brier score. Once 30
+plays have resolved, the chance shown is calibrated on them the same way as the in-the-money chance (most specific
+group first: this category at this expiry, then the category, then every play); the raw path share is kept beside it
+(calibration learns from that), and the stop and neither chances are rescaled to fill the rest.
 
 ## Three chances, side by side
 
@@ -228,6 +261,23 @@ it has 30 resolved plays (see Learning). Until then the page says "not yet calib
 Also shown: the chance of **profit** at expiry (beyond break-even), the chance the price **touches** the strike
 before expiry (reflection formula for geometric Brownian motion; "already in the money" when it has), and the
 **expected value** per contract under KESTREL's forecast, after fees.
+
+### Every chance, graded
+
+Every chance a recorded play showed is graded once it can be decided, append-only (`stk_play_grades`, research
+migration `0014_play_grades.sql`), and calibrated the same way once a group has 30 resolved plays (this category
+at this expiry, then the category, then every play), always learning from the model's own number before any
+calibration:
+
+| Chance | Graded against |
+|---|---|
+| Take-profit before the stop or leave-by date | the play's own quoted closing marks and settlement (above) |
+| Profit at expiry; +25%, +50%, +100%; maximum gain | the play's graded return at expiry, after its opening fees |
+| Touch | the stock's stored daily highs and lows from the session after the pick through expiry |
+| In the money (KESTREL, market and history) | the stock's close at expiry |
+
+Performance charts each against what happened, in tenths, with its Brier score; the expiry event shows KESTREL,
+the market and the stock's history as three lines. **Confidence**'s odds check reads the calibrated profit chance.
 
 ## The categories
 
@@ -253,8 +303,9 @@ before expiry (reflection formula for geometric Brownian motion; "already in the
 
 Every structure is **defined risk**: the most it can lose is known when it is shown. Strategies left out, and why:
 covered calls (the same payoff as a cash-secured put at that strike, which is offered), protective puts and collars
-(they need shares, and Plays holds options only), calendars and diagonals (two expiries: grading them would need a
-model price for the later option at the first expiry, and Plays grades only on real closes), and naked calls, short
+(they need shares, and Plays holds options only), calendars and diagonals (two expiries: a play's record, its daily
+marks and its grade all settle every leg on one expiry's close, and they are not built for a leg that outlives it;
+the calculator models calendars at the first expiry), and naked calls, short
 straddles, short strangles and ratio spreads (undefined risk; never shown). Two-sided plays (straddles, strangles,
 condors, butterflies) are graded as a move past, or a finish between, their two break-evens.
 
@@ -262,9 +313,11 @@ The **Options** page's contract-shortlist menu lists the same strategies: choosi
 picks across categories, ranked by KESTREL's expected value per dollar at risk, with a money-at-risk limit.
 
 Each category shows its **track record** (plays resolved, how often they finished in the money against what KESTREL
-predicted, median return at expiry) and, where a PAPER strategy trades the same idea, that strategy's closed-trade
-record. Filters: calls/puts, buy/sell, maximum cost, minimum chance in the money, cards or table; the page
-remembers them.
+predicted, median return at expiry; until one has expired, how the picks stand **so far** at the longest holding
+period with quoted closing marks — "So far: 1 week after the pick, median +4% on 12 plays", as Performance counts it)
+and, where a PAPER strategy trades the same idea, that strategy's closed-trade record. Filters: calls/puts,
+buy/sell, maximum cost, minimum headline chance (to hit the take-profit), expiry, cards or table; the page remembers
+them.
 
 ## Unusual activity
 
@@ -290,13 +343,17 @@ open interest), ⚡ Unusual.
 
 **Next-session confirmation**: open interest is reported once a day, after the close. The next session, every
 contract flagged the session before is checked: how much of its volume became new open interest ("Opened",
-"Partly opened", "Mostly closing trades or same-day round trips"), and how its price has moved since. That table
+"Partly opened", "Mostly closing trades or same-day round trips"), and how its price has moved since: from today's
+collected chains, or, when the contract is not in them, from its own tracked quotes (a flagged play is recorded and
+tracked: today's latest tick, else a later session's closing quote; never an estimate), labelled with the source and
+time. That table
 sits at the top of the Unusual activity tab. Over time the category's track record shows how often unusual
 activity actually finished in the money — a number paid feeds rarely publish.
 
 ## The record
 
-A session's plays are **recorded once**, at the first build after that session closes (16:15 New York), in
+A session's plays are **recorded once**, at the first build after that session closes (16:15 New York; 13:15 on a
+half day), in
 `stocks-research.db` (`stk_play_days`, `stk_plays`; append-only), each with the rule version it was picked under. At
 expiration each play is **graded once** on the underlying's close (`stk_play_outcomes`): did its event happen
 (finished in the money, or moved past a straddle's break-even), what it paid per share, and its net return on the
@@ -332,8 +389,10 @@ claim a fresh provider quote.
 
 On startup and tracking passes, the app automatically recovers up to 500 older first sightings per pass from their
 original stored contracts, entry and timestamp. This repairs the earlier two-LEAPS-only failure wherever those
-sightings were retained. Missing original ranks, odds and stock-price snapshots remain unavailable; today's model
-is not used to invent historical recommendations. Unreadable sightings are recorded as skipped rather than
+sightings were retained. Missing original ranks and odds remain unavailable; today's model is not used to invent
+historical recommendations. A sighting kept no stock price, so its detail page shows the nearest one stored at or
+before it, labelled with its source and time: the saved option chain's underlying price that session, else a tracked
+quote of one of its legs that session, else the latest daily close already published (never a later price). Unreadable sightings are recorded as skipped rather than
 blocking other recovery. Picks or option quotes that were never stored cannot be recovered by this process.
 
 Archive implementation: `play_archive.py`; `0011_play_archive.sql` adds lookup indexes and the append-only recovery
@@ -380,7 +439,7 @@ Estimated highs are reported separately, and expiry-only data cannot establish a
 
 This is hindsight, **not a prediction of the peak or proof an order could fill there**. It is the best retained
 observation, not the true maximum across every market trade. Five-minute coverage can miss a faster spike; after
-intraday retention expires only the stored daily closes remain. No historical option quotes are manufactured from
+intraday retention expires only the stored daily closes remain, each with that day's highest and lowest mid. No historical option quotes are manufactured from
 stock prices, and the app does not perform assignment or exercise when displaying an expiry comparison.
 
 ### Live tracking (Schwab)
@@ -391,8 +450,9 @@ endpoint, 100 option symbols a request (stored OCC symbols are padded to Schwab'
 is checked against its strike, call/put, expiry, 100 multiplier and underlying; adjusted contracts are dropped), with
 Schwab's own IV and greeks. Contracts it misses fall back to the selected provider's per-expiry chains; anything the
 research collector fetched since the last pass is used free. Priorities: the live board, plays from the last five
-sessions and anything expiring within a week every pass; older plays every 15 minutes; twins hourly; from 15:50 every
-contract once more for its close. A pass spends at most 40 requests (under a tenth of the 90-a-minute Schwab budget,
+sessions and anything expiring within a week every pass; older plays every 15 minutes; twins hourly; in the
+session's last ten minutes (from 3:50 PM, 12:50 PM on a half day) every contract once more for its close; a closing
+row needs a quote from the session's last hour, measured from that day's own close. A pass spends at most 40 requests (under a tenth of the 90-a-minute Schwab budget,
 which is shared with research collection). Streaming quotes are not used: the streamer needs Schwab's account-scoped
 user preferences, and this integration requests market data only.
 
@@ -430,7 +490,8 @@ status is one of:
 come from the stored daily bars, else Schwab's daily price history (the smallest documented period that reaches the
 gap; kept only if it agrees with stored closes and postdates the last known split), else the underlying Schwab
 reported with the closing quotes. Expirations inside a gap are settled exactly on the official close. For gap sessions
-Schwab still has minute bars for (about five), a five-minute path is estimated too. Estimates across a results filing,
+Schwab still has minute bars for (its price history serves ten days of them, and gap repair asks for all ten), a
+five-minute path is estimated too. Estimates across a results filing,
 a results window or a stock move beyond four standard deviations are labelled unreliable. Holidays are not sessions
 and are never filled; a halted stock simply has no row that day. A split ends a play's record the session before it
 (quarantined, with the reason shown); a stock without a price for ten sessions is quarantined as halted or delisted;
@@ -448,9 +509,12 @@ marked like plays. They answer "was it the pick, or just this kind of option tha
 Plays → **Performance** (`src/desk/stocks/play_performance.py`; rebuilt after the close and saved as one view) grades
 every play on quoted marks and settlements only: by holding period (1 day, 1 week, 1 month, at expiry — a play that
 expired sooner counts its settlement), by category with each rule version separate and earlier versions still shown,
-by days to expiry and by price when picked, each beside its random twins; a calibration chart (KESTREL's shown chance
-and the market's against how often the event happened, by tenths, with Brier scores); and a cumulative "$100 into
-every play" curve, counted at settlement, against the same $100 into each twin and into SPY over the same dates.
+by days to expiry and by price when picked, each beside its random twins; a calibration chart for every graded
+chance, by tenths with Brier scores (the expiry event with KESTREL's shown chance, the market's and the stock's
+history as three lines; the take-profit chance with how many plays hit take-profit first, stop first or neither;
+profit, the return targets, the maximum gain and touch); the Expiry filter's own cohorts by band; and a cumulative
+"$100 into every play" curve, counted at settlement, against the same $100 into each twin and into SPY over the
+same dates.
 
 ## Learning
 
@@ -459,12 +523,14 @@ Performance → What it has learned.
 
 - **Calibration** of KESTREL's chance per category and days to expiry (≤ 7, 8–30, 31–90, over 90), falling back to the
   category and then to every play until a group has 30 resolved plays; only plays of the current probability model
-  (`odds.MODEL_VERSION`) count. Each play records which level was applied.
+  (`odds.MODEL_VERSION`) count. Each play records which level was applied. The same is done separately for every
+  other graded chance (take-profit first, profit, +25/50/100%, maximum gain, touch; `stk_play_grades`).
 - **Exit rules**: every combination of take profit at +25/50/100/200%, stop at −25/50/75% and leaving after 5/10/21
   sessions (80 rules, holding to expiry first) is tried on each category's quoted closing marks. Chosen
   **walk-forward**: for each block of five sessions, the best rule on plays fully resolved before the block is applied
   to the block's plays and compared with holding them. A rule is **suggested** on the Plays page only when that
-  out-of-sample improvement is positive over at least 20 unseen sessions with a Holm-corrected p below 0.05.
+  out-of-sample improvement is positive over at least 20 unseen sessions with a Holm-corrected p below 0.05. It keeps
+  the days-to-expiry group most of its plays were in and is applied only to plays in that group.
 - **Inputs**: each session's rank correlation between an input at the pick (KESTREL's chance, its edge over the
   market, expected value per dollar at risk, IV, IV rank, spread, volume ÷ open interest, |delta|, days to expiry, the
   category score) and the return a week later, averaged across sessions with a stationary bootstrap.
@@ -499,18 +565,22 @@ pass by construction, typically 4–6 a minute.
 ## Limits
 
 - Coverage is what the collector has fetched: rotating batches of the most-traded names plus your watchlist,
-  SPY and QQQ, and the expiries nearest 30, 60, 90 and 365 days and the nearest weekly. It is not every listed
+  SPY and QQQ, and the expiries nearest 30, 60, 90, 180 and 365 days and the nearest weekly. It is not every listed
   contract.
-- Greeks and implied volatility are computed here from the bid/ask mid (Black-Scholes, no dividends); providers'
-  own greeks are not used.
+- Plays are ranked on greeks and implied volatility computed here from the bid/ask mid (Black-Scholes, no
+  dividends), the same for every provider. Schwab's own IV and greeks come with its live quotes; tracking stores
+  them and the detail page shows them beside KESTREL's.
 - Entries in the record use the last quotes of the session (ask to buy, bid to sell). Real fills during the day
   differ.
 - Probabilities are model estimates. Until plays have resolved, KESTREL's chance is uncalibrated, and until the
   committee has a positive measured information coefficient it carries no directional tilt. The page states both.
 - History values are closing marks at the bid/ask; a real order could fill nearer the mid. Estimated and modelled
   values are Black-Scholes, not quotes, and are never graded.
-- Whether Schwab's quotes endpoint serves option symbols to the operator's approved app is unverified until
-  `doctor --online` runs on the laptop; Schwab keeps no option price history, so gaps can only be estimated.
+- Whether Schwab's quotes endpoint serves option symbols to the operator's app is recorded by the first tracking
+  pass that tries it (System → Plays tracking shows the state; `doctor --online` checks it on demand), and tracking
+  falls back to per-expiry chains when it does not. Schwab keeps no option price history: a gap session uses the
+  contract's own Massive daily close where one is stored (its last trade that day, kept as an estimate), otherwise a
+  Black-Scholes estimate; neither is graded.
 
 ## Updating to get Plays
 
@@ -525,7 +595,8 @@ uv sync --frozen &&
 uv run desk open --desk stocks --restart
 ```
 
-The restart is needed once: the Stocks page and server move to UI protocol 6 together (History and Performance need
-the new endpoints). Saved research, PAPER records and connections are kept; three new research tables arrive by
-migration. Plays appear after the next options collection pass (within 15 minutes in market hours); History starts
-with the first session recorded after the update.
+Restart after updating: the Stocks page and server move between UI protocols together (protocol 9 now; a page
+from an older build asks for a reload). Saved research, PAPER records and connections are kept; new research tables
+arrive by numbered migration (the latest for Plays is `0014_play_grades.sql`, the graded chances). Plays appear after
+the next options collection pass (within 15 minutes in market hours); grades and calibrations build up as recorded
+plays resolve.

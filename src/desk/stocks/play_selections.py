@@ -47,8 +47,10 @@ def _save_idea(research: sqlite3.Connection, session: str, category: str, method
 
 def register(research: sqlite3.Connection, board: dict[str, Any], now: datetime) -> dict[str, Any]:
     """Freeze the first identification of an exact structure/version, and attach stable detail-page identities.
-    Expiry filter plays (``horizon_plays``) get identities but are saved only when opened (``open_horizon_play``):
-    saving every band's picks would follow hundreds of untouched ideas a day until they expire."""
+    Expiry filter plays (``horizon_plays``) get identities but are saved as ideas only when opened
+    (``open_horizon_play``): every saved idea is followed quote by quote until it expires, and that for every band's
+    picks would be hundreds of untouched ideas a day. Their track record does not need it: each closing session's
+    band picks are recorded as their own cohort and graded at expiry on the stock's close (``plays.horizon_cohort``)."""
     if not board.get("asof"):
         return board
     session, method = board["asof"], str(board.get("method", "unknown"))
@@ -82,7 +84,9 @@ def calculator_chain(market: sqlite3.Connection, research: sqlite3.Connection, i
     from desk.stocks.hub import option_table
 
     found = idea(research, ident)
-    play = found["play"]
+    from desk.stocks.play_archive import with_sighting_price
+
+    play = with_sighting_price(market, research, found["play"], found["identified_at"])
     if play["symbol"] != symbol:
         raise DeskError("This saved play belongs to a different stock.")
     legs = play["legs"]
@@ -259,9 +263,10 @@ def _advance(market: sqlite3.Connection, research: sqlite3.Connection, now: date
                        "received_at": to_iso(now), "note": "Intrinsic expiry comparison; no exercise or assignment"})
                 changed += 1
             continue
-        if not (cal.is_trading_day(cal.new_york(now).date()) and
-                time(9, 30) <= cal.new_york(now).time() < time(16)):
-            continue
+        local = cal.new_york(now)
+        if not (cal.is_trading_day(local.date()) and time(9, 30) <= local.time()
+                and now < cal.session_close(local.date())):
+            continue                                   # entries and exits only in the regular session (a half day too)
         entry = current["entry"]
         requested = _event(research, row["id"], "CLOSE_REQUEST")
         after = datetime.fromisoformat(requested["at"] if requested else row["eligible_at"])
@@ -336,9 +341,22 @@ def raw_path(research: sqlite3.Connection, legs: list[dict[str, Any]], start: da
     return daily, intraday
 
 
-def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: bool = False) -> dict[str, Any]:
+def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: bool = False,
+         market: sqlite3.Connection | None = None) -> dict[str, Any]:
+    """A saved idea (or a personal selection of one) with its quote path. ``market`` lets a recovered sighting,
+    which kept no stock price, show the nearest stored one (``play_archive.with_sighting_price``), labelled."""
     current = ticket(research, ident, now) if personal else None
     found = current["idea"] if current else idea(research, ident)
+    if market is not None:
+        from desk.stocks.play_archive import with_sighting_price
+
+        found["play"] = with_sighting_price(market, research, found["play"], found["identified_at"])
+    if not found["play"].get("probability_targets"):          # an idea saved before targets: computed now, labelled
+        from desk.stocks.play_targets import computed_later
+
+        later = computed_later(found["play"], date.fromordinal(found["session"]))
+        if later is not None:
+            found["play"] = {**found["play"], "probability_targets": later}
     play, entry = found["play"], current["entry"] if current else None
     prepared = plan(research, found["id"], now)
     if current and entry is None:

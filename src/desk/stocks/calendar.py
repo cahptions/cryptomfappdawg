@@ -1,5 +1,7 @@
-"""The NYSE trading calendar by rule: weekends and the exchange's full-day holidays (early closes are ignored; the
-desk works on end-of-day data). Times are America/New_York."""
+"""The NYSE trading calendar by rule: weekends, the exchange's full-day holidays and its early closes (1:00 PM on
+the day after Thanksgiving, on Christmas Eve and on July 3 when each is a trading day; equity options close with
+the stocks). ``session_close`` is the one place a session's close is decided, so tracking's closing quotes,
+freshness and recording follow a half day. Times are America/New_York."""
 
 from __future__ import annotations
 
@@ -9,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 NEW_YORK = ZoneInfo("America/New_York")
 CLOSE = time(16, 0)
+EARLY_CLOSE = time(13, 0)
 
 
 def _easter(year: int) -> date:
@@ -59,6 +62,21 @@ def is_trading_day(d: date) -> bool:
     return d.weekday() < 5 and d not in holidays(d.year)
 
 
+@cache
+def early_closes(year: int) -> frozenset[date]:
+    """NYSE's 1:00 PM closes (Rule 7.2 schedule): the Friday after Thanksgiving; December 24 when it is a trading day
+    (a Monday to Thursday: on a Friday it is the observed Christmas holiday); July 3 when it is a trading day, which
+    is when Independence Day falls on a Tuesday to Friday (on a Saturday, July 3 is the observed holiday itself; on a
+    Sunday or Monday the day before is a weekend and the session before it closes at 4:00)."""
+    days = (_nth_weekday(year, 11, 3, 4) + timedelta(days=1), date(year, 12, 24), date(year, 7, 3))
+    return frozenset(d for d in days if is_trading_day(d))
+
+
+def close_time(d: date) -> time:
+    """The regular session's closing time on ``d``: 1:00 PM on an early close, otherwise 4:00 PM."""
+    return EARLY_CLOSE if d in early_closes(d.year) else CLOSE
+
+
 def trading_days(start: date, end: date) -> list[date]:
     out, d = [], start
     while d <= end:
@@ -87,12 +105,13 @@ def new_york(now: datetime) -> datetime:
 
 
 def session_close(d: date) -> datetime:
-    return datetime.combine(d, CLOSE, NEW_YORK)
+    return datetime.combine(d, close_time(d), NEW_YORK)
 
 
 def market_session(now: datetime) -> dict[str, str]:
-    """Where the US market is right now: ``pre`` (4:00–9:30 ET on a trading day), ``open`` (the regular session),
-    ``after`` (4:00–8:00 PM) or ``closed`` (nights, weekends, holidays), with the trading day it belongs to."""
+    """Where the US market is right now: ``pre`` (4:00–9:30 ET on a trading day), ``open`` (the regular session, to
+    1:00 PM on an early close), ``after`` (to 8:00 PM) or ``closed`` (nights, weekends, holidays), with the trading
+    day it belongs to."""
     local = new_york(now)
     d, t = local.date(), local.time()
     if not is_trading_day(d):
@@ -101,7 +120,7 @@ def market_session(now: datetime) -> dict[str, str]:
         return {"state": "closed", "session": previous_trading_day(d).isoformat()}
     if t < time(9, 30):
         return {"state": "pre", "session": d.isoformat()}
-    if t < time(16, 0):
+    if t < close_time(d):
         return {"state": "open", "session": d.isoformat()}
     return {"state": "after" if t < time(20, 0) else "closed", "session": d.isoformat()}
 
@@ -115,5 +134,6 @@ def last_closed_session(now: datetime, after_close: timedelta = timedelta(0)) ->
     return d
 
 
-__all__ = ["NEW_YORK", "holidays", "is_trading_day", "last_closed_session", "new_york", "next_trading_day",
-           "previous_trading_day", "session_close", "trading_days"]
+__all__ = ["CLOSE", "EARLY_CLOSE", "NEW_YORK", "close_time", "early_closes", "holidays", "is_trading_day",
+           "last_closed_session", "market_session", "new_york", "next_trading_day", "previous_trading_day",
+           "session_close", "trading_days"]

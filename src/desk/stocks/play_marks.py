@@ -9,15 +9,17 @@ the first-sighting basis is computed beside it on the page.
 Each mark carries a status: **quoted** (every leg quoted near the close), **modelled** (tracking ran that session but a
 leg had no closing quote: Black-Scholes on the stock's close at that leg's last implied volatility), **estimated** (a
 gap — the laptop was off — filled with Black-Scholes on the stock's real closes, the volatility interpolated between
-the last quote before the gap and the first one after it) or **settled** (expiration: intrinsic value on the stock's
-close). Marks are append-only: a later quote can never change an earlier mark. Grading and learning use quoted marks
-and settlements only.
+the last quote before the gap and the first one after it; where Massive's stored daily bar of the contract itself
+exists for that session, its close — the day's last trade, not a closing bid/ask — is used instead and still labelled
+estimated) or **settled** (expiration: intrinsic value on the stock's close). Marks are append-only: a later quote
+can never change an earlier mark. Grading and learning use quoted marks and settlements only.
 
 **Gap repair.** Stock closes come from the stored daily bars, else from Schwab's daily price history (requested with
 the smallest period that covers the gap), else from the underlying price Schwab reported with the closing option
 quotes. Holidays are not sessions and are never filled. A gap with no later quote yet is shown as *provisional*
 (volatility held at the last quote) and replaced by permanent estimates once a quote or the expiry brackets it.
-For gap sessions Schwab still keeps minute bars for (about five), the intraday path is estimated the same way.
+For gap sessions within Schwab's minute-bar history (it serves up to ten days, which gap repair asks for), the
+intraday path is estimated the same way.
 Estimates inside a gap that contains a results filing, a results window or a stock move beyond four standard
 deviations are flagged as unreliable.
 
@@ -32,7 +34,7 @@ import json
 import math
 import sqlite3
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Protocol
@@ -51,7 +53,7 @@ VERSION = 1
 REPAIR_BUDGET_OPEN = 5             # history requests a pass while the market is open (live quotes come first)
 REPAIR_BUDGET_CLOSED = 20
 HALT_SESSIONS = 10                 # no price for this many sessions: quarantined as halted or delisted
-MINUTE_HISTORY_SESSIONS = 5        # Schwab keeps one-minute bars for about five sessions
+MINUTE_HISTORY_DAYS = 10           # Schwab's price history serves one-minute bars for at most ten days (period=10)
 JUMP_SIGMAS = 4.0
 ASSIGNMENT_TIME_VALUE = 0.05
 STATUS_ORDER = {"quoted": 0, "modelled": 1, "estimated": 2}
@@ -61,7 +63,7 @@ class History(Protocol):
     @property
     def configured(self) -> bool: ...
     async def daily_since(self, symbol: str, since: date, today: date) -> list[Bar]: ...
-    async def intraday_history(self, symbol: str) -> list[IntradayBar]: ...
+    async def intraday_history(self, symbol: str, *, days: int) -> list[IntradayBar]: ...
 
 
 # ── valuing a position ───────────────────────────────────────────────────────────────────────────
@@ -153,12 +155,14 @@ def assignment_risk(position: Position, close: float | None, quotes: dict[str, L
 
 # ── what is recorded ─────────────────────────────────────────────────────────────────────────────
 def positions(research: sqlite3.Connection, since: date | None = None) -> list[Position]:
-    """Every recorded play and its twin, oldest first."""
+    """Every recorded play and its twin, oldest first. Expiry filter cohorts ("<section>@<band>") are left out: they
+    are graded at expiry on the stock's close alone, so marking them would only add estimates and history requests."""
     out = []
     floor = day_of(since) if since else 0
     for r in research.execute("SELECT session, category, rank, symbol, action, structure, expiration, legs_json, entry,"
                               " max_loss, underlying, json_extract(play_json, '$.earnings') AS earnings FROM stk_plays"
-                              " WHERE session >= ? ORDER BY session, category, rank", (floor,)):
+                              " WHERE session >= ? AND instr(category, '@') = 0 ORDER BY session, category, rank",
+                              (floor,)):
         out.append(Position(date.fromordinal(r["session"]), r["category"], r["rank"], 0, r["symbol"], r["action"],
                             r["structure"], date.fromordinal(r["expiration"]), json.loads(r["legs_json"]), r["entry"],
                             r["max_loss"], r["underlying"], date.fromisoformat(r["earnings"]) if r["earnings"] else None))
@@ -341,9 +345,26 @@ def recorded_quote(occ: str, record_day: date, leg: dict[str, Any], underlying: 
     out.rows.append(_row(occ, record_day, row, "recorded play", rate, now))
 
 
+def option_bars(market: sqlite3.Connection, occs: Sequence[str], since: date) -> dict[tuple[str, int], float]:
+    """Massive's stored daily closes of the contracts themselves (``stk_option_bars``; days with trades only)."""
+    out: dict[tuple[str, int], float] = {}
+    for chunk in _chunks(list(occs)):
+        marks = ",".join("?" * len(chunk))
+        for r in market.execute(f"SELECT occ, day, close FROM stk_option_bars WHERE occ IN ({marks}) AND day >= ? "  # noqa: S608
+                                "AND close > 0 AND COALESCE(volume, 0) > 0", (*chunk, day_of(since))):
+            out[(r["occ"], r["day"])] = float(r["close"])
+    return out
+
+
+BAR_NOTE = ("the contract's own daily close from Massive (its last trade that day, not a closing bid/ask): an "
+            "estimate of the closing value, never graded")
+
+
 def fill_contract(occ: str, days: Sequence[date], rows: dict[int, DayRow], closes: Closes, ran: set[int],
-                  last_closed: date, rate: Callable[[date], float], now: datetime, out: Repair) -> None:
-    """Create the missing daily rows of one contract, oldest first (each may anchor the next)."""
+                  last_closed: date, rate: Callable[[date], float], now: datetime, out: Repair,
+                  bars: Mapping[tuple[str, int], float] | None = None) -> None:
+    """Create the missing daily rows of one contract, oldest first (each may anchor the next). A session without a
+    closing quote takes the contract's own stored daily close where Massive has one (``bars``), else Black-Scholes."""
     symbol, kind, strike, expiration = parse_occ(occ)
     settles = settle_day(expiration)
     for d in days:
@@ -353,6 +374,15 @@ def fill_contract(occ: str, days: Sequence[date], rows: dict[int, DayRow], close
         s = closes.close(symbol, d)
         if s is None:
             continue                                   # no stock price yet (or a halt): nothing to fill
+        traded = None if bars is None or d == settles else bars.get((occ, n))
+        if traded is not None:
+            iv = computed_greeks(kind, traded, s, strike, expiration, d, rate(d))["iv"]
+            row = DayRow("estimated", traded, traded, s, iv, False, BAR_NOTE)
+            rows[n] = row
+            out.rows.append(_row(occ, d, row, "massive daily bar", rate, now))
+            if iv:
+                out.estimated.append((occ, d, iv))
+            continue
         if d == settles:
             s = closes.official_close(symbol, d)
             if s is None:
@@ -427,7 +457,8 @@ async def estimate_intraday(research: sqlite3.Connection, history: History, esti
                             last_closed: date, rate: Callable[[date], float], now: datetime,
                             budget: int) -> tuple[int, list[str]]:
     """Estimated five-minute paths for recent gap sessions, from Schwab's minute bars of the stock."""
-    recent = set(cal.trading_days(last_closed - timedelta(days=10), last_closed)[-MINUTE_HISTORY_SESSIONS:])
+    # ten days of history (period=10) reaches back to the trading days of the last ten business days
+    recent = set(cal.trading_days(last_closed - timedelta(days=16), last_closed)[-MINUTE_HISTORY_DAYS:])
     by_symbol: dict[str, list[tuple[str, date, float]]] = defaultdict(list)
     for occ, d, iv in estimated:
         if d in recent and not research.execute("SELECT 1 FROM stk_track_intraday WHERE occ = ? AND session = ?",
@@ -439,18 +470,20 @@ async def estimate_intraday(research: sqlite3.Connection, history: History, esti
             break
         requests += 1
         try:
-            bars = await history.intraday_history(symbol)
+            bars = await history.intraday_history(symbol, days=MINUTE_HISTORY_DAYS)
         except DeskError as exc:
             errors.append(f"{symbol} minute bars: {exc}"[:200])
             continue
         for occ, d, iv in items:
             _, kind, strike, expiration = parse_occ(occ)
             expiry_close = cal.session_close(expiration)
+            closed = cal.session_close(d)
             points: list[list[float | None]] = []
             for b in bars:
                 local = cal.new_york(b.at)
                 minute = local.hour * 60 + local.minute + 1      # the bar's close
-                if local.date() != d or minute % 5 or not 9 * 60 + 35 <= minute <= 16 * 60:
+                if (local.date() != d or minute % 5
+                        or not 9 * 60 + 35 <= minute <= closed.hour * 60 + closed.minute):
                     continue
                 t = max((expiry_close - b.at).total_seconds() / (opt.YEAR_DAYS * 86400), 1e-4)
                 price = round(opt.bs_price(kind, b.close, strike, t, iv, rate(d)), 4)
@@ -589,10 +622,11 @@ async def update(market: sqlite3.Connection, research: sqlite3.Connection, now: 
                                                     **{sym: to_iso(now) for sym in asked}}, now)
         closes.load()
     ran = tracked_sessions(research, start)
+    bars = option_bars(market, occs, start)
     for p, _ in open_positions:
         days = cal.trading_days(p.session, min(p.settles, last_closed))
         for leg in p.legs:
-            fill_contract(leg["occ"], days, rows[leg["occ"]], closes, ran, last_closed, rate, now, repair)
+            fill_contract(leg["occ"], days, rows[leg["occ"]], closes, ran, last_closed, rate, now, repair, bars)
     with transaction(research):
         save_rows(research, repair.rows)
     report["contract_rows"] = len(repair.rows)
@@ -649,7 +683,7 @@ async def update(market: sqlite3.Connection, research: sqlite3.Connection, now: 
     return report
 
 
-__all__ = ["Closes", "DayRow", "LegQuote", "Position", "Repair", "assignment_risk", "estimate_intraday",
-           "fetch_closes", "fill_contract", "gap_flags", "liquidation", "load_rows", "mark_day", "model_price",
+__all__ = ["Closes", "DayRow", "LegQuote", "Position", "Repair", "assignment_risk", "estimate_intraday", "fetch_closes",
+           "fill_contract", "gap_flags", "liquidation", "load_rows", "mark_day", "model_price", "option_bars",
            "positions", "profit", "recorded_quote", "settle_day", "settlement", "split_day", "tracked_sessions",
            "update"]

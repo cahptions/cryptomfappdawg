@@ -1,13 +1,16 @@
 """Expiry profit-target probabilities, distinct from ITM and from touching a profit target before expiry.
 
 Option payoffs are piecewise linear in the stock price. Integrate the favorable intervals under the already
-recorded KESTREL lognormal forecast. These target probabilities are model estimates, not empirically calibrated
-target-hit rates, path predictions, or a claim that an option can be sold at its theoretical maximum.
+recorded KESTREL lognormal forecast. These are the model's own numbers: each recorded play's targets are graded at
+expiry against its real return (``plays.grade_events``) and, once 30 have resolved in a group, the chance shown is
+calibrated on them (``plays.calibrated``). They are not path predictions, nor a claim that an option can be sold at
+its theoretical maximum.
 """
 
 from __future__ import annotations
 
 import math
+from datetime import date
 from itertools import pairwise
 from typing import Any
 
@@ -66,7 +69,7 @@ def build(play: dict[str, Any], sigma: float, drift: float, years: float) -> dic
     targets = {str(int(target * 100)): round(chance(play, target, sigma, drift, years), 4)
                for target in (0.0, 0.25, 0.5, 1.0)}
     structure = play["structure"]
-    capped = play["action"] == "SELL" or structure.endswith("debit")
+    capped = (play["action"] == "SELL" or structure.endswith("debit")) and bool(play.get("max_gain"))
     maximum = chance(play, play["max_gain"] / play["max_loss"], sigma, drift, years) if capped else None
     return {"version": 1, "horizon": "At expiry", "returns": targets,
             "max_gain_probability": None if maximum is None else round(maximum, 4),
@@ -75,4 +78,28 @@ def build(play: dict[str, Any], sigma: float, drift: float, years: float) -> dic
                 "is estimated." if structure == "long_put" else
                 "The theoretical maximum gain is unlimited; use a practical profit target instead."),
             "note": "Model estimates of profit at expiration after opening fees, not the chance of hitting a "
-                    "sale target earlier. These target probabilities have not been empirically calibrated."}
+                    "sale target earlier. Each recorded play's targets are graded at expiry against its real return; "
+                    "once 30 have resolved, the chance shown is calibrated on them."}
+
+
+def computed_later(play: dict[str, Any], identified: date) -> dict[str, Any] | None:
+    """Targets for a saved idea that predates them, computed when it is read: from the idea's own saved legs, entry
+    and stock price, at its stored KESTREL forecast (else its stored one-standard-deviation move to expiry, with no
+    drift), over the time it had left when identified. Labelled as computed later; None when the idea kept neither."""
+    if play.get("probability_targets") or not play.get("legs") or not play.get("underlying_price") \
+            or not play.get("max_loss") or play.get("entry") is None:
+        return None
+    dte = int(play.get("dte") or (date.fromisoformat(play["expiration"]) - identified).days)
+    years = max(dte, 0.25) / 365
+    forecast = play.get("forecast") or {}
+    if forecast.get("sigma"):
+        sigma, drift, basis = float(forecast["sigma"]), float(forecast.get("drift") or 0.0), "its saved KESTREL forecast"
+    elif play.get("expected_move"):
+        sigma, drift = float(play["expected_move"]) / math.sqrt(years), 0.0
+        basis = "its saved one-standard-deviation move, with no drift"
+    else:
+        return None
+    out = build(play, sigma, drift, years)
+    return {**out, "computed": "later", "basis": basis,
+            "note": f"Computed when this saved idea was opened, from {basis}; the idea predates these targets, so "
+                    f"they were not shown when it was picked. {out['note']}"}

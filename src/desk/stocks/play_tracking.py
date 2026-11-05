@@ -7,8 +7,8 @@ IV and greeks; contracts it does not return fall back to the selected provider's
 research collector fetched since the last pass is used for free. A pass spends at most ``REQUESTS_PER_PASS``
 requests, so tracking takes under a tenth of the shared 90-a-minute Schwab budget, and contracts are served in
 priority order: the live board, plays from the last five sessions and anything expiring within a week every pass;
-older plays every 15 minutes; twins hourly. From 15:50 New York time every contract is due once more for its
-closing quote.
+older plays every 15 minutes; twins hourly. In the session's last ten minutes (from 3:50 PM New York time, 12:50 PM
+on an exchange half day) every contract is due once more for its closing quote.
 
 Streaming level-one quotes are not used: the streamer needs Schwab's account-scoped user preferences, and this
 integration deliberately requests market data only. Five-minute REST passes meet the five-minute requirement.
@@ -55,9 +55,10 @@ INTERVALS = {0: timedelta(minutes=5), 1: timedelta(minutes=15), 2: timedelta(min
 PRIORITY_LABELS = {0: "every 5 minutes (live board, last 5 sessions, expiring within a week)",
                    1: "every 15 minutes (older plays)", 2: "hourly (twins: the random baseline)"}
 OPEN = time(9, 30)
-CLOSE_WINDOW = time(15, 50)         # every contract is due once more for its closing quote
+CLOSE_WINDOW = timedelta(minutes=10)  # in the session's last ten minutes every contract is due once more for its close
 FOLD_AFTER = timedelta(minutes=5)   # a session's quotes are folded five minutes after the close
 FRESH_CLOSE = timedelta(minutes=60)  # a closing row needs a quote from the session's last hour
+# Every window above is measured from that session's own close (``cal.session_close``: 1:00 PM on a half day).
 CATCH_UP_EVERY = timedelta(minutes=30)  # how often a missed closing quote is asked for again before the next open
 INTRADAY_KEEP_DAYS = 35             # compacted after this (the database refuses deletes inside 30 days)
 PASS_TIMEOUT = 240.0                # a pass never runs into the next one
@@ -104,8 +105,9 @@ def tracked_set(research: sqlite3.Connection, today: date, board: dict[str, Any]
             wanted[occ] = min(priority, wanted.get(occ, 9))
 
     cutoff, soon = day_of(_recent_cutoff(today)), day_of(today + timedelta(days=SHORT_DATED_DAYS))
-    for r in research.execute("SELECT session, expiration, legs_json FROM stk_plays WHERE expiration >= ?",
-                              (day_of(today),)):
+    # Expiry filter cohorts ("<section>@<band>") are graded on the stock's close alone and are not followed here.
+    for r in research.execute("SELECT session, expiration, legs_json FROM stk_plays WHERE expiration >= ? AND "
+                              "instr(category, '@') = 0", (day_of(today),)):
         priority = 0 if r["session"] >= cutoff or r["expiration"] <= soon else 1
         for leg in json.loads(r["legs_json"]):
             want(leg["occ"], priority)
@@ -143,8 +145,8 @@ def market_open(now: datetime) -> bool:
 def due(tracked: dict[str, Tracked], last: dict[str, datetime], now: datetime) -> list[Tracked]:
     """What this pass should quote, most urgent and stalest first."""
     local = cal.new_york(now)
-    closing = local.time() >= CLOSE_WINDOW
-    close_from = datetime.combine(local.date(), CLOSE_WINDOW, cal.NEW_YORK)
+    close_from = cal.session_close(local.date()) - CLOSE_WINDOW
+    closing = now >= close_from
     out = []
     for t in tracked.values():
         seen = last.get(t.occ)
@@ -351,7 +353,7 @@ def fold(research: sqlite3.Connection, session: date, now: datetime, rate: Calla
     for r in research.execute("SELECT * FROM stk_track_ticks WHERE session = ? ORDER BY occ, at", (day_of(session),)):
         by_occ[r["occ"]].append(r)
     close = cal.session_close(session)
-    open_minute, close_minute = OPEN.hour * 60 + OPEN.minute, 16 * 60
+    open_minute, close_minute = OPEN.hour * 60 + OPEN.minute, close.hour * 60 + close.minute
     r_session = rate(session)
     intraday, days = [], []
     for occ, rows in by_occ.items():

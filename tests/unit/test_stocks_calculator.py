@@ -56,14 +56,38 @@ def test_scenarios_use_saved_ask_bid_and_iv_without_inventing_execution_or_volum
     assert future["greeks"]["delta"] > 0 and future["archived"]
 
 
-def test_mixed_expirations_do_not_claim_a_known_terminal_risk_or_exact_payoff_curve():
+def test_mixed_expirations_are_valued_at_the_first_expiry_modeled_never_exact():
+    from desk.stocks.calculator import mark
+
     a, b = quote(), quote(expiration=EXP + timedelta(days=28))
     inputs = ScenarioInput(legs=[{"occ": a.occ, "action": "sell"}, {"occ": b.occ}],
-                           valuation_date=EXP, underlying_price=110)
+                           valuation_date=EXP, underlying_price=110, rate=0)      # no carry: two break-evens
     result = calculate(inputs, {a.occ: a, b.occ: b}, 100, date(2026, 10, 23), date(2026, 10, 23))
-    assert not result["risk"]["exact"] and result["risk"]["max_loss"] is None
-    assert all(p["expiration"] is None for p in result["curve"])
-    assert result["scenario_pl"] is not None
+    risk = result["risk"]
+    assert not risk["exact"] and risk["modeled"] and risk["at"] == EXP.isoformat()
+    assert "modeled" in risk["message"] and result["terminal_label"] == "At first expiry, modeled"
+    # a call calendar: the most it can lose is about its net debit and fees, at prices far from the strike
+    debit = result["entry_cost"]
+    assert not risk["unlimited_loss"] and not risk["unlimited_profit"]
+    assert debit < risk["max_loss"] <= debit + 2 * 0.65 + 1e-6 and risk["max_profit"] > 0
+    legs = [ScenarioLeg("call", 100, EXP, -1, 4.8, None), ScenarioLeg("call", 100, b.expiration, 1, 5.0, None)]
+    legs = [ScenarioLeg(leg_.kind, leg_.strike, leg_.expiration, leg_.quantity, leg_.premium, info["iv"])
+            for leg_, info in zip(legs, result["legs"], strict=True)]
+    assert len(risk["breakevens"]) == 2
+    for x in risk["breakevens"]:                                             # the modeled P/L is zero there
+        assert abs(mark(legs, x, EXP, .65, 0, 0, 0) or 0) < 0.05
+    low, high = risk["breakevens"]
+    for p in result["curve"]:                                               # the dashed curve: first expiry
+        assert p["expiration"] == pytest.approx(mark(legs, p["price"], EXP, .65, 0, 0, 0))
+    chance = result["chance"]
+    assert chance["modeled"] and chance["expiration"] == EXP.isoformat() and 0 < chance["chance"] < 1
+    assert low < 100 < high and result["scenario_pl"] is not None
+    unpriced = ScenarioInput(legs=[{"occ": a.occ, "action": "sell"}, {"occ": b.occ, "entry_price": 5}],
+                             valuation_date=EXP, underlying_price=110, rate=0)
+    missing = calculate(unpriced,
+                        {a.occ: a, b.occ: quote(expiration=b.expiration, bid=None, ask=None)}, 100,
+                        date(2026, 10, 23), date(2026, 10, 23))
+    assert missing["risk"]["max_loss"] is None and not missing["risk"]["modeled"] and missing["chance"] is None
 
 
 def test_missing_iv_or_quotes_cannot_silently_become_a_zero_premium_trade():
