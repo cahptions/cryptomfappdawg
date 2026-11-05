@@ -14,8 +14,9 @@ import pytest
 from desk.core.config import load_config
 from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
+from desk.stocks import calendar as cal
 from desk.stocks import collect, runner
-from desk.stocks.contracts import IndexEntry, InsiderTrade, Listing
+from desk.stocks.contracts import Fail, IndexEntry, InsiderTrade, Listing, ShortInterest, ShortVolume
 from desk.stocks.repo import StocksDatabases, StocksMarket
 from tests.conftest import REPO
 
@@ -162,3 +163,121 @@ async def test_the_collector_schedules_the_backfills(tmp_path: Path, monkeypatch
     await runner.cycle(paths, load_config(REPO / "config"), research_only=True)
     assert calls["insider_history"] == {"quarters": 9, "per_pass": 1}
     assert calls["filings_feed"]["max_days"] == 10 and calls["filings_feed"]["budget_seconds"] == 300
+    assert calls["short_interest"] == calls["short_volume"] == calls["fails"] == {}       # full depth, not 5 days
+    assert (collect.SHORT_INTEREST_SETTLEMENTS, collect.SHORT_VOLUME_DAYS, collect.FAILS_MONTHS) == (48, 45, 24)
+
+
+# ── short interest, short volume, fails ──────────────────────────────────────────────────────────
+def finra_settlements(months: int = 30) -> list[date]:
+    """Mid-month and month-end, moved back to a weekday; 2026-05-15 is moved one more day, as for a holiday."""
+    out, year, month = [], 2026, 10
+    for _ in range(months):
+        end = date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)
+        for anchor in (date(year, month, 15), end):
+            while anchor.weekday() >= 5:
+                anchor -= timedelta(days=1)
+            out.append(date(2026, 5, 14) if anchor == date(2026, 5, 15) else anchor)
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+    return sorted(out, reverse=True)
+
+
+class Finra:
+    def __init__(self) -> None:
+        self.published = set(finra_settlements())
+        self.asked: list[date] = []
+        self.files: list[date] = []
+        self.unpublished_files: set[date] = set()
+
+    async def latest_short_interest(self, today: date) -> tuple[date, list[ShortInterest]]:
+        newest = max(d for d in self.published if d <= today)
+        return newest, [ShortInterest("AAA", newest, 100.0, None, None, None)]
+
+    async def short_interest(self, settlement: date) -> list[ShortInterest]:
+        self.asked.append(settlement)
+        return [ShortInterest("AAA", settlement, 100.0, None, None, None)] if settlement in self.published else []
+
+    async def reg_sho(self, day: date) -> list[ShortVolume]:
+        self.files.append(day)
+        if day in self.unpublished_files:
+            raise DeskError("reg_sho_daily: not found")
+        return [ShortVolume("AAA", day, 40.0, 0.0, 100.0)]
+
+
+async def test_short_interest_backfills_two_years_four_settlements_a_pass_asking_each_date_once(
+        market: StocksMarket) -> None:
+    finra = Finra()
+    suite = SimpleNamespace(feeds=finra)
+    first = await collect.short_interest(suite, market, NOW)
+    assert first["ok"] and first["settlement"] == "2026-10-30" and len(first["backfilled"]) == 4
+    assert first["remaining"] == 48 - 5
+    calls = 1
+    while (report := await collect.short_interest(suite, market, NOW))["remaining"]:
+        calls += 1
+        assert len(report["backfilled"]) == 4 and calls < 20
+    stored = market.short_interest_dates()
+    assert len(stored) == collect.SHORT_INTEREST_SETTLEMENTS == 48 and calls + 1 == 12       # 5 + 4 × 10 + 3
+    assert stored == sorted(finra_settlements()[:48])                    # two years, none skipped
+    assert len(finra.asked) == len(set(finra.asked))                     # every date asked about once
+    assert date(2026, 5, 15) in finra.asked and date(2026, 5, 14) in stored   # the holiday twin, found the next day
+    asked = len(finra.asked)
+    done = await collect.short_interest(suite, market, NOW + timedelta(days=1))
+    assert done["remaining"] == 0 and len(finra.asked) == asked           # complete: only the newest is checked
+
+
+async def test_short_volume_fills_any_downtime_up_to_45_days_and_skips_old_unpublished_files(
+        market: StocksMarket) -> None:
+    finra = Finra()
+    suite = SimpleNamespace(feeds=finra)
+    last = cal.last_closed_session(NOW, timedelta(hours=3))
+    before = last - timedelta(days=30)
+    market.save_short_volume([ShortVolume("AAA", before, 1.0, 0.0, 2.0)])           # stopped 30 days ago
+    finra.unpublished_files = {cal.trading_days(before, last)[3]}
+    first = await collect.short_volume(suite, market, NOW)
+    gap = [d for d in cal.trading_days(before, last) if d != before]
+    assert first["ok"] and first["days"] == 19 and first["remaining"] == len(gap) - 20 > 0
+    second = await collect.short_volume(suite, market, NOW)                          # the same window, finished
+    assert second["remaining"] == 0 and second["from"] == first["from"]
+    assert market.short_volume_days() == set(gap) - finra.unpublished_files | {before}
+    assert min(finra.files) > before                                                 # nothing older is asked for
+    assert {d for d in finra.files if finra.files.count(d) > 1} == finra.unpublished_files   # once more next pass
+    asked = len(finra.files)
+    later = await collect.short_volume(suite, market, NOW + timedelta(days=1))
+    assert later["days"] == 1 and finra.files[asked:] == [date(2026, 11, 5)]        # the old missing file is left
+
+
+async def test_short_volume_first_load_reaches_back_45_days(market: StocksMarket) -> None:
+    finra = Finra()
+    suite = SimpleNamespace(feeds=finra)
+    while (await collect.short_volume(suite, market, NOW))["remaining"]:
+        pass
+    last = cal.last_closed_session(NOW, timedelta(hours=3))
+    assert market.short_volume_days() == set(cal.trading_days(last - timedelta(days=45), last))
+
+
+class Fails:
+    def __init__(self) -> None:
+        self.downloads: list[str] = []
+        self.gone = "cnsfails202501a.zip"             # never published
+        self.late = "cnsfails202610b.zip"             # the second half of October: published mid-November
+
+    async def fails(self, name: str) -> list[Fail]:
+        self.downloads.append(name)
+        if name in (self.gone, self.late):
+            raise DeskError("fails_to_deliver: not found")
+        day = date(int(name[8:12]), int(name[12:14]), 5 if name[14] == "a" else 20)
+        return [Fail(day, "000000000", "AAA", 1000.0, 10.0)]
+
+
+async def test_fails_backfill_two_years_of_files_four_a_pass_each_once(market: StocksMarket) -> None:
+    sec = Fails()
+    suite = SimpleNamespace(sec=sec)
+    first = await collect.fails(suite, market, NOW)
+    assert first["ok"] and first["files"] == ["cnsfails202610a.zip", "cnsfails202609b.zip", "cnsfails202609a.zip",
+                                              "cnsfails202608b.zip"] and first["unpublished"] == [sec.late]
+    calls = 1
+    while (await collect.fails(suite, market, NOW))["remaining"]:
+        calls += 1
+    detail = market.jobs()["fails"]["detail"]
+    assert len(detail["loaded"]) == 46 and detail["missing"] == [sec.gone] and calls + 1 == 12      # 46 files, 4 a pass
+    assert {n for n in sec.downloads if sec.downloads.count(n) > 1} == {sec.late}   # only the recent one is retried
+    assert min(detail["loaded"]) == "cnsfails202411a.zip"                           # 24 months back from October
