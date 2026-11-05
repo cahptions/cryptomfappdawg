@@ -25,6 +25,42 @@ from desk.stocks.paper.strategies import build_structure
 VERSION = "small-account-transfer-v1"
 TARGET_FRACTION = .25
 LOOKBACK_DAYS = 90
+MIN_CHECKPOINT = 10     # positions valued at a checkpoint before it can name a holding time (as the Learning page does)
+
+
+def best_holding(conn: sqlite3.Connection, experiment_ids: list[str], now: datetime) -> dict[str, Any] | None:
+    """The research checkpoint with the highest average return, among those with at least ``MIN_CHECKPOINT`` research
+    positions valued in the previous 90 days and strictly before ``now``: the holding time the small accounts sell at.
+    Only checkpoints that matured before the decision count, so no later quote can choose it. Checkpoints compare the
+    positions that lived that long, so a longer one can rest on fewer, surviving positions; ties go to the shorter hold."""
+    if not experiment_ids:
+        return None
+    marks = ",".join("?" * len(experiment_ids))
+    rows = conn.execute(
+        "SELECT c.days,AVG(c.net_return) mean,COUNT(*) n,MAX(c.at) latest FROM stk_learning_checkpoints c "  # noqa: S608
+        "JOIN stk_positions p ON p.id=c.position_id WHERE p.account=? AND c.at<? AND c.at>=? "
+        f"AND json_extract(p.plan_json,'$.experiment_id') IN ({marks}) GROUP BY c.days",
+        (lab.RESEARCH, to_iso(now), to_iso(now - timedelta(days=LOOKBACK_DAYS)), *experiment_ids)).fetchall()
+    ready = [r for r in rows if r["n"] >= MIN_CHECKPOINT]
+    if not ready:
+        return None
+    best = max(ready, key=lambda r: (r["mean"], -r["days"]))
+    return {"days": best["days"], "mean_net_return": best["mean"], "positions": best["n"], "valued_through": best["latest"]}
+
+
+def holding(conn: sqlite3.Connection, cfg: dict[str, Any], experiment_ids: list[str], now: datetime) -> dict[str, Any]:
+    """When a small account sells a lifecycle recipe's position: at its best checkpoint so far, else the full horizon."""
+    if cfg.get("kind") != "lifecycle":
+        return {"exit_days": None, "best_checkpoint": None, "exit_basis": "The recipe's registered holding time"}
+    horizon = cfg["hold_minutes"] // 1440
+    best = best_holding(conn, experiment_ids, now)
+    if best is None:
+        return {"exit_days": horizon, "best_checkpoint": None,
+                "exit_basis": f"Recipe horizon of {horizon} days: no checkpoint has {MIN_CHECKPOINT} research positions "
+                              "valued before this decision yet"}
+    return {"exit_days": best["days"], "best_checkpoint": best,
+            "exit_basis": f"Best research checkpoint so far: {best['days']} days, average {best['mean_net_return']:+.1%} "
+                          f"over {best['positions']} positions valued before this decision"}
 
 
 def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
@@ -58,7 +94,8 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
             "days":len({b.split(":")[0] for b in group["blocks"]}),"expected_net_return":expected,
             "lower_bound":mean(values)-2*stdev(values)/math.sqrt(len(values)) if len(values)>1 else None,
             "experiment_ids":sorted(group["experiments"]),"model_version":model.get("version",0),
-            "mode":"research_champion" if model.get("champion")==key[0] else "provisional"}
+            "mode":"research_champion" if model.get("champion")==key[0] else "provisional",
+            **holding(conn,group["config"],sorted(group["experiments"]),now)}
         evidence["policy_hash"] = sha256_hex(canonical_json({"rule":VERSION,"family":key,"evidence":evidence}))[:20]
         out.append({"config":group["config"],"evidence":evidence})
     if not out:
@@ -67,9 +104,13 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
             "WHERE created_at<=? AND json_extract(config_json,'$.structure')='long_call' "
             "AND json_extract(config_json,'$.bucket')='1m' ORDER BY created_at,id LIMIT 1",(to_iso(now),)).fetchone()
         if seed:
-            out.append({"config":json.loads(seed["config_json"]),"evidence":{"asof":to_iso(now),"mode":"starter",
+            cfg = json.loads(seed["config_json"])
+            exit_ = holding(conn,cfg,[seed["id"]],now)
+            out.append({"config":cfg,"evidence":{"asof":to_iso(now),"mode":"starter",
                 "blocks":0,"days":0,"expected_net_return":None,"experiment_ids":[seed["id"]],"model_version":0,
-                "policy_hash":VERSION+":starter","matured_through":None,"lower_bound":None}})
+                "policy_hash":VERSION+":starter"+(f":sell-after-{exit_['exit_days']}d" if exit_["best_checkpoint"]
+                                                  else ""),
+                "matured_through":None,"lower_bound":None,**exit_}})
     else:
         out = [p for p in out if p["evidence"]["expected_net_return"] > 0]
     return sorted(out,key=lambda p:(p["evidence"]["mode"]!="research_champion",
@@ -155,13 +196,17 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
         forecast = {**evidence,"version":VERSION,"target_fraction":TARGET_FRACTION,"decision_equity":cash+marked,
                     "decision_cash":cash,"target_budget":budget,"single_contract_exceeds_target":unit>budget}
         digest = sha256_hex(canonical_json({"rule":VERSION,"config":cfg,"forecast":forecast}))
+        exit_days = evidence.get("exit_days")
         plan = {**cfg,"experiment_id":evidence["experiment_ids"][0],"spec_sha256":digest,"symbol":symbol,
             "asset":"option","underlying_price":spot,"legs":legs,"desired_units":desired,"forecast":forecast,
             "source_key":source,"transfer_policy":forecast,"comparison":"Independent finite-capital forward test",
-            "target_debit":budget}
+            "target_debit":budget,**({"hold_minutes":exit_days*1440,"recipe_hold_minutes":cfg["hold_minutes"]}
+                                     if exit_days else {})}
         reason = ("Untrained starter long-call policy; no learned edge claimed" if evidence["mode"]=="starter" else
                   f"Prior research: {cfg['structure']} / {cfg.get('label') or str(cfg['hold_minutes']) + ' minutes'}; "
                   f"{evidence['blocks']} underlying/day blocks, expected net return {evidence['expected_net_return']:.2%}")
+        if exit_days:
+            reason += f"; sells after {exit_days} days ({evidence['exit_basis']})"
         if unit>budget:
             reason += "; one whole contract exceeds the 25% sizing target but fits available cash"
         did = book.decide(now,cal.new_york(now).date(),account,digest,symbol,"ENTER",[reason],
@@ -173,6 +218,6 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
         lab.set_state(conn,prefix,{"phase":"Queued an affordable trade; waiting for a later fresh quote",
             "mode":evidence["mode"],"decision_at":to_iso(now),"symbol":symbol,"structure":cfg["structure"],
             "desired_units":desired,"estimated_entry_cost":amount(lab.impact(legs,quotes,desired,True)),
-            "forecast":forecast,"note":reason})
+            "forecast":forecast,"note":reason,"exit_days":exit_days,"exit_basis":evidence.get("exit_basis")})
         count += 1
     return count

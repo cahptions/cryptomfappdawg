@@ -45,6 +45,14 @@ predictions. Small-account outcomes do not train the uncapped model or inflate t
 If all available research families have nonpositive estimates, the small accounts hold cash while uncapped experiments
 continue. Before any research outcomes mature, a visibly labeled fixed starter long-call policy provides a baseline.
 
+**When they sell.** A small account sells a lifecycle recipe's position at the recipe's **best holding time so far**:
+the checkpoint with the highest average return among those with at least 10 research positions valued in the previous
+90 days and strictly before the decision (ties go to the shorter hold), still selling early when expiry gets close. Until
+a checkpoint qualifies it holds for the recipe's full horizon. The chosen holding time, its average, position count and
+basis are frozen in the decision, the order's plan (`hold_minutes`, with the recipe's own as `recipe_hold_minutes`) and
+the policy hash, and the account panel shows "Sells after N days". Checkpoints compare the positions that lived that
+long, so a longer one can rest on fewer, surviving positions.
+
 Sizing targets 25% of current equity, including modeled impact and entry fees. Whole option contracts are required: if no
 eligible contract fits the target, one may exceed 25% while remaining within available cash. This concentration is disclosed
 in the decision and page. Contracts that cannot fit available cash are skipped. The engine examines alternative eligible
@@ -78,7 +86,8 @@ holding longer does. So the registry trades **every expiry** and values each pos
   what selling it then would have returned (bid less impact and exit fees), in `stk_learning_checkpoints` (append-only).
   The position itself is sold at its horizon, or earlier when expiry gets close, so no LEAPS result waits for expiry.
   **Does holding longer pay?** is then read from the same entries: Learning shows each recipe's average return, win rate
-  and count at every checkpoint, and names a best holding time once a checkpoint has 10 positions.
+  and count at every checkpoint, and names a best holding time once a checkpoint has 10 positions. The small accounts
+  sell at that holding time (below).
 - **Pacing:** a recipe re-enters the same stock at most once a week and at most twice a day across stocks, so evidence
   comes from many days rather than one burst; and each recipe holds at most an equal share (1/15) of the research
   account, so long-dated recipes cannot crowd out the rest.

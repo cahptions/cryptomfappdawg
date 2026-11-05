@@ -232,7 +232,7 @@ const KestrelLearning = (() => {
       el("h2", "Does holding longer pay?"),
       el(
         "p",
-        "Each position is bought once and valued at real quotes as it ages. A cell is the average return on the money paid if sold then (win rate; positions). Cells fill as positions live that long; a best holding time is named once a checkpoint has 10 positions. Finished counts every sale, and every position held to expiry and settled at intrinsic value on the official close.",
+        "Each position is bought once and valued at real quotes as it ages. A cell is the average return on the money paid if sold then (win rate; positions). Cells fill as positions live that long; a best holding time is named once a checkpoint has 10 positions. Finished counts every sale, and every position held to expiry and settled at intrinsic value on the official close. The $1,000 and $5,000 accounts sell at a recipe's best holding time, using only checkpoints valued before each of their decisions.",
         "muted caption",
       ),
     );
@@ -246,7 +246,7 @@ const KestrelLearning = (() => {
       row.append(
         el(
           "th",
-          `${r.structure.replaceAll("_", " ")} · ${r.label}${r.best_so_far ? ` · best ${r.best_so_far}d` : ""}`,
+          `${r.structure.replaceAll("_", " ")} · ${r.label}${r.best_so_far ? ` · best so far ${r.best_so_far}d` : ""}`,
         ),
       );
       for (const d of days) {
@@ -637,6 +637,14 @@ const KestrelLearning = (() => {
             "caption muted",
           ),
         );
+        if (a.policy?.exit_days)
+          policy.append(
+            el(
+              "p",
+              `Sells after ${a.policy.exit_days} days. ${a.policy.exit_basis || ""}`,
+              "learning-exit-horizon",
+            ),
+          );
         if (e)
           policy.append(
             el(
@@ -902,7 +910,7 @@ const KestrelLearning = (() => {
             el("h2", `How the ${titleOf(a)} picks its trades`),
             el(
               "p",
-              `It does not run the experiments below at their sizes. It copies a research recipe (structure and expiry) whose results finished in the last 90 days are positive after costs, best first, then buys whole contracts it can afford: about 25% of its value per trade (${money(0.25 * (a.equity ?? a.starting_capital))} now), one contract above that only if its cash covers it, never more than its cash, and one order waiting at a time. Until research results finish, it uses a starter recipe: a call about a month out.`,
+              `It does not run the experiments below at their sizes. It copies a research recipe (structure and expiry) whose results finished in the last 90 days are positive after costs, best first, then buys whole contracts it can afford: about 25% of its value per trade (${money(0.25 * (a.equity ?? a.starting_capital))} now), one contract above that only if its cash covers it, never more than its cash, and one order waiting at a time. Until research results finish, it uses a starter recipe: a call about a month out. It sells at the recipe's best holding time so far: the checkpoint with the highest average return among those with at least 10 research positions valued before its decision, or the recipe's full holding time until one exists.`,
             ),
             el("p", `Now: ${a.policy?.phase || "Waiting for fresh quotes"}`),
           );
