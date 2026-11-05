@@ -629,7 +629,9 @@ const KestrelPlays = (() => {
           ? `Track record${where}: ${r.resolved} past plays resolved · ${pct(r.itm_rate)} finished in the money (KESTREL predicted ${pct(r.predicted_itm)}) · median return at expiry ${pct(r.median_return)}`
           : own
             ? `Track record${where}: none of this section's picks at this expiry have expired yet. Each closing session's picks here are saved once and graded at expiry on the stock's close.`
-            : "Track record: no plays in this category have expired yet. Each day's plays are saved once and graded at expiry.",
+            : cat.so_far
+              ? `Track record: no plays in this category have expired yet. So far: ${cat.so_far.label} after the pick, median ${signed(100 * cat.so_far.median, 0)}% on ${cat.so_far.n} play${cat.so_far.n === 1 ? "" : "s"} (${pct(cat.so_far.hit_rate)} up), from quoted closing marks.`
+              : "Track record: no plays in this category have expired yet. Each day's plays are saved once and graded at expiry.",
         "muted caption",
       ),
     );

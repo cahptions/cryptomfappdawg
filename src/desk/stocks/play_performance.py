@@ -69,9 +69,14 @@ class PlayReturn:
         return next((i for i, _, s in self.path if s == "settled"), None)
 
 
-def returns_table(research: sqlite3.Connection) -> list[PlayReturn]:
-    rows = research.execute("SELECT p.*, o.hit FROM stk_plays p LEFT JOIN stk_play_outcomes o USING (session, category,"
-                            " rank) WHERE instr(p.category, '@') = 0 ORDER BY p.session, p.category, p.rank").fetchall()
+def returns_table(research: sqlite3.Connection, categories: Sequence[str] | None = None) -> list[PlayReturn]:
+    """Every recorded play (Expiry filter cohorts aside: they have no daily marks) with its graded path; only the
+    given ``categories`` when named."""
+    only = "" if categories is None else f" AND p.category IN ({','.join('?' * len(categories))})"
+    base = ("SELECT p.*, o.hit FROM stk_plays p LEFT JOIN stk_play_outcomes o USING (session, category, rank) "
+            "WHERE instr(p.category, '@') = 0")
+    sql = f"{base}{only} ORDER BY p.session, p.category, p.rank"           # placeholders only; values are bound
+    rows = research.execute(sql, tuple(categories or ())).fetchall()
     if not rows:
         return []
     first = date.fromordinal(rows[0]["session"])
@@ -93,6 +98,21 @@ def returns_table(research: sqlite3.Connection) -> list[PlayReturn]:
         step = (index[m["day"]] - index[m["session"]], float(m["pnl_pct"]), m["status"])
         (p.twin if m["twin"] else p.path).append(step)
     return list(out.values())
+
+
+def so_far(research: sqlite3.Connection, categories: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """For sections none of whose plays has expired yet: how their picks stand so far, at the longest holding period
+    (1 month, 1 week, 1 day) with quoted closing marks, exactly as Performance's "By holding period" counts them."""
+    if not categories:
+        return {}
+    rows = returns_table(research, categories)
+    out: dict[str, dict[str, Any]] = {}
+    for c in categories:
+        for h in reversed(by_horizon([r for r in rows if r.category == c])[:-1]):
+            if h["plays"]:
+                out[c] = {"label": h["label"], "sessions": h["sessions"], **h["plays"]}
+                break
+    return out
 
 
 def stats(values: Sequence[float | None]) -> dict[str, Any] | None:
@@ -296,4 +316,5 @@ def refresh(paths: DeskPaths, market: sqlite3.Connection, research: sqlite3.Conn
 
 
 __all__ = ["DTE_BUCKETS", "EVENT_LABELS", "HORIZONS", "PRICE_BUCKETS", "PlayReturn", "build", "by_horizon",
-           "calibration", "cumulative", "event_calibration", "horizon_records", "refresh", "returns_table", "stats"]
+           "calibration", "cumulative", "event_calibration", "horizon_records", "refresh", "returns_table", "so_far",
+           "stats"]

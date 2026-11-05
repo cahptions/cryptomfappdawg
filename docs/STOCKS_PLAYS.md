@@ -300,8 +300,9 @@ The **Options** page's contract-shortlist menu lists the same strategies: choosi
 picks across categories, ranked by KESTREL's expected value per dollar at risk, with a money-at-risk limit.
 
 Each category shows its **track record** (plays resolved, how often they finished in the money against what KESTREL
-predicted, median return at expiry) and, where a PAPER strategy trades the same idea, that strategy's closed-trade
-record. Filters: calls/puts, buy/sell, maximum cost, minimum chance in the money, cards or table; the page
+predicted, median return at expiry; until one has expired, how the picks stand **so far** at the longest holding
+period with quoted closing marks — "So far: 1 week after the pick, median +4% on 12 plays", as Performance counts it)
+and, where a PAPER strategy trades the same idea, that strategy's closed-trade record. Filters: calls/puts, buy/sell, maximum cost, minimum chance in the money, cards or table; the page
 remembers them.
 
 ## Unusual activity

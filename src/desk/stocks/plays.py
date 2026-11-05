@@ -1891,6 +1891,9 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     recorded: dict[str, list[dict[str, Any]]] = {}
     track = records(research)
     take_history = event_history(research)
+    from desk.stocks.play_performance import so_far
+
+    early = so_far(research.conn, [c.id for c in CATEGORIES if not (track.get(c.id) or {}).get("resolved")])
     paper = paper_records(ledger)
     learned = lrn.latest(research.conn) or {}
     closed = session_closed(session, now)
@@ -1940,7 +1943,8 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                 p["exit_plan"]["why"] += f". {unused}"
         by_horizon.update(horizon_cohort(cat.id, longer))
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
-                 "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
+                 "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "so_far": early.get(cat.id),
+                 "paper": paper.get(cat.id),
                  "budget_plays": cheaper, "horizon_plays": longer, "horizon_free": cat.id in HORIZON_FREE,
                  "horizon_records": {} if cat.id in HORIZON_FREE else
                  {band: track.get(f"{cat.id}{HORIZON_MARK}{band}") for band, *_ in HORIZONS},
