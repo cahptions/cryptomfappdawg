@@ -184,6 +184,13 @@ def fund(book: PaperBook, account: str, required: float, now: datetime) -> bool:
     return to_micros(required, cost=True) <= to_micros(book.cash(account), cost=False)
 
 
+def regular_session(now: datetime) -> bool:
+    """Whether ``now`` is inside a regular NYSE session: 9:30 to the calendar's close, which is earlier on half days."""
+    local = cal.new_york(now)
+    day = local.date()
+    return cal.is_trading_day(day) and datetime.combine(day, time(9, 30), cal.NEW_YORK) <= local < cal.session_close(day)
+
+
 def fresh(q: OptionQuote, now: datetime) -> bool:
     return bool(q.quoted_at and 0 <= (now - q.quoted_at).total_seconds() <= 120 and fills.fair_spread(q))
 
@@ -849,7 +856,7 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
     quotes: dict[str, OptionQuote] = {}
     snapshots: dict[str, tuple[str, float, dict[Any, list[OptionQuote]]]] = {}
     local = cal.new_york(now)
-    if not cal.is_trading_day(local.date()) or not (9, 30) <= (local.hour, local.minute) < (16, 0):
+    if not regular_session(now):
         with PaperBook(conn).atomic():
             settled = settle_expired(conn, market, now)
             if settled:

@@ -1,7 +1,9 @@
 # PAPER Learning workspace
 
-Open **Learning** in Stocks. It runs automatically with the dashboard during regular market hours when the selected
-options provider is connected. **Pause Learning**, the global PAPER pause, and STOP all suspend its funding and trading.
+Open **Learning** in Stocks. It runs automatically with the dashboard during regular market hours (9:30 to the close the
+desk calendar gives for that day, so it stops early on a half day) when the selected options provider is connected.
+Outside them it still settles expired positions and writes check-ins. **Pause Learning**, the global PAPER pause, and
+STOP all suspend its funding and trading.
 An explicit pause persists across dashboard restarts. No brokerage orders or real transfers are possible here.
 
 ## Capital and evidence

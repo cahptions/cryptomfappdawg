@@ -94,7 +94,7 @@ async def collect(
     paths: DeskPaths, loaded: LoadedConfig, conn: sqlite3.Connection, market: StocksMarket, now: datetime
 ) -> dict[str, Any]:
     local = cal.new_york(now)
-    if not cal.is_trading_day(local.date()) or not (9, 30) <= (local.hour, local.minute) < (16, 0):
+    if not learning.regular_session(now):
         return {"phase": "Market closed"}
     last = learning.state(conn, "collection_at")
     if last and now - datetime.fromisoformat(last) < timedelta(seconds=60):
