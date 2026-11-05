@@ -1,5 +1,9 @@
 """One day's analysis: the research universe, point-in-time context, every desk, the committee, and what each stock
-page shows. ``build`` works for today and for any past day (validation rebuilds lists exactly the same way)."""
+page shows. ``build`` works for today and for any past day (validation rebuilds lists exactly the same way).
+
+``historical`` marks a reconstructed past day (the rebuild and the replay): the universe is the listings as they stood
+that day, delisted companies included (``desk.stocks.universe.listed_on``), and inputs collected going forward only
+(crowd counts, option summaries, company news, world shocks) are left out."""
 
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from desk.stocks.fundamentals import Fundamentals, base, with_price
 from desk.stocks.prices import Panel
 from desk.stocks.repo import StocksMarket, StocksResearch
 from desk.stocks.sectors import LABELS, financial_type, sector
-from desk.stocks.universe import research_listings
+from desk.stocks.universe import listed_on, research_listings
 
 PRICE_FEATURES = ("close", "ret_1d", "ret_5d", "ret_21d", "ret_63d", "ret_252d", "mom_12_1", "sma50", "sma200", "high_52w",
                   "low_52w", "dist_high_52w", "dist_low_52w", "above_sma50", "above_sma200", "vol_20d", "vol_60d", "vol_1y",
@@ -79,12 +83,12 @@ class Analyzer:
 
     # ── the day ────────────────────────────────────────────────────────────────────────────────────
     def build(self, panel: Panel, asof: date, *, now: datetime | None = None, cache_today: bool = False,
-              crowd_and_options: bool = True, weights: dict[str, float] | None = None) -> Day:
+              historical: bool = False, weights: dict[str, float] | None = None) -> Day:
         t = panel.day_index(asof)
         if t < 0:
             raise ValueError(f"no prices on or before {asof}")
         pf = feat.compute(panel, t)
-        listings = {r["symbol"]: r for r in research_listings(self.market)}
+        listings = {r["symbol"]: r for r in (listed_on(self.market, asof) if historical else research_listings(self.market))}
         companies = self.market.companies()
         idx = pf.index
         symbols: list[str] = []
@@ -118,11 +122,11 @@ class Analyzer:
             events=sig.events(self.market, asof, ciks, panel),
             shorts=sig.shorts(self.market, asof, {s: fund[s].get("shares") for s in symbols},
                               {s: (price[s]["dollar_volume_20d"] or 0) / (price[s]["close"] or 1) for s in symbols}),
-            crowd=sig.crowd(self.market, end_of_day) if crowd_and_options else {},
-            options=sig.options(self.market, asof) if crowd_and_options else {},
+            crowd={} if historical else sig.crowd(self.market, end_of_day),
+            options={} if historical else sig.options(self.market, asof),
             # news, world shocks and trade actions are collected going forward: never in a replay of past years
             news=news_flow.inputs(self.market.conn, asof, min(now or end_of_day, end_of_day), symbols,
-                                  sic) if crowd_and_options else {},
+                                  sic) if not historical else {},
             macro=sig.macro(self.market, asof, spy_above),
             sector_rs=sector_rs, valuation_history=history)
         results = dk.run_desks(ctx, symbols)

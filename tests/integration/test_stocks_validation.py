@@ -43,7 +43,7 @@ def test_rebuild_is_point_in_time_and_done_once(world: StocksWorld) -> None:
     # what the rebuild stored for a month equals an analysis run with no prices after that month
     m = months[3]
     alone = Analyzer(world.market, world.research, SETTINGS).build(load_panel(world.market, world.days[0], m.asof), m.asof,
-                                                                     now=NOW, crowd_and_options=False,
+                                                                     now=NOW, historical=True,
                                                                      weights=dict(dk.DEFAULT_WEIGHTS))
     for d in dk.DESKS:
         expect = {s: round(r.score, 2) for s, r in alone.results[d].items() if r.score is not None}

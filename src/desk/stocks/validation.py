@@ -5,8 +5,9 @@ Two records, never mixed:
 * **live**: every day's lists and desk scores, appended to stocks-research.db once (``desk.stocks.daily``) and
   scored as their forward returns arrive. This is the record that counts.
 * **rebuilt**: the same code run as of each past month's last session on only what was public that day
-  (``Analyzer.build`` is point in time), kept in ``stk_rebuild_months``. It starts from today's listings, so companies
-  delisted before collection began are missing (survivorship bias: it flatters lists that buy and hurts lists that
+  (``Analyzer.build`` is point in time), kept in ``stk_rebuild_months``. Its universe is the listings as they stood
+  that day, so companies delisted since collection began are included; companies delisted before collection began
+  never appeared in a listing file and are missing (survivorship bias: it flatters lists that buy and hurts lists that
   avoid). Crowd and options data exist only from the first day of collection, so those desks and the lists built on
   them have a live record only.
 
@@ -46,7 +47,7 @@ from desk.stocks.lists import LISTS
 from desk.stocks.prices import Panel, last_valid
 from desk.stocks.repo import StocksMarket, StocksResearch, date_of
 from desk.stocks.sectors import sector
-from desk.stocks.universe import SECTOR_FUNDS, research_listings
+from desk.stocks.universe import RESEARCH_KINDS, SECTOR_FUNDS
 
 Array = np.ndarray
 
@@ -81,9 +82,13 @@ def content() -> dict[str, Any]:
             "exit": "close of the horizon's last session", "returns": "price only"}
 
 
+REBUILD_INPUTS = ("listed_on_the_day",)    # what a rebuilt month reads beyond the desks' own rules
+
+
 def rebuild_sha256() -> str:
-    """Everything a rebuilt month depends on: the desks and the lists."""
-    return sha256_hex(canonical_json({"desks": dk.method_content(), "lists": [s.content() for s in LISTS]}))
+    """Everything a rebuilt month depends on: the desks, the lists and the inputs a past day reads."""
+    return sha256_hex(canonical_json({"desks": dk.method_content(), "lists": [s.content() for s in LISTS],
+                                      "inputs": list(REBUILD_INPUTS)}))
 
 
 def method_sha256() -> str:
@@ -436,7 +441,7 @@ def rebuild(analyzer: Analyzer, panel: Panel, *, now: datetime, force: bool = Fa
     done = set(analyzer.research.rebuilt_days(key))
     todo = [d for d in rebuild_days(panel, min_history=min_history) if force or d not in done]
     for k, asof in enumerate(todo):
-        day = analyzer.build(panel, asof, now=now, crowd_and_options=False, weights=dict(dk.DEFAULT_WEIGHTS))
+        day = analyzer.build(panel, asof, now=now, historical=True, weights=dict(dk.DEFAULT_WEIGHTS))
         lists = {spec.id: [r["symbol"] for r in spec.select(day)] for spec in LISTS if spec.history}
         analyzer.research.save_rebuild(asof, key, _encode(day), lists, day.universe_size, now)
         if progress is not None:
@@ -617,9 +622,12 @@ def _apply_holm(stats: list[dict[str, Any]]) -> None:
 
 # ── the report ───────────────────────────────────────────────────────────────────────────────────
 def current_sectors(market: StocksMarket) -> dict[str, str]:
+    """Each research listing's sector, delisted ones included (a rebuilt month can hold them)."""
     companies = market.companies()
     out: dict[str, str] = {}
-    for r in research_listings(market):
+    for r in market.listings(active=False):
+        if r["kind"] not in RESEARCH_KINDS or r["etf"] or r["test"]:
+            continue
         c = companies.get(int(r["cik"])) if r["cik"] else None
         out[r["symbol"]] = sector(c["sic"] if c else None)
     return out
@@ -696,8 +704,9 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
 
 
 REBUILD_CAVEATS = [
-    "Rebuilt months use today's listings: companies delisted before collection began are missing, which flatters "
-    "lists that buy and hurts lists that avoid.",
+    "Rebuilt months use the listings as they stood each month, so companies delisted since collection began are "
+    "included. Companies delisted before collection began never appeared in a listing file and are missing, which "
+    "flatters lists that buy and hurts lists that avoid.",
     "Crowd and options data start on the first day of collection, so those desks and lists have a live record only.",
     "Returns are price only (no dividends) on both sides of every comparison.",
 ]

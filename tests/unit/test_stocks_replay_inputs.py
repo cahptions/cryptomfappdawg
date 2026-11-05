@@ -96,3 +96,69 @@ def test_short_history_needs_a_year_without_gaps_or_partial_backfills(tmp_path):
         assert not short_history(w.market, date(2025, 6, 10), last)["replayed"]  # nothing published by then
     finally:
         w.close()
+
+
+def test_a_past_day_universe_is_the_listings_as_they_stood_that_day(tmp_path):
+    from desk.stocks.analysis import Analyzer
+    from desk.stocks.contracts import Listing
+    from desk.stocks.prices import load_panel
+    from desk.stocks.universe import listed_on, research_listings
+
+    w = make_world(tmp_path, n=12)
+    try:
+        keep = [Listing(sp.symbol, f"{sp.symbol} Corp", "NYSE", False, False, "common") for sp in w.specs
+                if sp.symbol != "S10"]
+        w.market.save_listings([*keep, Listing("NEWCO", "Newco Common Stock", "NYSE", False, False, "common")], {},
+                               NOW + timedelta(days=10))
+        assert "S10" not in {r["symbol"] for r in research_listings(w.market)}   # delisted today
+        past, later = w.days[-60], (NOW + timedelta(days=20)).date()
+        assert {"S10", "CHEAP"} <= {r["symbol"] for r in listed_on(w.market, past)}
+        assert "NEWCO" not in {r["symbol"] for r in listed_on(w.market, past)}       # appeared later
+        now_listed = {r["symbol"] for r in listed_on(w.market, later)}
+        assert "NEWCO" in now_listed and "S10" not in now_listed and "CHEAP" in now_listed
+        analyzer = Analyzer(w.market, w.research, SETTINGS)
+        panel = load_panel(w.market, w.days[0], past)
+        assert "S10" in analyzer.build(panel, past, now=NOW, historical=True).ctx.symbols
+        assert "S10" not in analyzer.build(panel, past, now=NOW).ctx.symbols
+    finally:
+        w.close()
+
+
+def test_a_held_stock_that_stops_trading_after_delisting_sells_at_its_last_close(tmp_path):
+    from desk.core.clock import to_iso
+    from desk.stocks import calendar as cal
+    from desk.stocks.backtest import memory_db
+    from desk.stocks.contracts import Bar
+    from desk.stocks.paper.book import PaperBook
+    from desk.stocks.paper.engine import PaperEngine
+    from desk.stocks.paper.strategies import BY_STRATEGY
+    from desk.storage.db import DbKind
+
+    w = make_world(tmp_path, n=12)
+    try:
+        for i, d in enumerate(w.days[-40:-10]):
+            w.market.save_bars(d, [Bar("GONE", d, 20 + i, 21 + i, 19 + i, 20.5 + i, 1e6)], "synthetic", NOW)
+        last_bar = w.days[-11]
+        w.market.conn.execute("INSERT INTO stk_listings VALUES ('GONE','Gone Inc','NYSE','common',0,0,NULL,0,?,?)",
+                              (to_iso(NOW), to_iso(cal.session_close(last_bar))))
+        st = BY_STRATEGY["momentum"]
+        book = PaperBook(memory_db(DbKind.STOCKS_LEDGER))
+        engine = PaperEngine(w.market, book, SETTINGS, (st,))
+        book.open_account(st.id, 10000, NOW, w.days[-20])
+        did = book.decide(NOW, w.days[-21], st.id, st.spec_sha256, "GONE", "ENTER", ["fixture"], {})
+        book.open_position(account=st.id, spec_sha256=st.spec_sha256, asset="stock", symbol="GONE", structure="long_stock",
+                           legs=[{"kind": "stock", "symbol": "GONE", "quantity": 10, "entry_price": 30.0}],
+                           decision_id=did, at=NOW, day=w.days[-20], cost=300.0, fees=0.0, max_loss=None,
+                           stop_price=None, expires=None, plan={})
+        position = book.positions(st.id)[0]
+        exit_id = book.decide(NOW, w.days[-6], st.id, st.spec_sha256, "GONE", "EXIT", ["left the top 20"], {})
+        book.place(exit_id, st.id, cal.session_close(w.days[-6]), w.days[-6],
+                   {"asset": "stock", "action": "EXIT", "symbol": "GONE", "position_id": position.id,
+                    "reason": "left the top 20"})
+        engine.step(w.days[-5], cal.session_close(w.days[-5]), None, allow_entries=False)
+        closed = book.positions(st.id, state="CLOSED")
+        assert len(closed) == 1 and "delisted" in (closed[0].exit_reason or "")
+        assert closed[0].exit_credit == pytest.approx(10 * (20.5 + 29) * (1 - 0.0015), rel=1e-6)
+        assert not book.pending()
+    finally:
+        w.close()

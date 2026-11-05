@@ -16,9 +16,10 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
+from desk.core.clock import to_iso
 from desk.core.config import StocksSection
 from desk.stocks import calendar as cal
 from desk.stocks import options as opt
@@ -191,13 +192,33 @@ class PaperEngine:
     def _position(self, pid: str) -> Position | None:
         return next((p for p in self.book.positions() if p.id == pid), None)
 
+    def _delisted_close(self, symbol: str, asof: date) -> float | None:
+        """The last stored close of a stock gone from the listing files before ``asof`` (delisted), which an exit
+        sells at, as the evidence report does; a halted or briefly missing stock that is still listed just waits."""
+        listed = self.market.conn.execute("SELECT active, last_seen FROM stk_listings WHERE symbol = ?",
+                                          (symbol,)).fetchone()
+        if listed is None or listed[0] or listed[1] >= to_iso(datetime.combine(asof, time(0, 0), cal.NEW_YORK)):
+            return None
+        row = self.market.conn.execute("SELECT close FROM stk_bars WHERE symbol = ? AND day < ? ORDER BY day DESC LIMIT 1",
+                                       (symbol, asof.toordinal())).fetchone()
+        return None if row is None else float(row[0])
+
     def _fill_stock(self, o: Order, asof: date, now: datetime, bars: dict[str, Bar], day: Day | None,
                     rep: StepReport) -> bool:
         spec = o.order
         bar = bars.get(spec["symbol"])
-        if bar is None:
-            return False
         dv = self._dv(spec["symbol"], day, bars)
+        if bar is None:
+            last = self._delisted_close(spec["symbol"], asof) if spec["action"] == "EXIT" else None
+            p = self._position(spec["position_id"]) if last is not None else None
+            if last is None or p is None:
+                return False
+            f = fills.sell_at(last, self.shares(p, asof), dv, "last close before delisting")
+            self.book.close_position(p, at=now, day=asof, credit=f.cost, fees=f.fees,
+                                     reason=f"{spec['reason']} (delisted: sold at its last close)",
+                                     evidence={"fill_price": f.price, "order": o.id, "delisted": True})
+            rep.closed += 1
+            return True
         if spec["action"] == "EXIT":
             p = self._position(spec["position_id"])
             if p is None:

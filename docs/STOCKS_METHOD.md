@@ -120,9 +120,11 @@ day's prices.
 
 **Two records, never mixed.** The *live* record is the daily lists above. The *rebuilt* record runs the same code as
 of each past month's last session (with at least a year of prices before it), on only what was public that day, and
-keeps the result in `stk_rebuild_months` keyed by the methodology's hash. The rebuild starts from today's listings,
-so companies delisted before collection began are missing: this survivorship bias flatters lists that buy and hurts
-lists that avoid, and the report says so. The live record has no such bias.
+keeps the result in `stk_rebuild_months` keyed by the methodology's hash. Each rebuilt month's universe is the
+listings as they stood that day (from when a listing first appeared in the files to the last file that had it), so
+companies delisted since collection began are included. Companies delisted before collection began never appeared in
+a listing file and are missing: this remaining survivorship bias flatters lists that buy and hurts lists that avoid,
+and the report says so. The live record has no such bias.
 
 **Forward returns.** A list is bought at the next session's open and held 5, 21, 63 or 252 sessions (1 week, 1
 month, 3 months, 12 months), sold at that session's close; a stock that stops trading is sold at its last close. Each

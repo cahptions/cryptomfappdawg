@@ -1,7 +1,8 @@
 """Chronological strategy replay in isolated books. No provider calls or forward-ledger writes.
 
-Historical reconstruction is conditional on the stored listing universe and available filing history; it is not a
-survivor-bias-free archival experiment. Crowd counts are excluded (collected going forward only). Macro inputs are
+Each day's universe is the listings as they stood that day (delisted companies included), but companies delisted before
+collection began are missing, and filing history is what is stored: it is not a survivor-bias-free archival
+experiment. Crowd counts are excluded (collected going forward only). Macro inputs are
 dated market prints read as of each day. Short interest joins, as FINRA published it, once the stored settlements cover
 the replayed window (``short_history``). Option strategies whose signals come from the stock run on option prices
 rebuilt from stock history, with Massive's real daily option prices replacing the model where they exist
@@ -315,7 +316,7 @@ def replay(
             "version": VERSION, "run_id": run_id, "first_day": selected[0].isoformat(), "last_day": selected[-1].isoformat(),
             "settings": settings.model_dump(mode="json"), "strategies": {s.id: s.content() for s in strategies},
             "weights": dict(DEFAULT_WEIGHTS), "stored_symbols": len(raw.symbols),
-            "source": "Consistent stored-data snapshot; current listing-universe and filing-revision limitations apply",
+            "source": "Consistent stored-data snapshot; point-in-time listings since collection began; stored filings",
         }),))
         book = PaperBook(ledger)
         analyzer = ReplayAnalyzer(market, StocksResearch(research_db), settings)
@@ -331,7 +332,7 @@ def replay(
             if progress:
                 progress(asof, index, len(selected))
             panel = historical_panel(raw, asof, splits)
-            day = analyzer.build(panel, asof, now=cal.session_close(asof), crowd_and_options=False, weights=dict(DEFAULT_WEIGHTS))
+            day = analyzer.build(panel, asof, now=cal.session_close(asof), historical=True, weights=dict(DEFAULT_WEIGHTS))
             if not shorts["replayed"]:
                 # Re-run desks without short interest the stored history can't show as published that day.
                 from desk.stocks.desks import committee, run_desks
@@ -406,7 +407,9 @@ def replay(
             },
             "option_contracts": contracts,
             "limitations": [
-                "Reconstructed using today's stored listing universe; delisted companies may be missing.",
+                "Each day's universe is the listings as they stood that day, so companies delisted since collection "
+                "began are included; companies delisted before collection began never appeared in a listing file and "
+                "are missing. A held stock that stops trading after it is delisted is sold at its last close.",
                 "Later restatements/data revisions may be absent from the available filing history.",
                 "Option prices: Massive's real daily closing trades where it has them (the last 2 years), a recent "
                 "trade's implied volatility on a quiet day, and otherwise Black-Scholes at the stock's realized "
