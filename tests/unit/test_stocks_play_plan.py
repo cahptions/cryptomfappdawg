@@ -143,6 +143,25 @@ def test_tracked_status_says_take_profit_stop_time_add_or_hold() -> None:
     assert pp.status(play, plan, play["entry"], None, [], SESSION) is None
 
 
+def test_the_chance_of_a_profit_from_here_is_kestrels_own_forecast() -> None:
+    from desk.stocks.play_targets import chance
+
+    play = built("debit_spreads")
+    plan = play["exit_plan"]
+    point = {"close": {"pct": 0.05}, "underlying": play["underlying_price"] * 1.02}
+    later = SESSION + timedelta(days=3)
+    got = pp.status(play, plan, play["entry"], point, [0.9], later)
+    sigma, drift = play["forecast"]["sigma"], play["forecast"]["drift"]
+    left = (date.fromisoformat(play["expiration"]) - later).days / 365
+    mine = chance({**play, "underlying_price": point["underlying"]}, 0.0, sigma, drift, left)
+    assert got is not None and got["chance_from_here"] == pytest.approx(mine, abs=1e-4)
+    assert got["chance_basis"] == "KESTREL's forecast"                       # not the 90% IV of the latest quote
+    older = {k: v for k, v in play.items() if k != "forecast"}
+    fallback = pp.status(older, plan, play["entry"], point, [0.9], later)
+    assert fallback is not None and "implied volatility" in fallback["chance_basis"]
+    assert fallback["chance_from_here"] != got["chance_from_here"]
+
+
 def test_every_built_play_carries_its_confidence_and_plan_and_fees_are_counted() -> None:
     play = built("iron_condors", committee=50., iv_rank=80.)
     assert play["confidence"]["of"] == 5 and play["exit_plan"]["take_profit"]["pnl"] > 0

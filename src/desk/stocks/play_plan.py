@@ -195,19 +195,27 @@ def status(play: Mapping[str, Any], plan: Mapping[str, Any] | None, price: float
            ivs: Sequence[float], today: date, entered: tuple[float, date] | None = None) -> dict[str, Any] | None:
     """Where a tracked play stands against its exit plan: reached a target, past its time, worth adding, or hold.
 
-    "Worth adding" compares the chance of a profit from here with the same chance at your own entry (``entered``:
-    the stock price and day you entered at), on the same volatility, so only a real improvement counts."""
+    "Worth adding" compares KESTREL's chance of a profit from here with the same chance at your own entry
+    (``entered``: the stock price and day you entered at), on the same forecast, so only a real improvement counts.
+    The forecast is the play's own stored one (``play["forecast"]``: the volatility and drift behind every KESTREL
+    chance it showed); an idea saved before forecasts were stored falls back to the latest quoted implied volatility
+    with no drift, and says so (``chance_basis``)."""
     if not plan or not latest or not latest.get("close"):
         return None
     pct = float(latest["close"]["pct"])
     expiry = date.fromisoformat(play["expiration"])
     left = (expiry - today).days
-    sigma = float(np.mean(ivs)) if ivs else float(play.get("iv") or 0.3)
+    forecast = play.get("forecast") or {}
+    if forecast.get("sigma"):
+        sigma, drift, basis = float(forecast["sigma"]), float(forecast.get("drift") or 0.0), "KESTREL's forecast"
+    else:
+        sigma, drift = float(np.mean(ivs)) if ivs else float(play.get("iv") or 0.3), 0.0
+        basis = "the quotes' implied volatility (this idea kept no forecast)"
 
     def odds(stock: float, days: int) -> float | None:
         if days <= 0:
             return None
-        return chance({**play, "entry": price, "underlying_price": float(stock)}, 0.0, sigma, 0.0, days / 365)
+        return chance({**play, "entry": price, "underlying_price": float(stock)}, 0.0, sigma, drift, days / 365)
 
     from_here = odds(latest.get("underlying") or play["underlying_price"], left)
     at_entry = odds(entered[0], (expiry - entered[1]).days) if entered else play.get("profit_kestrel")
@@ -221,12 +229,12 @@ def status(play: Mapping[str, Any], plan: Mapping[str, Any] | None, price: float
     elif (from_here is not None and at_entry is not None and from_here >= at_entry + 0.10 and left >= 21
           and pct > -0.25 and "Don't add" not in plan.get("add", "")):
         state, text = "add", (f"Odds improved: {from_here:.0%} chance of a profit from here against {at_entry:.0%} "
-                              "at entry. Adding one more fits the plan if your bankroll limits allow")
+                              f"at entry, on {basis}. Adding one more fits the plan if your bankroll limits allow")
     else:
         state, text = "hold", "Hold: no exit or add condition is met"
     return {"state": state, "text": text, "return": round(pct, 4), "chance_from_here": None if from_here is None
             else round(from_here, 4), "chance_at_entry": None if at_entry is None else round(float(at_entry), 4),
-            "days_left": left}
+            "chance_basis": basis, "days_left": left}
 
 
 # ── bankroll ─────────────────────────────────────────────────────────────────────────────────────

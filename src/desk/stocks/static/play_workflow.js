@@ -399,7 +399,7 @@ const KestrelPlayWorkflow = (() => {
         const box = panel(
           exit ? exitTitle[exit.state] : "Exit plan",
           exit
-            ? `${exit.text}. Now ${exit.return >= 0 ? "+" : "−"}${Math.abs(100 * exit.return).toFixed(0)}% on the money at risk · ${exit.days_left} days to expiry${exit.chance_from_here == null ? "" : ` · chance of a profit from here ${Math.round(100 * exit.chance_from_here)}%${exit.chance_at_entry == null ? "" : ` (${Math.round(100 * exit.chance_at_entry)}% at entry)`}`}.`
+            ? `${exit.text}. Now ${exit.return >= 0 ? "+" : "−"}${Math.abs(100 * exit.return).toFixed(0)}% on the money at risk · ${exit.days_left} days to expiry${exit.chance_from_here == null ? "" : ` · chance of a profit from here ${Math.round(100 * exit.chance_from_here)}%${exit.chance_at_entry == null ? "" : ` (${Math.round(100 * exit.chance_at_entry)}% at entry)`}${exit.chance_basis ? `, on ${exit.chance_basis}` : ""}`}.`
             : "The plan this play was identified with.",
         );
         box.classList.add("play-exit-status", `state-${exit?.state || "plan"}`);

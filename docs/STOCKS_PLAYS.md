@@ -192,7 +192,9 @@ for plays in the days-to-expiry group it was learned on (the group most of its p
 filter play at other expiries keeps the standard rule, and its plan says so. On
 a play you track, the detail page says where it stands: take-profit reached, stop reached, time to leave, odds
 improved (adding is allowed: KESTREL's chance of a profit from here is 10+ points above the same chance at your own
-entry, 21+ days remain, and it is not losing more than 25%), or hold.
+entry, 21+ days remain, and it is not losing more than 25%), or hold. "From here" uses the play's own stored KESTREL
+forecast (the volatility and drift behind every chance it showed) over the days left; an idea saved before
+forecasts were stored falls back to the latest quoted implied volatility with no drift, and the page says so.
 
 **💼 My bankroll** (the first Plays tab): enter what you have set aside for options and a level, and KESTREL picks the
 day's plays from every category, both the overall rankings and the price-range alternatives:
