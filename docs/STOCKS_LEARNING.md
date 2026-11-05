@@ -169,7 +169,7 @@ Training labels must mature before test entries. Advisory promotion requires at 
 promotion and an approximate mean-minus-three-standard-errors hurdle over day means. A promotion prioritizes that structure
 and registers a linked doubled-budget sizing experiment; all challengers and losses remain. The comparison reports its
 uninvested-cash baseline and separate finite-capital book. Reused rolling comparisons, overlapping exposures, multiple
-trials and modeled depth limit confidence; the hurdle is not a formal guarantee of profitability or significance.
+trials and top-of-book-only size limit confidence; the hurdle is not a formal guarantee of profitability or significance.
 
 Formal comparison starts after at least **4 entry days with completed outcomes and 12 distinct underlying/day blocks**,
 with eligible earlier training labels and later held-out entries. These are evidence requirements, not spending or trade

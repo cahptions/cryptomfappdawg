@@ -470,14 +470,14 @@ def record_outcome(conn: sqlite3.Connection, position: Position, now: datetime, 
                    basis: str) -> None:
     """A research position's finished result, a training label from ``now`` on (never earlier, so no decision made
     before it could see it). ``basis`` says how it finished: sold at a quote, or settled at intrinsic at expiry."""
-    if position.account != RESEARCH:
-        return
+    if position.account != RESEARCH or not position.plan.get("experiment_id"):
+        return                                    # a malformed plan stays reported as a closed trade without an outcome
     paid = position.entry_cost + position.entry_fees
     conn.execute("INSERT INTO stk_learning_outcomes(position_id,experiment_id,entered_at,matured_at,block,net_return,"
                  "pnl,requested_units,filled_units,basis) VALUES (?,?,?,?,?,?,?,?,?,?)",
                  (position.id, position.plan["experiment_id"], position.opened_at, to_iso(now),
                   position.entry_day.isoformat() + ":" + position.symbol, pnl / paid if paid else 0.0, pnl,
-                  position.plan["desired_units"], units, basis))
+                  position.plan.get("desired_units", units), units, basis))
 
 
 def settle_expired(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> int:
@@ -782,7 +782,7 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
                 "test_blocks": len(held_values),
                 "test_net_return": mean(held_values) if held_values else None,
                 "promoted": False,
-                "note": "Overlapping days, modeled depth and multiple trials limit confidence",
+                "note": "Overlapping days, top-of-book-only size and multiple trials limit confidence",
             }
             daily: dict[str, list[float]] = {}
             for row in held:
@@ -791,7 +791,7 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
             values = [mean(v) for day, v in daily.items() if day > prior_promotion]
             # Conservative approximate multiple-comparison hurdle, using days rather than correlated fill count.
             if len(values) >= 20 and mean(values) - 3 * stdev(values) / math.sqrt(len(values)) > 0:
-                training.update(promoted=True, champion=chosen, status="PAPER challenger promoted; capacity remains modeled")
+                training.update(promoted=True, champion=chosen, status="PAPER challenger promoted; capacity is top-of-book only")
                 set_state(conn, "last_promotion_day", max(daily))
                 by_experiment: dict[str, list[Any]] = {}
                 for r in train:

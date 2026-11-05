@@ -28,32 +28,41 @@ LOOKBACK_DAYS = 90
 MIN_CHECKPOINT = 10     # positions valued at a checkpoint before it can name a holding time (as the Learning page does)
 
 
-def best_holding(conn: sqlite3.Connection, experiment_ids: list[str], now: datetime) -> dict[str, Any] | None:
-    """The research checkpoint with the highest average return, among those with at least ``MIN_CHECKPOINT`` research
-    positions valued in the previous 90 days and strictly before ``now``: the holding time the small accounts sell at.
-    Only checkpoints that matured before the decision count, so no later quote can choose it. Checkpoints compare the
-    positions that lived that long, so a longer one can rest on fewer, surviving positions; ties go to the shorter hold."""
-    if not experiment_ids:
-        return None
-    marks = ",".join("?" * len(experiment_ids))
-    rows = conn.execute(
-        "SELECT c.days,AVG(c.net_return) mean,COUNT(*) n,MAX(c.at) latest FROM stk_learning_checkpoints c "  # noqa: S608
-        "JOIN stk_positions p ON p.id=c.position_id WHERE p.account=? AND c.at<? AND c.at>=? "
-        f"AND json_extract(p.plan_json,'$.experiment_id') IN ({marks}) GROUP BY c.days",
-        (lab.RESEARCH, to_iso(now), to_iso(now - timedelta(days=LOOKBACK_DAYS)), *experiment_ids)).fetchall()
-    ready = [r for r in rows if r["n"] >= MIN_CHECKPOINT]
+Checkpoints = dict[tuple[str, int], tuple[float, int, str]]   # (experiment, days) -> (sum of returns, count, latest)
+
+
+def checkpoint_stats(conn: sqlite3.Connection, now: datetime) -> Checkpoints:
+    """Research checkpoints valued in the previous 90 days and strictly before ``now``, per experiment and day, in one
+    pass: only checkpoints that matured before a decision can choose its holding time."""
+    return {(r[0], r[1]): (r[2], r[3], r[4]) for r in conn.execute(
+        "SELECT json_extract(p.plan_json,'$.experiment_id') e,c.days,SUM(c.net_return),COUNT(*),MAX(c.at) "
+        "FROM stk_learning_checkpoints c JOIN stk_positions p ON p.id=c.position_id "
+        "WHERE p.account=? AND c.at<? AND c.at>=? GROUP BY e,c.days",
+        (lab.RESEARCH, to_iso(now), to_iso(now - timedelta(days=LOOKBACK_DAYS))))}
+
+
+def best_holding(stats: Checkpoints, experiment_ids: list[str]) -> dict[str, Any] | None:
+    """The research checkpoint with the highest average return, among those with at least ``MIN_CHECKPOINT`` positions
+    of these experiments: the holding time the small accounts sell at. Checkpoints compare the positions that lived that
+    long, so a longer one can rest on fewer, surviving positions; ties go to the shorter hold."""
+    days: dict[int, list[Any]] = {}
+    for (experiment, day), (total, n, latest) in stats.items():
+        if experiment in experiment_ids:
+            seen = days.setdefault(day, [0.0, 0, ""])
+            seen[0], seen[1], seen[2] = seen[0] + total, seen[1] + n, max(seen[2], latest)
+    ready = [(total / n, -day, day, n, latest) for day, (total, n, latest) in days.items() if n >= MIN_CHECKPOINT]
     if not ready:
         return None
-    best = max(ready, key=lambda r: (r["mean"], -r["days"]))
-    return {"days": best["days"], "mean_net_return": best["mean"], "positions": best["n"], "valued_through": best["latest"]}
+    mean_return, _, day, n, latest = max(ready)
+    return {"days": day, "mean_net_return": mean_return, "positions": n, "valued_through": latest}
 
 
-def holding(conn: sqlite3.Connection, cfg: dict[str, Any], experiment_ids: list[str], now: datetime) -> dict[str, Any]:
+def holding(stats: Checkpoints, cfg: dict[str, Any], experiment_ids: list[str]) -> dict[str, Any]:
     """When a small account sells a lifecycle recipe's position: at its best checkpoint so far, else the full horizon."""
     if cfg.get("kind") != "lifecycle":
         return {"exit_days": None, "best_checkpoint": None, "exit_basis": "The recipe's registered holding time"}
     horizon = cfg["hold_minutes"] // 1440
-    best = best_holding(conn, experiment_ids, now)
+    best = best_holding(stats, experiment_ids)
     if best is None:
         return {"exit_days": horizon, "best_checkpoint": None,
                 "exit_basis": f"Recipe horizon of {horizon} days: no checkpoint has {MIN_CHECKPOINT} research positions "
@@ -88,6 +97,7 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
     previous = conn.execute("SELECT payload_json FROM stk_learning_checks WHERE at<? ORDER BY at DESC,id DESC LIMIT 1",
                             (to_iso(now),)).fetchone()
     model = json.loads(previous[0]).get("model",{}) if previous else {}
+    stats = checkpoint_stats(conn,now)
     out = []
     for key, group in groups.items():
         values = [mean(v) for v in group["blocks"].values()]
@@ -97,7 +107,7 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
             "lower_bound":mean(values)-2*stdev(values)/math.sqrt(len(values)) if len(values)>1 else None,
             "experiment_ids":sorted(group["experiments"]),"model_version":model.get("version",0),
             "mode":"research_champion" if model.get("champion")==key[0] else "provisional",
-            **holding(conn,group["config"],sorted(group["experiments"]),now)}
+            **holding(stats,group["config"],sorted(group["experiments"]))}
         evidence["policy_hash"] = sha256_hex(canonical_json({"rule":VERSION,"family":key,"evidence":evidence}))[:20]
         out.append({"config":group["config"],"evidence":evidence})
     if not out:
@@ -107,7 +117,7 @@ def policies(conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
             "AND json_extract(config_json,'$.bucket')='1m' ORDER BY created_at,id LIMIT 1",(to_iso(now),)).fetchone()
         if seed:
             cfg = json.loads(seed["config_json"])
-            exit_ = holding(conn,cfg,[seed["id"]],now)
+            exit_ = holding(stats,cfg,[seed["id"]])
             out.append({"config":cfg,"evidence":{"asof":to_iso(now),"mode":"starter",
                 "blocks":0,"days":0,"expected_net_return":None,"experiment_ids":[seed["id"]],"model_version":0,
                 "policy_hash":VERSION+":starter"+(f":sell-after-{exit_['exit_days']}d" if exit_["best_checkpoint"]
