@@ -70,9 +70,19 @@ the old fingerprint.
 
 ## Headlines
 
-For big moves in single stocks in the last 30 days, the worker fetches up to five Massive headlines published between
-the previous close and the end of the event day. It fetches at most two per pass, inside Massive's shared free-tier
-budget. Headlines are saved with the event for reading only. A failed fetch rests six hours before retrying.
+Each logged day gets up to five headlines published between the previous close and the end of the event day, read
+from the company news KESTREL already stores (70 days of Massive's market-wide feed, [News](STOCKS_NEWS.md)), so they
+cost no request. That covers every kind of event, not only single stocks: a stock's day reads articles naming it
+(its own stories first, then those naming fewer other stocks); an index, broad-market, VIX or rates day reads
+articles tagged with SPY, QQQ, DIA or IWM; a sector day reads articles tagged with its ETF or naming two or more of
+its stocks (by the Fama-French sector of their SIC code; real estate and semiconductors by SIC code); a theme reads
+articles naming two or more of its members. A day the stored news covers but finds nothing for is saved as having
+none. A day whose window has not closed yet waits until the stored news has passed it.
+
+Only a big single-stock move in the last 30 days that the stored news cannot cover (from before it began, or while
+news collection has been behind for more than a day) still uses Massive's per-stock request: at most two per pass,
+inside Massive's shared free-tier budget; a failed one rests six hours. Headlines are saved with the event for
+reading only.
 
 ## Where things stand
 

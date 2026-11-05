@@ -10,12 +10,20 @@ stock and graded on live data, and it gets a vote only if its record proves it p
 | Angle | Source | How often | What it gives a stock |
 |---|---|---|---|
 | Company news | Massive's market-wide news feed (your existing key): every article once, with the stocks it names and Massive's sentiment for each | every 30 minutes | the week's tone (positive minus negative articles) and attention (articles in 3 days vs its usual) |
-| World events | GDELT's 15-minute event files: news in 65+ languages, machine-translated and coded (fighting, threats, sanctions, strikes and protests, seizures), by country, with the source articles | every pass (the last week back-filled first) | a supply shock when coverage of those events where a key supply comes from runs 1.8× its usual level |
-| Policy | Federal Register presidential documents (executive orders, proclamations, memoranda) since January 20, 2025, tagged for trade actions, sanctions, sectors and countries | every 6 hours | trade actions in the last 15 days that name a product this company makes (helped) or buys (hurt) |
+| World events | GDELT's 15-minute event files: news in 65+ languages, machine-translated and coded (fighting, threats, sanctions, strikes and protests, seizures), by country, with the source articles | every pass, newest first, 40 files a pass: 32 whole days are kept filled (the 30-day usual level plus the last two days), and a file missed while the computer was off is fetched later | a supply shock when coverage of those events where a key supply comes from runs 1.8× its usual level |
+| Policy | Federal Register presidential documents (executive orders, proclamations, memoranda) since January 20, 2025, tagged for trade actions, sanctions, sectors and countries | every 6 hours: all of them the first time (every page, until a short one), then from two weeks before the newest stored (late publications, and everything since a long stop) | trade actions in the last 15 days that name a product this company makes (helped) or buys (hurt) |
 
 All three are free; only company news needs a key (Massive, already configured). Research reads only what was
 received by its analysis time, and the historical replay of past years leaves news out (it can't be reconstructed
 as it was known then).
+
+**How far back.** Company news keeps 70 days, because attention compares a stock's last three days with its usual
+daily count over days 8–67 before them. The first collection takes the last week, then new articles come forward
+from the newest stored and history goes backward from the oldest stored, three Massive requests a pass in all (its
+5 a minute are shared by the whole app), until 70 days are in; a store begun with 30 days (before 2026-11) is
+extended the same way. If fewer than 60 comparison days are stored, the usual level is the average over the days
+that are (with under 14 days, no attention is reported): a 60-day level counted over 23 stored days made every stock
+look about three times busier than usual.
 
 ## The supply map
 

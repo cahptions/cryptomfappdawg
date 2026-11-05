@@ -1,5 +1,7 @@
-"""Massive (formerly Polygon.io) Stocks Basic, free: end-of-day bars for every US stock, splits and dividends, plus
-company details, news and icons for the stock page (display only, never research inputs).
+"""Massive (formerly Polygon.io) Stocks Basic, free: end-of-day bars for every US stock, splits and dividends; the
+market-wide news feed, which the News desk reads (``desk.stocks.news_flow``: tone and attention, an observer with no
+vote until graded) and which also supplies stock-page and Events headlines; and company details, a stock's own news
+(a fallback) and icons for the stock page, which are display only, never research inputs.
 
 The free plan (verified 2026-10-21 on massive.com/pricing): $0, personal licence, 5 requests a minute, 2 years of
 history, end-of-day data. One "grouped daily" request returns the day's bar for every US stock, so the daily refresh
@@ -262,6 +264,13 @@ class MassiveClient:
         """Every stock's news since ``published_after``, oldest first (page forward from the last article's time)."""
         params = {"order": "asc", "sort": "published_utc", "limit": limit,
                   "published_utc.gte": published_after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        return parse_news(await self._get("news", params=params), limit)
+
+    async def market_news_before(self, published_before: datetime, limit: int = 1000) -> list[dict[str, Any]]:
+        """Every stock's news up to ``published_before``, newest first (page backward from the oldest article stored;
+        the boundary second is included, so articles sharing it are not skipped)."""
+        params = {"order": "desc", "sort": "published_utc", "limit": limit,
+                  "published_utc.lte": published_before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
         return parse_news(await self._get("news", params=params), limit)
 
     async def icon(self, path: str) -> tuple[str, bytes]:

@@ -922,7 +922,7 @@ const KestrelResearch = (() => {
       sectionTitle("Research, with context"),
       el(
         "p",
-        "Eleven local desks. Every score has a reason and a data-coverage measure.",
+        "Twelve local desks. Every score has a reason and a data-coverage measure.",
         "muted caption",
       ),
       link("Inspect the evidence ↗", "#proof"),
@@ -1651,7 +1651,7 @@ const KestrelResearch = (() => {
       sectionTitle(
         etf
           ? "ETF market evidence"
-          : "Eleven perspectives. One research record.",
+          : "Twelve perspectives. One research record.",
         "Scores reflect the stored evidence. Coverage is not a probability of profit.",
       ),
     );
@@ -1741,7 +1741,7 @@ const KestrelResearch = (() => {
         "p",
         etf
           ? "Company valuation, earnings and insider models do not apply to funds. This profile shows observed price, risk and options data without a company committee score."
-          : "A weighted synthesis of the eleven desks below. Desks with no weight are shown but do not vote.",
+          : "A weighted synthesis of the twelve desks below. Desks with no weight are shown but do not vote.",
         "muted caption",
       ),
     );

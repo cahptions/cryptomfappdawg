@@ -1,6 +1,6 @@
 # KESTREL Stocks — methodology (v1)
 
-KESTREL Stocks is a research desk. It reads free public data, scores every liquid US stock with eleven desks, builds
+KESTREL Stocks is a research desk. It reads free public data, scores every liquid US stock with twelve desks, builds
 daily Robinhood-style lists with a plain reason for every name, and then keeps score on itself: every list and every
 desk is graded against what the market did next. Brokerage adapters supply market data only; no brokerage
 order code is present in this desk.
@@ -47,7 +47,7 @@ noted (sectors with fewer than 10 names use the whole universe), and blends them
 **confidence** is the share of the desk's weight that had data for that stock. Verdicts use bands at 75 / 60 / 40 /
 25. Every reason shown is generated from the measure that produced it — there is no free text and no language model.
 
-## 4. The eleven desks
+## 4. The twelve desks
 
 | Desk | Measures (weight; ★ = within sector) |
 |---|---|
@@ -62,15 +62,16 @@ noted (sectors with fewer than 10 names use the whole universe), and blends them
 | **Risk** | volatility 1.0, beta 0.5, the 1-year maximum drawdown 0.6, liquidity 0.4, dilution 0.4 (higher score = lower risk) |
 | **Macro and sectors** | the sector's 3-month strength vs SPY; in a risk-off regime (SPY below its 200-day average, high-yield spreads up more than 0.75 points in three months, or VIX above 30) names with beta above 1.3 lose 15 points and below 0.8 gain 10 |
 | **Options** | IV30 / 20-day realized volatility 1.0, IV rank 0.8, term structure 0.3, put/call volume 0.3 (for the most-traded names whose chains are collected) |
+| **News and world** | the week's company-news tone (Massive's sentiment, positive minus negative), attention (articles in three days against the usual daily count), supply shocks from world events and trade actions that touch the company; an observer with no vote until graded ([STOCKS_NEWS.md](STOCKS_NEWS.md)) |
 
 ## 5. The committee
 
 The committee blends the desks: each desk's score × its weight × its confidence (floored at 0.25). Default weights:
 valuation 1.0, quality 1.0, growth 0.8, momentum 1.0, earnings 0.6, insiders 0.6, shorts 0.4, risk 0.6, macro 0.4,
-crowd 0 and options 0. Labels: Bullish ≥ 70, Bullish lean ≥ 58, Neutral ≥ 42, Bearish lean ≥ 30, else Bearish. A desk
+crowd 0, options 0 and news 0. Labels: Bullish ≥ 70, Bullish lean ≥ 58, Neutral ≥ 42, Bearish lean ≥ 30, else Bearish. A desk
 30 or more points from the committee is listed as dissent.
 
-Crowd and options start at zero weight because there is no history to prove them. Weights change only through the
+Crowd, options and news start at zero weight because there is no history to prove them. Weights change only through the
 validation in section 8.
 
 ## 6. The lists

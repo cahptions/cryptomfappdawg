@@ -1,7 +1,7 @@
 # KESTREL Stocks — start here
 
-The saved Claude branch completed the research/data modules, eleven desks, validation and PAPER engines
-(M1–M6, through `972565b`). The continuation connects those modules to operator commands, a local dashboard
+The saved Claude branch completed the research/data modules, the desks (eleven then; the News and world desk made
+twelve on 2026-11-03), validation and PAPER engines (M1–M6, through `972565b`). The continuation connects those modules to operator commands, a local dashboard
 and a Schwab **market-data-only** adapter. There is no Schwab account/order endpoint or LIVE trading in this desk.
 Code and synthetic tests cannot establish a profitable strategy or finish prospective validation.
 
@@ -28,7 +28,7 @@ Gainers/Losers table, value/quality/squeeze/insider collections, options intelli
 watchlist. **Options** has its own overview; **Plays** ranks the options of the day in twelve categories with
 each contract's greeks and three chances of finishing in the money ([STOCKS_PLAYS.md](STOCKS_PLAYS.md));
 **Stocks** opens the full saved lists. A stock page combines
-split-adjusted line/candlestick charts and volume, financial statistics, the committee and eleven desks,
+split-adjusted line/candlestick charts and volume, financial statistics, the committee and twelve desks,
 bull/bear evidence and a dated calls/puts table. Missing observations remain missing; a chart breaks at
 missing sessions rather than manufacturing candles. Top10 means up to ten qualifying names, never padding.
 These are daily-close research views, not a live intraday ranking service.
@@ -155,14 +155,20 @@ needs an administrator once:
 sudo loginctl enable-linger neo
 ```
 
+While it runs, the service holds a sleep lock (`systemd-inhibit --what=idle:sleep`, as the crypto engines do), so
+the computer does not go to sleep when it is left idle. Closing a laptop's lid is a separate system setting this
+does not change; leave the HP open or set its lid action to "do nothing". `systemd-inhibit --list` shows the lock.
+
 Until 2026-11-04 the app ran as a plain background process, so anything that stopped it left it off (and the
 research for that day's close unrun) until something opened it again. Its log is in the journal:
 `journalctl --user -u desk-stocks-dashboard.service -n 50`.
 
 ### Using another computer's KESTREL Stocks
 
-Schwab allows one Market Data app per developer account, and each sign-in with that app ends the previous one. So
-one computer (here the HP) holds the Schwab sign-in and collects; the other shows it. Run once on the other computer:
+A new Schwab sign-in with the same app ends the previous one within hours, and Schwab support has told individual
+developers they can create only one app (Schwab's own documentation does not say either way; [SCHWAB.md](SCHWAB.md)).
+So one computer (here the HP) holds the Schwab sign-in and collects; the other shows it. Run once on the other
+computer:
 
 ```bash
 cd ~/kestrel && uv run desk open --desk stocks --install --remote neo@192.168.0.10
@@ -237,7 +243,10 @@ uv run desk stocks paper --minutes 1440
 uv run desk stocks collect --minutes 1440  # research-only alternative, no PAPER ledger changes
 ```
 
-The ranked option focus is capped at150 names; the pilot rotates small batches no more often than every4hours.
+The ranked option focus is capped at 150 names. On trading days from 9:30 to 16:30 New York time the worker
+collects option chains every 15 minutes: SPY and QQQ every time plus a small rotating batch from the watchlist
+and the ranked focus (five chains a pass in all; the whole focus takes about two trading days), and every
+contract a PAPER position holds. Outside those hours it collects once if that session's chains were missed.
 It does **not** provide a daily full-universe option archive. Coverage and option signal availability are sparse,
 and option histories must not be interpreted as complete daily sampling. Held contracts are included regardless
 of the current rotating focus. Broader coverage needs measured API/runtime evidence before changing that budget.
@@ -292,6 +301,16 @@ so inspect its impact on other desks before deliberately resuming.
 - Stocks data lives in separate `stocks-market.db`, `stocks-research.db`, `stocks-ledger-paper.db` under
   `~/desk-data/db`. Connection preferences and saved reports live under `~/desk-data`; private tokens/certificates
   live beside secrets.env. Updating code does not rewrite an existing account's initial deposit.
+- Backups: `kestrel update` also installs and starts the hourly backup timer (`desk-backup.timer`) on the computer
+  that runs Stocks. It copies the two PAPER books (`stocks-ledger-paper.db`, `stocks-learning-paper.db`) every
+  hour (24 kept) and `stocks-market.db` and `stocks-research.db` once a day (3 kept, because the market file grows
+  by gigabytes) into `~/desk-data/backups/stocks-hourly` and `stocks-daily`. Copies use SQLite's online backup, so
+  Stocks keeps running; each is checked and checksummed, and files are readable by you only. A copy that would
+  leave less than twice its size plus 512 MB free is skipped and the timer shows failed with the reason
+  (`systemctl --user status desk-backup`). Check a copy with `uv run desk backups verify <manifest.json>`.
+  `desk backups restore` does not take Stocks databases yet: to restore one, stop Stocks
+  (`systemctl --user stop desk-stocks-dashboard.service`), verify the copy, move the current file and its `-wal`
+  and `-shm` files aside, copy the backup's file in, then start Stocks again.
 - Quotes keep their actual timestamps. Standard100-share contracts only; adjusted deliverables are excluded.
   Explicitly delayed Schwab chains are refused. Chain rows record their provider; one asset/session cannot mix
   providers. Legacy option records are labelled `tradier_legacy_unknown_environment`. Switching source should

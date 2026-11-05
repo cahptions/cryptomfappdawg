@@ -148,7 +148,9 @@ def test_company_news_is_point_in_time_and_the_news_desk_scores_it_without_a_vot
         late = article("late", end - timedelta(hours=2), ["ACME"], "positive")
         news_flow.save(conn, [late], end + timedelta(days=1))                            # received after the analysis
         c = news_flow.company(conn, TODAY, end)["ACME"]
-        assert (c["negative"], c["positive"]) == (6, 1) and c["recent3"] == 7 and c["earlier60"] == 1
+        assert (c["negative"], c["positive"]) == (6, 1) and c["recent3"] == 7
+        # the store begins 30 days back, so 23.3 of the 60 comparison days are covered: one article there is 2.57 in 60
+        assert c["earlier_days"] == 23.3 and c["earlier60"] == round(60 / (23 + 479 / 1440), 2) == 2.57
         ctx = desks.Context(TODAY, ["ACME", "QUIET"], {}, {}, {}, {}, {}, news=news_flow.inputs(conn, TODAY, end, ["ACME"],
                                                                                               {}))
         result = desks.news(ctx, ["ACME", "QUIET"])
@@ -165,23 +167,28 @@ def test_company_news_is_point_in_time_and_the_news_desk_scores_it_without_a_vot
 class FakeMassive:
     configured = True
 
-    def __init__(self, pages):
-        self.pages, self.calls = pages, []
+    def __init__(self, pages, older=None):
+        self.pages, self.calls, self.older, self.before = pages, [], older or [], []
 
     async def market_news(self, since, limit=1000):
         self.calls.append(since)
         return self.pages.pop(0) if self.pages else []
+
+    async def market_news_before(self, until, limit=1000):
+        self.before.append(until)
+        return self.older.pop(0) if self.older else []
 
 
 def test_collection_pages_forward_and_reads_the_world_and_the_federal_register(tmp_path):
     w = make_world(tmp_path, n=12)
     try:
         conn = w.market.conn
-        start = NOW - timedelta(days=30)
+        start = NOW - timedelta(days=7)                                                  # the first time: a week
         page = [article(f"a{i}", start + timedelta(minutes=i), ["ACME"]) for i in range(1000)]
         massive = FakeMassive([page, [article("b1", NOW - timedelta(hours=1), ["ACME"])]])
         out = asyncio.run(news_flow.collect(conn, massive, NOW))
         assert out["new"] == 1001 and out["calls"] == 2 and massive.calls[0] == start
+        assert massive.before == [start] and out["history"]["calls"] == 1                 # then back, in the same pass
         assert massive.calls[1] == datetime.fromisoformat(page[-1]["published"])          # forward from the last one
 
         def answer(request):
@@ -205,7 +212,7 @@ def test_collection_pages_forward_and_reads_the_world_and_the_federal_register(t
         assert got["files"] + got["failed"] <= 8 and got["missing"] > 0
         assert again["missing"] == got["missing"] - 8                                     # the next pass continues
         assert conn.execute("SELECT COUNT(*) FROM stk_world_files").fetchone()[0] == 16   # 404s recorded as empty
-        assert fr == {"documents": 1, "new": 1}
+        assert (fr["documents"], fr["new"], fr["since"], fr["full"]) == (1, 1, "2025-01-20", True)   # the first time
         assert json.loads(conn.execute("SELECT body FROM stk_policy_docs").fetchone()[0])["topics"] == ["machinery"]
     finally:
         w.close()

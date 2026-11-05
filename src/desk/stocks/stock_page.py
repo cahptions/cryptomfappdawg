@@ -328,6 +328,17 @@ def notable_events(research: sqlite3.Connection, symbol: str) -> list[dict[str, 
         return []
 
 
+def headlines(market: sqlite3.Connection, symbol: str, now: datetime, feeds: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """The newest stored articles naming the stock (Massive's market-wide feed, collected every half hour, so they show
+    at once and cost no request); the per-stock Massive answer only when none is stored."""
+    from desk.stocks.symbol_feeds import stored_news
+
+    stored = stored_news(market, symbol, now)
+    if stored:
+        return {"news": stored, "news_source": "stored"}
+    return {"news": (_feed(feeds, "news") or [])[:12], "news_source": "per_stock"}
+
+
 def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str, now: datetime, *,
           detail: dict[str, Any] | None, quote: dict[str, Any] | None, profile: dict[str, Any],
           feeds: dict[str, dict[str, Any]], list_titles: dict[str, str], finnhub_configured: bool,
@@ -353,7 +364,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
             "short_interest": short_interest(market, symbol, shares),
             "insiders": insiders(market, symbol, today),
             "dividends": dividends(market, symbol, price, today),
-            "news": (_feed(feeds, "news") or [])[:12],
+            **headlines(market, symbol, now, feeds),
             "lists": related_lists(research, symbol, list_titles),
             "peers": peers(market, research, symbol, (detail or {}).get("sector"), market_cap),
             "score_history": score_history(research, symbol),
@@ -361,5 +372,5 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
             "logo": has_logo, "finnhub_configured": finnhub_configured, "sources": sources}
 
 
-__all__ = ["about", "build", "chief_executive", "dividends", "earnings", "financials", "insiders", "notable_events",
-           "peers", "periods", "person", "ratings", "related_lists", "score_history", "short_interest"]
+__all__ = ["about", "build", "chief_executive", "dividends", "earnings", "financials", "headlines", "insiders",
+           "notable_events", "peers", "periods", "person", "ratings", "related_lists", "score_history", "short_interest"]

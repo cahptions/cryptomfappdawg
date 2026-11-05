@@ -173,9 +173,14 @@ def stale_companies(market: StocksMarket, now: datetime, *, max_age: timedelta =
 
 
 async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, *, start: date,
-                       max_days: int = 10) -> dict[str, Any]:
+                       max_days: int = 10, budget_seconds: float | None = None,
+                       clock: Callable[[], float] = time.monotonic) -> dict[str, Any]:
     """The SEC daily index: Form 4s of universe companies are parsed (one request each), and companies with new
-    periodic or current reports are refreshed. Resumes from the last processed day."""
+    periodic or current reports are refreshed. Resumes from the last processed day.
+
+    A pass handles at most ``max_days`` trading days and starts no new day once ``budget_seconds`` have gone by (a
+    busy day is a few hundred Form 4s, minutes at the SEC's polite rate), so catching up after downtime never holds
+    the collector for long; ``behind`` says days remain, and the runner then comes back on its next pass."""
     async def work() -> dict[str, Any]:
         state = market.jobs().get("filings_feed", {}).get("detail", {})
         first = date.fromisoformat(state["through"]) + timedelta(days=1) if state.get("through") else start
@@ -184,12 +189,16 @@ async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, 
         processed: list[str] = []
         trades, refresh = 0, set()
         through = state.get("through")
-        d = first
-        while d < today and len(processed) < max_days:
+        d, began, behind = first, clock(), False
+        while d < today:
             if not cal.is_trading_day(d):
                 d += timedelta(days=1)
                 through = (d - timedelta(days=1)).isoformat()
                 continue
+            if len(processed) >= max_days or (budget_seconds is not None and processed
+                                              and clock() - began >= budget_seconds):
+                behind = True
+                break
             try:
                 entries = await suite.sec.daily_index(d)
             except DeskError as exc:
@@ -210,28 +219,49 @@ async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, 
             processed.append(d.isoformat())
             through = d.isoformat()
             d += timedelta(days=1)
-        report: dict[str, Any] = {"days": processed, "insider_rows": trades, "through": through}
+        report: dict[str, Any] = {"days": processed, "insider_rows": trades, "through": through, "behind": behind}
         if refresh:
             report["companies"] = await companies(suite, market, now, sorted(refresh))
         return report
     return await _job(market, "filings_feed", now, work)
 
 
-async def insider_history(suite: StocksSuite, market: StocksMarket, now: datetime, *, quarters: int = 4) -> dict[str, Any]:
-    """The SEC's quarterly insider data sets (one small download per quarter) for history before the daily feed."""
+INSIDER_QUARTERS = 9     # two years and a quarter: a year-on-year comparison of insider buying, with a quarter to spare
+
+
+async def insider_history(suite: StocksSuite, market: StocksMarket, now: datetime, *, quarters: int = INSIDER_QUARTERS,
+                          per_pass: int | None = None) -> dict[str, Any]:
+    """The SEC's quarterly insider data sets (one ~9 MB download per quarter) for the history before the daily feed.
+
+    The newest ``quarters`` published are loaded, each once, at most ``per_pass`` new ones per call (each is parsed in
+    memory, so a pass stays small); ``remaining`` says how many are still to come. Filings the daily feed already
+    stored are skipped, so one filing never holds rows from two parsers. A failure keeps the quarters already loaded,
+    so the next run resumes instead of downloading them again."""
     async def work() -> dict[str, Any]:
         state = market.jobs().get("insider_history", {}).get("detail", {})
         loaded = set(state.get("loaded", []))
         universe = {int(r["cik"]) for r in research_listings(market) if r["cik"]}
-        rows = 0
-        for path in (await suite.sec.insider_dataset_paths())[:quarters]:
-            if path in loaded:
-                continue
-            data = await suite.sec.insider_dataset(path)
-            rows += market.save_insider_trades([(t, f) for t, f in data if t.issuer_cik in universe])
-            loaded.add(path)
-        newest = max((p.rsplit("/", 1)[-1][:6] for p in loaded), default=None)
-        return {"loaded": sorted(loaded), "rows": rows, "newest_quarter": newest}
+        rows, fetched = 0, list[str]()
+
+        def detail(remaining: int) -> dict[str, Any]:
+            newest = max((p.rsplit("/", 1)[-1][:6] for p in loaded), default=None)
+            return {"loaded": sorted(loaded), "rows": rows, "newest_quarter": newest, "this_pass": fetched,
+                    "remaining": remaining}
+
+        todo: list[str] = []
+        try:
+            paths = sorted(await suite.sec.insider_dataset_paths(), key=lambda p: p.rsplit("/", 1)[-1], reverse=True)
+            todo = [p for p in paths[:quarters] if p not in loaded]
+            for path in todo[:per_pass] if per_pass else todo:
+                data = await suite.sec.insider_dataset(path)
+                stored = market.insider_accessions(min(f for _, f in data)) if data else set()
+                rows += market.save_insider_trades([(t, f) for t, f in data
+                                                    if t.issuer_cik in universe and t.accession not in stored])
+                loaded.add(path)
+                fetched.append(path)
+        except DeskError as exc:
+            raise IncompleteJob(str(exc), detail(len(todo) - len(fetched))) from exc
+        return detail(len(todo) - len(fetched))
     return await _job(market, "insider_history", now, work)
 
 
@@ -242,62 +272,140 @@ def quarter_end(code: str) -> date:
 
 
 # ── short interest, short volume, fails ──────────────────────────────────────────────────────────
-async def short_interest(suite: StocksSuite, market: StocksMarket, now: datetime, *, history: int = 6) -> dict[str, Any]:
+SHORT_INTEREST_SETTLEMENTS = 48     # two years of twice-monthly settlements: as deep as the price history
+SHORT_VOLUME_DAYS = 45              # the short-volume measures read about a month and a half of daily files
+FAILS_MONTHS = 24                   # two years of fails-to-deliver files, two a month
+
+
+def _months_back(first: date, k: int) -> date:
+    year, month = divmod(first.year * 12 + first.month - 1 - k, 12)
+    return date(year, month + 1, 1)
+
+
+async def short_interest(suite: StocksSuite, market: StocksMarket, now: datetime, *,
+                         history: int = SHORT_INTEREST_SETTLEMENTS, per_pass: int = 4) -> dict[str, Any]:
+    """FINRA's newest published settlement, then older ones until ``history`` settlements are stored, at most
+    ``per_pass`` a call (each is about five 5,000-row requests); ``remaining`` says how many are still to come.
+
+    FINRA moves a settlement back to a weekday (one more day for a holiday), so each half-month has two candidate
+    dates. A candidate within three days of a stored settlement is its twin and is skipped; one FINRA answered empty is
+    older than a published settlement, so it never will be: it is remembered and not asked about again."""
     async def work() -> dict[str, Any]:
         keep = stored_symbols(market)
+        state = market.jobs().get("short_interest", {}).get("detail", {})
+        empty = set(state.get("empty", []))
         have = set(market.short_interest_dates())
         settlement, rows = await suite.feeds.latest_short_interest(now.date())
         stored = market.save_short_interest([r for r in rows if r.symbol in keep], now) if settlement not in have else 0
         backfilled: list[str] = []
-        if settlement is not None and len(have) < history:
+        left = False
+
+        def detail() -> dict[str, Any]:
+            return {"settlement": None if settlement is None else settlement.isoformat(), "rows": stored,
+                    "backfilled": backfilled, "stored_settlements": len(have), "empty": sorted(empty),
+                    "remaining": max(0, history - len(have)) if left else 0}
+
+        if settlement is None:
+            return detail()
+        have.add(settlement)
+        try:
             for older in settlement_candidates(settlement - timedelta(days=1), months=history // 2 + 1):
-                if older in have or len(have) + len(backfilled) >= history:
+                if len(have) >= history:
+                    break
+                if older.isoformat() in empty or any(abs((older - s).days) <= 3 for s in have):
                     continue
+                if len(backfilled) >= per_pass:
+                    left = True
+                    break
                 old_rows = await suite.feeds.short_interest(older)
                 if old_rows:
                     stored += market.save_short_interest([r for r in old_rows if r.symbol in keep], now)
                     backfilled.append(older.isoformat())
-        return {"settlement": None if settlement is None else settlement.isoformat(), "rows": stored, "backfilled": backfilled}
+                    have.add(older)
+                else:
+                    empty.add(older.isoformat())
+        except DeskError as exc:
+            left = True
+            raise IncompleteJob(str(exc), detail()) from exc
+        return detail()
     return await _job(market, "short_interest", now, work)
 
 
-async def short_volume(suite: StocksSuite, market: StocksMarket, now: datetime, *, days: int = 45) -> dict[str, Any]:
+async def short_volume(suite: StocksSuite, market: StocksMarket, now: datetime, *, days: int = SHORT_VOLUME_DAYS,
+                       recent: int = 5, per_pass: int = 20) -> dict[str, Any]:
+    """FINRA's daily short-sale volume files, newest first, at most ``per_pass`` a call. It looks back to the newest
+    stored day (at least ``recent`` days, for a file published late; at most ``days``), so a downtime of any length
+    is filled as far as the measures read, without asking again every day for an old file FINRA never published.
+    While a backfill is unfinished the next call keeps the same starting day."""
     async def work() -> dict[str, Any]:
         keep = stored_symbols(market)
+        state = market.jobs().get("short_volume", {}).get("detail", {})
         have = market.short_volume_days()
         last = cal.last_closed_session(now, timedelta(hours=3))
-        stored, fetched = 0, []
-        for d in reversed(cal.trading_days(last - timedelta(days=days), last)):
-            if d in have:
-                continue
+        start = last - timedelta(days=days)
+        if state.get("remaining") and state.get("from"):
+            start = max(start, date.fromisoformat(state["from"]))
+        elif have:
+            start = max(start, min(max(have), last - timedelta(days=recent)))
+        wanted = [d for d in reversed(cal.trading_days(start, last)) if d not in have]
+        stored, fetched, tried = 0, list[str](), 0
+        for d in wanted[:per_pass]:
+            tried += 1
             try:
                 rows = await suite.feeds.reg_sho(d)
             except DeskError as exc:
                 if "not found" in str(exc) or "HTTP 403" in str(exc):
                     continue
-                raise
+                raise IncompleteJob(str(exc), {"from": start.isoformat(), "remaining": len(wanted) - tried + 1,
+                                               "days": len(fetched), "rows": stored}) from exc
             stored += market.save_short_volume(rows, keep)
             fetched.append(d.isoformat())
-        return {"days": len(fetched), "rows": stored}
+        return {"days": len(fetched), "rows": stored, "from": start.isoformat(), "remaining": len(wanted) - tried}
     return await _job(market, "short_volume", now, work)
 
 
-async def fails(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict[str, Any]:
+async def fails(suite: StocksSuite, market: StocksMarket, now: datetime, *, months: int = FAILS_MONTHS,
+                per_pass: int = 4) -> dict[str, Any]:
+    """SEC fails-to-deliver, two files a month (each half-month, published about two weeks after it ends), for the
+    last ``months`` months: newest first, each file once, at most ``per_pass`` downloads a call. A recent file not
+    published yet is asked for again at the next run; one still missing two months on is recorded and left alone."""
     async def work() -> dict[str, Any]:
         keep = stored_symbols(market)
+        state = market.jobs().get("fails", {}).get("detail", {})
         month = now.date().replace(day=1)
-        names = ftd_file_names(month - timedelta(days=1)) + ftd_file_names(month - timedelta(days=40))
-        stored, files = 0, []
-        for name in names:
-            try:
-                rows = await suite.sec.fails(name)
-            except DeskError as exc:
-                if "not found" in str(exc):
+        names = [(k, name) for k in range(1, months + 1) for name in reversed(ftd_file_names(_months_back(month, k)))]
+        window = {name for _, name in names}
+        loaded = set(state.get("loaded", [])) & window
+        missing = set(state.get("missing", [])) & window
+        todo = [(k, name) for k, name in names if name not in loaded and name not in missing]
+        stored, files, unpublished = 0, list[str](), list[str]()
+
+        def detail(left: int) -> dict[str, Any]:
+            return {"files": files, "rows": stored, "loaded": sorted(loaded), "missing": sorted(missing),
+                    "unpublished": unpublished, "remaining": left}
+
+        tried = 0
+        try:
+            for k, name in todo:
+                if len(files) >= per_pass:
+                    break
+                tried += 1
+                try:
+                    rows = await suite.sec.fails(name)
+                except DeskError as exc:
+                    if "not found" not in str(exc):
+                        raise
+                    if k >= 3:
+                        missing.add(name)
+                    else:
+                        unpublished.append(name)
                     continue
-                raise
-            stored += market.save_fails([r for r in rows if r.symbol in keep])
-            files.append(name)
-        return {"files": files, "rows": stored}
+                stored += market.save_fails([r for r in rows if r.symbol in keep])
+                files.append(name)
+                loaded.add(name)
+        except DeskError as exc:
+            raise IncompleteJob(str(exc), detail(len(todo) - tried + 1)) from exc
+        return detail(len(todo) - tried)
     return await _job(market, "fails", now, work)
 
 

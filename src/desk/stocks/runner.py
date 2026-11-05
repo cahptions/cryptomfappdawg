@@ -94,6 +94,18 @@ def _due(market: StocksMarket, name: str, now: datetime, hours: float) -> bool:
     return not at or now - datetime.fromisoformat(at) >= timedelta(hours=hours)
 
 
+def _backfill_due(market: StocksMarket, name: str, now: datetime, hours: float, *, retry_hours: float = 6) -> bool:
+    """A history backfill fetches a bounded part per pass. While its last run says parts remain it runs again on the
+    next pass; once complete it is re-checked every ``hours``; after a failure it waits ``retry_hours``, so a broken
+    or changed source is not asked again every five minutes."""
+    job = market.jobs().get(name)
+    if job is None:
+        return True
+    if job["last_error"]:
+        return now - datetime.fromisoformat(job["last_run_at"]) >= timedelta(hours=retry_hours)
+    return bool(job["detail"].get("remaining")) or _due(market, name, now, hours)
+
+
 def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None:
     """Rebuild Plays from the stored chains (skipped when nothing it reads has changed). A failure here is reported on
     the Plays page and never stops research collection."""
@@ -337,17 +349,27 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
         if suite.sec.contact_configured:
             jobs["companies"] = await run_job("companies", collect.companies(suite, market, now,
                                                         collect.stale_companies(market, now, limit=company_limit)))
-            if _due(market, "filings_feed", now, 4):
+            # Up to ten days a pass (five minutes at most) while it is catching up after downtime, then every 4 hours.
+            if _due(market, "filings_feed", now, 4) or market.jobs().get("filings_feed", {}).get("detail", {}).get("behind"):
                 jobs["filings"] = await run_job("filings", collect.filings_feed(suite, market, now,
-                                                            start=now.date() - timedelta(days=7), max_days=1))
-        for name, work, hours in (("mentions", collect.mentions, 1), ("rates", collect.rates, 24),
-                                   ("short_interest", collect.short_interest, 24)):
+                                                            start=now.date() - timedelta(days=7), max_days=10,
+                                                            budget_seconds=300))
+            # The SEC's quarterly insider data sets: the newest nine quarters, one download a pass until all are in,
+            # then a weekly look for a newly published quarter.
+            if _backfill_due(market, "insider_history", now, 24 * 7):
+                jobs["insider_history"] = await run_job("insider_history", collect.insider_history(
+                    suite, market, now, quarters=collect.INSIDER_QUARTERS, per_pass=1))
+        for name, work, hours in (("mentions", collect.mentions, 1), ("rates", collect.rates, 24)):
             if _due(market, name, now, hours):
                 jobs[name] = await run_job(name, work(suite, market, now))
-        if suite.sec.contact_configured and _due(market, "fails", now, 24):
+        # Short interest (two years of settlements), fails to deliver (two years of files) and short volume (back to
+        # the last stored day, up to 45 days): daily, and every pass while a bounded backfill still has parts to fetch.
+        if _backfill_due(market, "short_interest", now, 24):
+            jobs["short_interest"] = await run_job("short_interest", collect.short_interest(suite, market, now))
+        if suite.sec.contact_configured and _backfill_due(market, "fails", now, 24):
             jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
-        if _due(market, "short_volume", now, 24):
-            jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now, days=5))
+        if _backfill_due(market, "short_volume", now, 24):
+            jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now))
         progress("analysis")
         try:
             preview = preview_now()

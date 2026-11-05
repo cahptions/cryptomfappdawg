@@ -20,18 +20,19 @@ import sqlite3
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import httpx
 
 from desk.core.errors import DeskError
+from desk.stocks import calendar as cal
 
 AGENT = "KESTRELStocks/1.0 (personal market research; local app)"
 LATEST = "https://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 FILE = "https://data.gdeltproject.org/gdeltv2/{stamp}.export.CSV.zip"
-BACKFILL_DAYS = 7               # enough history to compare against before 30 days of collection exist
-FILES_PER_PASS = 40
+BACKFILL_DAYS = 32              # status() compares the last two days with the 30 before them: day today-32 onward
+FILES_PER_PASS = 40             # newest first; a first load of 32 days (about 3,100 files) takes a few hours
 MAX_FILE = 5_000_000
 
 # CAMEO root/base codes → the kinds of events that disrupt supply
@@ -185,13 +186,20 @@ def save_file(conn: sqlite3.Connection, name: str, totals: Totals, now: datetime
         conn.execute("INSERT INTO stk_world_files VALUES (?,?,?)", (name, now.isoformat(), totals.events))
 
 
-def stamps(now: datetime, days: int = BACKFILL_DAYS) -> list[str]:
-    """Every 15-minute GDELT file name from ``days`` ago until about 20 minutes ago, newest first."""
+def window_start(now: datetime) -> datetime:
+    """Midnight UTC, ``BACKFILL_DAYS`` before New York's date: every day ``status`` reads is whole (its days are UTC
+    days, and New York's date is never ahead of UTC's), so the oldest baseline day counts too."""
+    return datetime.combine(cal.new_york(now).date() - timedelta(days=BACKFILL_DAYS), time(0), UTC)
+
+
+def stamps(now: datetime, days: int = BACKFILL_DAYS, *, since: datetime | None = None) -> list[str]:
+    """Every 15-minute GDELT file name from ``since`` (or ``days`` ago) until about 20 minutes ago, newest first."""
     end = now.astimezone(UTC) - timedelta(minutes=20)
     end = end.replace(minute=end.minute - end.minute % 15, second=0, microsecond=0)
+    stop = since if since is not None else end - timedelta(days=days)
     out = []
     t = end
-    while t > end - timedelta(days=days):
+    while t > stop or (since is not None and t == stop):
         out.append(t.strftime("%Y%m%d%H%M%S"))
         t -= timedelta(minutes=15)
     return out
@@ -199,9 +207,10 @@ def stamps(now: datetime, days: int = BACKFILL_DAYS) -> list[str]:
 
 async def collect(conn: sqlite3.Connection, client: httpx.AsyncClient, now: datetime, *,
                   limit: int = FILES_PER_PASS) -> dict[str, Any]:
-    """Fetch the newest missing files first (the backfill fills in behind, a few dozen a pass)."""
+    """Fetch the newest missing files first, a few dozen a pass: the 32-day backfill fills in behind, and so does any
+    hole inside the window (a pass missed while the computer was off, a file that failed to download)."""
     have = {r[0] for r in conn.execute("SELECT name FROM stk_world_files")}
-    missing = [s for s in stamps(now) if s not in have]
+    missing = [s for s in stamps(now, since=window_start(now)) if s not in have]
     done = failed = 0
     for stamp in missing[:limit]:
         try:

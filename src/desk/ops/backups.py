@@ -1,4 +1,8 @@
-"""Checksummed online SQLite snapshots and explicit, stopped-worker restore."""
+"""Checksummed online SQLite snapshots and explicit, stopped-worker restore.
+
+The Stocks databases are in the set too (since 2026-11): the always-on Stocks computer installs the same hourly
+timer (desk.ops.services.keep_stocks_running), so its PAPER books and collected history are copied there even when
+the crypto desks never run on it."""
 
 from __future__ import annotations
 
@@ -18,7 +22,12 @@ from typing import Any
 from desk.core.paths import DeskPaths
 
 DATABASES = {"market": "market.db", "research": "research.db", "ledger-paper": "ledger-paper.db",
-             "ledger-live": "ledger-live.db"}
+             "ledger-live": "ledger-live.db", "stocks-market": "stocks-market.db",
+             "stocks-research": "stocks-research.db", "stocks-ledger-paper": "stocks-ledger-paper.db",
+             "stocks-learning-paper": "stocks-learning-paper.db"}
+STOCKS_BOOKS = ("stocks-ledger-paper", "stocks-learning-paper")     # PAPER only: any other recorded mode is refused
+CADENCES = {"manual", "hourly", "daily", "stocks-hourly", "stocks-daily", "before-restore"}
+STOCKS_DAILY_KEEP = 3       # stocks-market.db grows by gigabytes (bars, option chains): three days bound the disk
 
 
 def _sync(path: Path) -> None:
@@ -56,6 +65,10 @@ def _validate_database(path: Path, kind: str) -> None:
             row = conn.execute("SELECT value FROM ledger_meta WHERE key='mode'").fetchone()
             if row is None or row[0] != kind.removeprefix("ledger-").upper():
                 raise ValueError("ledger mode mismatch")
+        if kind in STOCKS_BOOKS:      # the learning book never writes a mode row; a recorded one must say PAPER
+            row = conn.execute("SELECT value FROM ledger_meta WHERE key='mode'").fetchone()
+            if row is not None and row[0] != "PAPER":
+                raise ValueError("ledger mode mismatch")
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -73,15 +86,19 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def create_backup(paths: DeskPaths, kinds: tuple[str, ...], now: datetime, *, cadence: str = "manual") -> Path:
-    """Use SQLite's backup API, never copy a live main file without its WAL."""
+    """Use SQLite's backup API, never copy a live main file without its WAL.
+
+    Each database is copied in ONE step: a WAL reader never blocks the writer, and a stepwise copy starts over
+    whenever another connection writes, which the Stocks collector does every few seconds, so a multi-gigabyte
+    stocks-market.db copied 128 pages at a time might never finish."""
     if not kinds or len(set(kinds)) != len(kinds) or any(kind not in DATABASES for kind in kinds):
         raise ValueError("select unique known database kinds")
-    if cadence not in {"manual", "hourly", "daily", "before-restore"}:
+    if cadence not in CADENCES:
         raise ValueError("unknown backup cadence")
     if now.tzinfo is None:
         raise ValueError("backup time must have a timezone")
     folder = paths.backups_dir / cadence
-    folder.mkdir(parents=True, exist_ok=True)
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".pending-", dir=folder))
     entries: dict[str, Any] = {}
     try:
@@ -93,7 +110,7 @@ def create_backup(paths: DeskPaths, kinds: tuple[str, ...], now: datetime, *, ca
             with _readonly(source) as connection:
                 destination = sqlite3.connect(target)
                 try:
-                    connection.backup(destination, pages=128)
+                    connection.backup(destination, pages=-1)
                 finally:
                     destination.close()
             target.chmod(0o600)
@@ -135,32 +152,62 @@ def _rotate(paths: DeskPaths, cadence: str, keep: int) -> None:
         shutil.rmtree(manifest.parent)
 
 
-def backup_schedule_once(paths: DeskPaths, now: datetime, *, hourly_keep: int = 24, daily_keep: int = 7) -> dict[str, Any]:
-    """Idempotent UTC hour/day schedule, serialized across dashboard and timer processes."""
-    if type(hourly_keep) is not int or type(daily_keep) is not int or not 1 <= hourly_keep <= 8760 or not 1 <= daily_keep <= 366:
+def _room_for(paths: DeskPaths, kinds: tuple[str, ...]) -> bool:
+    """Twice the databases' size (the new copy, plus the oldest one until rotation removes it) and 512 MB must stay
+    free: a backup that fills the disk would stop the desks themselves from writing."""
+    size = sum(path.stat().st_size for kind in kinds for path in (paths.db_dir / DATABASES[kind],
+               paths.db_dir / (DATABASES[kind] + "-wal")) if path.is_file())
+    return shutil.disk_usage(paths.backups_dir).free >= 2 * size + 512 * 1024 * 1024
+
+
+def backup_schedule_once(paths: DeskPaths, now: datetime, *, hourly_keep: int = 24, daily_keep: int = 7,
+                         stocks_daily_keep: int = STOCKS_DAILY_KEEP) -> dict[str, Any]:
+    """Idempotent UTC hour/day schedule, serialized across dashboard and timer processes.
+
+    Crypto and Stocks are separate groups with their own folders and rotation, so one desk's missing or damaged
+    database never stops the other's backups. Every group is tried and any failure is raised afterwards (the timer
+    then shows failed, with the reason in its journal); a group that failed is tried again at the next run."""
+    if any(type(keep) is not int for keep in (hourly_keep, daily_keep, stocks_daily_keep)) or not (
+            1 <= hourly_keep <= 8760 and 1 <= daily_keep <= 366 and 1 <= stocks_daily_keep <= 366):
         raise ValueError("backup retention must be positive bounded integers")
     if now.tzinfo is None:
         raise ValueError("backup time must have a timezone")
     paths.backups_dir.mkdir(parents=True, exist_ok=True)
     created: list[str] = []
+    failed: list[str] = []
     with (paths.backups_dir / ".schedule.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         state_file = paths.backups_dir / "schedule.json"
         state = json.loads(state_file.read_text()) if state_file.exists() else {}
         current = now.astimezone(UTC)
-        groups = (("hourly", current.strftime("%Y-%m-%dT%H"), ("ledger-paper", "ledger-live"), hourly_keep),
-                  ("daily", current.strftime("%Y-%m-%d"), ("market", "research"), daily_keep))
+        hour, day = current.strftime("%Y-%m-%dT%H"), current.strftime("%Y-%m-%d")
+        groups = (("hourly", hour, ("ledger-paper", "ledger-live"), hourly_keep),
+                  ("daily", day, ("market", "research"), daily_keep),
+                  ("stocks-hourly", hour, STOCKS_BOOKS, hourly_keep),
+                  ("stocks-daily", day, ("stocks-market", "stocks-research"), stocks_daily_keep))
         for cadence, period, candidates, keep in groups:
             if state.get(cadence) == period:
                 continue
             kinds = tuple(kind for kind in candidates if (paths.db_dir / DATABASES[kind]).is_file())
-            if kinds:
+            if not kinds:
+                continue
+            if not _room_for(paths, kinds):
+                failed.append(f"{cadence}: not enough free disk for a copy of {', '.join(kinds)}")
+                continue
+            try:
                 manifest = create_backup(paths, kinds, now, cadence=cadence)
-                created.append(str(manifest))
-                state[cadence] = period
-                _atomic_json(state_file, state)
-                _rotate(paths, cadence, keep)
-    return {"created": created, "hourly_keep": hourly_keep, "daily_keep": daily_keep}
+            except Exception as exc:          # reported below; the other groups still run
+                failed.append(f"{cadence}: {type(exc).__name__}: {exc}"[:300])
+                continue
+            created.append(str(manifest))
+            state[cadence] = period
+            _atomic_json(state_file, state)
+            _rotate(paths, cadence, keep)
+    if failed:
+        made = f" (made: {', '.join(created)})" if created else ""
+        raise RuntimeError("backups failed: " + "; ".join(failed) + made)
+    return {"created": created, "hourly_keep": hourly_keep, "daily_keep": daily_keep,
+            "stocks_daily_keep": stocks_daily_keep}
 
 
 def restore_backup(manifest: Path, paths: DeskPaths, *, kind: str, expected_mode: str = "PAPER",
