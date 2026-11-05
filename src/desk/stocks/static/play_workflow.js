@@ -177,11 +177,18 @@ const KestrelPlayWorkflow = (() => {
       more.append(el("p", data.max_gain_note), el("p", data.note));
       details.append(more);
       box.append(details);
+      if (data.computed === "later")
+        box.append(
+          el(
+            "small",
+            `Computed later from ${data.basis}: this saved idea predates profit targets, so they were not shown when it was picked.`,
+          ),
+        );
     } else
       box.append(
         el(
           "small",
-          "ITM and profit differ. More targets appear after the next analysis pass.",
+          "ITM and profit differ. This saved idea kept no forecast or expected move (or no stock price), so its profit targets cannot be computed.",
         ),
       );
     return box;

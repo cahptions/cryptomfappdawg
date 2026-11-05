@@ -351,6 +351,12 @@ def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: b
         from desk.stocks.play_archive import with_sighting_price
 
         found["play"] = with_sighting_price(market, research, found["play"], found["identified_at"])
+    if not found["play"].get("probability_targets"):          # an idea saved before targets: computed now, labelled
+        from desk.stocks.play_targets import computed_later
+
+        later = computed_later(found["play"], date.fromordinal(found["session"]))
+        if later is not None:
+            found["play"] = {**found["play"], "probability_targets": later}
     play, entry = found["play"], current["entry"] if current else None
     prepared = plan(research, found["id"], now)
     if current and entry is None:

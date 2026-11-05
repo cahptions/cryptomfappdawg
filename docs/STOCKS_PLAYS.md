@@ -131,7 +131,10 @@ favorable regions of the exact piecewise terminal payoff under the recorded logn
 fees. They do not estimate selling at a peak or hitting a target before expiry. Each recorded play's profit,
 +25/50/100% and maximum-gain chances are **graded at expiry** against its real return, and once a group has 30
 resolved plays the chance shown is **calibrated** on them, like the in-the-money chance (see "Every chance,
-graded"). The meters say "calibrated" when that has happened and "model" before.
+graded"). The meters say "calibrated" when that has happened and "model" before. A saved idea from before targets
+existed gets them when its page is opened, **computed later** from its own saved legs, entry and stock price at its
+saved KESTREL forecast (else its saved one-standard-deviation move, with no drift), and says so; one that kept
+neither (or no stock price) says its targets cannot be computed.
 
 Finite credit spreads can show the probability of maximum expiry gain. Long calls have unbounded maximum gain;
 long puts reach their theoretical maximum only with the underlying at zero. The UI explains these cases instead
