@@ -9,9 +9,10 @@ the first-sighting basis is computed beside it on the page.
 Each mark carries a status: **quoted** (every leg quoted near the close), **modelled** (tracking ran that session but a
 leg had no closing quote: Black-Scholes on the stock's close at that leg's last implied volatility), **estimated** (a
 gap — the laptop was off — filled with Black-Scholes on the stock's real closes, the volatility interpolated between
-the last quote before the gap and the first one after it) or **settled** (expiration: intrinsic value on the stock's
-close). Marks are append-only: a later quote can never change an earlier mark. Grading and learning use quoted marks
-and settlements only.
+the last quote before the gap and the first one after it; where Massive's stored daily bar of the contract itself
+exists for that session, its close — the day's last trade, not a closing bid/ask — is used instead and still labelled
+estimated) or **settled** (expiration: intrinsic value on the stock's close). Marks are append-only: a later quote
+can never change an earlier mark. Grading and learning use quoted marks and settlements only.
 
 **Gap repair.** Stock closes come from the stored daily bars, else from Schwab's daily price history (requested with
 the smallest period that covers the gap), else from the underlying price Schwab reported with the closing option
@@ -33,7 +34,7 @@ import json
 import math
 import sqlite3
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Protocol
@@ -344,9 +345,26 @@ def recorded_quote(occ: str, record_day: date, leg: dict[str, Any], underlying: 
     out.rows.append(_row(occ, record_day, row, "recorded play", rate, now))
 
 
+def option_bars(market: sqlite3.Connection, occs: Sequence[str], since: date) -> dict[tuple[str, int], float]:
+    """Massive's stored daily closes of the contracts themselves (``stk_option_bars``; days with trades only)."""
+    out: dict[tuple[str, int], float] = {}
+    for chunk in _chunks(list(occs)):
+        marks = ",".join("?" * len(chunk))
+        for r in market.execute(f"SELECT occ, day, close FROM stk_option_bars WHERE occ IN ({marks}) AND day >= ? "  # noqa: S608
+                                "AND close > 0 AND COALESCE(volume, 0) > 0", (*chunk, day_of(since))):
+            out[(r["occ"], r["day"])] = float(r["close"])
+    return out
+
+
+BAR_NOTE = ("the contract's own daily close from Massive (its last trade that day, not a closing bid/ask): an "
+            "estimate of the closing value, never graded")
+
+
 def fill_contract(occ: str, days: Sequence[date], rows: dict[int, DayRow], closes: Closes, ran: set[int],
-                  last_closed: date, rate: Callable[[date], float], now: datetime, out: Repair) -> None:
-    """Create the missing daily rows of one contract, oldest first (each may anchor the next)."""
+                  last_closed: date, rate: Callable[[date], float], now: datetime, out: Repair,
+                  bars: Mapping[tuple[str, int], float] | None = None) -> None:
+    """Create the missing daily rows of one contract, oldest first (each may anchor the next). A session without a
+    closing quote takes the contract's own stored daily close where Massive has one (``bars``), else Black-Scholes."""
     symbol, kind, strike, expiration = parse_occ(occ)
     settles = settle_day(expiration)
     for d in days:
@@ -356,6 +374,15 @@ def fill_contract(occ: str, days: Sequence[date], rows: dict[int, DayRow], close
         s = closes.close(symbol, d)
         if s is None:
             continue                                   # no stock price yet (or a halt): nothing to fill
+        traded = None if bars is None or d == settles else bars.get((occ, n))
+        if traded is not None:
+            iv = computed_greeks(kind, traded, s, strike, expiration, d, rate(d))["iv"]
+            row = DayRow("estimated", traded, traded, s, iv, False, BAR_NOTE)
+            rows[n] = row
+            out.rows.append(_row(occ, d, row, "massive daily bar", rate, now))
+            if iv:
+                out.estimated.append((occ, d, iv))
+            continue
         if d == settles:
             s = closes.official_close(symbol, d)
             if s is None:
@@ -595,10 +622,11 @@ async def update(market: sqlite3.Connection, research: sqlite3.Connection, now: 
                                                     **{sym: to_iso(now) for sym in asked}}, now)
         closes.load()
     ran = tracked_sessions(research, start)
+    bars = option_bars(market, occs, start)
     for p, _ in open_positions:
         days = cal.trading_days(p.session, min(p.settles, last_closed))
         for leg in p.legs:
-            fill_contract(leg["occ"], days, rows[leg["occ"]], closes, ran, last_closed, rate, now, repair)
+            fill_contract(leg["occ"], days, rows[leg["occ"]], closes, ran, last_closed, rate, now, repair, bars)
     with transaction(research):
         save_rows(research, repair.rows)
     report["contract_rows"] = len(repair.rows)
@@ -655,7 +683,7 @@ async def update(market: sqlite3.Connection, research: sqlite3.Connection, now: 
     return report
 
 
-__all__ = ["Closes", "DayRow", "LegQuote", "Position", "Repair", "assignment_risk", "estimate_intraday",
-           "fetch_closes", "fill_contract", "gap_flags", "liquidation", "load_rows", "mark_day", "model_price",
+__all__ = ["Closes", "DayRow", "LegQuote", "Position", "Repair", "assignment_risk", "estimate_intraday", "fetch_closes",
+           "fill_contract", "gap_flags", "liquidation", "load_rows", "mark_day", "model_price", "option_bars",
            "positions", "profit", "recorded_quote", "settle_day", "settlement", "split_day", "tracked_sessions",
            "update"]

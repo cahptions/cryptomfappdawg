@@ -6,10 +6,12 @@ defined-risk structure with its cost or credit, worst case, break-even, greeks a
 money (``desk.stocks.odds``): what the market prices, what the stock's own history says, and KESTREL's calibrated
 forecast. Nothing sells an uncovered option.
 
-The quotes carry no greeks, so implied volatility and greeks are solved here from the bid/ask mid (vectorized, so a
-whole session scores in well under a second). Unusual activity is scored from quote snapshots — volume, open interest
-and quotes, compared with the contract's own and the underlying's earlier sessions — not from exchange trade prints,
-so trade direction is shown only as a labelled inference.
+Every provider's chain is scored the same way: implied volatility and greeks are solved here from the bid/ask mid
+(vectorized, so a whole session scores in well under a second). Schwab's own IV and greeks, which its live quotes
+carry, are stored by tracking and shown beside KESTREL's on a play's detail page; they do not rank plays. Unusual
+activity is scored from quote snapshots — volume, open interest and quotes, compared with the contract's own and the
+underlying's earlier sessions — not from exchange trade prints, so trade direction is shown only as a labelled
+inference.
 
 A session's plays are recorded once, at the first build after that session closes, and graded once at expiration on
 the underlying's close. Graded plays calibrate the KESTREL chance of later plays.

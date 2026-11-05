@@ -1003,7 +1003,7 @@ const KestrelPlays = (() => {
       grid,
       el(
         "p",
-        "These alternatives are tracked automatically in History. Their results are separate from the original category's performance record.",
+        "These alternatives are followed automatically in History → All identified plays, each with its own result. They are not part of any recorded track record; each is judged by its section's record at its own days to expiry.",
         "caption muted",
       ),
     );
@@ -1035,7 +1035,7 @@ const KestrelPlays = (() => {
       el("h1", "Plays"),
       el(
         "p",
-        "Ranked option ideas from the desks, the options data and what past plays and PAPER trades actually did. Every chance is an estimate with its track record beside it. Research, not financial advice.",
+        "Ranked option ideas from the desks, the options data and what past plays and PAPER trades actually did. Every chance is a model estimate, graded against what happened on recorded plays (Performance charts each one) and calibrated once 30 have resolved. Research, not financial advice.",
         "muted",
       ),
     );
@@ -1147,7 +1147,7 @@ const KestrelPlays = (() => {
         const note = el(
           "p",
           data.budget_search
-            ? "Budget search considers affordable strikes and expirations before ranking. Category quality gates still apply; budget trades are followed automatically in History. The original category's performance record is separate."
+            ? "Budget search considers affordable strikes and expirations before ranking. Category quality gates still apply; budget trades are followed automatically in History → All identified plays, each with its own result, and judged by the section's record at their own days to expiry. They do not enter any recorded track record."
             : "This saved board predates budget search. The next collection pass rebuilds it from saved chains; current results only filter the original shortlist.",
           "caption muted",
         );
@@ -1274,7 +1274,7 @@ const KestrelPlays = (() => {
       ),
       el(
         "p",
-        "Cost / risk is for one contract per leg, including entry fees: purchase cost for buys; maximum loss for sells. Chance follows the card's expiry event: ITM, a break-even move, or a short option expiring worthless.",
+        "Cost / risk is for one contract per leg, including entry fees: purchase cost for buys; maximum loss for sells. Min chance filters on the card's headline chance: reaching the exit plan's take-profit before its stop or leave-by date (a card without a plan uses its expiry event: ITM, a break-even move, or a short option expiring worthless).",
         "caption muted play-filter-help",
       ),
       el(
@@ -1305,7 +1305,7 @@ const KestrelPlays = (() => {
           refused:
             "Schwab refused option symbols on its quotes endpoint; tracking uses per-expiry chains instead.",
         }[t.endpoint?.state] ||
-        "Schwab option quotes not verified yet: run uv run desk stocks doctor --online.",
+        "Schwab option quotes not tried yet: the next tracking pass in market hours tries them and records the result (uv run desk stocks doctor --online checks now).",
       mb =
         t.storage?.bytes === null || t.storage?.bytes === undefined
           ? "size not measurable on this SQLite"
