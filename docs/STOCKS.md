@@ -292,6 +292,16 @@ so inspect its impact on other desks before deliberately resuming.
 - Stocks data lives in separate `stocks-market.db`, `stocks-research.db`, `stocks-ledger-paper.db` under
   `~/desk-data/db`. Connection preferences and saved reports live under `~/desk-data`; private tokens/certificates
   live beside secrets.env. Updating code does not rewrite an existing account's initial deposit.
+- Backups: `kestrel update` also installs and starts the hourly backup timer (`desk-backup.timer`) on the computer
+  that runs Stocks. It copies the two PAPER books (`stocks-ledger-paper.db`, `stocks-learning-paper.db`) every
+  hour (24 kept) and `stocks-market.db` and `stocks-research.db` once a day (3 kept, because the market file grows
+  by gigabytes) into `~/desk-data/backups/stocks-hourly` and `stocks-daily`. Copies use SQLite's online backup, so
+  Stocks keeps running; each is checked and checksummed, and files are readable by you only. A copy that would
+  leave less than twice its size plus 512 MB free is skipped and the timer shows failed with the reason
+  (`systemctl --user status desk-backup`). Check a copy with `uv run desk backups verify <manifest.json>`.
+  `desk backups restore` does not take Stocks databases yet: to restore one, stop Stocks
+  (`systemctl --user stop desk-stocks-dashboard.service`), verify the copy, move the current file and its `-wal`
+  and `-shm` files aside, copy the backup's file in, then start Stocks again.
 - Quotes keep their actual timestamps. Standard100-share contracts only; adjusted deliverables are excluded.
   Explicitly delayed Schwab chains are refused. Chain rows record their provider; one asset/session cannot mix
   providers. Legacy option records are labelled `tradier_legacy_unknown_environment`. Switching source should

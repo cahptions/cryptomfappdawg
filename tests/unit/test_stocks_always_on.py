@@ -52,6 +52,14 @@ def test_updates_install_and_enable_it_once_and_say_how_to_start_it_at_power_on(
     assert oct(target.stat().st_mode & 0o777) == "0o600"
     assert ["systemctl", "--user", "enable", services.STOCKS_UNIT] in systemd.calls
     assert len(notes) == 1 and "sudo loginctl enable-linger" in notes[0]                 # lingering needs an admin
+    # the hourly backups run on the computer that holds the Stocks databases (desk.ops.backups)
+    assert ["systemctl", "--user", "enable", "--now", services.BACKUP_TIMER] in systemd.calls
+    for name, content in services.render_backup_units(paths(tmp_path), "/usr/bin/python3").items():
+        assert (units / name).read_text() == content and (units / name).stat().st_mode & 0o777 == 0o600
+    assert '"/usr/bin/python3" -m desk backups run' in (units / "desk-backup.service").read_text()
+    no_timer = services.keep_stocks_running(paths(tmp_path), "/usr/bin/python3", 8767, unit_dir=units,
+                                            run=Systemd(linger="yes", refuse=services.BACKUP_TIMER))
+    assert len(no_timer) == 1 and "backups are not scheduled" in no_timer[0]             # Stocks itself still on
     written = target.stat().st_mtime_ns
     assert services.keep_stocks_running(paths(tmp_path), "/usr/bin/python3", 8767, unit_dir=units,
                                         run=Systemd(linger="yes")) == []                 # already lingering: quiet

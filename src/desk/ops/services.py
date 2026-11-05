@@ -31,6 +31,34 @@ def _quote(value: str, *, command: bool = False) -> str:
 SEGMENT_MINUTES = 240                       # one piece of the segmented 24-hour test (desk.ops.acceptance)
 ENGINES = ("desk-engine.service", "desk-rh-engine.service")
 DASHBOARDS = ("desk-dashboard.service", "desk-rh-dashboard.service")
+INHIBITOR = "/usr/bin/systemd-inhibit --what=idle:sleep --mode=block --who=KESTREL "
+BACKUP_TIMER = "desk-backup.timer"
+
+
+def _environment(paths: DeskPaths) -> str:
+    return "\n".join(
+        "Environment=" + _quote(f"{key}={value}")
+        for key, value in (("DESK_HOME", paths.home), ("DESK_CONFIG_DIR", paths.config_dir),
+                           ("DESK_SECRETS_FILE", paths.secrets_file))
+    )
+
+
+def render_backup_units(paths: DeskPaths, python_executable: str) -> dict[str, str]:
+    """The hourly online-backup timer (desk.ops.backups). Shared by every desk: the Stocks computer installs the
+    same two files, so a computer running both writes identical units."""
+    if not Path(python_executable).is_absolute():
+        raise ValueError("an absolute Python executable is required")
+    return {
+        "desk-backup.service": (
+            "[Unit]\nDescription=KESTREL online database backups\n\n[Service]\nType=oneshot\n"
+            f"{_environment(paths)}\nExecStart={_quote(python_executable, command=True)} -m desk backups run\n"
+            "UMask=0077\nMemoryMax=200M\nNoNewPrivileges=true\n"
+        ),
+        BACKUP_TIMER: (
+            "[Unit]\nDescription=KESTREL hourly backup schedule\n\n[Timer]\nOnCalendar=hourly\n"
+            "Persistent=true\nRandomizedDelaySec=30\n\n[Install]\nWantedBy=timers.target\n"
+        ),
+    }
 
 
 def render_units(paths: DeskPaths, python_executable: str, port: int = 8765, rh_port: int = 8766) -> dict[str, str]:
@@ -40,12 +68,8 @@ def render_units(paths: DeskPaths, python_executable: str, port: int = 8765, rh_
     if not (1024 <= port <= 65535 and 1024 <= rh_port <= 65535) or port == rh_port:
         raise ValueError("dashboard ports must differ and be between 1024 and 65535")
     python = _quote(python_executable, command=True)
-    inhibitor = "/usr/bin/systemd-inhibit --what=idle:sleep --mode=block --who=KESTREL "
-    environment = "\n".join(
-        "Environment=" + _quote(f"{key}={value}")
-        for key, value in (("DESK_HOME", paths.home), ("DESK_CONFIG_DIR", paths.config_dir),
-                           ("DESK_SECRETS_FILE", paths.secrets_file))
-    )
+    inhibitor = INHIBITOR
+    environment = _environment(paths)
 
     def unit(description: str, command: str, memory: str, *, restart: str = "on-failure",
              extra_unit: str = "") -> str:
@@ -71,15 +95,7 @@ def render_units(paths: DeskPaths, python_executable: str, port: int = 8765, rh_
                                        restart="always"),
         "desk-rh-dashboard.service": unit("Robinhood desk dashboard", f"{python} -m desk rh dashboard --port {rh_port}",
                                           "200M"),
-        "desk-backup.service": (
-            "[Unit]\nDescription=KESTREL online database backups\n\n[Service]\nType=oneshot\n"
-            f"{environment}\nExecStart={python} -m desk backups run\nUMask=0077\nMemoryMax=200M\n"
-            "NoNewPrivileges=true\n"
-        ),
-        "desk-backup.timer": (
-            "[Unit]\nDescription=KESTREL hourly backup schedule\n\n[Timer]\nOnCalendar=hourly\n"
-            "Persistent=true\nRandomizedDelaySec=30\n\n[Install]\nWantedBy=timers.target\n"
-        ),
+        **render_backup_units(paths, python_executable),
     }
     return units
 
@@ -93,11 +109,7 @@ def render_stocks_unit(paths: DeskPaths, python_executable: str, port: int) -> s
     research worker it starts runs in the same service."""
     if not Path(python_executable).is_absolute():
         raise ValueError("an absolute Python executable is required")
-    environment = "\n".join(
-        "Environment=" + _quote(f"{key}={value}")
-        for key, value in (("DESK_HOME", paths.home), ("DESK_CONFIG_DIR", paths.config_dir),
-                           ("DESK_SECRETS_FILE", paths.secrets_file))
-    )
+    environment = _environment(paths)
     root = str(REPO_ROOT)
     folder = f"WorkingDirectory={root.replace('%', '%%')}\n" if not any(c.isspace() for c in root) else ""
     return ("[Unit]\nDescription=KESTREL Stocks (always on)\nStartLimitIntervalSec=600\nStartLimitBurst=20\n"
@@ -110,18 +122,22 @@ def render_stocks_unit(paths: DeskPaths, python_executable: str, port: int) -> s
 def keep_stocks_running(paths: DeskPaths, python_executable: str, port: int, *, unit_dir: Path | None = None,
                         run: Callable[..., Any] = subprocess.run) -> list[str]:
     """Install or refresh the always-on Stocks service and enable it; turn on lingering so it starts at power-on.
+    The hourly backup timer is installed and started too, so the Stocks databases are backed up on the computer
+    that holds them (desk.ops.backups), whether or not the crypto desks were ever set up there.
     Returns what the person should know; never raises, so an update still restarts the app the old way."""
     if not shutil.which("systemctl"):
         return ["No systemd here: Stocks runs as a plain background process and stays off after it stops."]
     directory = unit_dir or Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "systemd" / "user"
-    target = directory / STOCKS_UNIT
-    content = render_stocks_unit(paths, python_executable, port)
+    files = {STOCKS_UNIT: render_stocks_unit(paths, python_executable, port),
+             **render_backup_units(paths, python_executable)}
     try:
-        if not target.exists() or target.read_text(encoding="utf-8") != content:
-            directory.mkdir(parents=True, exist_ok=True)
-            with target.open("w", encoding="utf-8") as output:
-                os.fchmod(output.fileno(), 0o600)
-                output.write(content)
+        for name, content in files.items():
+            target = directory / name
+            if not target.exists() or target.read_text(encoding="utf-8") != content:
+                directory.mkdir(parents=True, exist_ok=True)
+                with target.open("w", encoding="utf-8") as output:
+                    os.fchmod(output.fileno(), 0o600)
+                    output.write(content)
     except OSError as exc:
         return [f"Could not write the always-on service ({type(exc).__name__}); Stocks runs as a plain process."]
     notes = []
@@ -130,6 +146,10 @@ def keep_stocks_running(paths: DeskPaths, python_executable: str, port: int, *, 
         if done.returncode:
             return [f"systemd did not accept the always-on service ({' '.join(step)}: "
                     f"{(done.stderr or '').strip()[:160]}); Stocks runs as a plain process this time."]
+    backups = run(["systemctl", "--user", "enable", "--now", BACKUP_TIMER], check=False, capture_output=True, text=True)
+    if backups.returncode:
+        notes.append(f"Hourly backups are not scheduled (systemd: {(backups.stderr or '').strip()[:160]}); "
+                     "run `uv run desk backups run` by hand until the next update sets them up.")
     user = getpass.getuser()
     linger = run(["loginctl", "show-user", user, "--property=Linger", "--value"], check=False,
                  capture_output=True, text=True)
