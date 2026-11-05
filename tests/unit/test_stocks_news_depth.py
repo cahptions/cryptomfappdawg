@@ -12,8 +12,9 @@ from typing import Any
 import httpx
 import pytest
 
+from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
-from desk.stocks import desks, news_flow, world
+from desk.stocks import desks, news_flow, policy, world
 from desk.stocks.repo import StocksDatabases, StocksMarket
 from tests.conftest import REPO
 
@@ -135,3 +136,54 @@ def test_world_events_backfill_32_whole_days_and_fill_holes_newest_first(conn) -
     assert asked == holes and second["missing"] == 0
     nodes = world.status(conn, TODAY)
     assert {n["baseline_days"] for n in nodes} == {31} and all(n["ready"] for n in nodes)
+
+
+# ── trade actions ────────────────────────────────────────────────────────────────────────────────
+class Register:
+    """The Federal Register's documents.json: newest first, 100 a page, filtered by publication date."""
+
+    def __init__(self, count: int, *, full_pages_forever: bool = False) -> None:
+        first = date(2025, 1, 20)
+        self.docs = [{"document_number": f"2025-{i:05d}", "title": f"Proclamation {i}", "abstract": "",
+                      "publication_date": (first + timedelta(days=i * 650 // count)).isoformat(),
+                      "signing_date": None, "html_url": f"https://www.federalregister.gov/d/{i}", "subtype": "proclamation"}
+                     for i in range(count)]
+        self.forever, self.asked = full_pages_forever, list[tuple[str, int]]()
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        since, page = request.url.params["conditions[publication_date][gte]"], int(request.url.params["page"])
+        self.asked.append((since, page))
+        matching = sorted((d for d in self.docs if d["publication_date"] >= since),
+                          key=lambda d: d["publication_date"], reverse=True)
+        rows = matching[:100] if self.forever else matching[(page - 1) * 100:page * 100]
+        return httpx.Response(200, json={"results": rows})
+
+    async def collect(self, conn: Any, today: date) -> dict[str, Any]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(self)) as client:
+            return await policy.collect(conn, client, today)
+
+
+def test_trade_actions_load_every_page_the_first_time_then_from_two_weeks_before_the_newest(conn) -> None:
+    register = Register(1350)                                              # more than the old 10-page cap held
+    first = asyncio.run(register.collect(conn, TODAY))
+    assert first["full"] and first["new"] == 1350 and [p for _, p in register.asked] == list(range(1, 15))
+    newest = max(d["publication_date"] for d in register.docs)
+    register.asked.clear()
+    later = asyncio.run(register.collect(conn, TODAY + timedelta(days=90)))     # long after: not "today - 14"
+    since = (date.fromisoformat(newest) - timedelta(days=14)).isoformat()
+    assert not later["full"] and later["since"] == since and register.asked == [(since, 1)]
+
+
+def test_a_store_cut_off_by_the_old_cap_is_loaded_in_full_once(conn) -> None:
+    register = Register(1350)
+    policy.save(conn, sorted(register.docs, key=lambda d: d["publication_date"])[-1000:])   # the old 10 newest pages
+    again = asyncio.run(register.collect(conn, TODAY))
+    assert again["full"] and again["new"] == 350
+    assert not asyncio.run(register.collect(conn, TODAY))["full"]
+
+
+def test_endless_full_pages_are_an_error_not_a_shortened_history(conn) -> None:
+    register = Register(150, full_pages_forever=True)
+    with pytest.raises(DeskError, match="full pages"):
+        asyncio.run(register.collect(conn, TODAY))
+    assert len(register.asked) == policy.MAX_PAGES and "policy_history" not in StocksMarket(conn).jobs()

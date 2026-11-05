@@ -212,7 +212,7 @@ def test_collection_pages_forward_and_reads_the_world_and_the_federal_register(t
         assert got["files"] + got["failed"] <= 8 and got["missing"] > 0
         assert again["missing"] == got["missing"] - 8                                     # the next pass continues
         assert conn.execute("SELECT COUNT(*) FROM stk_world_files").fetchone()[0] == 16   # 404s recorded as empty
-        assert fr == {"documents": 1, "new": 1}
+        assert (fr["documents"], fr["new"], fr["since"], fr["full"]) == (1, 1, "2025-01-20", True)   # the first time
         assert json.loads(conn.execute("SELECT body FROM stk_policy_docs").fetchone()[0])["topics"] == ["machinery"]
     finally:
         w.close()

@@ -28,6 +28,8 @@ from desk.core.errors import DeskError
 API = "https://www.federalregister.gov/api/v1/documents.json"
 AGENT = "KESTRELStocks/1.0 (personal market research; local app)"
 SINCE = date(2025, 1, 20)
+MAX_PAGES = 60                  # a safety stop far above need: about 1,000 documents since January 2025 fill 10 pages
+LATE = timedelta(days=14)       # documents can be published (and dated) up to two weeks after ones already stored
 TRADE = re.compile(r"\btariffs?\b|\bduties\b|\bduty\b|\bimports?\b|section 232|section 301|reciprocal|trade agreement",
                    re.I)
 SANCTIONS = re.compile(r"sanction|export control|entity list|embargo|blocking property", re.I)
@@ -78,8 +80,9 @@ def tags(title: str, abstract: str | None) -> dict[str, Any]:
             "countries": [c for c in COUNTRIES if re.search(rf"\b{c}\b", text)]}
 
 
-async def fetch(client: httpx.AsyncClient, since: date, *, pages: int = 10) -> list[dict[str, Any]]:
-    """Presidential documents published since ``since``, newest first."""
+async def fetch(client: httpx.AsyncClient, since: date, *, pages: int = MAX_PAGES) -> list[dict[str, Any]]:
+    """Presidential documents published since ``since``, newest first, paging until a short page. Full pages past
+    ``pages`` are an error, not a quietly shortened history."""
     out: list[dict[str, Any]] = []
     for page in range(1, pages + 1):
         params: list[tuple[str, str | int | float | bool | None]] = [
@@ -100,8 +103,8 @@ async def fetch(client: httpx.AsyncClient, since: date, *, pages: int = 10) -> l
         results = value.get("results") or []
         out += [r for r in results if isinstance(r, dict) and r.get("document_number") and r.get("title")]
         if len(results) < 100:
-            break
-    return out
+            return out
+    raise DeskError(f"The Federal Register kept sending full pages past {pages}; stopped to stay polite")
 
 
 def save(conn: sqlite3.Connection, docs: list[dict[str, Any]]) -> int:
@@ -120,11 +123,25 @@ def save(conn: sqlite3.Connection, docs: list[dict[str, Any]]) -> int:
 
 
 async def collect(conn: sqlite3.Connection, client: httpx.AsyncClient, today: date) -> dict[str, Any]:
-    """Everything since January 2025 the first time, then the last two weeks (late publications)."""
-    have = conn.execute("SELECT COUNT(*) FROM stk_policy_docs").fetchone()[0]
-    since = SINCE if not have else today - timedelta(days=14)
-    docs = await fetch(client, since, pages=10 if not have else 2)
-    return {"documents": len(docs), "new": save(conn, docs)}
+    """Every presidential document since January 20, 2025 the first time, paging until a short page (once more for a
+    store loaded under the earlier 10-page cap, which could cut off the oldest); after that, from two weeks before the
+    newest publication date stored, so late publications and everything since a long stop are both fetched.
+
+    The full load is all or nothing (pages arrive newest first, so a partial one would hide a gap behind newer
+    documents); the ``policy_history`` job records that it finished."""
+    from desk.core.clock import utc_now
+    from desk.stocks.repo import StocksMarket
+
+    market = StocksMarket(conn)
+    newest = conn.execute("SELECT MAX(published) FROM stk_policy_docs").fetchone()[0]
+    full = newest is None or not market.jobs().get("policy_history", {}).get("detail", {}).get("complete")
+    since = SINCE if full else date.fromordinal(newest) - LATE
+    docs = await fetch(client, since)
+    new = save(conn, docs)
+    if full:
+        market.job("policy_history", utc_now(), detail={"complete": True, "from": SINCE.isoformat(),
+                                                         "documents": len(docs)})
+    return {"documents": len(docs), "new": new, "since": since.isoformat(), "full": full}
 
 
 def documents(conn: sqlite3.Connection, since: date, until: date) -> list[dict[str, Any]]:
