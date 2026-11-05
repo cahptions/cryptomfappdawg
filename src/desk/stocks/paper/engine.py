@@ -7,7 +7,9 @@ account through that session, in the order a real account would live it:
 4. options that expired, settled at intrinsic value on the close;
 5. mark everything at today's close (stocks) and mids (options), and raise trailing stops;
 6. decide exits (time, take-profit, stop, days to expiry, results passed, rebalance) and entries from today's
-   analysis, as orders for the next session — nothing decided on a close fills at that close;
+   analysis, as orders for the next session — nothing decided on a close fills at that close. A candidate an event
+   or option strategy passes over (no price, no liquidity, no chain, no fitting contract, over budget) is recorded
+   as a SKIP with its reason: once per stock, at most ``MAX_SKIPS`` per strategy and session;
 7. record each account's equity for the day (once; a day is never stepped twice).
 """
 
@@ -33,6 +35,7 @@ from desk.stocks.repo import StocksMarket
 STALE_STOCK_SESSIONS = 5           # an order that can't fill for this many sessions is cancelled
 STALE_OPTION_SESSIONS = 3
 CASH_BUFFER = 0.995                # keep half a percent in cash for fees and rounding
+MAX_SKIPS = 5                      # skip reasons recorded per strategy and session: the reasons, not a flood
 DEFAULT_RATE = 0.04
 
 
@@ -487,6 +490,13 @@ class PaperEngine:
                     self._enter_stock(st, c, asof, now, size, {}, rep)
             return
         room = min(p["max_open"], int(self.settings.paper_max_open_positions)) - len(held) - len(entering)
+        skipped: set[str] = set()
+
+        def skip(symbol: str, reason: str, evidence: dict[str, Any] | None = None) -> None:
+            if symbol not in skipped and len(skipped) < MAX_SKIPS:
+                skipped.add(symbol)
+                self.book.decide(now, asof, st.id, st.spec_sha256, symbol, "SKIP", [reason], evidence or {})
+
         if st.asset == "stock":
             plan: dict[str, Any] = {k: p[k] for k in ("stop", "trail", "hold") if k in p}
             fraction = min(p["size"], cap)
@@ -496,10 +506,14 @@ class PaperEngine:
             for c in picks:
                 if room <= 0 or available < 1:
                     break
-                if c.symbol in held or c.symbol in entering or c.symbol not in bars:
+                if c.symbol in held or c.symbol in entering:
+                    continue
+                if c.symbol not in bars:
+                    skip(c.symbol, "no price for this stock today")
                     continue
                 dv = self._dv(c.symbol, day, bars)
                 if dv is None or not math.isfinite(dv) or dv <= 0:
+                    skip(c.symbol, "no recent trading volume to size the order against")
                     continue
                 size = min(equity * fraction, available * CASH_BUFFER,
                            dv * float(self.settings.paper_stock_participation_fraction))
@@ -513,22 +527,26 @@ class PaperEngine:
         for c in picks:
             if room <= 0:
                 break
-            if c.symbol in held or c.symbol in entering or c.symbol not in bars:
+            if c.symbol in held or c.symbol in entering:
+                continue
+            if c.symbol not in bars:
+                skip(c.symbol, "no price for this stock today")
                 continue
             structure = c.evidence.get("structure") or p["structure"]      # a followed contract names its own
             legs = self._structure(structure, c.symbol, asof, bars[c.symbol].close, p, c.evidence)
             if not legs:
+                skip(c.symbol, self._no_contract(c.symbol, asof))
                 continue
             if structure == "random_lotto":
                 structure = f"long_{legs[0]['kind']}"
             unit = sum(leg["quantity"] * (leg["decision_price"] or 0) * fills.CONTRACT for leg in legs)
             fee = fills.OPTION_FEE_PER_CONTRACT * sum(abs(leg["quantity"]) for leg in legs)
             if unit <= 0:
+                skip(c.symbol, "the chosen contracts have no price to trade at today", {"legs": legs})
                 continue
             units = int(budget // (unit + fee))
             if units < 1:
-                self.book.decide(now, asof, st.id, st.spec_sha256, c.symbol, "SKIP",
-                                 [f"one unit costs ${unit + fee:,.2f}, over the ${budget:,.2f} budget"], {"legs": legs})
+                skip(c.symbol, f"one unit costs ${unit + fee:,.2f}, over the ${budget:,.2f} budget", {"legs": legs})
                 continue
             max_debit = units * (sum(leg["quantity"] * (fills.limit(leg["decision_price"]) if leg["quantity"] > 0 else
                                          leg["decision_price"]) * fills.CONTRACT for leg in legs) + fee)
@@ -556,6 +574,12 @@ class PaperEngine:
                    evidence: dict[str, Any]) -> list[dict[str, Any]] | None:
         chains = self._chain_full(symbol, asof)
         return build_structure(structure, chains, s, asof, self.rate, p, evidence) if chains else None
+
+    def _no_contract(self, symbol: str, asof: date) -> str:
+        """Why ``_structure`` found nothing to trade."""
+        if not self._chain_full(symbol, asof):
+            return "no option chain was collected for this stock today"
+        return "no contract in today's chain fits the rule's expiry, strike and spread"
 
     def _enter_stock(self, st: Strategy, c: Candidate, asof: date, now: datetime, notional: float, plan: dict[str, Any],
                      rep: StepReport) -> None:

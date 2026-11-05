@@ -634,7 +634,7 @@ const KestrelPaper = (() => {
           ? "This portfolio selects holdings at monthly rebalances. It marks positions each processed daily close; it is not expected to buy and sell every day. Inspect its decision timeline for entry and exit reasons."
           : account.style === "hold"
             ? "This buy-and-hold baseline normally holds its original position; changing account value does not imply another trade."
-            : "This event strategy waits for qualifying evidence and executable prices; its decision timeline records trade and skip reasons.",
+            : "This event strategy waits for qualifying evidence and executable prices; its decision timeline records why it traded and, for up to five candidates a session, why it passed one over (no price, liquidity, chain or fitting contract, or over budget).",
         "muted caption",
       );
       app.append(behavior);

@@ -100,6 +100,11 @@ class ReplayEngine(PaperEngine):
                 leg.update(decision_price=q.ask if leg["quantity"] > 0 else q.bid, decision_mid=q.mid)
         return legs
 
+    def _no_contract(self, symbol: str, asof: date) -> str:
+        if self.options is not None and not self.options.chain(symbol, real=False):
+            return "no option prices could be rebuilt for this stock today (too little price history)"
+        return "no rebuilt contract fits the rule's expiry, strike and spread"
+
     def __init__(self, market: StocksMarket, book: PaperBook, settings: StocksSection, strategies: tuple[Strategy, ...]) -> None:
         super().__init__(market, book, settings, strategies)
         self.previous_bars = {}
