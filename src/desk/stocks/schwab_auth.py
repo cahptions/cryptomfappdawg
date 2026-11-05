@@ -41,7 +41,7 @@ _ERROR_CODE = re.compile(r"^[A-Za-z_]{1,64}$")
 RELOGIN = ("Schwab sign-in has expired: Schwab requires a fresh browser login every 7 days. In Settings choose "
            "Start browser authorization and log in again; your app key and secret are kept.")
 # A sign-in that ends well before its 7 days was ended by Schwab, not by age. The usual cause is a newer sign-in with
-# the same app key on another computer: each computer needs its own Schwab app to stay signed in at the same time.
+# the same app key on another computer: sign in on one computer only (Schwab may allow only one app per user).
 EARLY_HOURS = 6.5 * 24
 
 
@@ -227,7 +227,7 @@ class SchwabTokens:
                 f"Schwab ended this computer's sign-in {hours:.1f} hours after you signed in here, not after 7 days: "
                 f"it stopped accepting it between {_clock(out['last_ok_at'])} and {_clock(ended)}"
                 f"{f' ({code})' if code else ''}. The usual cause is a newer sign-in with the same app key on another "
-                "computer; each computer needs its own Schwab app to stay signed in at the same time. In Settings "
+                "computer: sign in on one computer only and open its Stocks from the others (docs/SCHWAB.md). In Settings "
                 "choose Start browser authorization to sign in again; your app key and secret are kept.")
         return out
 

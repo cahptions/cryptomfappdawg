@@ -1,4 +1,4 @@
-"""The eleven desks and the committee (docs/STOCKS_METHOD.md).
+"""The twelve desks and the committee (docs/STOCKS_METHOD.md).
 
 Every desk scores every stock 0-100, where higher is better for a buyer (the crowd desk measures attention, and the
 options desk how cheap options are for a buyer). A score is the weighted average of the stock's percentile on each

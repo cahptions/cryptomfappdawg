@@ -148,10 +148,13 @@ page and `kestrel` say how many hours it lasted and the window in which Schwab s
 refresh it accepted and the refusal). Run `kestrel` on both computers: if one computer's window contains the other's
 "signed in here" time, that sign-in ended it.
 
-The fix is one Schwab app per computer (developer.schwab.com → Create App, same Market Data product and callback URL;
-enter its App Key and Secret in that computer's Settings once it is Ready For Use, then sign in), or signing in on one
-computer only. Copying a token file between computers is not a fix: both would refresh the same token, and schwab-py
-warns the slower one gets locked out.
+The fix is to sign in on one computer only (the HP, which runs Stocks all the time) and open its Stocks from the
+other computer (`uv run desk open --desk stocks --install --remote neo@...`, see [STOCKS.md](STOCKS.md)). A second
+Schwab app for the second computer would also avoid it, but Schwab support has told individual developers that only
+one app can be created per user (relayed on a public forum; Schwab's own documentation does not say either way), so
+do not plan on one; if developer.schwab.com does let you create a second app, enter its App Key and Secret in that
+computer's Settings once it is Ready For Use, then sign in there. Copying a token file between computers is not a
+fix: both would refresh the same token, and schwab-py warns the slower one gets locked out.
 
 ## Logging in from another computer over SSH
 

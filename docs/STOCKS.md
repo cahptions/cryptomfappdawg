@@ -1,7 +1,7 @@
 # KESTREL Stocks — start here
 
-The saved Claude branch completed the research/data modules, eleven desks, validation and PAPER engines
-(M1–M6, through `972565b`). The continuation connects those modules to operator commands, a local dashboard
+The saved Claude branch completed the research/data modules, the desks (eleven then; the News and world desk made
+twelve on 2026-11-03), validation and PAPER engines (M1–M6, through `972565b`). The continuation connects those modules to operator commands, a local dashboard
 and a Schwab **market-data-only** adapter. There is no Schwab account/order endpoint or LIVE trading in this desk.
 Code and synthetic tests cannot establish a profitable strategy or finish prospective validation.
 
@@ -28,7 +28,7 @@ Gainers/Losers table, value/quality/squeeze/insider collections, options intelli
 watchlist. **Options** has its own overview; **Plays** ranks the options of the day in twelve categories with
 each contract's greeks and three chances of finishing in the money ([STOCKS_PLAYS.md](STOCKS_PLAYS.md));
 **Stocks** opens the full saved lists. A stock page combines
-split-adjusted line/candlestick charts and volume, financial statistics, the committee and eleven desks,
+split-adjusted line/candlestick charts and volume, financial statistics, the committee and twelve desks,
 bull/bear evidence and a dated calls/puts table. Missing observations remain missing; a chart breaks at
 missing sessions rather than manufacturing candles. Top10 means up to ten qualifying names, never padding.
 These are daily-close research views, not a live intraday ranking service.
@@ -165,8 +165,10 @@ research for that day's close unrun) until something opened it again. Its log is
 
 ### Using another computer's KESTREL Stocks
 
-Schwab allows one Market Data app per developer account, and each sign-in with that app ends the previous one. So
-one computer (here the HP) holds the Schwab sign-in and collects; the other shows it. Run once on the other computer:
+A new Schwab sign-in with the same app ends the previous one within hours, and Schwab support has told individual
+developers they can create only one app (Schwab's own documentation does not say either way; [SCHWAB.md](SCHWAB.md)).
+So one computer (here the HP) holds the Schwab sign-in and collects; the other shows it. Run once on the other
+computer:
 
 ```bash
 cd ~/kestrel && uv run desk open --desk stocks --install --remote neo@192.168.0.10
@@ -241,7 +243,10 @@ uv run desk stocks paper --minutes 1440
 uv run desk stocks collect --minutes 1440  # research-only alternative, no PAPER ledger changes
 ```
 
-The ranked option focus is capped at150 names; the pilot rotates small batches no more often than every4hours.
+The ranked option focus is capped at 150 names. On trading days from 9:30 to 16:30 New York time the worker
+collects option chains every 15 minutes: SPY and QQQ every time plus a small rotating batch from the watchlist
+and the ranked focus (five chains a pass in all; the whole focus takes about two trading days), and every
+contract a PAPER position holds. Outside those hours it collects once if that session's chains were missed.
 It does **not** provide a daily full-universe option archive. Coverage and option signal availability are sparse,
 and option histories must not be interpreted as complete daily sampling. Held contracts are included regardless
 of the current rotating focus. Broader coverage needs measured API/runtime evidence before changing that budget.

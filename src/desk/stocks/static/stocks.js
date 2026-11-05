@@ -419,7 +419,7 @@ function discover(selected) {
     el("h1", "Find the evidence."),
     el(
       "p",
-      "Daily lists from eleven deterministic desks. Each stock shows why it is here, how it has moved, and which desks lift or hold back KESTREL's score. Nothing is invented to fill a gap.",
+      "Daily lists from twelve deterministic desks. Each stock shows why it is here, how it has moved, and which desks lift or hold back KESTREL's score. Nothing is invented to fill a gap.",
       "muted",
     ),
   );
