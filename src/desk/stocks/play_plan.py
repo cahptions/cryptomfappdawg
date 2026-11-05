@@ -291,6 +291,9 @@ def bankroll(board: Mapping[str, Any], amount: float, level: str = "balanced") -
             "asof": board.get("asof")}
 
 
+# 2: the take-profit chance shown is calibrated on graded plays once enough have resolved (``take_profit_raw`` keeps
+# the path share it came from); 1: the raw path share was shown.
+PLAN_ODDS_VERSION = 2
 PLAN_PATHS = 500          # simulated stock paths per play (a fixed seed per play, so the number is stable): ±2 points
 PLAN_CHECKS = 50          # times each path is checked against the take-profit and stop before the leave-by date
 
@@ -306,12 +309,17 @@ def _leg_values(call: bool, s: Any, k: float, t: Any, vol: float, r: float) -> A
     return value if call else value - s + disc
 
 
-def plan_odds(play: Mapping[str, Any], plan: Mapping[str, Any], rate: float, session: date) -> dict[str, Any] | None:
+def plan_odds(play: Mapping[str, Any], plan: Mapping[str, Any], rate: float, session: date, *,
+              calibrations: Mapping[str, Any] | None = None, category: str | None = None) -> dict[str, Any] | None:
     """The chance the exit plan's take-profit is reached before its stop or its leave-by date (or expiry), and the
     chances of the stop and of neither: stock paths from KESTREL's own forecast (the drift and volatility behind its
     chance in the money), every leg repriced along each path at its quoted volatility. Like tastytrade's "P50", it is
-    a path probability, so it fits a trade managed to a target better than finishing in the money does; it is a model
-    estimate until tracked plays grade it."""
+    a path probability, so it fits a trade managed to a target better than finishing in the money does.
+
+    Every recorded play's own plan is graded on its quoted closing marks (``plays.grade_events``); once 30 have
+    resolved, the share is calibrated against how often they really reached the take-profit (``take_profit`` in
+    ``calibrations``, most specific group first). The raw share is kept beside it: calibration learns from that, and
+    the stop and neither chances are rescaled to fill the rest."""
     import hashlib
 
     forecast, take = play.get("forecast") or {}, plan.get("take_profit")
@@ -340,20 +348,38 @@ def plan_odds(play: Mapping[str, Any], plan: Mapping[str, Any], rate: float, ses
     stop = plan.get("stop")
     today = _held(play["legs"], float(play["underlying_price"]), dte / 365, rate)
     if stop and today <= float(stop["value"]):          # a spread wider than the stop: out on the first fair mark
-        return {"take_profit": 0.0, "stop": 1.0, "neither": 0.0, "at_entry": "stop",
-                "by": (session + timedelta(days=horizon)).isoformat(), "paths": 0, "checks": 0}
+        return {"take_profit": 0.0, "take_profit_raw": 0.0, "stop": 1.0, "neither": 0.0, "at_entry": "stop",
+                "by": (session + timedelta(days=horizon)).isoformat(), "paths": 0, "checks": 0,
+                "calibration": None, "version": PLAN_ODDS_VERSION}
     up = first(held >= float(take["value"]))
     down = first(held <= float(stop["value"])) if stop else np.full(PLAN_PATHS, checks)
     p_take, p_stop = float(np.mean(up < down)), float(np.mean(down < up))
-    return {"take_profit": round(p_take, 3), "stop": round(p_stop, 3), "neither": round(1 - p_take - p_stop, 3),
-            "by": (session + timedelta(days=horizon)).isoformat(), "paths": PLAN_PATHS, "checks": checks}
+    shown, level = p_take, None
+    if calibrations and category:
+        from desk.stocks.plays import calibrator
+
+        found, level = calibrator(calibrations, "take_profit", category, dte)
+        shown = found.apply(p_take)
+    scale = (1 - shown) / (1 - p_take) if p_take < 1 else 0.0
+    return {"take_profit": round(shown, 3), "take_profit_raw": round(p_take, 3), "stop": round(p_stop * scale, 3),
+            "neither": round(max(0.0, 1 - shown - p_stop * scale), 3), "calibration": level,
+            "by": (session + timedelta(days=horizon)).isoformat(), "paths": PLAN_PATHS, "checks": checks,
+            "version": PLAN_ODDS_VERSION}
 
 
 def attach(play: dict[str, Any], category: str, record: Mapping[str, Any] | None, learned: Mapping[str, Any] | None,
-           rate: float, session: date) -> dict[str, Any]:
+           rate: float, session: date, *, calibrations: Mapping[str, Any] | None = None,
+           history: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Confidence, exit plan and its odds. ``history``: graded take-profit predictions (``plays.event_history``), so
+    the card can say how often plays shown about this chance really reached their take-profit."""
     play["confidence"] = confidence(play, record)
     play["exit_plan"] = exit_plan(play, category, learned, rate, session)
-    play["exit_plan"]["odds"] = plan_odds(play, play["exit_plan"], rate, session)
+    odds = plan_odds(play, play["exit_plan"], rate, session, calibrations=calibrations, category=category)
+    if odds is not None and history is not None:
+        from desk.stocks.plays import history_line
+
+        odds["history"] = history_line(history, category, odds["take_profit"])
+    play["exit_plan"]["odds"] = odds
     return play
 
 

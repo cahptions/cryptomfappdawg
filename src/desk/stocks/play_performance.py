@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -135,6 +135,27 @@ def calibration(rows: Sequence[PlayReturn]) -> dict[str, Any]:
     return out
 
 
+EVENT_LABELS = {"take_profit": "Take-profit before the stop or leave-by date"}
+
+
+def event_calibration(research: sqlite3.Connection) -> dict[str, Any]:
+    """Every other graded chance (``plays.grade_events``) against what happened, in tenths of the chance shown."""
+    out: dict[str, Any] = {}
+    for event, label in EVENT_LABELS.items():
+        rows = [(float(r["predicted"]), bool(r["hit"]), r["outcome"]) for r in research.execute(
+            "SELECT predicted, hit, outcome FROM stk_play_grades WHERE event = ?", (event,))]
+        bins: dict[int, list[tuple[float, bool]]] = defaultdict(list)
+        for p, hit, _ in rows:
+            bins[min(int(p * 10), 9)].append((p, hit))
+        out[event] = {"label": label, "resolved": len(rows),
+                      "points": [{"predicted": round(statistics.fmean(p for p, _ in v), 4),
+                                  "observed": round(sum(h for _, h in v) / len(v), 4), "n": len(v),
+                                  "bucket": f"{10 * b}–{10 * b + 10}%"} for b, v in sorted(bins.items())],
+                      "brier": round(statistics.fmean((p - h) ** 2 for p, h, _ in rows), 4) if rows else None,
+                      "outcomes": dict(Counter(o for _, _, o in rows))}
+    return out
+
+
 def spy_closes(market: sqlite3.Connection) -> dict[int, float]:
     return {r["day"]: float(r["close"]) for r in market.execute("SELECT day, close FROM stk_bars WHERE symbol = 'SPY'")}
 
@@ -210,7 +231,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
             "sessions": len({r.session for r in rows}),
             "categories": categories, "overall": by_horizon(graded),
             "dte": buckets("dte", DTE_BUCKETS), "price": buckets("entry", PRICE_BUCKETS),
-            "calibration": calibration(rows), "cumulative": curves,
+            "calibration": {**calibration(rows), "events": event_calibration(research)}, "cumulative": curves,
             "titles": {c.id: {"title": c.title, "emoji": c.emoji} for c in RECORDED},
             "note": "Returns are on the money at risk after fees, from quoted closing marks and exact settlements only. "
                     "Holding periods count sessions after the pick; a play that expired sooner counts its settlement."}
@@ -240,5 +261,5 @@ def refresh(paths: DeskPaths, market: sqlite3.Connection, research: sqlite3.Conn
     return True
 
 
-__all__ = ["DTE_BUCKETS", "HORIZONS", "PRICE_BUCKETS", "PlayReturn", "build", "by_horizon", "calibration",
-           "cumulative", "refresh", "returns_table", "stats"]
+__all__ = ["DTE_BUCKETS", "EVENT_LABELS", "HORIZONS", "PRICE_BUCKETS", "PlayReturn", "build", "by_horizon",
+           "calibration", "cumulative", "event_calibration", "refresh", "returns_table", "stats"]

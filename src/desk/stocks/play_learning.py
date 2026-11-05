@@ -269,6 +269,30 @@ def exit_return(path: Sequence[tuple[int, float, str]], rule: Rule) -> tuple[flo
     return None
 
 
+def plan_outcome(path: Sequence[tuple[int, float, str]], take: float, stop: float | None, last: int) -> str | None:
+    """Which level a play's own exit plan reached first: ``take_profit``, ``stop`` or ``neither`` by session ``last``
+    (its leave-by date, or the settlement). ``take`` and ``stop`` are returns on the money at risk (``stop`` negative),
+    checked on every session's closing mark after the pick. None while that is unknown: a session not marked yet, or
+    an estimated or modelled mark before the outcome is decided (a gap could hide either level, so it is never
+    graded)."""
+    expected = 1
+    for i, r, s in sorted(path):
+        if i == 0:
+            continue                                # the pick's own close is the entry, not an exit
+        if i > last:
+            break
+        if i != expected or s not in ("quoted", "settled"):
+            return None
+        if r >= take - 1e-6:
+            return "take_profit"
+        if stop is not None and r <= stop + 1e-6:
+            return "stop"
+        if i == last or s == "settled":
+            return "neither"
+        expected += 1
+    return None
+
+
 def walk_forward(rows: Sequence[PlayReturn]) -> dict[str, Any]:
     """Choose a rule on plays fully resolved before each test block; apply it to the block; compare with holding."""
     candidates = rules()
@@ -442,5 +466,5 @@ def latest(research: sqlite3.Connection) -> dict[str, Any] | None:
 
 
 __all__ = ["BY_VARIANT", "VARIANTS", "Variant", "challengers", "describe", "exit_return", "feature_ics",
-           "grade_shadow", "labels", "latest", "learn", "promote", "promoted", "record_shadow", "rules", "select",
-           "walk_forward"]
+           "grade_shadow", "labels", "latest", "learn", "plan_outcome", "promote", "promoted", "record_shadow", "rules",
+           "select", "walk_forward"]

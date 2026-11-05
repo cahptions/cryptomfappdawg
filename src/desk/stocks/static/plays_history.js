@@ -1125,109 +1125,139 @@ const KestrelPlaysHistory = (() => {
     return box;
   }
 
+  // Each graded chance against what happened. The expiry event has three lines (KESTREL, the market's own price, the
+  // stock's history); every other chance a play shows (take-profit first, profit and the return targets at expiry,
+  // touch) is KESTREL's own, graded on recorded plays once it was decidable.
   function calibrationChart(cal) {
     const box = el("section", undefined, "pf-chart"),
-      readout = el("p", "Hover a dot to see its bucket.", "caption pl-readout"),
-      legend = el("div", undefined, "pf-legend");
-    const groups = [
-      ["itm_kestrel", "pf-picks"],
-      ["itm_market", "pf-spy"],
+      controls = el("div", undefined, "pl-controls"),
+      summary = el("p", "", "caption muted"),
+      plot = el("div"),
+      tableBox = el("div"),
+      colors = ["var(--up)", "var(--series-1)", "var(--series-4)"];
+    const views = [
+      {
+        id: "expiry",
+        label: "In the money (or past the break-evens) at expiry",
+        groups: ["itm_kestrel", "itm_market", "itm_history"]
+          .filter((key) => cal[key])
+          .map((key) => [key, cal[key]]),
+      },
+      ...Object.entries(cal.events || {}).map(([id, e]) => ({
+        id,
+        label: e.label,
+        groups: [[id, { ...e, label: "KESTREL" }]],
+        outcomes: e.outcomes,
+      })),
     ];
-    for (const [key, cls] of groups) {
-      const item = el("span", undefined, "pf-key");
-      item.append(
-        el("i", undefined, cls),
-        document.createTextNode(
-          `${cal[key].label} (${cal[key].resolved} resolved${cal[key].brier === null ? "" : `, Brier ${cal[key].brier}`})`,
-        ),
-      );
-      legend.append(item);
-    }
+    const pick = el("select");
+    pick.setAttribute("aria-label", "Chance graded");
+    for (const v of views) pick.append(new Option(v.label, v.id));
+    controls.append(pick);
     box.append(
       el("h2", "Predicted chance vs what happened"),
       el(
         "p",
-        "Each dot is a tenth of predicted chances: across (what was predicted) against up (how often the play's event actually happened at expiry). Dots on the diagonal are well calibrated. KESTREL's chance is what the page showed when the play was picked.",
+        "Each dot is a tenth of predicted chances: across (what was predicted) against up (how often it actually happened). Dots on the diagonal are well calibrated. Every chance is the one the page showed when the play was picked; only quoted closing marks, exact settlements and the stock's own daily highs and lows grade them.",
         "muted",
       ),
-      legend,
+      controls,
+      summary,
+      plot,
+      tableBox,
     );
-    const merged = new Map();
-    for (const [key] of groups)
-      for (const p of cal[key].points) {
-        const row = merged.get(p.predicted) || {
-          x: p.predicted,
-          expected: p.predicted,
-        };
-        row[key] = p.observed;
-        row[`${key}_n`] = p.n;
-        merged.set(p.predicted, row);
-      }
-    const points = [...merged.values()]
-      .sort((a, b) => a.x - b.x)
-      .map((p) => ({ ...p, value: p.itm_kestrel ?? p.itm_market }));
-    const chart = KestrelCharts.create({
-      id: "calibration",
-      label: "Observed event frequency",
-      points,
-      xKind: "number",
-      height: 300,
-      value: (p) => p.value,
-      format: (v) => chance(v),
-      axisFormat: (v) => chance(v),
-      yDomain: [0, 1],
-      xDomain: [0, 1],
-      xFormat: (p) => chance(p.x),
-      xTickFormat: (v) => chance(v),
-      timeFormat: (p) => `Mean predicted chance ${chance(p.x)}`,
-      series: [
-        ...groups.map(([id], i) => ({
-          id,
-          label: cal[id].label,
-          value: (p) => p[id],
-          scatter: true,
-          color: i ? "var(--series-1)" : "var(--up)",
-        })),
-        {
-          id: "expected",
-          label: "Ideal calibration",
-          value: (p) => p.expected,
-          dashed: true,
-          color: "var(--text-3)",
-        },
-      ],
-      tooltipRows: (p) =>
-        groups
-          .filter(([id]) => p[id] != null)
-          .map(([id]) => [
-            cal[id].label,
-            `${chance(p[id])} of ${p[id + "_n"]} plays`,
-          ]),
-      coverage:
-        "X: predicted probability. Y: observed frequency. Counts appear on hover; a small sample is not strong evidence.",
-      empty: "No resolved probability buckets yet.",
-    });
-    box.append(chart);
-    legend.hidden = true;
-    readout.hidden = true;
-    const rows = groups.flatMap(([key]) =>
-      cal[key].points.map((p) => [
-        cal[key].label,
-        p.bucket,
-        `${Math.round(100 * p.predicted)}%`,
-        `${Math.round(100 * p.observed)}%`,
-        p.n,
-      ]),
-    );
-    const t = el("details", undefined, "pl-marks");
-    t.append(
-      el("summary", "As a table"),
-      table(
-        ["Model", "Predicted", "Mean predicted", "Happened", "Plays"],
-        rows,
-      ),
-    );
-    box.append(t);
+    function draw() {
+      const view = views.find((v) => v.id === pick.value) || views[0],
+        groups = view.groups;
+      summary.textContent = groups
+        .map(
+          ([, g]) =>
+            `${g.label}: ${g.resolved} resolved${g.brier === null || g.brier === undefined ? "" : `, Brier ${g.brier}`}`,
+        )
+        .join(" · ");
+      if (view.outcomes && Object.keys(view.outcomes).length)
+        summary.textContent += ` · take-profit first ${view.outcomes.take_profit || 0}, stop first ${view.outcomes.stop || 0}, neither ${view.outcomes.neither || 0}`;
+      const merged = new Map();
+      for (const [key, g] of groups)
+        for (const p of g.points) {
+          const row = merged.get(p.predicted) || {
+            x: p.predicted,
+            expected: p.predicted,
+          };
+          row[key] = p.observed;
+          row[`${key}_n`] = p.n;
+          merged.set(p.predicted, row);
+        }
+      const points = [...merged.values()]
+        .sort((a, b) => a.x - b.x)
+        .map((p) => ({
+          ...p,
+          value: groups.map(([key]) => p[key]).find((v) => v != null),
+        }));
+      plot.replaceChildren(
+        KestrelCharts.create({
+          id: "calibration",
+          label: "Observed event frequency",
+          points,
+          xKind: "number",
+          height: 300,
+          value: (p) => p.value,
+          format: (v) => chance(v),
+          axisFormat: (v) => chance(v),
+          yDomain: [0, 1],
+          xDomain: [0, 1],
+          xFormat: (p) => chance(p.x),
+          xTickFormat: (v) => chance(v),
+          timeFormat: (p) => `Mean predicted chance ${chance(p.x)}`,
+          series: [
+            ...groups.map(([id, g], i) => ({
+              id,
+              label: g.label,
+              value: (p) => p[id],
+              scatter: true,
+              color: colors[i],
+            })),
+            {
+              id: "expected",
+              label: "Ideal calibration",
+              value: (p) => p.expected,
+              dashed: true,
+              color: "var(--text-3)",
+            },
+          ],
+          tooltipRows: (p) =>
+            groups
+              .filter(([id]) => p[id] != null)
+              .map(([id, g]) => [
+                g.label,
+                `${chance(p[id])} of ${p[id + "_n"]} plays`,
+              ]),
+          coverage:
+            "X: predicted probability. Y: observed frequency. Counts appear on hover; a small sample is not strong evidence.",
+          empty: "No resolved probability buckets for this chance yet.",
+        }),
+      );
+      const rows = groups.flatMap(([, g]) =>
+        g.points.map((p) => [
+          g.label,
+          p.bucket,
+          `${Math.round(100 * p.predicted)}%`,
+          `${Math.round(100 * p.observed)}%`,
+          p.n,
+        ]),
+      );
+      const t = el("details", undefined, "pl-marks");
+      t.append(
+        el("summary", "As a table"),
+        table(
+          ["Model", "Predicted", "Mean predicted", "Happened", "Plays"],
+          rows,
+        ),
+      );
+      tableBox.replaceChildren(t);
+    }
+    pick.onchange = draw;
+    draw();
     return box;
   }
 

@@ -1229,10 +1229,18 @@ def calibration(research: StocksResearch) -> dict[str, od.Calibration]:
             "stk_play_outcomes o USING (session, category, rank) WHERE p.itm_kestrel_raw IS NOT NULL AND "
             "COALESCE(json_extract(p.play_json, '$.odds_version'), 1) = ?", (od.MODEL_VERSION,)):
         bucket = dte_bucket(r["expiration"] - r["session"])
-        for key in (r["event"], f"{r['event']}|{r['category']}", f"{r['event']}|{r['category']}|{bucket}"):
+        category = r["category"].split("@")[0]
+        for key in (r["event"], f"{r['event']}|{category}", f"{r['event']}|{category}|{bucket}"):
             rows[key][0].append(float(r["itm_kestrel_raw"]))
             rows[key][1].append(bool(r["hit"]))
-    out = {event: od.Calibration() for event in ("itm", "move")}
+    # the other shown chances (``grade_events``), learned from what each predicted before any calibration
+    for r in research.conn.execute("SELECT event, category, dte, predicted_raw, hit FROM stk_play_grades "
+                                   "WHERE model_version = ?", (od.MODEL_VERSION,)):
+        bucket, category = dte_bucket(r["dte"]), r["category"].split("@")[0]
+        for key in (r["event"], f"{r['event']}|{category}", f"{r['event']}|{category}|{bucket}"):
+            rows[key][0].append(float(r["predicted_raw"]))
+            rows[key][1].append(bool(r["hit"]))
+    out = {event: od.Calibration() for event in ("itm", "move", *GRADED_EVENTS)}
     out.update({key: od.Calibration.learn(p, h) for key, (p, h) in rows.items()})
     return out
 
@@ -1456,6 +1464,99 @@ def grade(market: StocksMarket, research: StocksResearch, now: datetime) -> int:
     return resolved
 
 
+# Every chance a play shows besides finishing in the money, graded once it can be (``stk_play_grades``) and learned
+# from by ``calibration``: the exit plan's take-profit first; profit and the return targets at expiry; touch.
+GRADED_EVENTS = ("take_profit", "profit", "target25", "target50", "target100", "max_gain", "touch")
+
+
+def _after(session: date, day: date) -> int:
+    """Sessions after the pick through ``day`` (the pick's own session is 0), as the marks count them."""
+    return len(cal.trading_days(session + timedelta(days=1), day))
+
+
+def _plan_grade(play: Mapping[str, Any], session: date, expiration: date,
+                marks: Sequence[sqlite3.Row]) -> tuple[float, float, str] | None:
+    """(shown, raw, outcome) of the exit plan's take-profit chance, or None while the play's marks cannot decide it."""
+    from desk.stocks.play_learning import plan_outcome
+    from desk.stocks.play_marks import settle_day
+
+    plan = play.get("exit_plan") or {}
+    odds, take, stop = plan.get("odds") or {}, plan.get("take_profit"), plan.get("stop")
+    if odds.get("take_profit") is None or not take:
+        return None
+    last = _after(session, settle_day(expiration))
+    if plan.get("leave_by"):
+        last = max(1, min(last, _after(session, date.fromisoformat(plan["leave_by"]))))
+    index = {d.toordinal(): i for i, d in enumerate(cal.trading_days(session, settle_day(expiration)))}
+    path = [(index[m["day"]], float(m["pnl_pct"]), m["status"]) for m in marks if m["day"] in index]
+    outcome = plan_outcome(path, float(take["return"]), None if not stop else float(stop["return"]), last)
+    if outcome is None:
+        return None
+    shown = float(odds["take_profit"])
+    return shown, float(odds.get("take_profit_raw", shown)), outcome
+
+
+def grade_events(market: StocksMarket, research: StocksResearch, now: datetime) -> int:
+    """Grade every shown chance that has become decidable, once (append-only), for calibration and Performance.
+    Uses quoted closing marks and settlements only; makes no provider request."""
+    conn = research.conn
+    done = {(r[0], r[1], r[2], r[3]) for r in conn.execute("SELECT session, category, rank, event FROM stk_play_grades")}
+    rows: list[tuple[Any, ...]] = []
+    for p in conn.execute("SELECT session, category, rank, expiration, play_json FROM stk_plays "
+                          "WHERE json_extract(play_json, '$.exit_plan.odds.take_profit') IS NOT NULL"):
+        key = (p["session"], p["category"], p["rank"])
+        if (*key, "take_profit") in done:
+            continue
+        marks = conn.execute("SELECT day, status, pnl_pct FROM stk_play_marks WHERE session = ? AND category = ? AND "
+                             "rank = ? AND twin = 0 ORDER BY day", key).fetchall()
+        if not marks:
+            continue
+        play = json.loads(p["play_json"])
+        session, expiration = date.fromordinal(p["session"]), date.fromordinal(p["expiration"])
+        graded = _plan_grade(play, session, expiration, marks)
+        if graded is not None:
+            shown, raw, outcome = graded
+            rows.append((*key, "take_profit", shown, raw, int(play.get("odds_version") or 1), outcome,
+                         int(outcome == "take_profit"), (expiration - session).days, to_iso(now)))
+    with transaction(conn):
+        conn.executemany("INSERT OR IGNORE INTO stk_play_grades(session, category, rank, event, predicted, "
+                         "predicted_raw, model_version, outcome, hit, dte, resolved_at) VALUES "
+                         "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+    return len(rows)
+
+
+def event_history(research: StocksResearch, event: str = "take_profit") -> dict[str, dict[int, list[float]]]:
+    """Resolved predictions of ``event`` by category ("*" for all) and tenth of the chance shown:
+    [plays, hits, sum of the chances shown]."""
+    out: dict[str, dict[int, list[float]]] = defaultdict(lambda: defaultdict(lambda: [0, 0, 0.0]))
+    for r in research.conn.execute("SELECT category, predicted, hit FROM stk_play_grades WHERE event = ?", (event,)):
+        tenth = min(int(float(r["predicted"]) * 10), 9)
+        for group in (r["category"].split("@")[0], "*"):
+            cell = out[group][tenth]
+            cell[0] += 1
+            cell[1] += r["hit"]
+            cell[2] += float(r["predicted"])
+    return out
+
+
+EVIDENCE_PLAYS = 10                 # resolved plays near a chance before the category's own history is quoted
+
+
+def history_line(history: Mapping[str, Mapping[int, Sequence[float]]], category: str,
+                 shown: float | None) -> dict[str, Any] | None:
+    """How often plays shown about this chance really did it: this category's plays when it has enough at this
+    tenth, otherwise every category's."""
+    if shown is None:
+        return None
+    tenth = min(int(shown * 10), 9)
+    for group, level in ((category, "this category"), ("*", "all plays")):
+        n, hits, said = (history.get(group) or {}).get(tenth) or (0, 0, 0.0)
+        if n >= EVIDENCE_PLAYS or (group == "*" and n):
+            return {"plays": int(n), "reached": round(hits / n, 4), "said": round(said / n, 4), "level": level,
+                    "bucket": f"{10 * tenth}–{10 * tenth + 10}%"}
+    return {"plays": 0, "reached": None, "said": None, "level": None, "bucket": f"{10 * tenth}–{10 * tenth + 10}%"}
+
+
 def flagged_before(research: StocksResearch, session: date) -> dict[str, dict[str, Any]]:
     """The unusual plays recorded on the latest earlier session, by contract."""
     row = research.conn.execute("SELECT MAX(session) FROM stk_play_days WHERE category = 'unusual' AND session < ?",
@@ -1521,6 +1622,7 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
              "scores": research.conn.execute("SELECT MAX(computed_at) FROM stk_scores_latest").fetchone()[0],
              "validation": research.conn.execute("SELECT MAX(id) FROM stk_validation").fetchone()[0],
              "outcomes": research.conn.execute("SELECT COUNT(*) FROM stk_play_outcomes").fetchone()[0],
+             "grades": research.conn.execute("SELECT COUNT(*) FROM stk_play_grades").fetchone()[0],
              "learning": research.conn.execute("SELECT MAX(id) FROM stk_play_learning").fetchone()[0],
              "watchlist": research.watchlist(),
              "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0]}
@@ -1599,6 +1701,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
           previous: dict[str, Any] | None = None) -> dict[str, Any]:
     """Score the latest options session into plays; record them once the session has closed; grade expired ones."""
     graded = grade(market, research, now)
+    graded += grade_events(market, research, now)
     expected = quote_session(now)
     newest = market.conn.execute("SELECT MAX(day) FROM stk_option_chains").fetchone()[0]
     latest = None if newest is None else date.fromordinal(newest)
@@ -1622,6 +1725,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     out_categories = []
     recorded: dict[str, list[dict[str, Any]]] = {}
     track = records(research)
+    take_history = event_history(research)
     paper = paper_records(ledger)
     learned = lrn.latest(research.conn) or {}
     closed = session_closed(session, now)
@@ -1663,7 +1767,8 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         cheaper = budget_plays(cat.id, tables, ctx, live.get(cat.id))
         longer = horizon_plays(cat.id, tables, ctx, live.get(cat.id), plays)
         for p in [*plays, *cheaper, *longer]:                 # how far to trust it, when to leave, for every play
-            plan.attach(p, cat.id, track.get(cat.id), exit_rule, ctx.rate, session)
+            plan.attach(p, cat.id, track.get(cat.id), exit_rule, ctx.rate, session, calibrations=ctx.calibration,
+                        history=take_history)
         entry = {"id": cat.id, "title": cat.title, "emoji": cat.emoji, "blurb": cat.blurb, "basis": cat.basis,
                  "empty": cat.empty, "plays": plays, "record": track.get(cat.id), "paper": paper.get(cat.id),
                  "budget_plays": cheaper, "horizon_plays": longer, "horizon_free": cat.id in HORIZON_FREE,
@@ -1688,7 +1793,9 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         "calibration": {"applied": bool(cal_itm.buckets), "resolved": cal_itm.resolved, "needed": od.MIN_CALIBRATION,
                         "specific_groups": groups,
                         "buckets": [{"predicted": round(p, 3), "resolved": n, "observed": round(o, 3)}
-                                    for p, n, o in cal_itm.buckets]},
+                                    for p, n, o in cal_itm.buckets],
+                        "take_profit": {"graded": int(sum(c[0] for c in take_history.get("*", {}).values())),
+                                        "applied": bool(ctx.calibration["take_profit"].buckets)}},
         "model": {"ic": ic, "ic_months": round(months, 1), "ic_source": source, "iv_weight": od.IV_WEIGHT,
                   "rate": round(ctx.rate, 4)},
         "recorded": added, "twins": twins, "shadow_picks": shadows, "graded": graded, "session_closed": closed,
@@ -1701,8 +1808,8 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     }
 
 
-__all__ = ["BY_CATEGORY", "CATEGORIES", "HORIZONS", "RECORDED", "RETIRED", "Candidate", "Category", "Context",
-           "Table", "Underlying", "build",
-           "calibration", "calibration_summary", "calibrator", "committee_ic", "dte_bucket", "finish",
-           "flagged_before", "followups", "grade", "horizon_plays", "implied_vols", "load", "method", "record", "record_twins",
-           "records", "session_closed", "settle_value", "signature", "table", "twin"]
+__all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "RECORDED", "RETIRED", "Candidate", "Category",
+           "Context", "Table", "Underlying", "build", "calibration", "calibration_summary", "calibrator", "committee_ic",
+           "dte_bucket", "event_history", "finish", "flagged_before", "followups", "grade", "grade_events",
+           "history_line", "horizon_plays", "implied_vols", "load", "method", "record", "record_twins", "records",
+           "session_closed", "settle_value", "signature", "table", "twin"]

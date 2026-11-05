@@ -208,8 +208,16 @@ reach +100% weeks before expiry. Under the bar: the chance the **stop** comes fi
 history's views. When today's fair value is already past the stop (a bid/ask spread wider than the stop allows), the
 card says so and the chance is 0%. **Min chance (%)** filters on this headline number.
 
-The in-the-money chance below is the one graded and calibrated against how past plays finished; the take-profit
-chance is a model estimate until tracked plays grade it the same way.
+**How it is graded.** Every recorded play keeps its own plan (take-profit, stop, leave-by date) and the chance it
+showed. Once its quoted closing marks decide it, the play is graded once (append-only): **take-profit first**,
+**stop first** or **neither** by the leave-by date (or expiry). The settlement counts as the last mark; an estimated
+or modelled mark before the outcome is decided leaves the play ungraded, because a gap could hide either level. Under
+the bar, each card says how often recorded plays shown about the same chance (the same tenth: this category's once it
+has 10, otherwise every category's) really reached their take-profit: "History: N plays, X% reached take-profit when
+KESTREL said about Y%". Performance charts the graded chance against what happened, with its Brier score. Once 30
+plays have resolved, the chance shown is calibrated on them the same way as the in-the-money chance (most specific
+group first: this category at this expiry, then the category, then every play); the raw path share is kept beside it
+(calibration learns from that), and the stop and neither chances are rescaled to fill the rest.
 
 ## Three chances, side by side
 

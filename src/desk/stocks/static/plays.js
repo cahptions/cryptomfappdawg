@@ -102,8 +102,7 @@ const KestrelPlays = (() => {
       label = `Chance to hit take-profit (${signed(100 * take.return, 0)}%)`;
       shown = odds.take_profit;
       detail = `${odds.at_entry === "stop" ? "Already past its stop at today's fair value (the bid/ask spread is wider than the stop allows) · " : ""}Stop first ${pct(odds.stop)} · Profit at expiry ${pct(play.profit_kestrel)} · ${expiry.label} ${pct(expiry.shown)} (market ${pct(market)}${history === null ? "" : `, history ${pct(history)}`})`;
-      box.title =
-        "KESTREL's forecast paths, each leg repriced at its quoted volatility: the share that reach the exit plan's take-profit before its stop or its leave-by date. A model estimate, checked against tracked plays as they resolve.";
+      box.title = `KESTREL's forecast paths, each leg repriced at its quoted volatility: the share that reach the exit plan's take-profit before its stop or its leave-by date. Every recorded play's own plan is graded on its quoted closing marks (take-profit first, stop first or neither); ${odds.calibration ? `this chance is calibrated on them (${odds.calibration})` : "after 30 have resolved this chance is calibrated on them"}.`;
     } else {
       label = `${expiry.label} at expiry`;
       shown = expiry.shown;
@@ -117,7 +116,15 @@ const KestrelPlays = (() => {
       bar,
       el("small", detail),
     );
+    if (odds && take && odds.history)
+      box.append(el("small", takeHistory(odds.history), "play-chance-history"));
     return box;
+  }
+  // How often recorded plays shown about this chance really reached their take-profit first.
+  function takeHistory(h) {
+    if (!h.plays)
+      return `History: no recorded play shown ${h.bucket} has resolved yet`;
+    return `History: ${h.plays} play${h.plays === 1 ? "" : "s"}${h.level === "this category" ? " in this category" : ""}, ${pct(h.reached)} reached take-profit when KESTREL said about ${pct(h.said)}`;
   }
 
   // A spread names both strikes ("$49.00 / $53.00 strikes"); one contract or a straddle names one.
