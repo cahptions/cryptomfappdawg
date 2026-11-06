@@ -61,9 +61,17 @@ try {
       .selectOption({ index: 2 });
     await calc
       .getByLabel("Expiration", { exact: true })
+      .nth(0)
+      .selectOption("2026-10-30");
+    await calc
+      .getByLabel("Expiration", { exact: true })
       .nth(1)
       .selectOption("2026-11-20");
-    await calc.getByText(/Mixed expirations: maximum risk/).waitFor();
+    // November 5 added modeled first-expiry valuation; it must never look like an exact expiry payoff.
+    await calc.getByText(/^At the first expiry .*modeled:/).waitFor();
+    await calc
+      .getByText(/later legs at Black-Scholes on their implied volatility/)
+      .waitFor();
     assert.equal(
       await page.evaluate(
         () =>
