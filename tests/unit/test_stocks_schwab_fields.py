@@ -78,3 +78,14 @@ def test_without_schwab_it_says_how_to_connect() -> None:
         configured = False
 
     assert "Settings" in summary(asyncio.run(verify(Off(), NOW)))[0]
+
+
+def test_fields_schwab_sends_only_sometimes_are_not_flagged_and_an_empty_movers_list_says_why() -> None:
+    got = check({"reference": {}}, {"reference.htbQuantity": "number"})
+    assert got["absent"] == 0 and got["ok"] == 1
+    assert got["fields"]["reference.htbQuantity"] == "absent (sent only for hard-to-borrow stocks)"
+    report = {"symbol": "SPY", "checked_at": "2026-11-08T16:33:00", "endpoints": {
+        "movers (not read by the app yet)": {**check({"": {"screeners": []}}, {"screeners": "list"}),
+                                             "note": "no movers listed right now (market closed)"}}}
+    lines = summary(report)
+    assert lines[1].startswith("✓ movers") and "market closed" in lines[2]

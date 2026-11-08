@@ -36,6 +36,8 @@ CHAIN = {"symbol": TEXT, "isDelayed": FLAG, "underlyingPrice": NUMBER, "underlyi
 HISTORY = {"symbol": TEXT, "candles": LIST, **{f"candle.{k}": NUMBER for k in ("datetime", "open", "high", "low",
                                                                               "close", "volume")}}
 EXPIRATIONS = {"expirationList": LIST, "expiration.expirationDate": TEXT}
+# sent only in some cases: present-or-absent is fine, and the app treats absent as unknown
+OPTIONAL = {"reference.htbQuantity": "sent only for hard-to-borrow stocks"}
 MOVERS = {"screeners": LIST, **{f"mover.{k}": NUMBER for k in ("lastPrice", "netChange", "netPercentChange", "volume",
                                                                "totalVolume")}, "mover.symbol": TEXT}
 
@@ -67,9 +69,10 @@ def check(rows: dict[str, Any], expected: dict[str, str]) -> dict[str, Any]:
         prefix, _, rest = path.partition(".")
         value = _get(rows[prefix], rest) if prefix in rows and rest else _get(rows.get(""), path)
         found = _type(value)
-        out[path] = "absent" if found is None else "ok" if found == kind else f"type {found}"
-    return {"fields": out, "ok": sum(v == "ok" for v in out.values()), "absent": sum(v == "absent" for v in out.values()),
-            "mistyped": sum(v.startswith("type") for v in out.values())}
+        out[path] = ((f"absent ({OPTIONAL[path]})" if path in OPTIONAL else "absent") if found is None
+                     else "ok" if found == kind else f"type {found}")
+    return {"fields": out, "ok": sum(v.startswith(("ok", "absent (")) for v in out.values()),
+            "absent": sum(v == "absent" for v in out.values()), "mistyped": sum(v.startswith("type") for v in out.values())}
 
 
 def _first_contract(value: dict[str, Any]) -> dict[str, Any] | None:
@@ -148,8 +151,10 @@ async def verify(schwab: Any, now: datetime, symbol: str = "SPY") -> dict[str, A
                        path="/movers/$SPX")
     if movers is not None:
         top = movers.get("screeners") or []
-        report["endpoints"]["movers (not read by the app yet)"] = check({"": movers, "mover": top[0] if top else {}},
-                                                                        MOVERS)
+        expected = MOVERS if top else {"screeners": LIST}      # an empty list (market closed) has no movers to check
+        report["endpoints"]["movers (not read by the app yet)"] = {
+            **check({"": movers, "mover": top[0] if top else {}}, expected),
+            **({} if top else {"note": "no movers listed right now (market closed); run again during market hours"})}
     report["ok"] = all("error" not in e and not e.get("absent") and not e.get("mistyped")
                        for e in report["endpoints"].values())
     return report
@@ -167,6 +172,8 @@ def summary(report: dict[str, Any]) -> list[str]:
         mark = "✓" if not e["absent"] and not e["mistyped"] else "!"
         lines.append(f"{mark} {name}: {e['ok']} fields as expected, {e['absent']} absent, {e['mistyped']} another type")
         lines += [f"    {path}: {state}" for path, state in e["fields"].items() if state != "ok"]
+        if e.get("note"):
+            lines.append(f"    {e['note']}")
     return lines
 
 
