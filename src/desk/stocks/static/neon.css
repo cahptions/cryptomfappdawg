@@ -123,6 +123,7 @@ button.icon-link {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   grid-template-areas:
     "plays market"
+    "plays movers"
     "plays ideas"
     "event event";
   gap: 14px;
@@ -138,7 +139,7 @@ button.icon-link {
 .cockpit.no-plays {
   grid-template-areas:
     "plays market"
-    "ideas market"
+    "ideas movers"
     "event event";
   align-items: start;
 }
@@ -155,6 +156,9 @@ button.icon-link {
 }
 .cockpit-market {
   grid-area: market;
+}
+.cockpit-movers {
+  grid-area: movers;
 }
 .cockpit-ideas {
   grid-area: ideas;
@@ -315,6 +319,7 @@ button.icon-link {
       "plays"
       "event"
       "ideas"
+      "movers"
       "market";
   }
   .cockpit-figure {

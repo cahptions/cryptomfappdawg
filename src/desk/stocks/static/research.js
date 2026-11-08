@@ -270,6 +270,7 @@ const KestrelResearch = (() => {
     grid.append(
       cockpitPlays(hub.cockpit?.plays),
       cockpitMarket(hub),
+      cockpitMovers(hub.cockpit?.movers),
       cockpitIdeas(hub.cockpit),
     );
     const latest = hub.events?.recent?.[0];
@@ -387,6 +388,58 @@ const KestrelResearch = (() => {
           "cockpit-sub",
         ),
       );
+    return box;
+  }
+  // Today's movers among the stocks the app is quoting on Schwab this session (no extra requests).
+  function cockpitMovers(movers) {
+    const box = el("article", undefined, "cockpit-card cockpit-movers"),
+      title = el("div", undefined, "cockpit-card-head");
+    title.append(el("h2", "Movers today"));
+    box.append(title);
+    const rows = [...(movers?.up || []), ...(movers?.down || [])];
+    if (!rows.length) {
+      box.append(
+        el(
+          "p",
+          "During the session: the biggest moves among the stocks KESTREL is quoting on Schwab.",
+          "cockpit-sub",
+        ),
+      );
+      return box;
+    }
+    const list = el("div", undefined, "cockpit-list");
+    for (const r of rows) {
+      const row = link("", `#stock/${encodeURIComponent(r.symbol)}`);
+      row.className = "cockpit-row";
+      const name = el("span", undefined, "cockpit-name"),
+        value = el("span", undefined, "cockpit-value");
+      name.append(el("b", r.symbol), el("small", money(r.price)));
+      value.append(
+        el(
+          "b",
+          `${r.change >= 0 ? "+" : "−"}${Math.abs(100 * r.change).toFixed(1)}%`,
+          r.change >= 0 ? "up" : "down",
+        ),
+        el(
+          "small",
+          new Date(r.at).toLocaleTimeString("en-US", {
+            timeZone: "America/New_York",
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+        ),
+      );
+      row.append(name, value);
+      list.append(row);
+    }
+    box.append(
+      list,
+      el(
+        "p",
+        `Of ${movers.quoted} stocks KESTREL is quoting today, against the last close.`,
+        "cockpit-sub",
+      ),
+    );
     return box;
   }
   function cockpitIdeas(cockpit) {

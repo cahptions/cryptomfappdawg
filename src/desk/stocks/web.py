@@ -577,6 +577,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 mine = cockpit(research, utc_now())
             except sqlite3.OperationalError:
                 mine = {"rows": [], "open": 0, "priced": 0, "pnl": None}
+            from desk.stocks.hub import intraday_movers
+
+            movers = intraday_movers(market, research, utc_now())
         # Today's top ideas: the first Plays category's leaders, linked to their detail and calculator.
         board, ideas = saved_view(paths, "plays") or {}, []
         for category in board.get("categories", [])[:1]:
@@ -586,7 +589,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                               "category": category.get("title"),
                               "idea_id": idea_id(board["asof"], category["id"], str(board.get("method", "unknown")),
                                                  play)})
-        return {**value, "cockpit": {"plays": mine, "ideas": ideas, "ideas_asof": board.get("asof")}}
+        return {**value, "cockpit": {"plays": mine, "ideas": ideas, "ideas_asof": board.get("asof"), "movers": movers}}
 
     @app.post("/api/stocks/ui")
     def ui_preferences(inputs: dict[str, Any]) -> dict[str, Any]:

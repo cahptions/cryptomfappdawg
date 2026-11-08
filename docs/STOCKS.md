@@ -31,7 +31,11 @@ each contract's greeks and three chances of finishing in the money ([STOCKS_PLAY
 split-adjusted line/candlestick charts and volume, financial statistics, the committee and twelve desks,
 bull/bear evidence and a dated calls/puts table. Missing observations remain missing; a chart breaks at
 missing sessions rather than manufacturing candles. Top10 means up to ten qualifying names, never padding.
-These are daily-close research views, not a live intraday ranking service.
+These are daily-close research views, not a live intraday ranking service. The one intraday view is Home's **Movers
+today** card: during the session, the biggest moves (three up, three down) among the stocks the app is already quoting
+on Schwab (the underlying's price with every Plays tracking quote, every five minutes, and with every option chain
+collected today), each against its last stored close and stamped with its quote time. It costs no extra request and
+covers only those stocks (it says how many), not the whole market.
 
 Install and open the Stocks application-menu shortcut, like Crypto and Solana:
 
@@ -253,7 +257,7 @@ the money and the stock's price in the same answer. A pass is about 70 requests,
 minute, and the 150-name focus is covered about every 75 minutes, five or so times a session. Tradier still needs one
 request an expiry. Outside those hours it collects once if that session's chains were missed. It does **not** provide
 a daily full-universe option archive or continuous intraday history per name. Held contracts are included regardless
-of the current rotating focus. Chains are kept 45 days (about 10 MB a session at this coverage).
+of the current rotating focus. Chains are kept 45 days (roughly 5 MB a session at this coverage, about 0.25 GB in all).
 
 Free history is rate-limited. Roughly500 initial grouped-price requests consume at least100minutes at
 5/minute; the default five-day batches separated by a five-minute pause stretch the initial backfill across
