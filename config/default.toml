@@ -138,6 +138,7 @@ options_provider = "tradier"    # "schwab": market data after desk stocks connec
 schwab_callback_url = "https://127.0.0.1:8182/oauth/callback" # must exactly match the approved Schwab app
 history_days = 730              # Massive's free plan keeps 2 years of end-of-day bars
 evaluation_history_days = 0     # evidence, rebuild and replay read this many days of stored bars; 0 = all stored
+price_history_years = 10        # years of earlier daily bars from Schwab (0 = none, at most 20): docs/STOCKS_METHOD.md §9
 min_price_usd = "1"
 min_median_dollar_volume_usd = "1000000"
 options_focus_symbols = 150     # ranked focus for bounded option batches; this is not a daily coverage guarantee

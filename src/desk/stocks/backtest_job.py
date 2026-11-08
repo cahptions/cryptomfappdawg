@@ -14,7 +14,7 @@ from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
 from desk.core.worker_lock import WorkerLock
 from desk.stocks import options_history
-from desk.stocks.backtest import VERSION, WARMUP_SESSIONS, replay
+from desk.stocks.backtest import REPLAY_MAX_SESSIONS, VERSION, WARMUP_SESSIONS, replay
 from desk.stocks.connection import _atomic_private
 from desk.stocks.evidence_job import EvidenceWorker, publish
 from desk.stocks.repo import MARKET_FILE, StocksMarket
@@ -62,7 +62,15 @@ class BacktestWorker(EvidenceWorker):
     def coverage(self) -> dict[str, Any]:
         conn = sqlite3.connect((self.paths.db_dir / MARKET_FILE).as_uri() + "?mode=ro", uri=True, timeout=2)
         try:
-            row = conn.execute("SELECT COUNT(*),MAX(day),MIN(day),SUM(rows) FROM stk_bar_days WHERE rows>0").fetchone()
+            from desk.stocks import schwab_history
+
+            usable = schwab_history.usable_from(conn)    # Schwab's earlier years count once every stock is checked
+            row = conn.execute("SELECT COUNT(*),MAX(day),MIN(day),SUM(rows) FROM stk_bar_days WHERE rows>0 AND day>=?",
+                               (usable.toordinal() if usable else 0,)).fetchone()
+            try:
+                history = schwab_history.coverage(conn)
+            except sqlite3.OperationalError:
+                history = {}
             try:  # a finished batch of real option prices refreshes the replay once, never mid-download
                 prices = options_history.progress(StocksMarket(conn), options_history.wanted(self.paths))
                 option_prices: int | str = "downloading" if prices["left"] else prices["asked"]
@@ -75,7 +83,9 @@ class BacktestWorker(EvidenceWorker):
                 "sessions": row[0],
                 "latest": date.fromordinal(row[1]).isoformat() if row[1] else None,
                 "warmup_sessions": WARMUP_SESSIONS,
-                "eligible_sessions": max(0, row[0] - WARMUP_SESSIONS),
+                "eligible_sessions": min(REPLAY_MAX_SESSIONS, max(0, row[0] - WARMUP_SESSIONS)),
+                "max_sessions": REPLAY_MAX_SESSIONS,
+                "price_history": history,
                 "earliest": date.fromordinal(row[2]).isoformat() if row[2] else None,
                 "rows": row[3] or 0,
                 "option_prices": option_prices,
@@ -94,7 +104,8 @@ class BacktestWorker(EvidenceWorker):
                 value["phase"] = (
                     f"Ready to replay {eligible} eligible sessions"
                     if eligible >= (prefs["sessions"] or 2)
-                    else "Collecting earlier price history and strategy warm-up; replay starts automatically"
+                    else f"Waiting for {WARMUP_SESSIONS} sessions of warm-up prices ({value['coverage']['sessions']} "
+                         "stored); replay starts automatically"
                 )
             if prefs.get("attempted_at") and value.get("status") in {"failed", "interrupted"}:
                 value["retry_at"] = (datetime.fromisoformat(prefs["attempted_at"]) + timedelta(minutes=10)).isoformat()

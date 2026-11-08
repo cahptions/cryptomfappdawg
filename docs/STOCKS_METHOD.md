@@ -16,12 +16,12 @@ Every number is computed as of a day using only what was public before it:
 
 | Data | Counts on day D only if |
 |---|---|
-| Financial statements (SEC XBRL) | the filing's `filed` date is before D |
+| Financial statements (SEC XBRL: US GAAP, and IFRS for 20-F filers in US dollars) | the filing's `filed` date is before D |
 | Trailing twelve months | annual + year-to-date − prior year-to-date, all filed before D |
 | Short interest (FINRA) | settlement date + 12 days is before D (FINRA publishes about 8 business days after settlement) |
 | Insider trades (Form 4) | filed before D |
 | 8-K events, results | filed before D; the price reaction is the session after acceptance (after 16:00 New York means the next session), and only if that session is on or before D |
-| Treasury yields | dated before D |
+| Treasury yields, VIX | dated before D (Schwab's closing print of $VIX, $TNX or $IRX for a day when connected, else Treasury's par yield or FRED's VIX close) |
 | Prices | the close of D and earlier |
 
 Prices are adjusted for splits when read (history is never rewritten). Research-list and desk comparisons are
@@ -124,9 +124,16 @@ day's prices.
 of each past month's last session (with at least a year of prices before it), on only what was public that day, and
 keeps the result in `stk_rebuild_months` keyed by the methodology's hash. Each rebuilt month's universe is the
 listings as they stood that day (from when a listing first appeared in the files to the last file that had it), so
-companies delisted since collection began are included. Companies delisted before collection began never appeared in
-a listing file and are missing: this remaining survivorship bias flatters lists that buy and hurts lists that avoid,
-and the report says so. The live record has no such bias.
+companies delisted since collection began are included. Companies delisted earlier but within Massive's two years come
+from Massive's reference list of inactive common stocks and ADRs (`desk.stocks.delisted`, once): their grouped-daily
+bars are fetched again and kept up to the delisting day, their filings and facts are fetched once, and they count
+until their delisting day, so from the first Massive day the rebuilt and replayed universe is survivorship-free (a
+ticker listed again today by another company is left out: the two can't be told apart). Schwab's earlier years
+(section 9) hold only companies still listed when the Massive window began: there is no free price source for
+companies delisted before it, and this remaining survivorship bias flatters lists that buy and hurts lists that avoid.
+The report therefore gives every list's and desk's rebuilt record for the two periods separately
+(`periods`: survivorship-free from that day, and the earlier survivors-only years), the replay gives each account's
+return for both, and `desk stocks report` prints them. The live record has no such bias.
 
 **Forward returns.** A list is bought at the next session's open and held 5, 21, 63 or 252 sessions (1 week, 1
 month, 3 months, 12 months), sold at that session's close; a stock that stops trading is sold at its last close. Each
@@ -169,14 +176,41 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
 
 ## 9. Known limits
 
-- The free price source serves two years of daily bars, so the rebuild covers about a year of months at first and
-  every grade starts as *too early*. Stored bars are never pruned, and the evidence check, the rebuild and the
-  historical replay read every stored day (`evaluation_history_days`, 0 = all; free memory permitting, never less
-  than `history_days`), so the rebuild gains a month for each month of collection. Schwab's longer chart history is
-  kept apart for stock-page charts and never enters the rebuild.
-- Rebuilt months carry survivorship bias (section 8). The live record does not.
+- Massive's free plan serves two years of daily bars. When Schwab is connected, its price history adds earlier years
+  (`desk.stocks.schwab_history`, `price_history_years`, default 10, at most 20): one request per stock, benchmarks
+  first and then the research universe by dollar volume, at most 40 stocks a collection pass through the shared
+  Schwab limiter. Rows go only on days before the first stored Massive day, so a Massive row is never overwritten,
+  and those days are labelled `schwab_pricehistory` in `stk_bar_days`. Whether Schwab's candles are split-adjusted
+  is checked per stock, never assumed: over the shared sessions its closes must match Massive's unadjusted closes
+  either as they are or divided by the stored splits since each day, with volumes agreeing on the same basis; when no
+  split falls in the overlap, each earlier split of at least 3-for-2 must show the basis in Schwab's own candles (an
+  overnight gap of the ratio, or none). Adjusted candles are un-adjusted with the split record (Massive's splits and
+  dividends, back-filled a month a pass, `corporate_history`); candles older than that record are not stored. A stock
+  that doesn't reconcile is refused and its note kept in `stk_history_symbols` (Settings and the replay's coverage
+  line count them). The earlier years enter the evidence check, rebuild and replay only once every queued stock has
+  been checked, so a half-filled year never counts. Company facts are kept for 16 years so rebuilt months in those
+  years have their fundamentals (XBRL is complete for US filers from 2011).
+- The bound, measured on synthetic data here (the Dell's and a cloud server's speed may differ): a stored bar takes
+  about 76 bytes on disk with its index, so ten years of the research universe (about 4,500 stocks, fewer listed in
+  the early years) is roughly 9 million bars, about 650 MB (twenty years: about 1 GB). Loading takes about 3.4 µs and
+  at most about 100 bytes of memory per bar (an evaluation that wouldn't fit beside the 1.5 GB memory floor starts
+  later and says so). A rebuilt month or replayed session scores every liquid stock, about 5 ms each, so about 15 s
+  for 3,000 stocks: the first rebuild of ten years (about 120 months) takes about half an hour, and later rebuilds
+  only add new months. Day features and replayed sessions read only their own lookback (a year of prices; 600
+  sessions for a replayed day), so more stored years cost nothing per session. A replay covers at most the last
+  1,260 sessions (five years, about 5 hours), so it finishes between two closes and its report stays under 4 MB;
+  older years are graded by the monthly rebuild. Ten years by default because before 2011 there are no XBRL
+  statements, and five-year growth needs five of them: earlier years add storage without adding the company desks.
+  On a small server, lower `price_history_years` (0 turns it off).
+- Rebuilt months before the first Massive day carry survivorship bias (section 8); from it on they don't, once the
+  list of delisted companies is in. The live record has none.
 - Research-list and desk returns are price only; dividends are ignored on both sides (PAPER includes them on both).
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.
+- Foreign private issuers filing 20-F under IFRS are read from the `ifrs-full` taxonomy, the same way as US GAAP
+  (annual reports only, so their trailing twelve months is the last fiscal year). Only US-dollar values are read: an
+  IFRS filer reporting in another currency has no fundamentals, because nothing converts currencies. An ADR's price is
+  per depositary share while the filed share count is ordinary shares, so its per-share valuation is off by the ADR
+  ratio when that isn't one (as for any foreign filer).
 - Crowd counts are a snapshot of Reddit attention from one aggregator, not sentiment.
 - Option chains are collected for a ranked focus list (`options_focus_symbols`: dollar-volume leaders interleaved with
   liquid lower-priced stocks, plus held contracts), in rotating batches every 15 minutes during market hours, so a

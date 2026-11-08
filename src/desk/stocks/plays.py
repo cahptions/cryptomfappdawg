@@ -104,8 +104,9 @@ CATEGORIES: tuple[Category, ...] = (
     Category("earnings", "Earnings plays", "📅",
              "Straddles over the next results date, comparing the move options price with the moves this stock "
              "has made on its last results days.",
-             "Results window estimated from past report dates, starting within 21 days; first expiry after it (≤ 45 "
-             "days); at least four past results-day moves. Ranked by usual move ÷ priced move.",
+             "Results date announced in Finnhub's free calendar (when its key is set), else a window estimated from "
+             "past report dates, starting within 21 days; first expiry after it (≤ 45 days); at least four past "
+             "results-day moves. Ranked by usual move ÷ priced move.",
              "No collected underlying has results due within three weeks.", paper="earnings_straddles"),
     Category("strangles", "Strangles", "🎢",
              "Buy an out-of-the-money call and put together: pays if the stock moves a long way either way, for "
@@ -269,6 +270,7 @@ class Underlying:
     iv30: float | None = None
     iv_rank: float | None = None
     earnings: tuple[date, date] | None = None
+    earnings_when: str | None = None        # set when the date is announced (Finnhub's calendar): its time of day
     past_moves: list[float] = field(default_factory=list)
     # occ → (volume, open interest, mid, underlying price, day) on the previous stored session
     prior: dict[str, tuple[int, int, float | None, float | None, date]] = field(default_factory=dict)
@@ -347,6 +349,9 @@ def load(market: StocksMarket, research: StocksResearch, session: date) -> list[
         iv_rows[r["underlying"]].append((r["day"], r["iv"], r["vol"]))
     prior_days = market.option_days(session, PRIOR_SESSIONS)
     prior_chains = [market.chains_on(d, symbols) for d in prior_days]
+    from desk.stocks.earnings_dates import announced
+
+    dates = announced(market.conn, session)
     out = []
     for symbol in symbols:
         c = chains[symbol]
@@ -372,7 +377,10 @@ def load(market: StocksMarket, research: StocksResearch, session: date) -> list[
         u.option_volume_avg = statistics.fmean(volumes[-20:]) if len(volumes) >= 3 else None
         events = u.detail.get("events") or {}
         window = events.get("next_window")
-        if window:
+        if symbol in dates:                    # an announced date beats the window estimated from past reports
+            day = date.fromisoformat(dates[symbol]["date"])
+            u.earnings, u.earnings_when = (day, day), dates[symbol]["when"] or "time not given"
+        elif window:
             u.earnings = (date.fromisoformat(window[0]), date.fromisoformat(window[1]))
         u.past_moves = [abs(e["reaction"]) for e in events.get("earnings", []) if e.get("reaction") is not None][-8:]
         seen: dict[str, list[int]] = defaultdict(list)
@@ -704,7 +712,9 @@ def earnings(tb: Table, ctx: Context) -> list[Candidate]:
     flag = ("Priced below its usual results-day move" if typical >= priced
             else "Priced above its usual results-day move: selling premium may fit better")
     return [Candidate("earnings", tb, "long_straddle", [(legs[0], "buy"), (legs[1], "buy")], typical / priced,
-                      [f"Results expected {u.earnings[0]:%b %-d}–{u.earnings[1]:%b %-d} (estimated from past reports)",
+                      [f"Results on {u.earnings[0]:%b %-d}, {u.earnings_when} (announced; Finnhub calendar)"
+                       if u.earnings_when else
+                       f"Results expected {u.earnings[0]:%b %-d}–{u.earnings[1]:%b %-d} (estimated from past reports)",
                        f"Options price ±{priced:.1%}; its last {len(u.past_moves)} results days moved a median "
                        f"{typical:.1%}", flag])]
 
@@ -1181,7 +1191,8 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
     earnings = u.earnings[0].isoformat() if u.earnings and ctx.session <= u.earnings[0] <= expiration else None
     flags = list(c.flags)
     if earnings:
-        flags.append(f"Results expected before expiry (window starts {earnings}): moves can gap past stops")
+        flags.append(f"Results before expiry ({earnings}, announced): moves can gap past stops" if u.earnings_when else
+                     f"Results expected before expiry (window starts {earnings}): moves can gap past stops")
     if grade == "C":
         flags.append("Thin or wide market: use a limit order near the mid, not the ask")
     play = {
@@ -1780,7 +1791,8 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
              "grades": research.conn.execute("SELECT COUNT(*) FROM stk_play_grades").fetchone()[0],
              "learning": research.conn.execute("SELECT MAX(id) FROM stk_play_learning").fetchone()[0],
              "watchlist": research.watchlist(),
-             "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0]}
+             "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0],
+             "earnings_dates": market.conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates").fetchone()[0]}
     return sha256_hex(canonical_json(parts))
 
 

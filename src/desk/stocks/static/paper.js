@@ -150,6 +150,19 @@ const KestrelPaper = (() => {
           "caption",
         ),
       );
+      if ((historical.periods || []).length > 1)
+        replay.append(
+          el(
+            "p",
+            historical.periods
+              .map(
+                (p) =>
+                  `${p.survivorship_free ? "Survivorship-free" : "Survivors only"} ${p.from}–${p.to}: ${percent(p.return)} vs SPY ${percent(p.spy_return)}`,
+              )
+              .join(" · "),
+            "caption muted",
+          ),
+        );
       const stat = historical.vs_baseline || historical.vs_spy;
       if (stat) {
         const detail = el("details");
@@ -320,6 +333,15 @@ const KestrelPaper = (() => {
       limits.append(el("p", note, "muted caption"));
     section.append(limits);
     return section;
+  }
+  function priceSources(h) {
+    if (!h?.massive_from) return "";
+    const checked = (h.stored || 0) + (h.refused || 0) + (h.none || 0);
+    if (h.complete && h.schwab_from)
+      return `Prices: Schwab's daily history from ${h.schwab_from} (${h.stored} stocks checked against Massive's bars and un-adjusted; ${h.refused} refused), Massive's from ${h.massive_from}. `;
+    if (checked)
+      return `Prices: Massive's from ${h.massive_from}; earlier years from Schwab are being collected (${checked} stocks checked) and count once every stock is. `;
+    return `Prices: Massive's from ${h.massive_from}. `;
   }
   async function show(ticket) {
     let [live, backtest] = await Promise.all([api("paper"), api("backtest")]);
@@ -524,7 +546,7 @@ const KestrelPaper = (() => {
           section.append(
             el(
               "p",
-              `${c.sessions} stored sessions · ${c.eligible_sessions || 0} eligible after ${c.warmup_sessions} earlier warm-up sessions · source begins ${c.earliest || "not available"} · latest close ${c.latest || "unavailable"}. Automatic replay follows PAPER Pause/STOP.`,
+              `${c.sessions} stored sessions · ${c.eligible_sessions || 0} eligible after ${c.warmup_sessions} earlier warm-up sessions (at most ${c.max_sessions || 1260}, five years) · source begins ${c.earliest || "not available"} · latest close ${c.latest || "unavailable"}. ${priceSources(c.price_history)}Automatic replay follows PAPER Pause/STOP.`,
               "muted caption",
             ),
           );

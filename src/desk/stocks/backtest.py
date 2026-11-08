@@ -1,10 +1,12 @@
 """Chronological strategy replay in isolated books. No provider calls or forward-ledger writes.
 
-Each day's universe is the listings as they stood that day (delisted companies included), but companies delisted before
-collection began are missing, and filing history is what is stored: it is not a survivor-bias-free archival
-experiment. Crowd counts, company news and world shocks are excluded (collected going forward only); trade actions
-count once published. Macro inputs are dated market prints read as of each day. Short interest joins, as FINRA
-published it, once the stored settlements cover the replayed window (``short_history``). Option strategies whose
+Each day's universe is the listings as they stood that day: from the first Massive day on it includes companies later
+delisted (desk.stocks.delisted); Schwab's earlier years hold only companies still listed then, so each account's
+return is also reported for the two periods (``periods``). Filing history is what is stored. Crowd counts are
+excluded (collected going forward only); company news (counted by publication day), stored world events and trade
+actions count once published. Macro inputs
+are dated market prints read as of each day. Short interest joins, as FINRA published it, once the stored settlements
+cover the replayed window (``short_history``). Option strategies whose
 signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option prices
 replacing the model where they exist (``desk.stocks.option_model``).
 """
@@ -47,6 +49,14 @@ VERSION = 5
 # Earlier sessions every replayed day needs: 12-month momentum, the 52-week high/low and the 200-day average read a
 # year of prices (desk.stocks.features), so a replay starting after the analysis' 60-bar floor would rank on partial ones.
 WARMUP_SESSIONS = 252
+# Sessions of prices a replayed day reads: two years of month-end valuations and 500 days of filings' price reactions
+# (desk.stocks.analysis) fit in 600, so each day costs the same however many years are stored.
+PANEL_LOOKBACK = 600
+# The longest replay: five years, about 1,260 sessions. A session scores every liquid stock (about 5 ms each where this
+# was measured, so roughly 15 s for 3,000 stocks): five years is about 5 hours, which finishes between two closes and
+# keeps the report under its 4 MB cap. Older stored years (Schwab's history) go to the monthly rebuild, which keeps
+# every rebuilt month, so only new months cost anything.
+REPLAY_MAX_SESSIONS = 1260
 SHORT_MIN_SETTLEMENTS = 24     # a year of FINRA's twice-monthly settlements
 SHORT_MAX_GAP_DAYS = 35        # at most one missed release between stored settlements
 SHORT_MIN_SHARE = 0.5          # a settlement holding under half the typical settlement's symbols is a partial backfill
@@ -134,13 +144,15 @@ class ReplayEngine(PaperEngine):
             self.executing = False
 
 
-def historical_panel(raw: Panel, asof: date, splits: Sequence[Split]) -> Panel:
-    """Do not expose future columns or apply a future split to past decisions/absolute price filters."""
+def historical_panel(raw: Panel, asof: date, splits: Sequence[Split], *, lookback: int | None = None) -> Panel:
+    """Do not expose future columns or apply a future split to past decisions/absolute price filters. With
+    ``lookback``, only that many sessions up to ``asof`` (everything a replayed day reads)."""
     end = raw.day_index(asof) + 1
-    days = raw.days[:end]
+    first = 0 if lookback is None else max(0, end - lookback)
+    days = raw.days[first:end]
     factors = split_factors([s for s in splits if s.execution_date <= asof], raw.symbols, days)
-    arrays = [getattr(raw, key)[:, :end] / factors for key in ("open", "high", "low", "close")]
-    return Panel(raw.symbols, days, arrays[0], arrays[1], arrays[2], arrays[3], raw.volume[:, :end] * factors)
+    arrays = [getattr(raw, key)[:, first:end] / factors for key in ("open", "high", "low", "close")]
+    return Panel(raw.symbols, days, arrays[0], arrays[1], arrays[2], arrays[3], raw.volume[:, first:end] * factors)
 
 
 def position_view(position: Position) -> dict[str, Any]:
@@ -192,6 +204,27 @@ def account_views(book: PaperBook, strategies: Sequence[Strategy]) -> list[dict[
             }
         )
     return sorted(accounts, key=lambda a: (a["baseline"], -(a["return"] or 0)))
+
+
+def periods(curve: Sequence[dict[str, Any]], spy: Sequence[dict[str, Any]], free: date | None) -> list[dict[str, Any]]:
+    """An account's return before the first survivorship-free day (survivors only) and from it on, against SPY's."""
+    if not curve:
+        return []
+    bench = {p["day"]: p["equity"] for p in spy}
+    cut = free.isoformat() if free else curve[0]["day"]
+    parts = [[p for p in curve if p["day"] < cut], [p for p in curve if p["day"] >= cut]]
+    out = []
+    for survivorship_free, part in zip((False, True), parts, strict=True):
+        if not part:
+            continue
+        before = [p for p in curve if p["day"] < part[0]["day"]]
+        start = before[-1] if before else part[0]
+        end = part[-1]
+        spy_return = (bench[end["day"]] / bench[start["day"]] - 1
+                      if start["day"] in bench and end["day"] in bench and bench[start["day"]] else None)
+        out.append({"from": part[0]["day"], "to": end["day"], "sessions": len(part), "survivorship_free": survivorship_free,
+                    "return": end["equity"] / start["equity"] - 1 if start["equity"] else None, "spy_return": spy_return})
+    return out
 
 
 def walk_forward(accounts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -311,20 +344,24 @@ def replay(
         days = [d for d in market.bar_days() if d >= start]
         requested = sessions
         if sessions == 0:
-            sessions = max(0, len(days) - WARMUP_SESSIONS)
+            sessions = min(REPLAY_MAX_SESSIONS, max(0, len(days) - WARMUP_SESSIONS))
         if sessions < 2 or len(days) < sessions + WARMUP_SESSIONS:
             raise DeskError(
                 f"Replay needs {max(sessions, 2)} sessions plus {WARMUP_SESSIONS} warm-up sessions; {len(days)} are saved. "
                 "Collection can continue automatically; see Settings for missing price access."
             )
         selected = days[-sessions:]
-        # A short window still reads the whole evaluation window: 12-month momentum, 52-week highs and two years of
+        # A short window still reads well before its first day: 12-month momentum, 52-week highs and two years of
         # month-end valuations look back far beyond the replayed sessions.
-        raw = load_panel(market, days[0], days[-1], adjust=False)
+        raw = load_panel(market, days[max(0, len(days) - sessions - PANEL_LOOKBACK)], days[-1], adjust=False)
         if "SPY" not in raw.index:
             raise DeskError("SPY closing history is needed for the benchmark before replay can start")
         if raw.day_index(selected[0]) < WARMUP_SESSIONS:
             raise DeskError("The selected replay window does not have enough earlier warm-up history")
+        from desk.stocks import schwab_history
+
+        history = schwab_history.coverage(source)
+        earlier = bool(history["massive_from"]) and selected[0].isoformat() < history["massive_from"]
         shorts = short_history(market, selected[0], selected[-1])
         replayed = {*option_model.REPLAYED, *(option_model.SHORT_REPLAYED if shorts["replayed"] else ())}
         strategies = tuple(s for s in STRATEGIES if (s.asset == "stock" and s.id not in option_model.SHORT_REPLAYED)
@@ -357,7 +394,7 @@ def replay(
         for index, asof in enumerate(selected):
             if progress:
                 progress(asof, index, len(selected))
-            panel = historical_panel(raw, asof, splits)
+            panel = historical_panel(raw, asof, splits, lookback=PANEL_LOOKBACK)
             day = analyzer.build(panel, asof, now=cal.session_close(asof), historical=True, weights=dict(DEFAULT_WEIGHTS))
             if not shorts["replayed"]:
                 # Re-run desks without short interest the stored history can't show as published that day.
@@ -382,6 +419,15 @@ def replay(
             engine.previous = day
             engine.previous_bars = engine._bars(asof)
         accounts = account_views(book, strategies)
+        from desk.stocks.delisted import survivorship_free_from
+
+        free = survivorship_free_from(source)
+        from desk.stocks import news_history
+
+        news = news_history.coverage(source)
+        spy_curve: list[dict[str, Any]] = next((a["curve"] for a in accounts if a["id"] == "spy_hold"), [])
+        for account in accounts:
+            account["periods"] = periods(account["curve"], spy_curve, free)
         held = book.positions(state=None)
         mix = modeled.price_mix(held, selected[-1])
         for account in accounts:
@@ -420,6 +466,9 @@ def replay(
             ],
             "skipped_sessions": skipped,
             "short_interest": shorts,
+            "price_history": history,
+            "survivorship_free_from": free.isoformat() if free else None,
+            "news": news,
             "walk_forward": walk_forward(accounts),
             "manifest": {s.id: {"spec_sha256": s.spec_sha256, "version": s.version} for s in strategies},
             "settings": settings.model_dump(mode="json"),
@@ -440,9 +489,13 @@ def replay(
             },
             "option_contracts": contracts,
             "limitations": [
-                "Each day's universe is the listings as they stood that day, so companies delisted since collection "
-                "began are included; companies delisted before collection began never appeared in a listing file and "
-                "are missing. A held stock that stops trading after it is delisted is sold at its last close.",
+                (f"Each day's universe is the listings as they stood that day. From {free.isoformat()} on it includes "
+                 "companies delisted later (Massive's daily bars and its list of delisted companies), so those sessions "
+                 "are survivorship-free. " if free else "Each day's universe is the listings as they stood that day. ")
+                + (f"Sessions before {free.isoformat()} hold only companies still listed then (Schwab's history has no "
+                   "delisted companies), which flatters strategies that buy and hurts those that avoid; each account's "
+                   "return is shown for both periods. " if free and selected[0] < free else "")
+                + "A held stock that stops trading after it is delisted is sold at its last close.",
                 "Fundamentals are SEC XBRL company facts: each value counts from the day after the filing that "
                 "reported it, and a restatement replaces the earlier value only from its own filing date. Values a "
                 "company never filed in XBRL are missing.",
@@ -465,9 +518,12 @@ def replay(
                 "unusual activity) are not replayed.",
                 shorts["message"],
                 "Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints, read only through each "
-                "decision date as first stored. Trade actions reach the News desk once published (stored from January "
-                "20, 2025). Company news, world shocks and crowd counts are collected going forward only and are "
-                "left out.",
+                "decision date as first stored. The News desk (an observer with no vote) reads what was published by "
+                "each day: trade actions from January 20, 2025; company news counted by publication day "
+                + (f"from {news['company_from']}" if news["company_from"] else "(none counted yet)")
+                + "; world shocks from stored GDELT files "
+                + (f"from {news['world_from']}" if news["world_from"] else "(none stored yet)")
+                + ". Crowd counts are collected going forward only and are left out.",
                 f"Every replayed day has at least {WARMUP_SESSIONS} earlier sessions of prices, so 12-month momentum, "
                 "the 52-week high and low and the 200-day average are complete from the first replayed day.",
                 "Signals use only data through each decision date. Fills occur at the next available open with the "
@@ -476,6 +532,11 @@ def replay(
                 "Walk-forward comparisons do not establish a profitable edge or automatically change the live model.",
                 *(["Lab strategies were chosen on these same rebuilt months, so their replay is in-sample: it shows "
                    "what the chosen rule did, not evidence from history it never saw."] if learned else []),
+                *([f"Prices before {history['massive_from']} are Schwab's daily history ({history['stored']} stocks "
+                   "checked against Massive's unadjusted bars and the split record, un-adjusted, stored with their "
+                   f"source; {history['refused']} refused because they didn't reconcile)."] if earlier else []),
+                f"A replay covers at most the last {REPLAY_MAX_SESSIONS} sessions (five years) so it finishes between "
+                "two closes; older stored years go to the monthly rebuild.",
                 *([limited] if limited else []),
             ],
         }

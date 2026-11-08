@@ -455,25 +455,38 @@ def save_rows(research: sqlite3.Connection, rows: list[tuple[Any, ...]]) -> None
 
 async def estimate_intraday(research: sqlite3.Connection, history: History, estimated: list[tuple[str, date, float]],
                             last_closed: date, rate: Callable[[date], float], now: datetime,
-                            budget: int) -> tuple[int, list[str]]:
-    """Estimated five-minute paths for recent gap sessions, from Schwab's minute bars of the stock."""
+                            budget: int, *, market: sqlite3.Connection | None = None) -> tuple[int, list[str]]:
+    """Estimated five-minute paths for gap sessions, from the stock's minute bars: Schwab's (the last ten days, then
+    archived in ``market``) or, for older sessions, the archive (desk.stocks.minute_archive)."""
+    from desk.stocks import minute_archive
+
     # ten days of history (period=10) reaches back to the trading days of the last ten business days
     recent = set(cal.trading_days(last_closed - timedelta(days=16), last_closed)[-MINUTE_HISTORY_DAYS:])
     by_symbol: dict[str, list[tuple[str, date, float]]] = defaultdict(list)
+    archived: dict[str, list[IntradayBar]] = defaultdict(list)
     for occ, d, iv in estimated:
-        if d in recent and not research.execute("SELECT 1 FROM stk_track_intraday WHERE occ = ? AND session = ?",
-                                                (occ, day_of(d))).fetchone():
+        if research.execute("SELECT 1 FROM stk_track_intraday WHERE occ = ? AND session = ?",
+                            (occ, day_of(d))).fetchone():
+            continue
+        kept = [] if market is None or d in recent else minute_archive.read(market, occ[:-15], d)
+        if d in recent or kept:
             by_symbol[occ[:-15]].append((occ, d, iv))
+            archived[occ[:-15]] += kept
     requests, errors, rows = 0, [], []
     for symbol, items in sorted(by_symbol.items()):
-        if requests >= budget:
-            break
-        requests += 1
-        try:
-            bars = await history.intraday_history(symbol, days=MINUTE_HISTORY_DAYS)
-        except DeskError as exc:
-            errors.append(f"{symbol} minute bars: {exc}"[:200])
-            continue
+        bars = archived[symbol]
+        if any(d in recent for _, d, _ in items):
+            if requests >= budget:
+                continue
+            requests += 1
+            try:
+                fetched = await history.intraday_history(symbol, days=MINUTE_HISTORY_DAYS)
+            except DeskError as exc:
+                errors.append(f"{symbol} minute bars: {exc}"[:200])
+                fetched = []
+            if market is not None and fetched:
+                minute_archive.archive(market, fetched, now)
+            bars = [*bars, *fetched]
         for occ, d, iv in items:
             _, kind, strike, expiration = parse_occ(occ)
             expiry_close = cal.session_close(expiration)
@@ -632,7 +645,7 @@ async def update(market: sqlite3.Connection, research: sqlite3.Connection, now: 
     report["contract_rows"] = len(repair.rows)
     if history is not None and history.configured and repair.estimated and report["requests"] < budget:
         spent, errors = await estimate_intraday(research, history, repair.estimated, last_closed, rate, now,
-                                                budget - report["requests"])
+                                                budget - report["requests"], market=market)
         report["requests"] += spent
         report["errors"].extend(errors)
     marks, provisional, pending, halted = [], [], 0, []

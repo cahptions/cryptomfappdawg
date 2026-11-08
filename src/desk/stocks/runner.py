@@ -370,6 +370,32 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
         if _backfill_due(market, "short_volume", now, 24):
             jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now))
+        # $VIX, $TNX and $IRX closes from Schwab (one request an hour; stored once a session has closed)
+        if suite.schwab is not None and suite.schwab.configured and _due(market, "index_closes", now, 1):
+            jobs["index_closes"] = await run_job("index_closes", collect.index_closes(suite, market, now))
+        # Announced earnings dates (Finnhub's free calendar, the only free forward one; optional key): daily.
+        if suite.finnhub is not None and suite.finnhub.configured:
+            from desk.stocks import earnings_dates
+
+            if _due(market, earnings_dates.JOB, now, 24):
+                jobs[earnings_dates.JOB] = await run_job(earnings_dates.JOB, earnings_dates.job(suite, market, now))
+        # Companies delisted during Massive's two years, once: the list, their bars a few days a pass, their splits.
+        if suite.massive.configured:
+            from desk.stocks import delisted
+
+            if _backfill_due(market, delisted.JOB, now, 24 * 7):
+                jobs[delisted.JOB] = await run_job(delisted.JOB, delisted.job(suite, market, now, settings))
+        # Earlier years from Schwab's daily history (desk.stocks.schwab_history): the split and dividend record first
+        # (a month of Massive's reference data a pass), then up to 40 stocks a pass through the shared Schwab limiter.
+        if suite.schwab is not None and suite.schwab.configured and settings.price_history_years:
+            from desk.stocks import schwab_history
+
+            if suite.massive.configured and _backfill_due(market, "corporate_history", now, 24 * 7):
+                jobs["corporate_history"] = await run_job("corporate_history", collect.corporate_history(
+                    suite, market, now, history_days=settings.history_days, years=settings.price_history_years))
+            if _backfill_due(market, schwab_history.JOB, now, 24):
+                jobs[schwab_history.JOB] = await run_job(schwab_history.JOB, schwab_history.job(
+                    suite, market, now, settings))
         progress("analysis")
         try:
             preview = preview_now()
@@ -403,6 +429,19 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
         except Exception as exc:  # recorded; never stops collection
             log.warning("news and world failed", extra={"error": str(exc)[:200]})
             market.job("world", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+        # Company news by publication day for rebuilt and replayed days: count finished days, then back-fill earlier
+        # ones from Massive (three requests a pass) back to the first stored Massive price day.
+        if suite.massive.configured and _backfill_due(market, "news_backfill", now, 24):
+            from desk.stocks import news_history, schwab_history
+
+            try:
+                news_history.count_stored(market.conn, now)
+                edge = schwab_history.boundary(market.conn) or (now.date() - timedelta(days=730))
+                jobs["news_backfill"] = await run_job("news_backfill", news_history.backfill(
+                    market.conn, suite.massive, now, target=edge))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("news history failed", extra={"error": str(exc)[:200]})
+                market.job("news_backfill", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         if suite.massive.configured:
             from desk.stocks import options_history
 

@@ -215,6 +215,7 @@ class StocksSection(_Section):
     schwab_callback_url: str = "https://127.0.0.1:8182/oauth/callback"
     history_days: int = Field(default=730, ge=60)              # Massive's free plan keeps 2 years
     evaluation_history_days: int = Field(default=0, ge=0)      # offline evaluations read this much; 0 = all stored
+    price_history_years: int = Field(default=10, ge=0, le=20)  # earlier daily bars from Schwab (desk.stocks.schwab_history)
     min_price_usd: Decimal = Decimal("1")                       # the research universe: listed common stock and ADRs
     min_median_dollar_volume_usd: Decimal = Decimal("1000000")  # ... trading at least this much a day (median of 20)
     options_focus_symbols: int = Field(default=150, ge=0, le=1000)   # chains collected daily for this many names

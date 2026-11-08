@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from desk.stocks import calendar as cal
+from desk.stocks.earnings_dates import announced
 from desk.stocks.fundamentals import ANNUAL, Fundamentals, _latest_per_period
 from desk.stocks.repo import StocksMarket, StocksResearch, date_of
 
@@ -287,10 +288,18 @@ def about(listing: sqlite3.Row | None, profile: dict[str, Any], feeds: dict[str,
             if profile.get("source_url") else None}
 
 
-def earnings(f_rows: dict[str, Any] | None, feeds: dict[str, dict[str, Any]], today: date) -> dict[str, Any] | None:
+def earnings(f_rows: dict[str, Any] | None, feeds: dict[str, dict[str, Any]], today: date, *,
+             announced: dict[str, Any] | None = None, window: list[str] | None = None) -> dict[str, Any] | None:
+    """Past results and the next report: Finnhub's date for this stock, else the stored daily calendar's
+    (desk.stocks.earnings_dates), else the window estimated from past 8-K results filings, labelled as such."""
     estimates = _feed(feeds, "earnings")
     calendar = _feed(feeds, "calendar") or []
     upcoming = next((c for c in calendar if c["date"] >= today.isoformat()), None)
+    if upcoming is None and announced and announced["date"] >= today.isoformat():
+        upcoming = {"date": announced["date"], "when": announced.get("when"), "source": announced.get("source")}
+    if upcoming is None and window and window[1] >= today.isoformat():
+        upcoming = {"date": max(window[0], today.isoformat()), "to": window[1], "estimated": True,
+                    "source": "Estimated from past results filings (8-K item 2.02): no announced date"}
     if estimates:
         history = [{"period": e["period"], "actual": e["actual"], "estimate": e["estimate"],
                     "surprise_pct": e["surprise_pct"]} for e in estimates]
@@ -360,7 +369,9 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
             "about": about(listing, profile, feeds, chief_executive(market, symbol)),
             "market_cap": market_cap, "shares_outstanding": shares,
             "quote_details": (quote or {}).get("details") or {}, "market": cal.market_session(now),
-            "financials": fin, "earnings": earnings(fin, feeds, today), "ratings": ratings(feeds),
+            "financials": fin, "ratings": ratings(feeds),
+            "earnings": earnings(fin, feeds, today, announced=announced(market, today).get(symbol),
+                                 window=(((detail or {}).get("events") or {}).get("next_window"))),
             "short_interest": short_interest(market, symbol, shares),
             "insiders": insiders(market, symbol, today),
             "dividends": dividends(market, symbol, price, today),

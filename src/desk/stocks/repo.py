@@ -33,6 +33,7 @@ from desk.stocks.contracts import (
 from desk.storage.db import DbKind, StorageError, connect, integrity_check, journal_mode, migrate, transaction
 
 MARKET_FILE = "stocks-market.db"
+SCHWAB_RATE = "@schwab"     # suffix of a rate series stored from Schwab's index quotes (VIXCLS@schwab = $VIX)
 RESEARCH_FILE = "stocks-research.db"
 LEDGER_FILE = "stocks-ledger-paper.db"
 FILING_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A", "8-K", "8-K/A", "20-F", "6-K", "S-1", "S-1/A", "S-3",
@@ -377,10 +378,17 @@ class StocksMarket:
                                         [(p.series, day_of(p.day), p.value) for p in points])
         return cur.rowcount
 
-    def rates(self, series: str, since: date | None = None) -> list[RatePoint]:
-        return [RatePoint(series, date_of(r["day"]), r["value"]) for r in self.conn.execute(
-            "SELECT day, value FROM stk_rates WHERE series = ? AND day >= ? ORDER BY day",
-            (series, day_of(since) if since else 0))]
+    def rates(self, series: str, since: date | None = None, *, merged: bool = True) -> list[RatePoint]:
+        """A dated series. ``merged``: Schwab's same-evening close of the index (``<series>@schwab``, stored by
+        collect.index_closes when connected) wins on the days it has one; the free source (Treasury, FRED) fills
+        every other day. ``merged=False`` reads the free source alone (its own backfill)."""
+        names = (series, f"{series}{SCHWAB_RATE}") if merged else (series,)
+        by_day: dict[int, float] = {}
+        for r in self.conn.execute(
+                f"SELECT day, value, series FROM stk_rates WHERE series IN ({','.join('?' * len(names))}) "  # noqa: S608
+                "AND day >= ? ORDER BY series = ?, day", (*names, day_of(since) if since else 0, names[-1])):
+            by_day[r[0]] = r[1]                                # the free source first, Schwab's rows over it
+        return [RatePoint(series, date_of(d), v) for d, v in sorted(by_day.items())]
 
     # options ──────────────────────────────────────────────────────────────────────────────────────
     def request_options(self, symbol: str, now: datetime) -> None:

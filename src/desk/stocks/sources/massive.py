@@ -91,6 +91,27 @@ def parse_dividends(body: bytes) -> tuple[list[Dividend], str | None]:
         raise SchemaError("massive dividends: invalid action response") from exc
 
 
+@schema_boundary("massive tickers")
+def parse_tickers(body: bytes) -> tuple[list[dict[str, Any]], str | None]:
+    """Reference tickers: symbol, name, Massive's type (CS, ADRC, ...), CIK and the day it was delisted (if it was)."""
+    try:
+        d = json_object(body)
+        if d.get("status", "OK") != "OK":
+            raise ValueError("unsuccessful response")
+        out = []
+        for r in d.get("results") or []:
+            delisted = r.get("delisted_utc")
+            cik = str(r.get("cik") or "").strip()
+            out.append({"symbol": str(r["ticker"]), "name": clean_text(r.get("name"), 200) or str(r["ticker"]),
+                        "type": str(r.get("type") or ""), "active": bool(r.get("active")),
+                        "cik": int(cik) if cik.isdigit() else None,
+                        "delisted": datetime.fromisoformat(str(delisted).replace("Z", "+00:00")).date()
+                        if delisted else None})
+        return out, _cursor(d.get("next_url"))
+    except (ValueError, KeyError, TypeError) as exc:
+        raise SchemaError("massive tickers: invalid reference response") from exc
+
+
 def _count(value: Any) -> int | None:
     try:
         n = number(value, nonnegative=True)
@@ -242,11 +263,22 @@ class MassiveClient:
                                params={"adjusted": "false"})
         return parse_grouped(body)
 
-    async def splits(self, since: date) -> list[Split]:
-        return await self._paged("splits", parse_splits, {"execution_date.gte": since.isoformat(), "limit": 1000})
+    async def splits(self, since: date, until: date | None = None) -> list[Split]:
+        params: dict[str, Any] = {"execution_date.gte": since.isoformat(), "limit": 1000}
+        if until is not None:
+            params["execution_date.lte"] = until.isoformat()
+        return await self._paged("splits", parse_splits, params)
 
-    async def dividends(self, since: date) -> list[Dividend]:
-        return await self._paged("dividends", parse_dividends, {"ex_dividend_date.gte": since.isoformat(), "limit": 1000})
+    async def dividends(self, since: date, until: date | None = None) -> list[Dividend]:
+        params: dict[str, Any] = {"ex_dividend_date.gte": since.isoformat(), "limit": 1000}
+        if until is not None:
+            params["ex_dividend_date.lte"] = until.isoformat()
+        return await self._paged("dividends", parse_dividends, params)
+
+    async def delisted_tickers(self, kind: str) -> list[dict[str, Any]]:
+        """Every inactive US ticker of one type (``CS`` common stock, ``ADRC`` ADRs) with its delisting date."""
+        return await self._paged("tickers", parse_tickers, {"market": "stocks", "type": kind, "active": "false",
+                                                            "limit": 1000})
 
     async def ticker_details(self, symbol: str) -> dict[str, Any]:
         return parse_ticker_details(await self._get("ticker_details", path=f"/v3/reference/tickers/{quote(symbol, safe='')}"))
@@ -312,5 +344,16 @@ class MassiveClient:
         raise SchemaError(f"massive {endpoint}: page limit reached; history remains incomplete")
 
 
-__all__ = ["MassiveClient", "icon_path", "icon_type", "parse_dividends", "parse_grouped", "parse_news",
-           "parse_option_bars", "parse_option_contracts", "parse_splits", "parse_ticker_details"]
+__all__ = [
+    "MassiveClient",
+    "icon_path",
+    "icon_type",
+    "parse_dividends",
+    "parse_grouped",
+    "parse_news",
+    "parse_option_bars",
+    "parse_option_contracts",
+    "parse_splits",
+    "parse_ticker_details",
+    "parse_tickers",
+]

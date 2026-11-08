@@ -30,20 +30,30 @@ def listed_on(market: StocksMarket, asof: date) -> list[sqlite3.Row]:
     A listing counts from the day it first appeared in the listing files (an IPO or a new ticker) until the last file
     that still had it. Listings in the first files this app collected were already listed before collection began, so
     they count on any earlier day; their stored prices decide when they actually traded. Companies delisted before
-    collection began never appeared in a file, so they are still missing (the remaining survivorship bias)."""
+    collection began come from Massive's reference list (``stk_delisted``, desk.stocks.delisted) and count until their
+    delisting day; companies delisted before Massive's two years have no free source and are missing (the remaining
+    survivorship bias, in Schwab's earlier years only)."""
     began = market.conn.execute("SELECT MIN(first_seen) FROM stk_listings").fetchone()[0]
     if began is None:
         return []
     already = to_iso(datetime.fromisoformat(began) + timedelta(days=FIRST_FILE_DAYS))
     start, end = (to_iso(datetime.combine(asof, t, cal.NEW_YORK)) for t in (time(0, 0), time(23, 59, 59)))
-    return [r for r in market.conn.execute(
-        "SELECT * FROM stk_listings WHERE etf = 0 AND test = 0 AND (first_seen <= ? OR first_seen <= ?) "
-        "AND (active = 1 OR last_seen >= ?) ORDER BY symbol", (end, already, start)) if r["kind"] in RESEARCH_KINDS]
+    rows = [r for r in market.conn.execute(
+        "SELECT symbol, name, exchange, kind, etf, test, cik, active, first_seen, last_seen FROM stk_listings "
+        "WHERE etf = 0 AND test = 0 AND (first_seen <= ? OR first_seen <= ?) AND (active = 1 OR last_seen >= ?) "
+        "UNION ALL SELECT d.symbol, d.name, '', d.kind, 0, 0, d.cik, 0, '', '' FROM stk_delisted d "
+        "WHERE d.delisted >= ? AND d.symbol NOT IN (SELECT symbol FROM stk_listings) ORDER BY symbol",
+        (end, already, start, asof.toordinal())) if r["kind"] in RESEARCH_KINDS]
+    return rows
 
 
-def stored_symbols(market: StocksMarket) -> set[str]:
-    """Symbols whose bars are kept: the research universe and the benchmarks."""
-    return {r["symbol"] for r in research_listings(market)} | set(BENCHMARKS)
+def stored_symbols(market: StocksMarket, *, delisted: bool = True) -> set[str]:
+    """Symbols whose bars are kept: the research universe, the benchmarks and (unless ``delisted`` is False, for
+    requests about today) the companies delisted during Massive's window."""
+    names = {r["symbol"] for r in research_listings(market)} | set(BENCHMARKS)
+    if delisted:
+        names |= {r[0] for r in market.conn.execute("SELECT symbol FROM stk_delisted")}
+    return names
 
 
 def symbol_ciks(market: StocksMarket) -> dict[str, int]:

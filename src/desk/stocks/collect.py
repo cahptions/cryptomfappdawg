@@ -16,9 +16,9 @@ from desk.stocks import calendar as cal
 from desk.stocks import options as opt
 from desk.stocks.activity import VERSION as OPTIONS_VERSION
 from desk.stocks.activity import chain_activity, qualified_quotes, quote_session
-from desk.stocks.contracts import InsiderTrade
+from desk.stocks.contracts import InsiderTrade, RatePoint
 from desk.stocks.fundamentals import CONCEPTS
-from desk.stocks.repo import FILING_FORMS, StocksMarket
+from desk.stocks.repo import FILING_FORMS, SCHWAB_RATE, StocksMarket
 from desk.stocks.sectors import sector
 from desk.stocks.sources.feeds import TREASURY_COLUMNS, settlement_candidates
 from desk.stocks.sources.sec import ftd_file_names, parse_companyfacts, parse_form4, parse_submission_text
@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 COMPANY_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A", "8-K", "8-K/A", "20-F", "6-K"})
 FRED_SERIES = ("BAMLH0A0HYM2", "VIXCLS")
 MENTION_SOURCES = ("wallstreetbets", "all-stocks", "options")
-FACT_YEARS = 8           # company facts kept: enough for five-year growth and two years of point-in-time history
+FACT_YEARS = 16          # company facts kept: ten years of rebuilt history (price_history_years) plus five-year growth
 
 
 class IncompleteJob(DeskError):
@@ -131,6 +131,40 @@ async def corporate_actions(suite: StocksSuite, market: StocksMarket, now: datet
     return await _job(market, "corporate_actions", now, work)
 
 
+CORPORATE_YEARS = 10     # splits and dividends reach as far back as Schwab's daily history (price_history_years)
+
+
+async def corporate_history(suite: StocksSuite, market: StocksMarket, now: datetime, *, history_days: int,
+                            years: int = CORPORATE_YEARS) -> dict[str, Any]:
+    """Splits and dividends before the daily job's window, one calendar month a pass, newest first, back ``years``.
+
+    The split record un-adjusts Schwab's older daily candles and the dividends pay replayed PAPER accounts. ``from`` is
+    the first day the stored record covers. If Massive refuses older reference data (a plan limit), the backfill
+    stops there and says so: earlier candles are then never stored, because they could not be un-adjusted."""
+    async def work() -> dict[str, Any]:
+        state = market.jobs().get("corporate_history", {}).get("detail", {})
+        oldest = (now.date() - timedelta(days=365 * years + 5)).replace(day=1)
+        cover = date.fromisoformat(state["from"]) if state.get("from") else now.date() - timedelta(days=history_days + 30)
+        if state.get("refused") or cover <= oldest:
+            return {**state, "remaining": 0, "complete": True}
+        end = cover - timedelta(days=1)
+        start = max(oldest, end.replace(day=1))
+        try:
+            splits = await suite.massive.splits(start, end)
+            dividends = await suite.massive.dividends(start, end)
+        except ProviderError as exc:
+            if exc.status_code not in (401, 403):
+                raise
+            return {"from": cover.isoformat(), "remaining": 0, "complete": True,
+                    "refused": f"Massive refused splits and dividends before {cover.isoformat()} (HTTP "
+                               f"{exc.status_code}); earlier prices can't be un-adjusted, so none are stored"}
+        keep = stored_symbols(market)
+        return {"from": start.isoformat(), "remaining": int(start > oldest), "complete": start <= oldest,
+                "splits": market.save_splits([s for s in splits if s.symbol in keep], now),
+                "dividends": market.save_dividends([d for d in dividends if d.symbol in keep], now)}
+    return await _job(market, "corporate_history", now, work)
+
+
 # ── SEC companies, filings feed and insiders ─────────────────────────────────────────────────────
 async def companies(suite: StocksSuite, market: StocksMarket, now: datetime, ciks: Iterable[int], *,
                     facts: bool = True) -> dict[str, Any]:
@@ -155,7 +189,8 @@ async def companies(suite: StocksSuite, market: StocksMarket, now: datetime, cik
                     raw = b'{"facts": {}}'                     # no XBRL (many foreign filers): an honest empty set
                 horizon = now.date() - timedelta(days=FACT_YEARS * 366)
                 parsed = {k: [f for f in v if f.end >= horizon] for k, v in parse_companyfacts(raw, CONCEPTS).items()}
-                facts_changed += market.save_facts(cik, parsed, sha256_hex(raw), now)
+                # the kept span is part of the revision, so a longer span re-reads facts already stored
+                facts_changed += market.save_facts(cik, parsed, f"{sha256_hex(raw)}:{FACT_YEARS}y", now)
             done += 1
         return {"companies": done, "new_filings": new_filings, "facts_changed": facts_changed, "missing": missing[:20]}
     return await _job(market, "companies", now, work)
@@ -166,10 +201,12 @@ def stale_companies(market: StocksMarket, now: datetime, *, max_age: timedelta =
     """Universe companies never fetched (first) or not refreshed for ``max_age``."""
     ages = market.facts_age()
     ciks = sorted({int(r["cik"]) for r in research_listings(market) if r["cik"]})
+    # companies delisted during Massive's window, once (their filings and facts serve the years they traded)
+    gone = sorted({int(r[0]) for r in market.conn.execute("SELECT cik FROM stk_delisted WHERE cik IS NOT NULL")})
     never = [c for c in ciks if not ages.get(c)]
     old = sorted((c for c in ciks if ages.get(c) and datetime.fromisoformat(str(ages[c])) < now - max_age),
                  key=lambda c: str(ages[c]))
-    return (never + old)[:limit]
+    return (never + old + [c for c in gone if not ages.get(c) and c not in set(ciks)])[:limit]
 
 
 async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, *, start: date,
@@ -424,12 +461,12 @@ async def mentions(suite: StocksSuite, market: StocksMarket, now: datetime) -> d
 async def rates(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict[str, Any]:
     async def work() -> dict[str, Any]:
         stored = 0
-        years = [now.year] if market.rates("UST10Y") else [now.year - 2, now.year - 1, now.year]
+        years = [now.year] if market.rates("UST10Y", merged=False) else [now.year - 2, now.year - 1, now.year]
         for year in years:
             stored += market.save_rates(await suite.feeds.treasury_curve(year))
         fred_errors = {}
         for series in FRED_SERIES:          # FRED is optional: unreliable from some hosts, never blocks the refresh
-            have = market.rates(series)
+            have = market.rates(series, merged=False)
             since = have[-1].day - timedelta(days=10) if have else now.date() - timedelta(days=800)
             try:
                 stored += market.save_rates(await suite.feeds.fred_series(series, since))
@@ -437,6 +474,41 @@ async def rates(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict
                 fred_errors[series] = str(exc)[:120]
         return {"rows": stored, "series": sorted(set(TREASURY_COLUMNS.values()) | set(FRED_SERIES)), "fred_errors": fred_errors}
     return await _job(market, "rates", now, work)
+
+
+# Schwab index quotes for the series the macro desk, PAPER's option pricing and Plays read: $VIX for FRED's VIX close,
+# $TNX and $IRX (Cboe's 10-year and 13-week Treasury yield indexes) for the Treasury curve's 10-year and 3-month.
+SCHWAB_INDEXES = {"$VIX": "VIXCLS", "$TNX": "UST10Y", "$IRX": "UST3M"}
+INDEX_SETTLE = timedelta(minutes=5)
+
+
+def index_close(row: dict[str, Any], series: str, now: datetime) -> RatePoint | None:
+    """A finished session's closing value from Schwab's quote, or None while the session is open or the quote is
+    stale, missing or after hours. Cboe's yield indexes are quoted as ten times the yield (42.5 = 4.25%) when above 20."""
+    value = row.get("regular_last") or row.get("last")
+    stamp = row.get("regular_trade_time") or row.get("trade_time") or row.get("quote_time")
+    if not isinstance(value, (int, float)) or value <= 0 or not isinstance(stamp, str):
+        return None
+    day = cal.new_york(datetime.fromisoformat(stamp)).date()
+    close = cal.session_close(day) if cal.is_trading_day(day) else None
+    # the closing print only: a later (extended-hours) value is not the session's close
+    if close is None or now < close + INDEX_SETTLE or datetime.fromisoformat(stamp) > close + timedelta(minutes=15):
+        return None
+    value = float(value) / 10 if series.startswith("UST") and value > 20 else float(value)
+    return RatePoint(f"{series}{SCHWAB_RATE}", day, value)
+
+
+async def index_closes(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict[str, Any]:
+    """Same-evening closes of $VIX, $TNX and $IRX from Schwab (one request), stored as their own source; the free
+    Treasury and FRED series stay the fallback on every day Schwab has none (``StocksMarket.rates``)."""
+    async def work() -> dict[str, Any]:
+        assert suite.schwab is not None
+        rows = await suite.schwab.closing_quotes(list(SCHWAB_INDEXES))
+        points = [p for symbol, series in SCHWAB_INDEXES.items()
+                  if (p := index_close(rows.get(symbol) or {}, series, now)) is not None]
+        return {"stored": market.save_rates(points), "days": sorted({p.day.isoformat() for p in points}),
+                "missing": sorted(set(SCHWAB_INDEXES) - set(rows))}
+    return await _job(market, "index_closes", now, work)
 
 
 # ── options ──────────────────────────────────────────────────────────────────────────────────────

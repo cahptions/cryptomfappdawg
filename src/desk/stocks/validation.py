@@ -6,11 +6,12 @@ Two records, never mixed:
   scored as their forward returns arrive. This is the record that counts.
 * **rebuilt**: the same code run as of each past month's last session on only what was public that day
   (``Analyzer.build`` is point in time), kept in ``stk_rebuild_months``. Its universe is the listings as they stood
-  that day, so companies delisted since collection began are included; companies delisted before collection began
-  never appeared in a listing file and are missing (survivorship bias: it flatters lists that buy and hurts lists that
-  avoid). Crowd and options data exist only from the first day of collection, so those desks and the lists built on
-  them have a live record only. The News desk is rebuilt from trade actions alone (published by each month's end);
-  its company news and world shocks are collected going forward, so it earns a vote only from its live record.
+  that day: from the first Massive day on it includes companies later delisted (desk.stocks.delisted), but Schwab's
+  earlier years hold only companies still listed then (survivorship bias: it flatters lists that buy and hurts lists
+  that avoid), so the report gives each period's rebuilt record separately (``periods``). Crowd and options data
+  exist only from the first day of collection, so those desks and the lists built on them have a live record only.
+  The News desk is rebuilt from what was published by each month's end (company news counted by publication day,
+  stored world events, trade actions); it earns a vote only from its live record.
 
 A list is bought at the next session's open and held 5, 21, 63 or 252 sessions, sold at that session's close (a stock
 that stops trading is sold at its last close), price-only, against SPY and the stock's sector fund over the same
@@ -68,12 +69,13 @@ SHRINK_MONTHS = 12               # learned weights are shrunk toward the default
 LIVE_DESK_STEP = 5               # live desk scores are judged weekly (every fifth recorded session)
 LIVE_ONLY_DESKS = ("crowd", "options", "news")   # earn a vote only from their live record (never a learned weight)
 NOT_REBUILT = ("crowd", "options")               # nothing dated to rebuild them from: graded live only
-PARTLY_REBUILT = {"news": "Rebuilt from trade actions only, each read once published; company news and world shocks "
-                          "are collected going forward, so the full desk is graded live."}
+PARTLY_REBUILT = {"news": "Rebuilt from what was published by each month's end: company news counted by publication "
+                          "day where counted, world shocks once a full 32-day window of GDELT files is stored, trade "
+                          "actions throughout; the full desk is graded live."}
 PROVEN_LIVE_WEIGHT = 0.4
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")
-EVALUATION_BYTES_PER_BAR = 600   # a stored bar while an evaluation panel loads and the desks score it (generous)
+EVALUATION_BYTES_PER_BAR = 300   # a stored bar while a panel loads (measured ~100 B at peak; twice that for gaps)
 EVALUATION_RESERVE_KB = 1_500_000  # the memory guard's floor (desk.stocks.runner._memory_guard) stays free
 
 
@@ -86,7 +88,8 @@ def content() -> dict[str, Any]:
             "exit": "close of the horizon's last session", "returns": "price only"}
 
 
-REBUILD_INPUTS = ("listed_on_the_day", "trade_actions")    # what a rebuilt month reads beyond the desks' own rules
+# what a rebuilt month reads beyond the desks' own rules
+REBUILD_INPUTS = ("listed_on_the_day", "trade_actions", "company_news_by_publication_day", "stored_world_events")
 
 
 def rebuild_sha256() -> str:
@@ -119,8 +122,15 @@ def evaluation_window(market: StocksMarket, settings: StocksSection, *, availabl
     fail the prices job), but stored bars are never pruned. A rebuild needs 252 warm-up sessions plus 12 independent
     months, more than two years hold, so evaluations read every stored day by default (``evaluation_history_days`` =
     0) or the configured span. Newest days are kept first; a span that would not fit beside the memory guard's 1.5 GB
-    floor stops early, but never shorter than the ``history_days`` the daily analysis already loads."""
-    rows = market.conn.execute("SELECT day, rows FROM stk_bar_days WHERE rows > 0 ORDER BY day DESC").fetchall()
+    floor stops early, but never shorter than the ``history_days`` the daily analysis already loads.
+
+    Schwab's earlier years (desk.stocks.schwab_history) count only once every queued stock's history has been checked,
+    so a half-filled year never enters an evaluation with a fraction of the universe."""
+    from desk.stocks.schwab_history import usable_from
+
+    first = usable_from(market.conn)
+    rows = market.conn.execute("SELECT day, rows FROM stk_bar_days WHERE rows > 0 AND day >= ? ORDER BY day DESC",
+                               (first.toordinal() if first else 0,)).fetchall()
     if not rows:
         return date.min, None
     newest = date_of(rows[0][0])
@@ -637,8 +647,24 @@ def current_sectors(market: StocksMarket) -> dict[str, str]:
     return out
 
 
+def _periods(free: date | None, observations: Sequence[tuple[date, Any]],
+             record: Callable[[Sequence[tuple[date, Any]]], dict[str, Any]]) -> dict[str, Any] | None:
+    """The rebuilt record split at the first survivorship-free day: from it on, and the years before it."""
+    if free is None:
+        return None
+    later = [o for o in observations if o[0] >= free]
+    earlier = [o for o in observations if o[0] < free]
+    return {"survivorship_free": record(later) if later else None, "earlier": record(earlier) if earlier else None}
+
+
+PERIOD_KEYS = ("n", "independent", "mean", "mean_excess_spy", "hit_rate", "p")
+
+
 def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, today: date) -> dict[str, Any]:
+    from desk.stocks.delisted import survivorship_free_from
+
     fw = Forward(panel)
+    free = survivorship_free_from(market.conn)
     now_sectors = current_sectors(market)
     history = months(research)
     month_sectors = {m.asof: m.sectors for m in history}
@@ -653,9 +679,13 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
         rebuilt_obs = [(m.asof, m.lists[spec.id]) for m in history if spec.id in m.lists]
         live = list_record(fw, live_obs, spec.claim, sector_of, step=1) if live_obs else None
         rebuilt = list_record(fw, rebuilt_obs, spec.claim, sector_of, step=MONTH_SESSIONS) if rebuilt_obs else None
+        def by_period(part: Sequence[tuple[date, Any]], claim: str = spec.claim) -> dict[str, Any]:
+            primary = list_record(fw, part, claim, sector_of, step=MONTH_SESSIONS)[PRIMARY]
+            return {k: primary.get(k) for k in PERIOD_KEYS if k in primary}
+
         lists[spec.id] = {"title": spec.title, "claim": spec.claim, "history": spec.history, "tracked": spec.tracked,
                           "badge": spec.badge, "days_recorded": len(live_obs), "months_rebuilt": len(rebuilt_obs),
-                          "live": live, "rebuilt": rebuilt,
+                          "live": live, "rebuilt": rebuilt, "periods": _periods(free, rebuilt_obs, by_period),
                           "curve": {"live": growth_curve(fw, month_sample(live_obs), spec.claim),
                                     "rebuilt": growth_curve(fw, rebuilt_obs, spec.claim)}}
     # desks: live scores sampled weekly; rebuilt monthly
@@ -668,7 +698,12 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
         live_obs_d = [(day, {s: v[key] for s, v in rows.items() if v.get(key) is not None}) for day, rows in live_scores]
         rebuilt_obs_d = ([(m.asof, committee_scores(m, dict(dk.DEFAULT_WEIGHTS))) for m in history] if d == "committee"
                          else [(m.asof, {s: v[0] for s, v in m.scores.get(d, {}).items()}) for m in history])
+        def ic_period(part: Sequence[tuple[date, Any]], claim: str = claim) -> dict[str, Any]:
+            ic = desk_record(fw, part, claim, step=MONTH_SESSIONS)["ic"]
+            return {k: ic.get(k) for k in PERIOD_KEYS if k in ic}
+
         desks[d] = {"label": dk.DESK_LABELS.get(d, "Committee"), "claim": claim,
+                    "periods": None if d in NOT_REBUILT or not history else _periods(free, rebuilt_obs_d, ic_period),
                     "live": desk_record(fw, live_obs_d, claim, step=LIVE_DESK_STEP) if live_scores else None,
                     "rebuilt": None if d in NOT_REBUILT or not history else
                     desk_record(fw, rebuilt_obs_d, claim, step=MONTH_SESSIONS), "rebuilt_note": PARTLY_REBUILT.get(d)}
@@ -684,7 +719,7 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
     for v in desks.values():
         v["grade"] = _headline(v["live"], v["rebuilt"], v["claim"])
         if v["rebuilt_note"] and v["grade"]["source"] == "rebuilt":
-            v["grade"]["text"] += "; trade actions only"
+            v["grade"]["text"] += "; from what was published (partly back-filled)"
     options["cheap_iv"]["grade"] = grade(options["cheap_iv"], "iv_cheap", "live")
     learning = learn(fw, history)
     weights = dict(learning["candidate"]) if learning["adopted"] and learning["candidate"] else dict(dk.DEFAULT_WEIGHTS)
@@ -703,6 +738,7 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
         "rebuild": {"months": len(history), "first": history[0].asof.isoformat() if history else None,
                     "last": history[-1].asof.isoformat() if history else None,
                     "median_universe": int(np.median([m.universe for m in history])) if history else 0,
+                    "survivorship_free_from": free.isoformat() if free else None,
                     "caveats": REBUILD_CAVEATS},
         "lists": lists, "desks": desks, "options": options, "committee": learning, "proven_live_desks": proven,
         "committee_weights": weights if changed else None,
@@ -710,12 +746,14 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
 
 
 REBUILD_CAVEATS = [
-    "Rebuilt months use the listings as they stood each month, so companies delisted since collection began are "
-    "included. Companies delisted before collection began never appeared in a listing file and are missing, which "
-    "flatters lists that buy and hurts lists that avoid.",
+    "Rebuilt months use the listings as they stood each month. From the survivorship-free day on (the first Massive "
+    "day, once its list of delisted companies is in) companies later delisted are included; earlier months (Schwab's "
+    "history) hold only companies still listed then, which flatters lists that buy and hurts lists that avoid. Each "
+    "list's and desk's rebuilt record is also given for the two periods separately.",
     "Crowd and options data start on the first day of collection, so those desks and lists have a live record only.",
-    "The News desk's rebuilt record reads trade actions only (stored from January 20, 2025, each once published); "
-    "its company news and world shocks are collected going forward.",
+    "The News desk's rebuilt record reads what was published by each month's end: company news counted by "
+    "publication day (back-filled from Massive), world shocks once 32 days of GDELT files are stored, trade actions "
+    "from January 20, 2025.",
     "Returns are price only (no dividends) on both sides of every comparison.",
 ]
 
@@ -767,6 +805,14 @@ def render(rep: dict[str, Any]) -> str:
         reb = (v["rebuilt"] or {}).get("ic") or {}
         lines.append(f"  {v['label']:20} {GRADE_WORDS[g['grade']]:12} live IC {_ic(live.get('mean'))} (n={live.get('n', 0)})  "
                      f"rebuilt IC {_ic(reb.get('mean'))} (n={reb.get('n', 0)})")
+    free = rep["rebuild"].get("survivorship_free_from")
+    if free and any((v.get("periods") or {}).get("earlier") for v in rep["lists"].values()):
+        lines += ["", f"REBUILT BY PERIOD (1-month return vs SPY): survivorship-free from {free} | earlier, survivors only"]
+        for v in rep["lists"].values():
+            p = v.get("periods") or {}
+            later, early = p.get("survivorship_free") or {}, p.get("earlier") or {}
+            lines.append(f"  {v['title'][:34]:34} {_pct(later.get('mean_excess_spy'))} (n={later.get('n', 0)})  |  "
+                         f"{_pct(early.get('mean_excess_spy'))} (n={early.get('n', 0)})")
     c = rep["committee"]
     lines += ["", f"COMMITTEE WEIGHTS: {c['why']}"]
     if rep.get("committee_weights"):

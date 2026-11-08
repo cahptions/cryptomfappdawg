@@ -71,16 +71,20 @@ def parse_earnings(body: bytes) -> list[dict[str, Any]]:
 
 
 @schema_boundary("finnhub earnings calendar")
-def parse_earnings_calendar(body: bytes, symbol: str) -> list[dict[str, Any]]:
+def parse_earnings_calendar(body: bytes, symbol: str | None) -> list[dict[str, Any]]:
+    """One stock's calendar, or (``symbol`` None) every stock's, each row naming its stock."""
     value = json.loads(body)
     if not isinstance(value, dict) or not isinstance(value.get("earningsCalendar", []), list):
         raise ValueError("expected calendar")
     out = []
     for r in value.get("earningsCalendar") or []:
         day = iso_day(r.get("date"))
-        if day is None or r.get("symbol") not in (None, symbol):
+        if day is None or (symbol is not None and r.get("symbol") not in (None, symbol)):
             continue
-        out.append({"date": day, "when": HOURS.get(str(r.get("hour") or "").lower()),
+        if symbol is None and not (isinstance(r.get("symbol"), str) and 0 < len(r["symbol"]) <= 12):
+            continue
+        out.append({**({} if symbol is not None else {"symbol": r["symbol"]}), "date": day,
+                    "when": HOURS.get(str(r.get("hour") or "").lower()),
                     "year": r.get("year") if isinstance(r.get("year"), int) else None,
                     "quarter": r.get("quarter") if isinstance(r.get("quarter"), int) else None,
                     "eps_estimate": _num(r.get("epsEstimate")), "eps_actual": _num(r.get("epsActual")),
@@ -114,6 +118,11 @@ class FinnhubClient:
     async def earnings_calendar(self, symbol: str, start: date, end: date) -> list[dict[str, Any]]:
         return parse_earnings_calendar(await self._get("earnings_calendar", {
             "symbol": symbol, "from": start.isoformat(), "to": end.isoformat()}), symbol)
+
+    async def market_calendar(self, start: date, end: date) -> list[dict[str, Any]]:
+        """Every stock's announced reports from ``start`` to ``end`` (desk.stocks.earnings_dates)."""
+        return parse_earnings_calendar(await self._get("earnings_calendar", {
+            "from": start.isoformat(), "to": end.isoformat()}), None)
 
 
 __all__ = ["FinnhubClient", "parse_earnings", "parse_earnings_calendar", "parse_recommendations"]

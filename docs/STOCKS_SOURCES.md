@@ -33,7 +33,7 @@ no registration, and Tradier is optional while waiting for Schwab.
 | Put in `secrets.env` | What it unlocks | Where to get it |
 |---|---|---|
 | `MASSIVE_API_KEY=...` | Broad daily bars, splits/dividends; company overview, news and branding where entitled | [Massive dashboard](https://massive.com/dashboard) → Stocks **Basic** ($0) → API keys |
-| `FINNHUB_API_KEY=...` (optional) | Analyst recommendations, the last four earnings quarters, and earnings calendar/estimates | [Finnhub registration](https://finnhub.io/register) → free key → Settings → optional company-data key |
+| `FINNHUB_API_KEY=...` (optional) | Analyst recommendations, the last four earnings quarters, and earnings calendar/estimates; with it, every stock's announced report dates for the next four weeks are stored daily (four requests) for Plays' earnings sections and the stock page (`desk.stocks.earnings_dates`). It is the only free forward earnings calendar the app can use: Massive Stocks Basic has none (earnings are a paid partner add-on), Schwab's quotes carry only the last report date, the SEC publishes filings after the fact, and Nasdaq's calendar refuses programs. Without the key, report dates are estimated from past 8-K results filings (±7 days around the median gap), labelled as estimates | [Finnhub registration](https://finnhub.io/register) → free key → Settings → optional company-data key |
 | `TRADIER_TOKEN=...` | Option chains: bid, ask, volume, open interest for every strike | tradier.com → developer sandbox (free) → API access token. Leave `stocks.tradier_env = "sandbox"`. With a Tradier Brokerage account instead, use its token and set `"production"` for real-time data. |
 | `SEC_CONTACT_EMAIL=you@...` | Company list, daily filings, insider trades, fails-to-deliver | Your own email address. The SEC asks every program to name a contact, and www.sec.gov refuses requests without one. It goes only to the SEC. |
 
@@ -80,13 +80,14 @@ showing observed mentions, reported upvotes and its source time. Social attentio
 | ApeWisdom | Mentions, upvotes, rank and 24-hour change per ticker on r/wallstreetbets, r/stocks, r/options and more | 100 per page; wallstreetbets had 681 tickers | none | Public API |
 | Massive (formerly Polygon.io) Stocks Basic | Grouped daily bars: **every US stock's day in one request**; splits; dividends; the market-wide news feed with per-stock sentiment (read by the News desk, and the stock page's and Events headlines: [News](STOCKS_NEWS.md)); company details and icons for the stock page | $0, personal licence, **5 requests/min, 2 years of history, end of day**. No quotes, snapshots or flat files. A day costs one request, and the 2-year backfill about 500 requests (≈ 1¾ hours, in the background). | `MASSIVE_API_KEY` (query parameter `apiKey`) | Personal ("individual use") |
 | Massive Options Basic (free, same key) | Real daily bars of individual option contracts, two years back, weeklies included: the prices the historical replay traded (`desk.stocks.options_history`) and the Lottos replay on real past prices (`desk.stocks.lotto_history`) | One contract (or one contract listing) per request, within the same shared 5 requests/min; no open interest, IV, quotes or snapshots, so it cannot build today's chain | `MASSIVE_API_KEY` | Personal ("individual use") |
-| Schwab market data (approved personal app) | Stock quotes and charts, option expirations and chains with Schwab's IV and greeks: the option source once connected | Paced at 90 requests/min (provisional; Schwab's own limit is not published for this app); a weekly browser sign-in; a chain Schwab marks delayed is refused. GET market data only. | App key and secret in Settings, sign-in token beside secrets.env | Market data only; no account or order endpoint ([SCHWAB.md](SCHWAB.md)) |
+| Schwab market data (approved personal app) | Stock quotes and charts, option expirations and chains with Schwab's IV and greeks: the option source once connected. Daily price history (up to 20 years a stock in one request) adds the years before Massive's two to the stored prices, checked and un-adjusted per stock ([method §9](STOCKS_METHOD.md)). The closing prints of $VIX, $TNX and $IRX (one request an hour, kept once a session has closed, as `VIXCLS@schwab`, `UST10Y@schwab`, `UST3M@schwab`) are the macro desk's VIX and 10-year yield and the 3-month rate option prices use, the same evening; FRED and the Treasury curve fill every day Schwab has none. Cboe's yield indexes are not the Treasury's par yields, so a change across the two sources can differ by a few hundredths | Paced at 90 requests/min (provisional; Schwab's own limit is not published for this app); a weekly browser sign-in; a chain Schwab marks delayed is refused. GET market data only. | App key and secret in Settings, sign-in token beside secrets.env | Market data only; no account or order endpoint ([SCHWAB.md](SCHWAB.md)) |
 | Tradier market data | Option expirations and chains: bid, ask, last, volume, open interest, average volume. Stock quotes, history, market calendar. | Sandbox: free, **15-minute delayed**, no greeks, 60 requests/min. Brokerage account: real-time, 120/min. KESTREL computes IV and greeks itself either way. | `TRADIER_TOKEN` (Bearer) | Market data only; the desk calls no order or account endpoint |
 
 ## Checked and not used
 
 - **Cboe delayed quotes (cdn.cboe.com):** it works, and it has daily history back to 2004 and full option chains with IV and greeks. But Cboe's website terms allow viewing and downloading "one copy of the Materials for your personal non-commercial use", and forbid storing them "in an electronic retrieval system". A research database is exactly that, so it is not used.
-- **OpenFIGI (CUSIP → ticker):** a client exists in the code (`FeedsClient.cusip_tickers`), but nothing calls it. KESTREL does not collect 13F institutional holdings, so none are mapped or shown.
+- **OpenFIGI (CUSIP → ticker):** a client exists in the code (`FeedsClient.cusip_tickers`), but nothing calls it.
+- **SEC 13F data sets (institutional holdings, free):** not collected, because no desk reads institutional ownership; a quarterly filing published up to 45 days late would need a desk rule of its own first.
 - **Stooq:** the connection was reset from the build host. Not used.
 - **Reddit API:** needs an OAuth app (public JSON answered 403). ApeWisdom already counts Reddit mentions.
 - **Yahoo Finance and other unofficial APIs:** their terms forbid this kind of use.
@@ -94,13 +95,10 @@ showing observed mentions, reported upvotes and its source time. Social attentio
 
 ## What these limits mean
 
-- **History depth is 2 years** for anything that needs prices (Massive's free plan). So:
-  - 12-month momentum has about a year of point-in-time history to be tested on;
-  - "percentile of its own history" means its own 2 years, not 5–10;
-  - the report cards say so.
-
-  The desk keeps every day it stores, so the depth grows from here.
+- **History depth is 2 years from Massive**, and with Schwab connected `price_history_years` more (default 10) from
+  Schwab's price history, each stock checked against Massive's bars and the split record before it is stored
+  ([method §9](STOCKS_METHOD.md)). Without Schwab the depth is two years and grows by a day each day.
 - **Fundamentals go back further**: SEC company facts carry every filing's values and filing dates.
-- **Survivorship:** the price universe is today's listings. Companies delisted before the desk started have no prices; SEC filings for them still exist but cannot be scored.
+- **Survivorship:** Massive's two years are survivorship-free: companies delisted during them come from Massive's reference list of inactive tickers, with their daily bars, filings and facts ([method §8](STOCKS_METHOD.md)). Schwab's earlier years hold only companies still listed when that window began (no free source has delisted companies' older prices), and evaluations report the two periods separately.
 - **Option chain history (IV, open interest) starts when the desk starts collecting.** Massive Options Basic keeps two years of individual contracts' daily prices, which the replays use, but no past IV or open interest, so IV rank needs a year of the desk's own daily snapshots. Until then the options desk compares IV with realized volatility and says so.
 - **Stock history is end-of-day** (Massive's grouped daily bars). **Option chains are Schwab's current quotes** once Schwab is connected (a chain Schwab marks delayed is refused); on Tradier's sandbox they are 15 minutes delayed. Paper fills follow from what is collected: stocks at the next session's open, options at bid/ask from the collected chain at its own timestamp. Nothing pretends to be real-time beyond that.

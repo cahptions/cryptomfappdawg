@@ -318,7 +318,7 @@ function sourceSetup() {
       "finnhub-key",
       "FINNHUB_API_KEY",
       "4. Analyst ratings and earnings estimates · Finnhub · optional",
-      "Free: sign up at finnhub.io, then copy the API key from your dashboard. Stock pages then show analyst buy/hold/sell counts, the last four quarters of earnings per share against the estimate, and the next report date. Without it those sections simply stay empty; nothing else depends on it.",
+      "Free: sign up at finnhub.io, then copy the API key from your dashboard. Stock pages then show analyst buy/hold/sell counts, the last four quarters of earnings per share against the estimate, and the next report date, and Plays' earnings sections use each stock's announced report date (the whole calendar is read once a day) instead of a window estimated from past filings. Without it those sections stay empty and report dates stay estimated, labelled as such.",
       "password",
       "https://finnhub.io/register",
       "Open Finnhub signup ↗",

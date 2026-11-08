@@ -293,7 +293,9 @@ const KestrelEvidence = (() => {
         explain.append(el("h2", "Read the result correctly"));
         for (const text of [
           "Recorded forward: lists saved at the time, assessed after their holding period ends.",
-          "Historical reconstruction: what the rules would have selected from the available history, using the listings as they stood each day. Companies delisted since collection began are included; companies delisted before collection began are missing.",
+          report?.rebuild?.survivorship_free_from
+            ? `Historical reconstruction: what the rules would have selected from the available history, using the listings as they stood each day. From ${report.rebuild.survivorship_free_from} companies delisted later are included; earlier months hold only companies still listed then, so the report gives both periods separately.`
+            : "Historical reconstruction: what the rules would have selected from the available history, using the listings as they stood each day. Companies delisted since collection began are included; companies delisted before collection began are missing.",
           "A positive comparison is not proof of a lasting edge. Costs, uncertainty, overlapping observations and multiple tests matter.",
           "Option volume does not reveal whether a trade opened a position or predict its direction. Missing history stays visible.",
         ])
