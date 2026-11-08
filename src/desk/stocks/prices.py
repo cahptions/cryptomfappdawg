@@ -7,7 +7,6 @@ dividends; benchmark comparisons use the same price-only returns on both sides (
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -76,20 +75,24 @@ def split_factors(splits: Sequence[Split], symbols: Sequence[str], days: Sequenc
 def load_panel(market: StocksMarket, since: date, until: date | None = None, symbols: Sequence[str] | None = None,
                *, adjust: bool = True) -> Panel:
     days = [d for d in market.bar_days() if d >= since and (until is None or d <= until)]
-    wanted = set(symbols) if symbols is not None else None
-    rows: dict[str, list[tuple[int, float, float, float, float, float]]] = defaultdict(list)
-    for r in market.bar_rows(since, until):
-        if wanted is None or r[0] in wanted:
-            rows[r[0]].append((r[1], r[2], r[3], r[4], r[5], r[6]))
-    names = sorted(rows) if symbols is None else [s for s in symbols if s in rows]
-    col = {day_of(d): j for j, d in enumerate(days)}
+    stored = {r[0] for r in market.conn.execute("SELECT DISTINCT symbol FROM stk_bars WHERE day >= ? AND day <= ?",
+                                                (day_of(since), day_of(until or date.max)))}
+    names = sorted(stored) if symbols is None else [s for s in symbols if s in stored]
+    ords = np.array([day_of(d) for d in days], dtype=float)
     shape = (len(names), len(days))
     o, h, lo, c, v = (np.full(shape, np.nan) for _ in range(5))
+    # One stock at a time along the primary key (sequential pages), straight into the arrays: twenty years of bars
+    # never sit in memory as Python rows, and no day-index lookup jumps across the table for each row.
     for i, name in enumerate(names):
-        for day, op, hi, low, cl, vol in rows[name]:
-            j = col.get(day)
-            if j is not None:
-                o[i, j], h[i, j], lo[i, j], c[i, j], v[i, j] = op, hi, low, cl, vol
+        rows = market.conn.execute("SELECT day, open, high, low, close, volume FROM stk_bars WHERE symbol = ? "
+                                   "AND day >= ? AND day <= ?", (name, day_of(since), day_of(until or date.max))).fetchall()
+        if not rows or not days:
+            continue
+        values = np.array([tuple(r) for r in rows], dtype=float)
+        j = np.minimum(np.searchsorted(ords, values[:, 0]), len(days) - 1)
+        on = ords[j] == values[:, 0]
+        for target, column in zip((o, h, lo, c, v), range(1, 6), strict=True):
+            target[i, j[on]] = values[on, column]
     if adjust and names and days:
         f = split_factors(market.splits(), names, days)
         o, h, lo, c, v = o / f, h / f, lo / f, c / f, v * f

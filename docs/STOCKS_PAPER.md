@@ -24,6 +24,10 @@ Completed stock replays use the same session/trade thresholds, daily baseline co
 Holm correction as the forward grader, using the replay's own sessions. The result is stored in its retained archive
 with the strategy specification, date range and tested family. An older specification is labeled outdated; use
 **Run replay** to open the existing controls. Automatic replay also refreshes older report versions when enabled.
+A replay covers every stored session after a year of warm-up, at most the last 1,260 (five years: a session scores
+every liquid stock, so about 5 hours, finishing between two closes). Prices before Massive's two years are Schwab's
+checked daily history when it has been collected ([method §9](STOCKS_METHOD.md)); the coverage line says where each
+source begins and how many stocks were refused. Older years are graded by the monthly rebuild.
 Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints and are read as of each replayed day. Short
 interest joins the replay automatically once the stored FINRA settlements cover the replayed window (24 or more
 twice-monthly settlements, the latest published by the first replayed day, each counted 12 days after settlement, with

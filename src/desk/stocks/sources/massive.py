@@ -242,11 +242,17 @@ class MassiveClient:
                                params={"adjusted": "false"})
         return parse_grouped(body)
 
-    async def splits(self, since: date) -> list[Split]:
-        return await self._paged("splits", parse_splits, {"execution_date.gte": since.isoformat(), "limit": 1000})
+    async def splits(self, since: date, until: date | None = None) -> list[Split]:
+        params: dict[str, Any] = {"execution_date.gte": since.isoformat(), "limit": 1000}
+        if until is not None:
+            params["execution_date.lte"] = until.isoformat()
+        return await self._paged("splits", parse_splits, params)
 
-    async def dividends(self, since: date) -> list[Dividend]:
-        return await self._paged("dividends", parse_dividends, {"ex_dividend_date.gte": since.isoformat(), "limit": 1000})
+    async def dividends(self, since: date, until: date | None = None) -> list[Dividend]:
+        params: dict[str, Any] = {"ex_dividend_date.gte": since.isoformat(), "limit": 1000}
+        if until is not None:
+            params["ex_dividend_date.lte"] = until.isoformat()
+        return await self._paged("dividends", parse_dividends, params)
 
     async def ticker_details(self, symbol: str) -> dict[str, Any]:
         return parse_ticker_details(await self._get("ticker_details", path=f"/v3/reference/tickers/{quote(symbol, safe='')}"))

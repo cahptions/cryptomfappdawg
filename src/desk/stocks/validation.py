@@ -73,7 +73,7 @@ PARTLY_REBUILT = {"news": "Rebuilt from trade actions only, each read once publi
 PROVEN_LIVE_WEIGHT = 0.4
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")
-EVALUATION_BYTES_PER_BAR = 600   # a stored bar while an evaluation panel loads and the desks score it (generous)
+EVALUATION_BYTES_PER_BAR = 300   # a stored bar while a panel loads (measured ~100 B at peak; twice that for gaps)
 EVALUATION_RESERVE_KB = 1_500_000  # the memory guard's floor (desk.stocks.runner._memory_guard) stays free
 
 
@@ -119,8 +119,15 @@ def evaluation_window(market: StocksMarket, settings: StocksSection, *, availabl
     fail the prices job), but stored bars are never pruned. A rebuild needs 252 warm-up sessions plus 12 independent
     months, more than two years hold, so evaluations read every stored day by default (``evaluation_history_days`` =
     0) or the configured span. Newest days are kept first; a span that would not fit beside the memory guard's 1.5 GB
-    floor stops early, but never shorter than the ``history_days`` the daily analysis already loads."""
-    rows = market.conn.execute("SELECT day, rows FROM stk_bar_days WHERE rows > 0 ORDER BY day DESC").fetchall()
+    floor stops early, but never shorter than the ``history_days`` the daily analysis already loads.
+
+    Schwab's earlier years (desk.stocks.schwab_history) count only once every queued stock's history has been checked,
+    so a half-filled year never enters an evaluation with a fraction of the universe."""
+    from desk.stocks.schwab_history import usable_from
+
+    first = usable_from(market.conn)
+    rows = market.conn.execute("SELECT day, rows FROM stk_bar_days WHERE rows > 0 AND day >= ? ORDER BY day DESC",
+                               (first.toordinal() if first else 0,)).fetchall()
     if not rows:
         return date.min, None
     newest = date_of(rows[0][0])

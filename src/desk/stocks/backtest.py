@@ -47,6 +47,14 @@ VERSION = 5
 # Earlier sessions every replayed day needs: 12-month momentum, the 52-week high/low and the 200-day average read a
 # year of prices (desk.stocks.features), so a replay starting after the analysis' 60-bar floor would rank on partial ones.
 WARMUP_SESSIONS = 252
+# Sessions of prices a replayed day reads: two years of month-end valuations and 500 days of filings' price reactions
+# (desk.stocks.analysis) fit in 600, so each day costs the same however many years are stored.
+PANEL_LOOKBACK = 600
+# The longest replay: five years, about 1,260 sessions. A session scores every liquid stock (about 5 ms each where this
+# was measured, so roughly 15 s for 3,000 stocks): five years is about 5 hours, which finishes between two closes and
+# keeps the report under its 4 MB cap. Older stored years (Schwab's history) go to the monthly rebuild, which keeps
+# every rebuilt month, so only new months cost anything.
+REPLAY_MAX_SESSIONS = 1260
 SHORT_MIN_SETTLEMENTS = 24     # a year of FINRA's twice-monthly settlements
 SHORT_MAX_GAP_DAYS = 35        # at most one missed release between stored settlements
 SHORT_MIN_SHARE = 0.5          # a settlement holding under half the typical settlement's symbols is a partial backfill
@@ -134,13 +142,15 @@ class ReplayEngine(PaperEngine):
             self.executing = False
 
 
-def historical_panel(raw: Panel, asof: date, splits: Sequence[Split]) -> Panel:
-    """Do not expose future columns or apply a future split to past decisions/absolute price filters."""
+def historical_panel(raw: Panel, asof: date, splits: Sequence[Split], *, lookback: int | None = None) -> Panel:
+    """Do not expose future columns or apply a future split to past decisions/absolute price filters. With
+    ``lookback``, only that many sessions up to ``asof`` (everything a replayed day reads)."""
     end = raw.day_index(asof) + 1
-    days = raw.days[:end]
+    first = 0 if lookback is None else max(0, end - lookback)
+    days = raw.days[first:end]
     factors = split_factors([s for s in splits if s.execution_date <= asof], raw.symbols, days)
-    arrays = [getattr(raw, key)[:, :end] / factors for key in ("open", "high", "low", "close")]
-    return Panel(raw.symbols, days, arrays[0], arrays[1], arrays[2], arrays[3], raw.volume[:, :end] * factors)
+    arrays = [getattr(raw, key)[:, first:end] / factors for key in ("open", "high", "low", "close")]
+    return Panel(raw.symbols, days, arrays[0], arrays[1], arrays[2], arrays[3], raw.volume[:, first:end] * factors)
 
 
 def position_view(position: Position) -> dict[str, Any]:
@@ -311,20 +321,24 @@ def replay(
         days = [d for d in market.bar_days() if d >= start]
         requested = sessions
         if sessions == 0:
-            sessions = max(0, len(days) - WARMUP_SESSIONS)
+            sessions = min(REPLAY_MAX_SESSIONS, max(0, len(days) - WARMUP_SESSIONS))
         if sessions < 2 or len(days) < sessions + WARMUP_SESSIONS:
             raise DeskError(
                 f"Replay needs {max(sessions, 2)} sessions plus {WARMUP_SESSIONS} warm-up sessions; {len(days)} are saved. "
                 "Collection can continue automatically; see Settings for missing price access."
             )
         selected = days[-sessions:]
-        # A short window still reads the whole evaluation window: 12-month momentum, 52-week highs and two years of
+        # A short window still reads well before its first day: 12-month momentum, 52-week highs and two years of
         # month-end valuations look back far beyond the replayed sessions.
-        raw = load_panel(market, days[0], days[-1], adjust=False)
+        raw = load_panel(market, days[max(0, len(days) - sessions - PANEL_LOOKBACK)], days[-1], adjust=False)
         if "SPY" not in raw.index:
             raise DeskError("SPY closing history is needed for the benchmark before replay can start")
         if raw.day_index(selected[0]) < WARMUP_SESSIONS:
             raise DeskError("The selected replay window does not have enough earlier warm-up history")
+        from desk.stocks import schwab_history
+
+        history = schwab_history.coverage(source)
+        earlier = bool(history["massive_from"]) and selected[0].isoformat() < history["massive_from"]
         shorts = short_history(market, selected[0], selected[-1])
         replayed = {*option_model.REPLAYED, *(option_model.SHORT_REPLAYED if shorts["replayed"] else ())}
         strategies = tuple(s for s in STRATEGIES if (s.asset == "stock" and s.id not in option_model.SHORT_REPLAYED)
@@ -357,7 +371,7 @@ def replay(
         for index, asof in enumerate(selected):
             if progress:
                 progress(asof, index, len(selected))
-            panel = historical_panel(raw, asof, splits)
+            panel = historical_panel(raw, asof, splits, lookback=PANEL_LOOKBACK)
             day = analyzer.build(panel, asof, now=cal.session_close(asof), historical=True, weights=dict(DEFAULT_WEIGHTS))
             if not shorts["replayed"]:
                 # Re-run desks without short interest the stored history can't show as published that day.
@@ -420,6 +434,7 @@ def replay(
             ],
             "skipped_sessions": skipped,
             "short_interest": shorts,
+            "price_history": history,
             "walk_forward": walk_forward(accounts),
             "manifest": {s.id: {"spec_sha256": s.spec_sha256, "version": s.version} for s in strategies},
             "settings": settings.model_dump(mode="json"),
@@ -476,6 +491,11 @@ def replay(
                 "Walk-forward comparisons do not establish a profitable edge or automatically change the live model.",
                 *(["Lab strategies were chosen on these same rebuilt months, so their replay is in-sample: it shows "
                    "what the chosen rule did, not evidence from history it never saw."] if learned else []),
+                *([f"Prices before {history['massive_from']} are Schwab's daily history ({history['stored']} stocks "
+                   "checked against Massive's unadjusted bars and the split record, un-adjusted, stored with their "
+                   f"source; {history['refused']} refused because they didn't reconcile)."] if earlier else []),
+                f"A replay covers at most the last {REPLAY_MAX_SESSIONS} sessions (five years) so it finishes between "
+                "two closes; older stored years go to the monthly rebuild.",
                 *([limited] if limited else []),
             ],
         }

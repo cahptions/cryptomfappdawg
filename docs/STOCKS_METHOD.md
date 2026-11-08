@@ -169,11 +169,32 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
 
 ## 9. Known limits
 
-- The free price source serves two years of daily bars, so the rebuild covers about a year of months at first and
-  every grade starts as *too early*. Stored bars are never pruned, and the evidence check, the rebuild and the
-  historical replay read every stored day (`evaluation_history_days`, 0 = all; free memory permitting, never less
-  than `history_days`), so the rebuild gains a month for each month of collection. Schwab's longer chart history is
-  kept apart for stock-page charts and never enters the rebuild.
+- Massive's free plan serves two years of daily bars. When Schwab is connected, its price history adds earlier years
+  (`desk.stocks.schwab_history`, `price_history_years`, default 10, at most 20): one request per stock, benchmarks
+  first and then the research universe by dollar volume, at most 40 stocks a collection pass through the shared
+  Schwab limiter. Rows go only on days before the first stored Massive day, so a Massive row is never overwritten,
+  and those days are labelled `schwab_pricehistory` in `stk_bar_days`. Whether Schwab's candles are split-adjusted
+  is checked per stock, never assumed: over the shared sessions its closes must match Massive's unadjusted closes
+  either as they are or divided by the stored splits since each day, with volumes agreeing on the same basis; when no
+  split falls in the overlap, each earlier split of at least 3-for-2 must show the basis in Schwab's own candles (an
+  overnight gap of the ratio, or none). Adjusted candles are un-adjusted with the split record (Massive's splits and
+  dividends, back-filled a month a pass, `corporate_history`); candles older than that record are not stored. A stock
+  that doesn't reconcile is refused and its note kept in `stk_history_symbols` (Settings and the replay's coverage
+  line count them). The earlier years enter the evidence check, rebuild and replay only once every queued stock has
+  been checked, so a half-filled year never counts. Company facts are kept for 16 years so rebuilt months in those
+  years have their fundamentals (XBRL is complete for US filers from 2011).
+- The bound, measured on synthetic data here (the Dell's and a cloud server's speed may differ): a stored bar takes
+  about 76 bytes on disk with its index, so ten years of the research universe (about 4,500 stocks, fewer listed in
+  the early years) is roughly 9 million bars, about 650 MB (twenty years: about 1 GB). Loading takes about 3.4 µs and
+  at most about 100 bytes of memory per bar (an evaluation that wouldn't fit beside the 1.5 GB memory floor starts
+  later and says so). A rebuilt month or replayed session scores every liquid stock, about 5 ms each, so about 15 s
+  for 3,000 stocks: the first rebuild of ten years (about 120 months) takes about half an hour, and later rebuilds
+  only add new months. Day features and replayed sessions read only their own lookback (a year of prices; 600
+  sessions for a replayed day), so more stored years cost nothing per session. A replay covers at most the last
+  1,260 sessions (five years, about 5 hours), so it finishes between two closes and its report stays under 4 MB;
+  older years are graded by the monthly rebuild. Ten years by default because before 2011 there are no XBRL
+  statements, and five-year growth needs five of them: earlier years add storage without adding the company desks.
+  On a small server, lower `price_history_years` (0 turns it off).
 - Rebuilt months carry survivorship bias (section 8). The live record does not.
 - Research-list and desk returns are price only; dividends are ignored on both sides (PAPER includes them on both).
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.

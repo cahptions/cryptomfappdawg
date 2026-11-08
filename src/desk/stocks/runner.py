@@ -370,6 +370,17 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
         if _backfill_due(market, "short_volume", now, 24):
             jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now))
+        # Earlier years from Schwab's daily history (desk.stocks.schwab_history): the split and dividend record first
+        # (a month of Massive's reference data a pass), then up to 40 stocks a pass through the shared Schwab limiter.
+        if suite.schwab is not None and suite.schwab.configured and settings.price_history_years:
+            from desk.stocks import schwab_history
+
+            if suite.massive.configured and _backfill_due(market, "corporate_history", now, 24 * 7):
+                jobs["corporate_history"] = await run_job("corporate_history", collect.corporate_history(
+                    suite, market, now, history_days=settings.history_days, years=settings.price_history_years))
+            if _backfill_due(market, schwab_history.JOB, now, 24):
+                jobs[schwab_history.JOB] = await run_job(schwab_history.JOB, schwab_history.job(
+                    suite, market, now, settings))
         progress("analysis")
         try:
             preview = preview_now()

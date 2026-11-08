@@ -55,8 +55,14 @@ class PriceFeatures:
         return {s: i for i, s in enumerate(self.symbols)}
 
 
+LOOKBACK = TRADING_YEAR + 8    # columns a day's features read (the year of daily returns needs one more close)
+
+
 def compute(panel: Panel, t: int, benchmark: str = "SPY") -> PriceFeatures:
-    c, o, v, h, lo = panel.close, panel.open, panel.volume, panel.high, panel.low
+    # Only the trailing year matters, so a long panel (twenty stored years) costs no more per day than a short one.
+    first = max(0, t - LOOKBACK)
+    c, o, v, h, lo = (a[:, first:t + 1] for a in (panel.close, panel.open, panel.volume, panel.high, panel.low))
+    t -= first
     n = c.shape[0]
     with np.errstate(divide="ignore", invalid="ignore"):
         daily = np.full(c.shape, np.nan)
@@ -105,7 +111,7 @@ def compute(panel: Panel, t: int, benchmark: str = "SPY") -> PriceFeatures:
                 var = float(np.var(x))
                 f["beta_1y"][i] = float(np.cov(x, y, bias=True)[0, 1] / var) if var > 0 else np.nan
         f["rs_63d"] = f["ret_63d"] - f["ret_63d"][bi]
-    return PriceFeatures(panel.symbols, t, f)
+    return PriceFeatures(panel.symbols, t + first, f)
 
 
 def sector_relative(values: Array, sectors: list[str]) -> Array:

@@ -1,0 +1,18 @@
+-- Earlier daily prices from Schwab's price history (up to 20 years), for days before the first stored Massive day.
+-- Rows go into stk_bars, unadjusted like Massive's, and their days into stk_bar_days with source
+-- 'schwab_pricehistory'; Massive's rows and days are never touched. One row per symbol says what was checked: whether
+-- Schwab's candles were split-adjusted (proved on the overlap with Massive's unadjusted bars and the stored splits),
+-- what was stored, or why the symbol was refused.
+CREATE TABLE stk_history_symbols (
+    symbol      TEXT PRIMARY KEY,
+    source      TEXT NOT NULL,
+    status      TEXT NOT NULL CHECK (status IN ('stored', 'refused', 'none', 'failed')),
+    basis       TEXT,
+    overlap     INTEGER NOT NULL DEFAULT 0,
+    first_day   INTEGER,
+    last_day    INTEGER,
+    rows        INTEGER NOT NULL DEFAULT 0,
+    years       INTEGER NOT NULL DEFAULT 0,      -- price_history_years when checked (a longer span checks again)
+    note        TEXT,
+    checked_at  TEXT NOT NULL
+) WITHOUT ROWID;

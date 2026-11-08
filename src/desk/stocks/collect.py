@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 COMPANY_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A", "8-K", "8-K/A", "20-F", "6-K"})
 FRED_SERIES = ("BAMLH0A0HYM2", "VIXCLS")
 MENTION_SOURCES = ("wallstreetbets", "all-stocks", "options")
-FACT_YEARS = 8           # company facts kept: enough for five-year growth and two years of point-in-time history
+FACT_YEARS = 16          # company facts kept: ten years of rebuilt history (price_history_years) plus five-year growth
 
 
 class IncompleteJob(DeskError):
@@ -131,6 +131,40 @@ async def corporate_actions(suite: StocksSuite, market: StocksMarket, now: datet
     return await _job(market, "corporate_actions", now, work)
 
 
+CORPORATE_YEARS = 10     # splits and dividends reach as far back as Schwab's daily history (price_history_years)
+
+
+async def corporate_history(suite: StocksSuite, market: StocksMarket, now: datetime, *, history_days: int,
+                            years: int = CORPORATE_YEARS) -> dict[str, Any]:
+    """Splits and dividends before the daily job's window, one calendar month a pass, newest first, back ``years``.
+
+    The split record un-adjusts Schwab's older daily candles and the dividends pay replayed PAPER accounts. ``from`` is
+    the first day the stored record covers. If Massive refuses older reference data (a plan limit), the backfill
+    stops there and says so: earlier candles are then never stored, because they could not be un-adjusted."""
+    async def work() -> dict[str, Any]:
+        state = market.jobs().get("corporate_history", {}).get("detail", {})
+        oldest = (now.date() - timedelta(days=365 * years + 5)).replace(day=1)
+        cover = date.fromisoformat(state["from"]) if state.get("from") else now.date() - timedelta(days=history_days + 30)
+        if state.get("refused") or cover <= oldest:
+            return {**state, "remaining": 0, "complete": True}
+        end = cover - timedelta(days=1)
+        start = max(oldest, end.replace(day=1))
+        try:
+            splits = await suite.massive.splits(start, end)
+            dividends = await suite.massive.dividends(start, end)
+        except ProviderError as exc:
+            if exc.status_code not in (401, 403):
+                raise
+            return {"from": cover.isoformat(), "remaining": 0, "complete": True,
+                    "refused": f"Massive refused splits and dividends before {cover.isoformat()} (HTTP "
+                               f"{exc.status_code}); earlier prices can't be un-adjusted, so none are stored"}
+        keep = stored_symbols(market)
+        return {"from": start.isoformat(), "remaining": int(start > oldest), "complete": start <= oldest,
+                "splits": market.save_splits([s for s in splits if s.symbol in keep], now),
+                "dividends": market.save_dividends([d for d in dividends if d.symbol in keep], now)}
+    return await _job(market, "corporate_history", now, work)
+
+
 # ── SEC companies, filings feed and insiders ─────────────────────────────────────────────────────
 async def companies(suite: StocksSuite, market: StocksMarket, now: datetime, ciks: Iterable[int], *,
                     facts: bool = True) -> dict[str, Any]:
@@ -155,7 +189,8 @@ async def companies(suite: StocksSuite, market: StocksMarket, now: datetime, cik
                     raw = b'{"facts": {}}'                     # no XBRL (many foreign filers): an honest empty set
                 horizon = now.date() - timedelta(days=FACT_YEARS * 366)
                 parsed = {k: [f for f in v if f.end >= horizon] for k, v in parse_companyfacts(raw, CONCEPTS).items()}
-                facts_changed += market.save_facts(cik, parsed, sha256_hex(raw), now)
+                # the kept span is part of the revision, so a longer span re-reads facts already stored
+                facts_changed += market.save_facts(cik, parsed, f"{sha256_hex(raw)}:{FACT_YEARS}y", now)
             done += 1
         return {"companies": done, "new_filings": new_filings, "facts_changed": facts_changed, "missing": missing[:20]}
     return await _job(market, "companies", now, work)
