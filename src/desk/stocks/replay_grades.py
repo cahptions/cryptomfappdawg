@@ -71,6 +71,7 @@ def current(replay: dict[str,Any] | None, strategies: Sequence[Strategy] = STRAT
             elif stored.get("mixed_specifications"):
                 value.update(status="stale",message="Replay contains mixed rule versions. Run a fresh replay.")
             else:
-                value.update(stored,status="current",run_id=replay["run_id"],can_promote=False)
+                value.update(stored,status="current",run_id=replay["run_id"],can_promote=False,
+                             periods=row.get("periods") or [])
         out[s.id] = value
     return out

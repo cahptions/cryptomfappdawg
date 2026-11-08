@@ -150,6 +150,19 @@ const KestrelPaper = (() => {
           "caption",
         ),
       );
+      if ((historical.periods || []).length > 1)
+        replay.append(
+          el(
+            "p",
+            historical.periods
+              .map(
+                (p) =>
+                  `${p.survivorship_free ? "Survivorship-free" : "Survivors only"} ${p.from}–${p.to}: ${percent(p.return)} vs SPY ${percent(p.spy_return)}`,
+              )
+              .join(" · "),
+            "caption muted",
+          ),
+        );
       const stat = historical.vs_baseline || historical.vs_spy;
       if (stat) {
         const detail = el("details");

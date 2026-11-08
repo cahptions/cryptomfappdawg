@@ -201,10 +201,12 @@ def stale_companies(market: StocksMarket, now: datetime, *, max_age: timedelta =
     """Universe companies never fetched (first) or not refreshed for ``max_age``."""
     ages = market.facts_age()
     ciks = sorted({int(r["cik"]) for r in research_listings(market) if r["cik"]})
+    # companies delisted during Massive's window, once (their filings and facts serve the years they traded)
+    gone = sorted({int(r[0]) for r in market.conn.execute("SELECT cik FROM stk_delisted WHERE cik IS NOT NULL")})
     never = [c for c in ciks if not ages.get(c)]
     old = sorted((c for c in ciks if ages.get(c) and datetime.fromisoformat(str(ages[c])) < now - max_age),
                  key=lambda c: str(ages[c]))
-    return (never + old)[:limit]
+    return (never + old + [c for c in gone if not ages.get(c) and c not in set(ciks)])[:limit]
 
 
 async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, *, start: date,

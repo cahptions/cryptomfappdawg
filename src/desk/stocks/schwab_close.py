@@ -84,7 +84,7 @@ async def collect(schwab: Any, market: StocksMarket, now: datetime) -> dict[str,
     if day is None:
         return {"skipped": "not due"}
     detail = {**_detail(market), "day": day.isoformat()}
-    symbols = sorted(stored_symbols(market))
+    symbols = sorted(stored_symbols(market, delisted=False))
     bars: list[Bar] = []
     for start in range(0, len(symbols), BATCH):
         rows = await schwab.closing_quotes(symbols[start:start + BATCH])

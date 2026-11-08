@@ -1,10 +1,11 @@
 """Chronological strategy replay in isolated books. No provider calls or forward-ledger writes.
 
-Each day's universe is the listings as they stood that day (delisted companies included), but companies delisted before
-collection began are missing, and filing history is what is stored: it is not a survivor-bias-free archival
-experiment. Crowd counts, company news and world shocks are excluded (collected going forward only); trade actions
-count once published. Macro inputs are dated market prints read as of each day. Short interest joins, as FINRA
-published it, once the stored settlements cover the replayed window (``short_history``). Option strategies whose
+Each day's universe is the listings as they stood that day: from the first Massive day on it includes companies later
+delisted (desk.stocks.delisted); Schwab's earlier years hold only companies still listed then, so each account's
+return is also reported for the two periods (``periods``). Filing history is what is stored. Crowd counts, company
+news and world shocks are excluded (collected going forward only); trade actions count once published. Macro inputs
+are dated market prints read as of each day. Short interest joins, as FINRA published it, once the stored settlements
+cover the replayed window (``short_history``). Option strategies whose
 signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option prices
 replacing the model where they exist (``desk.stocks.option_model``).
 """
@@ -204,6 +205,27 @@ def account_views(book: PaperBook, strategies: Sequence[Strategy]) -> list[dict[
     return sorted(accounts, key=lambda a: (a["baseline"], -(a["return"] or 0)))
 
 
+def periods(curve: Sequence[dict[str, Any]], spy: Sequence[dict[str, Any]], free: date | None) -> list[dict[str, Any]]:
+    """An account's return before the first survivorship-free day (survivors only) and from it on, against SPY's."""
+    if not curve:
+        return []
+    bench = {p["day"]: p["equity"] for p in spy}
+    cut = free.isoformat() if free else curve[0]["day"]
+    parts = [[p for p in curve if p["day"] < cut], [p for p in curve if p["day"] >= cut]]
+    out = []
+    for survivorship_free, part in zip((False, True), parts, strict=True):
+        if not part:
+            continue
+        before = [p for p in curve if p["day"] < part[0]["day"]]
+        start = before[-1] if before else part[0]
+        end = part[-1]
+        spy_return = (bench[end["day"]] / bench[start["day"]] - 1
+                      if start["day"] in bench and end["day"] in bench and bench[start["day"]] else None)
+        out.append({"from": part[0]["day"], "to": end["day"], "sessions": len(part), "survivorship_free": survivorship_free,
+                    "return": end["equity"] / start["equity"] - 1 if start["equity"] else None, "spy_return": spy_return})
+    return out
+
+
 def walk_forward(accounts: list[dict[str, Any]]) -> dict[str, Any]:
     """Choose using an expanding past window, then report the following 21 sessions without retuning."""
     candidates = [a for a in accounts if not a["baseline"] and len(a["curve"]) >= 42]
@@ -396,6 +418,12 @@ def replay(
             engine.previous = day
             engine.previous_bars = engine._bars(asof)
         accounts = account_views(book, strategies)
+        from desk.stocks.delisted import survivorship_free_from
+
+        free = survivorship_free_from(source)
+        spy_curve: list[dict[str, Any]] = next((a["curve"] for a in accounts if a["id"] == "spy_hold"), [])
+        for account in accounts:
+            account["periods"] = periods(account["curve"], spy_curve, free)
         held = book.positions(state=None)
         mix = modeled.price_mix(held, selected[-1])
         for account in accounts:
@@ -435,6 +463,7 @@ def replay(
             "skipped_sessions": skipped,
             "short_interest": shorts,
             "price_history": history,
+            "survivorship_free_from": free.isoformat() if free else None,
             "walk_forward": walk_forward(accounts),
             "manifest": {s.id: {"spec_sha256": s.spec_sha256, "version": s.version} for s in strategies},
             "settings": settings.model_dump(mode="json"),
@@ -455,9 +484,13 @@ def replay(
             },
             "option_contracts": contracts,
             "limitations": [
-                "Each day's universe is the listings as they stood that day, so companies delisted since collection "
-                "began are included; companies delisted before collection began never appeared in a listing file and "
-                "are missing. A held stock that stops trading after it is delisted is sold at its last close.",
+                (f"Each day's universe is the listings as they stood that day. From {free.isoformat()} on it includes "
+                 "companies delisted later (Massive's daily bars and its list of delisted companies), so those sessions "
+                 "are survivorship-free. " if free else "Each day's universe is the listings as they stood that day. ")
+                + (f"Sessions before {free.isoformat()} hold only companies still listed then (Schwab's history has no "
+                   "delisted companies), which flatters strategies that buy and hurts those that avoid; each account's "
+                   "return is shown for both periods. " if free and selected[0] < free else "")
+                + "A held stock that stops trading after it is delisted is sold at its last close.",
                 "Fundamentals are SEC XBRL company facts: each value counts from the day after the filing that "
                 "reported it, and a restatement replaces the earlier value only from its own filing date. Values a "
                 "company never filed in XBRL are missing.",

@@ -16,3 +16,16 @@ CREATE TABLE stk_history_symbols (
     note        TEXT,
     checked_at  TEXT NOT NULL
 ) WITHOUT ROWID;
+
+-- Companies delisted during Massive's two years (its reference tickers, active=false), so the point-in-time universe
+-- of those years includes them: their grouped-daily bars up to the delisting day are kept like any other stock's.
+-- A ticker that is listed again today (reused by another company) is left out: its bars couldn't be told apart.
+CREATE TABLE stk_delisted (
+    symbol       TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    cik          INTEGER,
+    delisted     INTEGER NOT NULL,
+    source       TEXT NOT NULL,
+    received_at  TEXT NOT NULL
+) WITHOUT ROWID;

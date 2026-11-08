@@ -124,9 +124,16 @@ day's prices.
 of each past month's last session (with at least a year of prices before it), on only what was public that day, and
 keeps the result in `stk_rebuild_months` keyed by the methodology's hash. Each rebuilt month's universe is the
 listings as they stood that day (from when a listing first appeared in the files to the last file that had it), so
-companies delisted since collection began are included. Companies delisted before collection began never appeared in
-a listing file and are missing: this remaining survivorship bias flatters lists that buy and hurts lists that avoid,
-and the report says so. The live record has no such bias.
+companies delisted since collection began are included. Companies delisted earlier but within Massive's two years come
+from Massive's reference list of inactive common stocks and ADRs (`desk.stocks.delisted`, once): their grouped-daily
+bars are fetched again and kept up to the delisting day, their filings and facts are fetched once, and they count
+until their delisting day, so from the first Massive day the rebuilt and replayed universe is survivorship-free (a
+ticker listed again today by another company is left out: the two can't be told apart). Schwab's earlier years
+(section 9) hold only companies still listed when the Massive window began: there is no free price source for
+companies delisted before it, and this remaining survivorship bias flatters lists that buy and hurts lists that avoid.
+The report therefore gives every list's and desk's rebuilt record for the two periods separately
+(`periods`: survivorship-free from that day, and the earlier survivors-only years), the replay gives each account's
+return for both, and `desk stocks report` prints them. The live record has no such bias.
 
 **Forward returns.** A list is bought at the next session's open and held 5, 21, 63 or 252 sessions (1 week, 1
 month, 3 months, 12 months), sold at that session's close; a stock that stops trading is sold at its last close. Each
@@ -195,7 +202,8 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
   older years are graded by the monthly rebuild. Ten years by default because before 2011 there are no XBRL
   statements, and five-year growth needs five of them: earlier years add storage without adding the company desks.
   On a small server, lower `price_history_years` (0 turns it off).
-- Rebuilt months carry survivorship bias (section 8). The live record does not.
+- Rebuilt months before the first Massive day carry survivorship bias (section 8); from it on they don't, once the
+  list of delisted companies is in. The live record has none.
 - Research-list and desk returns are price only; dividends are ignored on both sides (PAPER includes them on both).
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.
 - Crowd counts are a snapshot of Reddit attention from one aggregator, not sentiment.

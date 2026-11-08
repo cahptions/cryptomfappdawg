@@ -543,6 +543,12 @@ status = "to_verify"
 notes = "stock page only: company description, employees, address, listing date; all Stocks plans (docs 2026-10-29)"
 verified_fields = ["results.{name,description,homepage_url,total_employees,list_date,market_cap,address,phone_number,sic_description,share_class_shares_outstanding,branding.icon_url}"]
 
+[providers.massive.endpoints.tickers]
+path = "/v3/reference/tickers"
+status = "to_verify"
+notes = "inactive common stocks and ADRs (active=false, type=CS/ADRC) with delisted_utc, once: the companies delisted during Massive's two years join the point-in-time universe (desk.stocks.delisted)"
+verified_fields = []
+
 [providers.massive.endpoints.news]
 path = "/v2/reference/news"
 status = "to_verify"

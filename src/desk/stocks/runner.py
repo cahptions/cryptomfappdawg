@@ -370,6 +370,12 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
         if _backfill_due(market, "short_volume", now, 24):
             jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now))
+        # Companies delisted during Massive's two years, once: the list, their bars a few days a pass, their splits.
+        if suite.massive.configured:
+            from desk.stocks import delisted
+
+            if _backfill_due(market, delisted.JOB, now, 24 * 7):
+                jobs[delisted.JOB] = await run_job(delisted.JOB, delisted.job(suite, market, now, settings))
         # Earlier years from Schwab's daily history (desk.stocks.schwab_history): the split and dividend record first
         # (a month of Massive's reference data a pass), then up to 40 stocks a pass through the shared Schwab limiter.
         if suite.schwab is not None and suite.schwab.configured and settings.price_history_years:
