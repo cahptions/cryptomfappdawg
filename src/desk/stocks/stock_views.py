@@ -20,6 +20,7 @@ from desk.core.errors import DeskError
 from desk.core.paths import DeskPaths
 from desk.core.secrets import load_secrets
 from desk.stocks import calendar as cal
+from desk.stocks import minute_archive
 from desk.stocks.contracts import Bar, IntradayBar, StockQuote
 from desk.stocks.repo import MARKET_FILE
 from desk.stocks.suite import build_stocks_suite
@@ -199,7 +200,9 @@ async def refresh(paths: DeskPaths, loaded: LoadedConfig) -> None:
                 continue
             conn.execute("UPDATE stk_stock_views SET intraday_attempt_at=? WHERE symbol=?", (to_iso(now), row["symbol"]))
             try:
-                save_intraday(conn, row["symbol"], await client.intraday_history(row["symbol"]), utc_now())
+                minutes = await client.intraday_history(row["symbol"])
+                save_intraday(conn, row["symbol"], minutes, utc_now())
+                minute_archive.archive(conn, minutes, utc_now())     # kept past Schwab's ten days
             except DeskError as exc:
                 conn.execute("UPDATE stk_stock_views SET intraday_error=? WHERE symbol=?", (str(exc)[:300], row["symbol"]))
             minute_count += 1

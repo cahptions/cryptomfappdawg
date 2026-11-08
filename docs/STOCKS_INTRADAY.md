@@ -16,6 +16,11 @@ appear in a separately timestamped stock quote; the 1D chart itself is the regul
 may still be forming. Missing minute observations remain gaps, and no daily bar is relabelled as minute data.
 
 Minute timestamps are preserved in a separate compressed chart cache added by stocks_market migration 0005.
+Schwab serves minute bars for about ten days only, so every finished session's minutes the app fetches (this chart and
+Plays' gap repair) are also archived in `stk_minute_bars` (`desk.stocks.minute_archive`): one compressed row per stock
+and session, labelled with its source, only ever added to (a stored minute is never rewritten). A session is about 6 KB;
+the archive is capped at 200 MB (about 32,000 stock-sessions) and the oldest sessions are pruned first once it is
+over. Gap repair reads it for sessions older than Schwab's ten days.
 An empty, invalid or failed response preserves the previous chart and shows the error. A missing cache shows a
 loading/connection state; the daily ranges remain usable. A corrupt minute cache does not erase daily candles
 or a saved quote. Previous-close comparisons use the matching session's quote or the preceding trading day's

@@ -42,3 +42,17 @@ CREATE TABLE stk_earnings_dates (
     PRIMARY KEY (symbol, report_date)
 ) WITHOUT ROWID;
 CREATE INDEX stk_earnings_dates_seen ON stk_earnings_dates(last_seen);
+
+-- Stock minute bars kept after Schwab's ten days (desk.stocks.minute_archive): one compressed row per stock and
+-- finished session, only ever added to; capped by size, oldest sessions pruned first.
+CREATE TABLE stk_minute_bars (
+    symbol       TEXT NOT NULL,
+    day          INTEGER NOT NULL,
+    source       TEXT NOT NULL,
+    minutes      INTEGER NOT NULL,
+    bytes        INTEGER NOT NULL,
+    bars_zlib    BLOB NOT NULL,
+    received_at  TEXT NOT NULL,
+    PRIMARY KEY (symbol, day)
+) WITHOUT ROWID;
+CREATE INDEX stk_minute_bars_day ON stk_minute_bars(day);

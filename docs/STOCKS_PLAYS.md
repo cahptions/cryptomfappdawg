@@ -494,8 +494,9 @@ status is one of:
 come from the stored daily bars, else Schwab's daily price history (the smallest documented period that reaches the
 gap; kept only if it agrees with stored closes and postdates the last known split), else the underlying Schwab
 reported with the closing quotes. Expirations inside a gap are settled exactly on the official close. For gap sessions
-Schwab still has minute bars for (its price history serves ten days of them, and gap repair asks for all ten), a
-five-minute path is estimated too. Estimates across a results filing,
+Schwab still has minute bars for (its price history serves ten days of them, and gap repair asks for all ten), or
+older ones whose minutes were archived when the app fetched them ([intraday](STOCKS_INTRADAY.md)), a five-minute path
+is estimated too. Estimates across a results filing,
 a results window or a stock move beyond four standard deviations are labelled unreliable. Holidays are not sessions
 and are never filled; a halted stock simply has no row that day. A split ends a play's record the session before it
 (quarantined, with the reason shown); a stock without a price for ten sessions is quarantined as halted or delisted;
