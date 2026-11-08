@@ -21,16 +21,40 @@ const KestrelEvidence = (() => {
         return;
       }
       target.append(
+        el(
+          "p",
+          healthData.worker?.running
+            ? "PAPER worker is running."
+            : "PAPER worker is stopped.",
+        ),
         table(
           ["Database", "Health"],
           Object.entries(healthData.databases).map(([name, value]) => [
             name.replace("stocks-", "").replace(".db", ""),
             value.integrity === "ok"
               ? "Healthy"
-              : value.status || "Needs attention",
+              : value.status === "integrity_check_time_budget_exceeded"
+                ? "Integrity check exceeded its time budget; not checked"
+                : value.status || "Needs attention",
           ]),
         ),
       );
+      const failure = healthData.worker?.last_failure;
+      if (failure) {
+        target.append(
+          el("h3", "Last recorded PAPER failure"),
+          el("p", `${failure.exception_type} · ${failure.at}`, "error"),
+        );
+        for (const frame of failure.frames || [])
+          target.append(el("p", `${frame.file}:${frame.line}`, "muted"));
+        target.append(
+          el(
+            "p",
+            "This retained failure may precede the current run. Download the health report to share its details. Saved data is kept.",
+            "muted",
+          ),
+        );
+      }
       target.append(
         table(
           ["Source", "Status", "Last success"],

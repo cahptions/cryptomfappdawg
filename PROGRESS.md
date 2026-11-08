@@ -1,5 +1,28 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-05 — PAPER incident: retained diagnostics; actual operator crash still open
+
+- Fetched Stocks branch `claude/funny-rubin-gq99vj` at `30052f0` in the existing clean Stocks checkout. Recovered both
+  prior-chat health attachments: neither contains the crash traceback. User confirmed code 1 and offered the log;
+  requested `stocks-research.log`. **No actual exit-code-1 root cause or repair is claimed.**
+- PAPER CLI failures now retain private, bounded type/PID/time and desk-relative file/line context without messages,
+  locals, source text or credentials. Exceptions still propagate and workers still stop; no retry loop. The supervisor
+  shows matching-child context and Evidence displays/downloads the last retained failure, labelled as historical.
+- A quick_check time-budget expiry no longer suppresses cheap history/source summaries or masquerades as a completed
+  integrity check. Real-child invalid-config and fault-injected diagnostic/storage/process tests added.
+- Source requirements review and durable fault registry: `research/STOCKS_PAPER_INCIDENT_2026-11-05.md`. Important
+  differences: `learning.fund` currently prevents research top-ups despite the uploaded uncapped requirement; expiry-band
+  cohorts receive expiry grades but not full automatic quote paths. Account/strategy policy left untouched in this patch.
+- Fresh validation: baseline **1,728 passed**, final **1,739 passed**, **5 live tests deselected**, one existing upstream
+  Starlette/httpx deprecation warning (`UV_CACHE_DIR=/tmp/kestrel-uv-cache uv run pytest -q`). Ruff across src/tests,
+  strict mypy across **265 source files**, Stocks JS syntax, pinned Prettier 3.3.3 all pass.
+- Chromium: new `stocks_paper_diagnostics.mjs` and existing `stocks_gui_workflows.mjs` pass at **1366px and 375px**
+  against disposable `ui-workflows` fixture (no providers or operator books). The existing workflow first failed because
+  it selected equal expirations and expected superseded warning text; it now explicitly chooses different expirations
+  and checks the current first-expiry valuation remains labelled modeled, including its later-leg assumptions.
+- Remaining acceptance: read the actual operator log, reproduce/fix its cause, then verify startup/continued operation,
+  Pause/STOP and restart on that installation. Synthetic checks do not establish profitability/provider availability.
+
 > Read this first when resuming work in a new Claude Code session. Keep it current: milestone status, decisions,
 > known bugs, measured results, and the exact next step.
 

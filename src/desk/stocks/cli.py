@@ -93,6 +93,21 @@ def new_login(paths: DeskPaths, callback: str, *, port: int | None = None) -> Lo
 
 
 def run(args: argparse.Namespace) -> int:
+    try:
+        return _run(args)
+    except Exception as exc:
+        if args.stocks_command == "paper":
+            from desk.stocks.worker_failure import record
+
+            try:
+                record(DeskPaths.from_env(), exc)
+            except (OSError, DeskError, ValueError):
+                # Disk/permission failure must not replace the original exception or turn exit 1 into success.
+                print("PAPER failure details could not be saved; the original error follows.", flush=True)
+        raise
+
+
+def _run(args: argparse.Namespace) -> int:
     paths = DeskPaths.from_env()
     if args.stocks_command == "diagnose":
         from desk.stocks.diagnostics import diagnose
