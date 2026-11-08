@@ -46,20 +46,28 @@ trading (`desk.stocks.option_model`):
   this app collected and from Massive's real prices on an expanding window: refit at the start of each replayed month
   from observations dated before it, so no session is priced with what options did later, falling back to stated
   market-wide values until there are enough.
-- **Listings.** Monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid stand in for
-  the real listings. Open interest isn't stored historically: where Massive was asked about the days before a
-  decision, a contract that traded fewer than 10 contracts in the 10 days up to it is passed over as illiquid, and any
-  other rebuilt contract is assumed to clear the rules' 100-contract floor (the replay reports how many were checked).
-  Option strategies trade only the stocks whose chains this app has collected at some point. Dividends are: every option price and implied volatility reads
-  the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for later splits), in
-  the replay's model, its calibration and the PAPER fills and marks.
-- **Choosing never follows a real price.** Contracts are chosen from the model's prices, so one contract's real price
-  can't pull a rule toward it; the decision then sees that day's real price where there is one.
+- **Chains and listings.** A replayed day's chain is, in order: **KESTREL's own collected chain** for that stock and
+  session where one is stored (the last 45 days; real bid/ask, volume and open interest, exactly what forward PAPER
+  fills from; a contract held from earlier that it lacks keeps its rebuilt quote); else one **rebuilt on Massive's real
+  listing** for that month (the real expiries and strikes within 20% of the price, downloaded through the Massive
+  queue for each stock and month the latest replay traded, about one request each); else one rebuilt on the
+  **stand-in**: monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid. The replay's
+  limitations say how many stock-days used each, and each option account's price mix counts KESTREL's own quotes.
+  Open interest isn't stored historically: where Massive was asked about the days before a decision, a contract that
+  traded fewer than 10 contracts in the 10 days up to it is passed over as illiquid, and any other rebuilt contract is
+  assumed to clear the rules' 100-contract floor (the replay reports how many were checked). Option strategies trade
+  only the stocks whose chains this app has collected at some point. Dividends: every option price and implied
+  volatility reads the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for
+  later splits), in the replay's model, its calibration and the PAPER fills and marks.
+- **Choosing never follows a real price.** Rebuilt contracts are chosen from the model's prices, so one contract's
+  real price can't pull a rule toward it; the decision then sees that day's real price where there is one. On a
+  collected day every contract is real, so the rule chooses from the real quotes as forward PAPER does.
 - **Downloading.** Every Massive option download goes through one queue (`desk.stocks.massive_options`) with one
   budget a collection pass: 8 requests while the market is open, 40 while it is closed (Massive allows 5 a minute for
   the whole account). Each task in turn gets an equal share of what is left and hands back what it does not need: the
   contracts the latest replay traded first, then the IV history (`desk.stocks.iv_history`), then the straddles before
-  past reports (`desk.stocks.real_options`), then the Lottos history (`desk.stocks.lotto_history`). When a batch of the replay's contracts finishes, the automatic replay runs once more
+  past reports (`desk.stocks.real_options`), then the real monthly listings of the stocks the replay trades, then the
+  Lottos history (`desk.stocks.lotto_history`). When a batch of the replay's contracts finishes, the automatic replay runs once more
   to use them (never mid-download). `kestrel options-history` shows how many are downloaded and how long the rest will
   take; each option account's replay view shows what share of its held days were priced by real trades.
 

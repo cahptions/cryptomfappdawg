@@ -6,8 +6,9 @@ quotes matter) and 40 when it is closed. The work is split fairly, in order: eac
 left and hands back what it does not need, so a finished task never holds up the others and none starves.
 
 Tasks, in order: the contracts the latest historical replay traded (``options_history``), the implied-volatility
-history (``iv_history``), the straddles before past reports the replay wanted (``real_options``) and the lottos on
-real prices (``lotto_history``).
+history (``iv_history``), the straddles before past reports the replay wanted (``real_options``), the real monthly
+listings of the stocks the replay trades (``options_history.listings_task``) and the lottos on real prices
+(``lotto_history``).
 """
 
 from __future__ import annotations
@@ -54,7 +55,8 @@ def tasks() -> list[tuple[str, Task]]:
     from desk.stocks import iv_history, lotto_history, options_history, real_options
 
     return [("replay_contracts", options_history.task), ("iv_history", iv_history.task),
-            ("earnings_history", real_options.task), ("lotto_history", lotto_history.task)]
+            ("earnings_history", real_options.task), ("replay_listings", options_history.listings_task),
+            ("lotto_history", lotto_history.task)]
 
 
 async def job(massive: Any, market: StocksMarket, home: Path, now: datetime) -> dict[str, Any]:

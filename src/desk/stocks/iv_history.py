@@ -109,7 +109,7 @@ def lists(conn: sqlite3.Connection, purpose: str = PURPOSE, symbol: str | None =
 
 
 def save_list(conn: sqlite3.Connection, purpose: str, symbol: str, expiry: date | None, as_of: date, listed: int,
-              contracts: list[dict[str, Any]], note: str | None, now: datetime) -> None:
+              contracts: Any, note: str | None, now: datetime) -> None:
     conn.execute("INSERT OR REPLACE INTO stk_option_lists VALUES (?,?,?,?,?,?,?,?)",
                  (purpose, symbol, day_of(expiry) if expiry else 0, day_of(as_of), listed, json.dumps(contracts), note,
                   to_iso(now)))

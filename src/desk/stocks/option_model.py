@@ -1,9 +1,19 @@
 """Option prices for the historical replay, as far back as stock prices go.
 
-A past day's option chain is rebuilt from the stock's own history: monthly expiries (the third Friday, listed for every
-optioned stock), a listing-style strike grid, and Black-Scholes at the stock's realized volatility times how options
-on that stock have actually been priced against its realized volatility. That ratio, the put skew and the quoted spread
-are calibrated from the chains this app collected and from Massive's real daily option prices.
+A past day's option chain is, in order of preference:
+
+1. **KESTREL's own collected chain** for that stock and session, where one is stored (the last 45 days): real bid/ask,
+   volume and open interest, exactly what forward PAPER fills from. A contract held from earlier that the collected
+   chain lacks keeps its rebuilt quote.
+2. **Rebuilt on Massive's real listing** for that month, where it was downloaded (``listings_task`` in
+   ``desk.stocks.options_history``, for the stocks and months the replay trades): the real expiries and strikes.
+3. **Rebuilt on the stand-in**: monthly expiries (the third Friday, listed for every optioned stock) and a
+   listing-style strike grid.
+
+A rebuilt contract is priced with Black-Scholes at the stock's realized volatility times how options on that stock
+have actually been priced against its realized volatility. That ratio, the put skew and the quoted spread are
+calibrated from the chains this app collected and from Massive's real daily option prices. ``chain_sources`` counts
+which of the three each stock-day used, for the replay's coverage line.
 
 Every Black-Scholes price and implied volatility here reads the stock's trailing-12-month cash dividend yield as
 ``q`` (``desk.stocks.paper.fills.Dividends``: stored dividends ex on or before the day, adjusted for later splits). The
@@ -356,8 +366,14 @@ class ModeledOptions:
     """Chains for one replay session at a time (``session`` first), cached per symbol."""
 
     def __init__(self, calibration: Calibration, real: RealBars, optioned: Iterable[str],
-                 dividends: Dividends | None = None) -> None:
+                 dividends: Dividends | None = None, *,
+                 listings: dict[tuple[str, int, int], dict[str, Any]] | None = None,
+                 collected: Callable[[str, date], dict[date, list[OptionQuote]]] | None = None) -> None:
         self.calibration = calibration
+        self.listings = listings or {}          # (symbol, year, month) -> {"as_of": date, "expiries": {date: strikes}}
+        self.collected = collected              # (symbol, session) -> KESTREL's collected chain that session
+        self.chain_sources: Counter[str] = Counter()
+        self._sourced: set[tuple[str, int]] = set()
         self.real = real
         self.dividends = dividends or Dividends((), ())
         self.optioned = frozenset(optioned)
@@ -406,6 +422,18 @@ class ModeledOptions:
             self._cache[key] = self._build(symbol, real)
         return self._cache[key]
 
+    def _listing(self, symbol: str, s: float) -> tuple[str, dict[date, list[float]]]:
+        """The expiries and strikes to rebuild on: Massive's real listing for the month, else the stand-in."""
+        assert self.asof is not None
+        found = self.listings.get((symbol, self.asof.year, self.asof.month))
+        if found and found["as_of"] <= self.asof:
+            listed = {e: k for e, k in found["expiries"].items()
+                      if self.asof <= e and (e - self.asof).days <= HORIZON_DAYS}
+            if listed:
+                return "listed", listed
+        grid = strike_grid(s)
+        return "stand_in", {e: grid for e in monthly_expiries(self.asof)}
+
     def _build(self, symbol: str, real: bool) -> dict[date, list[OptionQuote]]:
         assert self.asof is not None
         s, atm = self._spot(symbol, self.asof), self.atm(symbol)
@@ -414,26 +442,37 @@ class ModeledOptions:
         quoted = cal.session_close(self.asof)
         spread = self.calibration.spread(symbol)
         q = self.dividends.yield_on(symbol, self.asof, s)
-        grid = strike_grid(s)
+        source, listing = self._listing(symbol, s)
         out: dict[date, list[OptionQuote]] = {}
-        for e in monthly_expiries(self.asof):
+        for e, listed_strikes in sorted(listing.items()):
             t = opt.year_fraction(self.asof, e)
-            strikes = sorted(set(grid) | {k for ke, k in self._known[symbol] if ke == e})
+            strikes = sorted(set(listed_strikes) | {k for ke, k in self._known[symbol] if ke == e})
             quotes = []
             for kind in ("call", "put"):
                 for k in strikes:
                     code = occ(symbol, e, kind, k)
-                    mid, source = self._price(code, symbol, kind, s, k, e, t, atm, real, q)
+                    mid, price_source = self._price(code, symbol, kind, s, k, e, t, atm, real, q)
                     if real and code in self._traded:
-                        self.priced[(code, self.asof.toordinal())] = source
+                        self.priced[(code, self.asof.toordinal())] = price_source
                     half = max(mid * spread / 2, MIN_HALF_SPREAD)
                     liquid = self.real.liquid(code, self.asof)
                     if liquid is not None and not real:
                         self.checked[(code, self.asof.toordinal())] = liquid
                     quotes.append(OptionQuote(code, symbol, kind, k, e, round(max(mid - half, 0.0), 2), round(mid + half, 2),
-                                              mid if source == "real" else None, 0, 0 if liquid is False else OPEN_INTEREST,
-                                              None, quoted))
+                                              mid if price_source == "real" else None, 0,
+                                              0 if liquid is False else OPEN_INTEREST, None, quoted))
             out[e] = quotes
+        stored = self.collected(symbol, self.asof) if self.collected else {}
+        for e, collected in stored.items():                   # KESTREL's own quotes that session replace the model
+            codes = {x.occ for x in collected}
+            out[e] = [*collected, *(x for x in out.get(e, []) if x.occ in self._traded and x.occ not in codes)]
+            for x in collected:
+                if real and x.occ in self._traded:
+                    self.priced[(x.occ, self.asof.toordinal())] = "collected"
+        key = (symbol, self.asof.toordinal())
+        if out and key not in self._sourced:
+            self._sourced.add(key)
+            self.chain_sources["collected" if stored else source] += 1
         return out
 
     def _price(self, code: str, symbol: str, kind: str, s: float, k: float, e: date, t: float, atm: float,
@@ -460,8 +499,8 @@ class ModeledOptions:
         return {"liquid": sum(verdicts), "illiquid": len(verdicts) - sum(verdicts)}
 
     def price_mix(self, positions: Iterable[Any], last: date) -> dict[str, dict[str, int]]:
-        """Per account, how many held contract-days were priced by a real trade, a recent trade's volatility, or the
-        model."""
+        """Per account, how many held contract-days were priced by KESTREL's collected quotes, a real trade, a recent
+        trade's volatility, or the model."""
         out: dict[str, Counter[str]] = defaultdict(Counter)
         for p in positions:
             if p.asset != "option":
@@ -472,7 +511,8 @@ class ModeledOptions:
                     kind = self.priced.get((leg["occ"], d))
                     if kind:
                         out[p.account][kind] += 1
-        return {account: {k: c.get(k, 0) for k in ("real", "real_iv", "model")} for account, c in out.items()}
+        return {account: {k: c.get(k, 0) for k in ("collected", "real", "real_iv", "model")}
+                for account, c in out.items()}
 
 
 def wanted(positions: Iterable[Any], last: date) -> list[dict[str, str]]:
