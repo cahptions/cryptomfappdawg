@@ -16,9 +16,9 @@ from desk.stocks import calendar as cal
 from desk.stocks import options as opt
 from desk.stocks.activity import VERSION as OPTIONS_VERSION
 from desk.stocks.activity import chain_activity, qualified_quotes, quote_session
-from desk.stocks.contracts import InsiderTrade
+from desk.stocks.contracts import InsiderTrade, RatePoint
 from desk.stocks.fundamentals import CONCEPTS
-from desk.stocks.repo import FILING_FORMS, StocksMarket
+from desk.stocks.repo import FILING_FORMS, SCHWAB_RATE, StocksMarket
 from desk.stocks.sectors import sector
 from desk.stocks.sources.feeds import TREASURY_COLUMNS, settlement_candidates
 from desk.stocks.sources.sec import ftd_file_names, parse_companyfacts, parse_form4, parse_submission_text
@@ -461,12 +461,12 @@ async def mentions(suite: StocksSuite, market: StocksMarket, now: datetime) -> d
 async def rates(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict[str, Any]:
     async def work() -> dict[str, Any]:
         stored = 0
-        years = [now.year] if market.rates("UST10Y") else [now.year - 2, now.year - 1, now.year]
+        years = [now.year] if market.rates("UST10Y", merged=False) else [now.year - 2, now.year - 1, now.year]
         for year in years:
             stored += market.save_rates(await suite.feeds.treasury_curve(year))
         fred_errors = {}
         for series in FRED_SERIES:          # FRED is optional: unreliable from some hosts, never blocks the refresh
-            have = market.rates(series)
+            have = market.rates(series, merged=False)
             since = have[-1].day - timedelta(days=10) if have else now.date() - timedelta(days=800)
             try:
                 stored += market.save_rates(await suite.feeds.fred_series(series, since))
@@ -474,6 +474,41 @@ async def rates(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict
                 fred_errors[series] = str(exc)[:120]
         return {"rows": stored, "series": sorted(set(TREASURY_COLUMNS.values()) | set(FRED_SERIES)), "fred_errors": fred_errors}
     return await _job(market, "rates", now, work)
+
+
+# Schwab index quotes for the series the macro desk, PAPER's option pricing and Plays read: $VIX for FRED's VIX close,
+# $TNX and $IRX (Cboe's 10-year and 13-week Treasury yield indexes) for the Treasury curve's 10-year and 3-month.
+SCHWAB_INDEXES = {"$VIX": "VIXCLS", "$TNX": "UST10Y", "$IRX": "UST3M"}
+INDEX_SETTLE = timedelta(minutes=5)
+
+
+def index_close(row: dict[str, Any], series: str, now: datetime) -> RatePoint | None:
+    """A finished session's closing value from Schwab's quote, or None while the session is open or the quote is
+    stale, missing or after hours. Cboe's yield indexes are quoted as ten times the yield (42.5 = 4.25%) when above 20."""
+    value = row.get("regular_last") or row.get("last")
+    stamp = row.get("regular_trade_time") or row.get("trade_time") or row.get("quote_time")
+    if not isinstance(value, (int, float)) or value <= 0 or not isinstance(stamp, str):
+        return None
+    day = cal.new_york(datetime.fromisoformat(stamp)).date()
+    close = cal.session_close(day) if cal.is_trading_day(day) else None
+    # the closing print only: a later (extended-hours) value is not the session's close
+    if close is None or now < close + INDEX_SETTLE or datetime.fromisoformat(stamp) > close + timedelta(minutes=15):
+        return None
+    value = float(value) / 10 if series.startswith("UST") and value > 20 else float(value)
+    return RatePoint(f"{series}{SCHWAB_RATE}", day, value)
+
+
+async def index_closes(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict[str, Any]:
+    """Same-evening closes of $VIX, $TNX and $IRX from Schwab (one request), stored as their own source; the free
+    Treasury and FRED series stay the fallback on every day Schwab has none (``StocksMarket.rates``)."""
+    async def work() -> dict[str, Any]:
+        assert suite.schwab is not None
+        rows = await suite.schwab.closing_quotes(list(SCHWAB_INDEXES))
+        points = [p for symbol, series in SCHWAB_INDEXES.items()
+                  if (p := index_close(rows.get(symbol) or {}, series, now)) is not None]
+        return {"stored": market.save_rates(points), "days": sorted({p.day.isoformat() for p in points}),
+                "missing": sorted(set(SCHWAB_INDEXES) - set(rows))}
+    return await _job(market, "index_closes", now, work)
 
 
 # ── options ──────────────────────────────────────────────────────────────────────────────────────

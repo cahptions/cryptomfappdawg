@@ -370,6 +370,9 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
         if _backfill_due(market, "short_volume", now, 24):
             jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now))
+        # $VIX, $TNX and $IRX closes from Schwab (one request an hour; stored once a session has closed)
+        if suite.schwab is not None and suite.schwab.configured and _due(market, "index_closes", now, 1):
+            jobs["index_closes"] = await run_job("index_closes", collect.index_closes(suite, market, now))
         # Announced earnings dates (Finnhub's free calendar, the only free forward one; optional key): daily.
         if suite.finnhub is not None and suite.finnhub.configured:
             from desk.stocks import earnings_dates

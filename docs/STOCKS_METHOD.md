@@ -21,7 +21,7 @@ Every number is computed as of a day using only what was public before it:
 | Short interest (FINRA) | settlement date + 12 days is before D (FINRA publishes about 8 business days after settlement) |
 | Insider trades (Form 4) | filed before D |
 | 8-K events, results | filed before D; the price reaction is the session after acceptance (after 16:00 New York means the next session), and only if that session is on or before D |
-| Treasury yields | dated before D |
+| Treasury yields, VIX | dated before D (Schwab's closing print of $VIX, $TNX or $IRX for a day when connected, else Treasury's par yield or FRED's VIX close) |
 | Prices | the close of D and earlier |
 
 Prices are adjusted for splits when read (history is never rewritten). Research-list and desk comparisons are
