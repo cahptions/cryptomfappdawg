@@ -58,15 +58,37 @@ trading (`desk.stocks.option_model`):
 - **Downloading.** Every Massive option download goes through one queue (`desk.stocks.massive_options`) with one
   budget a collection pass: 8 requests while the market is open, 40 while it is closed (Massive allows 5 a minute for
   the whole account). Each task in turn gets an equal share of what is left and hands back what it does not need: the
-  contracts the latest replay traded first, then the IV history (`desk.stocks.iv_history`), then the Lottos history
-  (`desk.stocks.lotto_history`). When a batch of the replay's contracts finishes, the automatic replay runs once more
+  contracts the latest replay traded first, then the IV history (`desk.stocks.iv_history`), then the straddles before
+  past reports (`desk.stocks.real_options`), then the Lottos history (`desk.stocks.lotto_history`). When a batch of the replay's contracts finishes, the automatic replay runs once more
   to use them (never mid-download). `kestrel options-history` shows how many are downloaded and how long the rest will
   take; each option account's replay view shows what share of its held days were priced by real trades.
 
-Strategies whose signal is option data itself are not replayed: **Calls when IV is cheap** (a model built from the
-stock's movement can't show options priced cheaply against it), **Cheap earnings straddles** (needs the move options
-priced before each report) and **Follow unusual call buying** (needs each day's real volume). They are tested forward
-on collected chains. **Squeeze calls** follows short interest, not option data, and replays with it (above).
+### Option-data strategies on real past prices
+
+**Calls when IV is cheap** and **Cheap earnings straddles** read option prices themselves, which a model built from
+the stock's movement can't show, so they are not replayed on modeled prices. Inside Massive's 2-year window they
+replay on **real prices** instead (`desk.stocks.real_options`), beside the modeled replay, in their own accounts:
+
+- **Signals:** each replayed session, the strategy's own rule reads that day's committee, momentum and results
+  calendar from the stock replay, with real option data: IV30 from the IV history (solved from real closing trades)
+  and, before a report, the expected move of the straddle on the first expiry after the results window, from its call's
+  and put's real closing trades.
+- **Contracts:** the call is the monthly call downloaded for the IV history nearest 0.50 delta (0.35-0.65) with 30-60
+  days left; the straddle is that report's call and put. **Random calls on real prices** (the same kind of call on a
+  random stock that has one that day) is the baseline both are compared with, by a bootstrap over days.
+- **Accounting** (as the lottos on real prices): $1,000 a trade (2% of $50,000), at most 5 open and one per stock,
+  bought at the next session's real opening trade plus 4% and $0.65 a contract a leg; later closes less 4% and fees
+  are checked against the rule's take-profit, stop and dates (a straddle leaves the second session after the results
+  window); still open at expiry, it settles at intrinsic value. A day a leg did not trade is skipped, never filled in.
+- **Downloading:** the straddles come through the Massive queue: the replay lists every report the rule looked at
+  (window centre 2-10 days ahead, 4+ past reports), and each costs 3 requests (the listing as of the first day the
+  rule saw it, then the call's and put's bars). The next replay uses them.
+
+The Paper card shows trades, the return on the money put in, the win rate, the best trade, random calls on real prices
+and the comparison, with the real data it had (stocks with an IV history, reports downloaded of those wanted). It is a
+replay: it never changes a forward grade or unlocks anything. **Follow unusual call buying** needs each day's
+whole-chain volume (about 450,000 requests) and is tested forward on collected chains only. **Squeeze calls** follows
+short interest, not option data, and replays with it (above).
 
 Historical rules were designed with knowledge of past data, and the stored listing universe/filing history can be
 incomplete. A favorable replay is exploratory reconstruction, not fresh prospective evidence. Replayed days never

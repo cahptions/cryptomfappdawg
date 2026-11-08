@@ -160,8 +160,8 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     # Real option prices feed historical replays; the IV history, news, world events and policy are read by the next
     # analysis (they change every few minutes while downloading and would otherwise redo the whole analysis each pass).
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items()
-            if k not in ("prices", "option_bars", "massive_options", "lotto_history", "iv_history", "world", "news",
-                         "policy")}
+            if k not in ("prices", "option_bars", "massive_options", "lotto_history", "iv_history", "earnings_history",
+                         "world", "news", "policy")}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
                                          "config": loaded.snapshot_hash, "preview_version": 5,

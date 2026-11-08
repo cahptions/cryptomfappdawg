@@ -55,9 +55,11 @@ SHORT_REPLAYED = ("squeeze_runner", "squeeze_calls")
 SHORT_WAIT = ("Replays once the stored FINRA short-interest history covers the replay window: 24 or more twice-monthly "
               "settlements, the earliest published before the first replayed day. Until then it is left out.")
 NOT_REPLAYED = {
-    "cheap_iv_calls": "Its signal is how options were priced against the stock's own movement. Prices rebuilt from "
-                      "that movement can't show it, so this one is tested on collected chains only.",
-    "earnings_straddles": "Needs the move options priced before each report, which only real chains show.",
+    "cheap_iv_calls": "Its signal is how options were priced against the stock's own movement, which prices rebuilt "
+                      "from that movement can't show. Replayed on real prices instead (Massive's last 2 years): IV30 "
+                      "solved from real closing trades and the monthly call nearest 0.50 delta.",
+    "earnings_straddles": "Needs the move options priced before each report, which a model can't show. Replayed on "
+                          "real prices instead (Massive's last 2 years): each report's real straddle.",
     "squeeze_calls": SHORT_WAIT,
     "squeeze_runner": SHORT_WAIT,
     "unusual_follow": "Needs each day's real option volume across the whole chain.",

@@ -6,7 +6,9 @@ experiment. Crowd counts, company news and world shocks are excluded (collected 
 count once published. Macro inputs are dated market prints read as of each day. Short interest joins, as FINRA
 published it, once the stored settlements cover the replayed window (``short_history``). Option strategies whose
 signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option prices
-replacing the model where they exist (``desk.stocks.option_model``).
+replacing the model where they exist (``desk.stocks.option_model``). The two whose signal is option data (cheap
+implied volatility, earnings straddles) replay on real prices only, inside Massive's window, beside the modeled
+accounts (``desk.stocks.real_options``).
 """
 
 from __future__ import annotations
@@ -38,12 +40,13 @@ from desk.stocks.paper.fills import Dividends, fair_spread, index_chain
 from desk.stocks.paper.report import daily_returns, trade_stats
 from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
+from desk.stocks.real_options import RealOptions
 from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE, StocksMarket, StocksResearch, date_of
 from desk.stocks.signals import SHORT_PUBLICATION_LAG
 from desk.stocks.validation import evaluation_window
 from desk.storage.db import DbKind, migrate
 
-VERSION = 5
+VERSION = 6
 # Earlier sessions every replayed day needs: 12-month momentum, the 52-week high/low and the 200-day average read a
 # year of prices (desk.stocks.features), so a replay starting after the analysis' 60-bar floor would rank on partial ones.
 WARMUP_SESSIONS = 252
@@ -352,6 +355,7 @@ def replay(
                                  dividends)
         refits = 0
         market.options = engine.options = modeled
+        real_prices = RealOptions(source, selected[-1], set(modeled.optioned))
         skipped = []
         drawdowns: dict[str, tuple[float, float]] = {}
         for index, asof in enumerate(selected):
@@ -374,6 +378,7 @@ def replay(
             # Option rules see a modeled implied volatility only after the desks have scored without option data.
             modeled.session(asof, panel, engine._rate(asof))
             day.ctx.options = {s: o for s in sorted(modeled.optioned) if (o := modeled.summary(s))}
+            real_prices.observe(day, engine._rate(asof))      # the option-data rules, on real prices only
             result = engine.step(asof, cal.session_close(asof) + timedelta(minutes=1), day)
             if result.skipped:
                 skipped.append({"day": asof.isoformat(), "reason": result.skipped})
@@ -439,6 +444,7 @@ def replay(
                 "not_replayed": dict(option_model.NOT_REPLAYED),
             },
             "option_contracts": contracts,
+            "real_price": real_prices.replay(market),
             "limitations": [
                 "Each day's universe is the listings as they stood that day, so companies delisted since collection "
                 "began are included; companies delisted before collection began never appeared in a listing file and "
@@ -461,8 +467,10 @@ def replay(
                 "other rebuilt contract is assumed to clear the rules' 100-contract open-interest floor.",
                 f"Option strategies trade only the {len(modeled.optioned)} stocks whose option chains this app has "
                 "collected at some point, a narrower universe than the stock strategies'.",
-                "Option strategies whose signal is option data itself (cheap implied volatility, earnings straddles, "
-                "unusual activity) are not replayed.",
+                "Option strategies whose signal is option data itself are not replayed on modeled prices. Calls when "
+                "IV is cheap and Cheap earnings straddles replay on real prices inside Massive's 2-year window instead "
+                "(their own accounts, against random calls on real prices, never mixed with the modeled ones); "
+                "Follow unusual call buying needs each day's whole-chain volume and is not replayed.",
                 shorts["message"],
                 "Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints, read only through each "
                 "decision date as first stored. Trade actions reach the News desk once published (stored from January "

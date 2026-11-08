@@ -93,6 +93,64 @@ const KestrelPaper = (() => {
         ),
       );
   }
+  // Calls when IV is cheap and Cheap earnings straddles: replayed on real past prices, not on modeled ones.
+  function realReplay(card, real) {
+    const base = real.baseline,
+      versus = real.versus_random_calls,
+      cover = real.coverage || {};
+    if (real.trades) {
+      card.append(
+        el(
+          "strong",
+          `${real.trades} trades on real prices · ${percent(real.return)} on the money put in`,
+        ),
+        el(
+          "p",
+          `${real.first} to ${real.last} · won ${percent(real.win_rate)} · median ${percent(real.median_return)} a trade · best ${real.best.multiple.toFixed(2)}× (${real.best.symbol}, ${real.best.decided})`,
+          "caption muted",
+        ),
+      );
+      if (base?.trades)
+        card.append(
+          el(
+            "p",
+            `Random calls on real prices: ${base.trades} trades · ${percent(base.return)}`,
+            "caption",
+          ),
+        );
+      if (versus)
+        card.append(
+          el(
+            "p",
+            `Against random calls: ${versus.mean_gap >= 0 ? "+" : ""}${percent(versus.mean_gap)} a trade on average over ${versus.days} days (90% range ${percent(versus.low)} to ${percent(versus.high)}; chance it is no better: ${percent(versus.p_not_better)}).`,
+            "caption",
+          ),
+        );
+    } else
+      card.append(
+        el(
+          "strong",
+          real.signals
+            ? `${real.signals} signals on real prices; none could be bought at a real next-day open yet`
+            : "Waiting for real past option prices",
+        ),
+      );
+    const how = el("details");
+    how.append(
+      el("summary", "How it was replayed"),
+      el("p", real.method, "caption muted"),
+      el(
+        "p",
+        `Real data so far: IV history for ${cover.stocks_with_iv ?? 0} stocks, monthly calls for ${cover.stocks_with_calls ?? 0}, straddles for ${cover.reports_downloaded ?? 0} of ${cover.reports_wanted ?? 0} past reports the rule looked at. A replay, not forward evidence: it never changes the forward grade.`,
+        "caption muted",
+      ),
+    );
+    card.append(how);
+  }
+  const realStatus = (real) =>
+    real?.trades
+      ? `${real.trades} trades on real prices · ${percent(real.return)}`
+      : "downloading real past prices";
   function evidencePanel(account, live, openReplay) {
     const section = el("section", undefined, "paper-evidence"),
       grid = el("div", undefined, "paper-evidence-grid"),
@@ -163,7 +221,9 @@ const KestrelPaper = (() => {
         );
         replay.append(detail);
       }
-    } else
+    } else if (historical.real_prices)
+      realReplay(replay, historical.real_prices);
+    else
       replay.append(
         el(
           "p",
@@ -598,7 +658,7 @@ const KestrelPaper = (() => {
           ),
           el(
             "small",
-            `Historical replay: ${LOTTO_REPLAY[a.id] ? lottoStatus(live.lotto_history, LOTTO_REPLAY[a.id]) : live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
+            `Historical replay: ${LOTTO_REPLAY[a.id] ? lottoStatus(live.lotto_history, LOTTO_REPLAY[a.id]) : live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.real_prices ? realStatus(live.historical_replays[a.id].real_prices) : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
           ),
         );
         b.onclick = () => {

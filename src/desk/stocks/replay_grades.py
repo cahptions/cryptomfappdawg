@@ -52,6 +52,11 @@ def current(replay: dict[str,Any] | None, strategies: Sequence[Strategy] = STRAT
             value.update(status="unsupported",message=" ".join(filter(None, (NOT_REPLAYED.get(s.id) or (
                 "Publication-timed inputs for this strategy are not available historically; a stock-price replay "
                 "cannot supply them."), shorts.get("message") if s.id in SHORT_REPLAYED else None))))
+            real = replay["real_price"] if isinstance(replay.get("real_price"), dict) else {}
+            if s.id in (real.get("strategies") or {}):    # replayed on real prices instead: its own result, not a grade
+                value["real_prices"] = {**real["strategies"][s.id], "first": real.get("first"),
+                                        "last": replay.get("last_day"), "coverage": real.get("coverage"),
+                                        "method": real.get("method"), "baseline": real["strategies"].get("random_calls")}
         elif not replay.get("run_id"):
             value["message"] = "No completed historical replay yet. Run replay to evaluate saved history."
         elif s.id not in rows:
