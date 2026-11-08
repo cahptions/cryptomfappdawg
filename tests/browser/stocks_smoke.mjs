@@ -106,7 +106,7 @@ try {
         .getByRole("heading", { name: "CHEAP Corp Common Stock" })
         .waitFor();
       await page.locator(".price-path").waitFor();
-      assert.equal(await page.locator(".desk-card").count(), 11);
+      assert.equal(await page.locator(".desk-card").count(), 12);
       const price = page.getByTestId("headline-price"),
         caption = page.getByTestId("price-caption");
       const latestPrice = await price.innerText();

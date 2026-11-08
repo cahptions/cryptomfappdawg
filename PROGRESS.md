@@ -1,5 +1,23 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-08 — Wave 2: Stocks history depth and options realism (HP retired; Stocks runs on the Dell)
+
+- History: Schwab daily price history before Massive's first day (default 10 years, `price_history_years`, max 20),
+  each stock's split basis checked against Massive's bars and the split record, never overwriting Massive; companies
+  delisted inside Massive's two years join the past universe (survivorship-free period reported separately from the
+  Schwab years); announced earnings dates through the optional free Finnhub key (otherwise estimated, labelled);
+  $VIX/$TNX/$IRX closes from Schwab with Treasury/FRED fallback; a 200 MB minute-bar archive used by gap repair;
+  company-news counts back-filled for the replay; IFRS fundamentals for 20-F filers (13F skipped: no desk reads it).
+  Replays cap at 5 years; longer history feeds the monthly rebuild.
+- Options: IV history solved from Massive's real closing trades (60 most traded names) feeds IV rank; one shared
+  Massive option-download queue; Calls when IV is cheap and Cheap earnings straddles replayed on real option prices;
+  the replay uses KESTREL's own chains and real listings where stored; lotto daily-high replay variant and intraday
+  take-profits for the PAPER lotto picks (v2); one Schwab chain request per stock (30 a pass); Movers today on Home;
+  weekly automatic evaluation (weights never adopted automatically); `desk stocks verify-schwab` field check;
+  four preregistered research option strategies.
+- Not verified against real Schwab/Massive/Finnhub responses (synthetic fakes only). 1,790 tests and every Stocks
+  browser test pass (two stale browser expectations updated: 12 desk cards; "Option type or strategy").
+
 ## 2026-11-05 — PAPER incident: retained diagnostics; actual operator crash still open
 
 - Fetched Stocks branch `claude/funny-rubin-gq99vj` at `30052f0` in the existing clean Stocks checkout. Recovered both
