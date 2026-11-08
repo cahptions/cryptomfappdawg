@@ -16,7 +16,7 @@ Every number is computed as of a day using only what was public before it:
 
 | Data | Counts on day D only if |
 |---|---|
-| Financial statements (SEC XBRL) | the filing's `filed` date is before D |
+| Financial statements (SEC XBRL: US GAAP, and IFRS for 20-F filers in US dollars) | the filing's `filed` date is before D |
 | Trailing twelve months | annual + year-to-date − prior year-to-date, all filed before D |
 | Short interest (FINRA) | settlement date + 12 days is before D (FINRA publishes about 8 business days after settlement) |
 | Insider trades (Form 4) | filed before D |
@@ -206,6 +206,11 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
   list of delisted companies is in. The live record has none.
 - Research-list and desk returns are price only; dividends are ignored on both sides (PAPER includes them on both).
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.
+- Foreign private issuers filing 20-F under IFRS are read from the `ifrs-full` taxonomy, the same way as US GAAP
+  (annual reports only, so their trailing twelve months is the last fiscal year). Only US-dollar values are read: an
+  IFRS filer reporting in another currency has no fundamentals, because nothing converts currencies. An ADR's price is
+  per depositary share while the filed share count is ordinary shares, so its per-share valuation is off by the ADR
+  ratio when that isn't one (as for any foreign filer).
 - Crowd counts are a snapshot of Reddit attention from one aggregator, not sentiment.
 - Option chains are collected for a ranked focus list (`options_focus_symbols`: dollar-volume leaders interleaved with
   liquid lower-priced stocks, plus held contracts), in rotating batches every 15 minutes during market hours, so a

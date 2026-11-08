@@ -86,7 +86,8 @@ showing observed mentions, reported upvotes and its source time. Social attentio
 ## Checked and not used
 
 - **Cboe delayed quotes (cdn.cboe.com):** it works, and it has daily history back to 2004 and full option chains with IV and greeks. But Cboe's website terms allow viewing and downloading "one copy of the Materials for your personal non-commercial use", and forbid storing them "in an electronic retrieval system". A research database is exactly that, so it is not used.
-- **OpenFIGI (CUSIP → ticker):** a client exists in the code (`FeedsClient.cusip_tickers`), but nothing calls it. KESTREL does not collect 13F institutional holdings, so none are mapped or shown.
+- **OpenFIGI (CUSIP → ticker):** a client exists in the code (`FeedsClient.cusip_tickers`), but nothing calls it.
+- **SEC 13F data sets (institutional holdings, free):** not collected, because no desk reads institutional ownership; a quarterly filing published up to 45 days late would need a desk rule of its own first.
 - **Stooq:** the connection was reset from the build host. Not used.
 - **Reddit API:** needs an OAuth app (public JSON answered 403). ApeWisdom already counts Reddit mentions.
 - **Yahoo Finance and other unofficial APIs:** their terms forbid this kind of use.
