@@ -429,6 +429,19 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
         except Exception as exc:  # recorded; never stops collection
             log.warning("news and world failed", extra={"error": str(exc)[:200]})
             market.job("world", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+        # Company news by publication day for rebuilt and replayed days: count finished days, then back-fill earlier
+        # ones from Massive (three requests a pass) back to the first stored Massive price day.
+        if suite.massive.configured and _backfill_due(market, "news_backfill", now, 24):
+            from desk.stocks import news_history, schwab_history
+
+            try:
+                news_history.count_stored(market.conn, now)
+                edge = schwab_history.boundary(market.conn) or (now.date() - timedelta(days=730))
+                jobs["news_backfill"] = await run_job("news_backfill", news_history.backfill(
+                    market.conn, suite.massive, now, target=edge))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("news history failed", extra={"error": str(exc)[:200]})
+                market.job("news_backfill", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         if suite.massive.configured:
             from desk.stocks import options_history
 

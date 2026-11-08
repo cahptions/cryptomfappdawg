@@ -10,8 +10,8 @@ Two records, never mixed:
   earlier years hold only companies still listed then (survivorship bias: it flatters lists that buy and hurts lists
   that avoid), so the report gives each period's rebuilt record separately (``periods``). Crowd and options data
   exist only from the first day of collection, so those desks and the lists built on them have a live record only.
-  The News desk is rebuilt from trade actions alone (published by each month's end);
-  its company news and world shocks are collected going forward, so it earns a vote only from its live record.
+  The News desk is rebuilt from what was published by each month's end (company news counted by publication day,
+  stored world events, trade actions); it earns a vote only from its live record.
 
 A list is bought at the next session's open and held 5, 21, 63 or 252 sessions, sold at that session's close (a stock
 that stops trading is sold at its last close), price-only, against SPY and the stock's sector fund over the same
@@ -69,8 +69,9 @@ SHRINK_MONTHS = 12               # learned weights are shrunk toward the default
 LIVE_DESK_STEP = 5               # live desk scores are judged weekly (every fifth recorded session)
 LIVE_ONLY_DESKS = ("crowd", "options", "news")   # earn a vote only from their live record (never a learned weight)
 NOT_REBUILT = ("crowd", "options")               # nothing dated to rebuild them from: graded live only
-PARTLY_REBUILT = {"news": "Rebuilt from trade actions only, each read once published; company news and world shocks "
-                          "are collected going forward, so the full desk is graded live."}
+PARTLY_REBUILT = {"news": "Rebuilt from what was published by each month's end: company news counted by publication "
+                          "day where counted, world shocks once a full 32-day window of GDELT files is stored, trade "
+                          "actions throughout; the full desk is graded live."}
 PROVEN_LIVE_WEIGHT = 0.4
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")
@@ -87,7 +88,8 @@ def content() -> dict[str, Any]:
             "exit": "close of the horizon's last session", "returns": "price only"}
 
 
-REBUILD_INPUTS = ("listed_on_the_day", "trade_actions")    # what a rebuilt month reads beyond the desks' own rules
+# what a rebuilt month reads beyond the desks' own rules
+REBUILD_INPUTS = ("listed_on_the_day", "trade_actions", "company_news_by_publication_day", "stored_world_events")
 
 
 def rebuild_sha256() -> str:
@@ -717,7 +719,7 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
     for v in desks.values():
         v["grade"] = _headline(v["live"], v["rebuilt"], v["claim"])
         if v["rebuilt_note"] and v["grade"]["source"] == "rebuilt":
-            v["grade"]["text"] += "; trade actions only"
+            v["grade"]["text"] += "; from what was published (partly back-filled)"
     options["cheap_iv"]["grade"] = grade(options["cheap_iv"], "iv_cheap", "live")
     learning = learn(fw, history)
     weights = dict(learning["candidate"]) if learning["adopted"] and learning["candidate"] else dict(dk.DEFAULT_WEIGHTS)
@@ -749,8 +751,9 @@ REBUILD_CAVEATS = [
     "history) hold only companies still listed then, which flatters lists that buy and hurts lists that avoid. Each "
     "list's and desk's rebuilt record is also given for the two periods separately.",
     "Crowd and options data start on the first day of collection, so those desks and lists have a live record only.",
-    "The News desk's rebuilt record reads trade actions only (stored from January 20, 2025, each once published); "
-    "its company news and world shocks are collected going forward.",
+    "The News desk's rebuilt record reads what was published by each month's end: company news counted by "
+    "publication day (back-filled from Massive), world shocks once 32 days of GDELT files are stored, trade actions "
+    "from January 20, 2025.",
     "Returns are price only (no dividends) on both sides of every comparison.",
 ]
 

@@ -56,3 +56,28 @@ CREATE TABLE stk_minute_bars (
     PRIMARY KEY (symbol, day)
 ) WITHOUT ROWID;
 CREATE INDEX stk_minute_bars_day ON stk_minute_bars(day);
+
+-- Company news counted per stock and New York day as published (desk.stocks.news_history), for rebuilt and replayed
+-- days: from the stored articles, and earlier days back-filled from Massive's feed. A day is counted once, complete.
+CREATE TABLE stk_news_daily (
+    day        INTEGER NOT NULL,
+    symbol     TEXT NOT NULL,
+    articles   INTEGER NOT NULL,
+    positive   INTEGER NOT NULL,
+    negative   INTEGER NOT NULL,
+    neutral    INTEGER NOT NULL,
+    PRIMARY KEY (day, symbol)
+) WITHOUT ROWID;
+CREATE TABLE stk_news_days (
+    day       INTEGER PRIMARY KEY,
+    articles  INTEGER NOT NULL,
+    source    TEXT NOT NULL
+);
+-- articles of the day being paged backward, until all of that day is in
+CREATE TABLE stk_news_staging (
+    id            TEXT NOT NULL,
+    symbol        TEXT NOT NULL,
+    published_at  TEXT NOT NULL,
+    sentiment     TEXT,
+    PRIMARY KEY (id, symbol)
+) WITHOUT ROWID;

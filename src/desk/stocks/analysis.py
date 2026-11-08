@@ -3,8 +3,10 @@ page shows. ``build`` works for today and for any past day (validation rebuilds 
 
 ``historical`` marks a reconstructed past day (the rebuild and the replay): the universe is the listings as they stood
 that day, delisted companies included (``desk.stocks.universe.listed_on``), and inputs collected going forward only
-(crowd counts, option summaries, company news, world shocks) are left out. Trade actions stay: they are stored with
-their publication dates since January 20, 2025 and read only once published."""
+(crowd counts, option summaries) are left out. The News desk reads what was published by then: company news from the
+daily counts by publication day (``desk.stocks.news_history``, on days whose last week is counted), world shocks from
+the stored GDELT files (once a day has a full 32-day window of them) and trade actions (stored with their publication
+dates since January 20, 2025)."""
 
 from __future__ import annotations
 
@@ -146,13 +148,9 @@ class Analyzer:
 
     def _news(self, asof: date, received_by: datetime, symbols: list[str], sic: dict[str, Any],
               historical: bool) -> dict[str, dict[str, Any]]:
-        """What the News desk reads. A past day keeps only trade actions published by then (``policy.documents``
-        filters on the publication date): company news and world shocks are collected going forward, so a rebuilt or
-        replayed day can't show them as they were known until they are backfilled."""
-        news = news_flow.inputs(self.market.conn, asof, received_by, symbols, sic)
-        if not historical:
-            return news
-        return {s: {"world": [], "policy": v["policy"]} for s, v in news.items() if v.get("policy")}
+        """What the News desk reads: live, articles as received by ``received_by``; a past day, what was published by
+        then (company news counted by publication day, stored GDELT files and trade actions by publication date)."""
+        return news_flow.inputs(self.market.conn, asof, received_by, symbols, sic, historical=historical)
 
     def weights(self) -> dict[str, float]:
         """Learned weights from the newest validation when it produced them, else the documented defaults."""

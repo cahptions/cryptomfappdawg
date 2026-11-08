@@ -2,8 +2,9 @@
 
 Each day's universe is the listings as they stood that day: from the first Massive day on it includes companies later
 delisted (desk.stocks.delisted); Schwab's earlier years hold only companies still listed then, so each account's
-return is also reported for the two periods (``periods``). Filing history is what is stored. Crowd counts, company
-news and world shocks are excluded (collected going forward only); trade actions count once published. Macro inputs
+return is also reported for the two periods (``periods``). Filing history is what is stored. Crowd counts are
+excluded (collected going forward only); company news (counted by publication day), stored world events and trade
+actions count once published. Macro inputs
 are dated market prints read as of each day. Short interest joins, as FINRA published it, once the stored settlements
 cover the replayed window (``short_history``). Option strategies whose
 signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option prices
@@ -421,6 +422,9 @@ def replay(
         from desk.stocks.delisted import survivorship_free_from
 
         free = survivorship_free_from(source)
+        from desk.stocks import news_history
+
+        news = news_history.coverage(source)
         spy_curve: list[dict[str, Any]] = next((a["curve"] for a in accounts if a["id"] == "spy_hold"), [])
         for account in accounts:
             account["periods"] = periods(account["curve"], spy_curve, free)
@@ -464,6 +468,7 @@ def replay(
             "short_interest": shorts,
             "price_history": history,
             "survivorship_free_from": free.isoformat() if free else None,
+            "news": news,
             "walk_forward": walk_forward(accounts),
             "manifest": {s.id: {"spec_sha256": s.spec_sha256, "version": s.version} for s in strategies},
             "settings": settings.model_dump(mode="json"),
@@ -513,9 +518,12 @@ def replay(
                 "unusual activity) are not replayed.",
                 shorts["message"],
                 "Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints, read only through each "
-                "decision date as first stored. Trade actions reach the News desk once published (stored from January "
-                "20, 2025). Company news, world shocks and crowd counts are collected going forward only and are "
-                "left out.",
+                "decision date as first stored. The News desk (an observer with no vote) reads what was published by "
+                "each day: trade actions from January 20, 2025; company news counted by publication day "
+                + (f"from {news['company_from']}" if news["company_from"] else "(none counted yet)")
+                + "; world shocks from stored GDELT files "
+                + (f"from {news['world_from']}" if news["world_from"] else "(none stored yet)")
+                + ". Crowd counts are collected going forward only and are left out.",
                 f"Every replayed day has at least {WARMUP_SESSIONS} earlier sessions of prices, so 12-month momentum, "
                 "the 52-week high and low and the 200-day average are complete from the first replayed day.",
                 "Signals use only data through each decision date. Fills occur at the next available open with the "

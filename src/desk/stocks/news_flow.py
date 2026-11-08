@@ -138,10 +138,13 @@ def company(conn: sqlite3.Connection, asof: date, received_by: datetime) -> dict
 
 
 def inputs(conn: sqlite3.Connection, asof: date, received_by: datetime, symbols: list[str],
-           sic: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """What the News desk reads for each stock: company news, world supply shocks and trade actions."""
+           sic: dict[str, Any], *, historical: bool = False) -> dict[str, dict[str, Any]]:
+    """What the News desk reads for each stock: company news, world supply shocks and trade actions. A
+    ``historical`` (rebuilt or replayed) day reads company news from the counts by publication day."""
+    from desk.stocks import news_history
+
     try:
-        news = company(conn, asof, received_by)
+        news = news_history.counts(conn, asof) if historical else company(conn, asof, received_by)
         nodes = [n for n in world.status(conn, asof) if n["spike"]]
         actions = [d for d in policy.documents(conn, asof - timedelta(days=15), asof) if d["trade"]]
     except sqlite3.OperationalError:          # a database from before news collection
