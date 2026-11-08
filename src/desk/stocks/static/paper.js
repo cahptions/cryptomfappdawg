@@ -59,6 +59,16 @@ const KestrelPaper = (() => {
           "caption",
         ),
       );
+      const high =
+        variant === "kestrel_triple" ? report.variants?.kestrel_high : null;
+      if (high?.picks)
+        card.append(
+          el(
+            "p",
+            `Sold by a limit at triple when the day's HIGH reached it: ${percent(high.return)} on the money put in, 3× or more ${percent(high.at_least_3x)}. An upper bound: a daily high is one trade at some moment, not proof the position could have been sold there.`,
+            "caption",
+          ),
+        );
       if (versus && !variant.startsWith("random"))
         card.append(
           el(

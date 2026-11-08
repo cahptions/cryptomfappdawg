@@ -218,13 +218,17 @@ fees, which on a $0.07 contract is 9% of its cost); up to 20 open at once, insid
 
 | Strategy | Enters | Exits |
 |---|---|---|
-| Lotto picks · sold at triple | the Plays **Lottos** section's picks recorded when the session closed, in rank order: ask $0.05–$0.50, 2–14 days, ≥ 3% out of the money, volume and open interest ≥ 50, spread ≤ 35%, ranked by the payoff on a one-standard-deviation move per dollar × KESTREL's chance in the money | sells when it is worth 3× (the Plays exit plan); otherwise held to expiry |
+| Lotto picks · sold at triple | the Plays **Lottos** section's picks recorded when the session closed, in rank order: ask $0.05–$0.50, 2–14 days, ≥ 3% out of the money, volume and open interest ≥ 50, spread ≤ 35%, ranked by the payoff on a one-standard-deviation move per dollar × KESTREL's chance in the money | sells when it is worth 3× (the Plays exit plan), checked on Schwab quotes every five minutes in the session and on the close; otherwise held to expiry |
 | Lotto picks · let them run | the same picks | held to expiry: the rare 20×–100× winner is kept whole, and nothing is sold early |
 
 Both are judged against **Random lottos**, not Random calls. They buy at the next session's ask within the usual limit
 (10% or 5 cents above the price seen); a lotto whose price ran further overnight is cancelled, as a limit order would
-be. Marks and exits are checked once a day on closing quotes, so a contract that spikes and falls back within a day
-is seen at its close.
+be. Marks and exits are checked on closing quotes, and **Lotto picks · sold at triple** (version 2, 2026-11-08) also
+checks its take-profit during the session (`desk.stocks.paper.intraday`): each Plays tracking pass, every five
+minutes, quotes the held contracts through Schwab `/quotes` (one request for up to 100) and, when a fresh bid (under
+five minutes old, after the entry) is worth triple, sells there with the usual fees, recording the decision, the order
+and its fill with the quote's own time. A spike between passes can still be missed. Its version-1 positions keep their
+record; the account shows its mixed-version warning until the new version's own record grades.
 
 **Lottos on real past prices** (`desk.stocks.lotto_history`). The modeled replay can't price lottos honestly (their
 value is in the far, short-dated tails a model gets wrong), so the lotto accounts are replayed on real prices instead:
@@ -235,8 +239,13 @@ contracts listed two weeks before it, then each candidate's real daily bars (abo
 few days). The replay then runs KESTREL's Lottos rule (one-standard-deviation payoff per dollar × chance in the money,
 from the contract's implied and the stock's realized volatility; no committee tilt) against a random qualifying
 contract per stock, sold at triple or held to expiry, $300 a pick, bought at the next session's real open plus 5%
-with $0.65 a contract. Each lotto account's Historical replay card shows its version: picks, return on the money put
-in, how many expired worthless, reached 3× and 10×, the best pick, and KESTREL against random with a bootstrap range.
+with $0.65 a contract. "Sold at triple" is tested two ways: on a later **close** less 5% (the main result), and, as its
+own clearly labelled variant, by a resting limit at 3× the cost counted as filled on the first day the contract's
+**daily high** reached it. A daily high is one trade at some moment of the day, not proof the whole position could
+have been sold there, so the high variant is an upper bound shown beside the close-based one, never in its place. Each
+lotto account's Historical replay card shows its version: picks, return on the money put in, how many expired
+worthless, reached 3× and 10×, the best pick, KESTREL against random with a bootstrap range, and for the sold-at-triple
+account the daily-high upper bound.
 
 ## Grading
 

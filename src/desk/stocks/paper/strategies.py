@@ -508,11 +508,13 @@ STRATEGIES: tuple[Strategy, ...] = (
              "Random cheap, short-dated, out-of-the-money contracts held to expiry: what any lotto picking must beat",
              _P(rule="random_lottos", n=12, seed="random_lottos", structure="random_lotto", dte=[2, 14],
                 premium=0.006, take_profit=1e9, stop=-2.0, exit_dte=-1, max_open=20), baseline=True),
-    Strategy("lotto_picks", 1, "Lotto picks · sold at triple", "option", "event",
+    # v2 (2026-11-08): the take-profit is also checked during the session on Schwab quotes (desk.stocks.paper.intraday)
+    Strategy("lotto_picks", 2, "Lotto picks · sold at triple", "option", "event",
              "KESTREL's Plays Lottos picks pay off often enough to beat random lottos, selling each when it triples "
-             "(the Plays exit plan) and otherwise holding to expiry",
+             "(the Plays exit plan, checked on Schwab quotes every five minutes in the session) and otherwise holding "
+             "to expiry",
              _P(rule="lotto_picks", structure="long_call", dte=[2, 14], premium=0.006, take_profit=2.0, stop=-2.0,
-                exit_dte=-1, max_open=20, compare="random_lottos")),
+                exit_dte=-1, max_open=20, compare="random_lottos", intraday_take_profit=True)),
     Strategy("lotto_runners", 1, "Lotto picks · let them run", "option", "event",
              "The same picks held to expiry: the rare 20×–100× winners pay for all the ones that expire worthless",
              _P(rule="lotto_picks", structure="long_call", dte=[2, 14], premium=0.006, take_profit=1e9, stop=-2.0,
