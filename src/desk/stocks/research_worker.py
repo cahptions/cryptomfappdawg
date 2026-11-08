@@ -76,7 +76,12 @@ class ResearchWorker:
             if not self.enabled or self.blocked or self.status()["running"]:
                 return self.status()
             if self.process is not None:
-                self.error = f"PAPER worker exited (code {self.process.poll()}). Check stocks-research.log, then Start PAPER."
+                from desk.stocks.worker_failure import read, summary
+
+                failure = read(self.paths)
+                detail = (summary(failure) if failure and failure["pid"] == self.process.pid else
+                          "Open Evidence → Check data health for diagnostics, then use Start PAPER to retry.")
+                self.error = f"PAPER worker exited (code {self.process.poll()}). {detail}"
                 self.blocked = True
                 return self.status()
             try:

@@ -16,6 +16,8 @@ from desk.core.clock import utc_now
 from desk.core.paths import REPO_ROOT, DeskPaths
 from desk.stocks.analysis import MIN_BARS
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE
+from desk.stocks.worker_failure import TYPES
+from desk.stocks.worker_failure import read as read_failure
 
 KEYS = ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "FINNHUB_API_KEY", "SCHWAB_APP_KEY", "SCHWAB_APP_SECRET")
 
@@ -99,14 +101,14 @@ def diagnose(paths: DeskPaths) -> dict[str, Any]:
     result['configured_inputs'] = present
     result['worker'] = {'running': _held(paths.home / 'run' / 'stocks-worker.lock'),
                          'dashboard_running': _held(paths.home / 'run' / 'stocks-dashboard.lock')}
+    result['worker']['last_failure'] = read_failure(paths)
     log_path = paths.logs_dir / 'stocks-research.log'
     if log_path.is_file():
         try:
             with log_path.open('rb') as handle:
                 handle.seek(max(0, log_path.stat().st_size - 32768))
                 tail = handle.read(32768).decode('utf-8', 'replace')
-            types = re.findall(r'^(ZeroDivisionError|ValueError|TypeError|SchemaError|StorageError|OperationalError|'
-                               r'IntegrityError|MemoryError|OverflowError|SchwabAuthError):', tail, re.MULTILINE)
+            types = re.findall(r'^(' + '|'.join(sorted(TYPES)) + r'):', tail, re.MULTILINE)
             result['worker']['last_logged_exception_type'] = types[-1] if types else None
         except OSError:
             result['warnings'].append('Worker log could not be read')
@@ -137,9 +139,21 @@ def diagnose(paths: DeskPaths) -> dict[str, Any]:
             def expired(limit: float = deadline) -> int:
                 return int(time.monotonic() > limit)
             conn.set_progress_handler(expired, 1000)
-            check = conn.execute('PRAGMA quick_check(1)').fetchone()[0]
-            result['databases'][filename] = {'integrity': 'ok' if check == 'ok' else 'failed',
-                                             'journal_mode': conn.execute('PRAGMA journal_mode').fetchone()[0]}
+            try:
+                check = conn.execute('PRAGMA quick_check(1)').fetchone()[0]
+                result['databases'][filename] = {'integrity': 'ok' if check == 'ok' else 'failed'}
+            except sqlite3.OperationalError as exc:
+                if exc.sqlite_errorcode != sqlite3.SQLITE_INTERRUPT:
+                    raise
+                result['databases'][filename] = {'status': 'integrity_check_time_budget_exceeded',
+                                                 'integrity': 'not_checked'}
+            # A large, healthy market DB can exceed quick_check's budget. Still report the inexpensive history
+            # and job summaries under their own deadline, without claiming the integrity check passed.
+            deadline = time.monotonic() + 0.5
+            def summary_expired(limit: float = deadline) -> int:
+                return int(time.monotonic() > limit)
+            conn.set_progress_handler(summary_expired, 1000)
+            result['databases'][filename]['journal_mode'] = conn.execute('PRAGMA journal_mode').fetchone()[0]
             if filename == MARKET_FILE:
                 row = conn.execute('SELECT COUNT(*),SUM(rows),MAX(day),MAX(received_at) '
                                    'FROM stk_bar_days WHERE rows>0').fetchone()
