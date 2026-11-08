@@ -346,10 +346,10 @@ class SchwabClient:
     def configured(self) -> bool:
         return self.tokens.configured
 
-    async def _get(self, endpoint: str, params: dict[str, Any]) -> bytes:
+    async def _get(self, endpoint: str, params: dict[str, Any], path: str | None = None) -> bytes:
         if not self.configured:
             raise ProviderError("schwab", ProviderErrorKind.HTTP_ERROR, "Schwab is not connected; reconnect in Settings")
-        response = await self.http.request(endpoint, params=params)
+        response = await self.http.request(endpoint, path=path, params=params)
         if response.status != 200:
             raise ProviderError("schwab", ProviderErrorKind.HTTP_ERROR, f"{endpoint}: HTTP {response.status}", response.status)
         return response.body
