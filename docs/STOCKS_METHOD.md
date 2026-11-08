@@ -167,6 +167,12 @@ than other optioned stocks on the same day; that claim is tested like the others
 
 Each report is appended to `stk_validation` (append-only) with the hash of the rules it was built under.
 
+**Weekly evaluation.** The Evidence page's evaluation (rebuilt months, list and desk grades, proposed committee
+weights) also runs by itself once a week while collection is on (`EvidenceWorker.weekly`: due seven days after the
+last finished one, never beside a running replay, not again within six hours of a failure), so the page always has a
+recent result and says when it last ran and is next due. It never adopts anything: the proposed weights are shown
+beside "Not adopted", and adopting them stays the user's explicit choice (`desk stocks validate`).
+
 ## 9. Known limits
 
 - The free price source serves two years of daily bars, so the rebuild covers about a year of months at first and

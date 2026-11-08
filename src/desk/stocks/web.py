@@ -362,6 +362,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                     async with analysis_start_lock:
                         if not evidence.status()["running"]:
                             await asyncio.to_thread(backtests.maintain)
+                        if not backtests.status()["running"]:      # the weekly evaluation, never beside a replay
+                            await asyncio.to_thread(evidence.weekly)
                 else:
                     await asyncio.to_thread(backtests.pause_automatic)
                 with suppress(TimeoutError):
@@ -990,8 +992,11 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def proof() -> dict[str, Any]:
         with reader(paths, RESEARCH_FILE) as conn:
             research = StocksResearch(conn)
+            from desk.stocks.evidence_job import schedule
+
             return {"validation": evidence_document(paths, "report") or research.latest_validation(),
-                    "job": evidence.status(), "runs": [dict(r) for r in research.runs(limit=20)]}
+                    "job": evidence.status(), "runs": [dict(r) for r in research.runs(limit=20)],
+                    "schedule": schedule(paths, utc_now())}
 
     @app.post("/api/stocks/proof/start")
     async def start_evaluation() -> dict[str, Any]:

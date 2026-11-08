@@ -1,4 +1,7 @@
-"""One local, cancellable evaluation process. No network, orders or adoption of learned weights."""
+"""One local, cancellable evaluation process. No network, orders or adoption of learned weights.
+
+It also runs by itself once a week (``weekly``) while collection is on, so the Evidence page always has a recent
+result; the weights it proposes are shown and never adopted: adopting them stays the user's explicit choice."""
 
 from __future__ import annotations
 
@@ -8,6 +11,7 @@ import subprocess
 import sys
 import threading
 from contextlib import suppress
+from datetime import datetime, timedelta
 from typing import Any
 
 from desk.core.clock import utc_now
@@ -29,6 +33,19 @@ def document(paths: DeskPaths, name: str, *, kind: str = "evidence") -> dict[str
         return value if isinstance(value, dict) else None
     except (OSError, ValueError):
         return None
+
+
+WEEK = timedelta(days=7)
+RETRY = timedelta(hours=6)
+MIN_SESSIONS = 60            # the analysis' own minimum history
+
+
+def schedule(paths: DeskPaths, now: datetime) -> dict[str, Any]:
+    """When the weekly evaluation last finished and is next due (now, when it never has)."""
+    report = document(paths, "report")
+    last = report.get("generated_at") if report else None
+    due = datetime.fromisoformat(last) + WEEK if last else now
+    return {"weekly": True, "last": last, "next": due.isoformat(), "due": now >= due}
 
 
 def publish(paths: DeskPaths, *, kind: str = "evidence", **value: Any) -> None:
@@ -94,6 +111,39 @@ class EvidenceWorker:
 
     def extra_env(self) -> dict[str, str]:
         return {}
+
+    def sessions(self) -> int:
+        """Stored closing sessions (the evaluation needs prices; an empty data folder waits for them)."""
+        import sqlite3
+
+        from desk.stocks.repo import MARKET_FILE
+
+        path = self.paths.db_dir / MARKET_FILE
+        if not path.exists():
+            return 0
+        conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)
+        try:
+            return int(conn.execute("SELECT COUNT(*) FROM stk_bar_days WHERE rows>0").fetchone()[0])
+        except sqlite3.Error:
+            return 0
+        finally:
+            conn.close()
+
+    def weekly(self, now: datetime | None = None) -> bool:
+        """Start the evaluation when a week has passed since the last one finished (not after a failure within six
+        hours, and never beside a running evaluation or replay). Returns whether it started."""
+        now = now or utc_now()
+        with self.lock:
+            state = self.status()
+            attempted = state.get("updated_at") if state.get("status") in {"failed", "interrupted"} else None
+            if (state["running"] or WorkerLock(self.paths, "stocks-backtest").held()
+                    or not schedule(self.paths, now)["due"] or self.sessions() < MIN_SESSIONS
+                    or (attempted and now - datetime.fromisoformat(attempted) < RETRY)):
+                return False
+            self.start()
+            publish(self.paths, status="running", phase="Weekly evaluation: preparing saved market data",
+                    completed=0, total=0, automatic=True)
+            return True
 
     def cancel(self) -> dict[str, Any]:
         with self.lock:
