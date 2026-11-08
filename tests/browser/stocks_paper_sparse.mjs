@@ -89,10 +89,14 @@ try {
       })
       .waitFor();
     assert.equal(
-      await page.getByLabel("Option type or strategy", { exact: true }).inputValue(),
+      await page
+        .getByLabel("Option type or strategy", { exact: true })
+        .inputValue(),
       "call",
     );
-    await page.getByLabel("Option type or strategy", { exact: true }).selectOption("put");
+    await page
+      .getByLabel("Option type or strategy", { exact: true })
+      .selectOption("put");
     await page.goto(`${base}/#settings`);
     await page
       .getByRole("heading", {
