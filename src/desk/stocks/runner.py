@@ -258,7 +258,7 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
 
 
 async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, company_limit: int = 20,
-                option_limit: int = 5, research_only: bool = False, managed: bool = False) -> dict[str, Any]:
+                option_limit: int = 30, research_only: bool = False, managed: bool = False) -> dict[str, Any]:
     now = utc_now()
     dbs = StocksDatabases.open(paths)
     try:

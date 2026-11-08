@@ -179,5 +179,7 @@ Each report is appended to `stk_validation` (append-only) with the hash of the r
 - Short interest is twice monthly and published with a lag; insider data depends on filers' accuracy.
 - Crowd counts are a snapshot of Reddit attention from one aggregator, not sentiment.
 - Option chains are collected for a ranked focus list (`options_focus_symbols`: dollar-volume leaders interleaved with
-  liquid lower-priced stocks, plus held contracts), in rotating batches every 15 minutes during market hours, so a
-  name's chain is a snapshot from some time in the session rather than a continuous intraday history.
+  liquid lower-priced stocks, plus held contracts): 30 stocks every 15 minutes during market hours (SPY and QQQ every
+  pass), one Schwab chain request per stock covering all the expiries it needs, so the 150-name focus is covered about
+  every 75 minutes. A name's chain is a snapshot from some time in the session rather than a continuous intraday
+  history.

@@ -569,9 +569,10 @@ pass by construction, typically 4–6 a minute.
 
 ## Limits
 
-- Coverage is what the collector has fetched: rotating batches of the most-traded names plus your watchlist,
-  SPY and QQQ, and the expiries nearest 30, 60, 90, 180 and 365 days and the nearest weekly. It is not every listed
-  contract.
+- Coverage is what the collector has fetched: 30 stocks a 15-minute pass from the most-traded names and your
+  watchlist (the 150-name focus about every 75 minutes), SPY and QQQ every pass, and the expiries nearest 30, 60, 90,
+  180 and 365 days, the nearest weekly and the first after results, up to 50 strikes either side of the money. It is
+  not every listed contract.
 - Plays are ranked on greeks and implied volatility computed here from the bid/ask mid (Black-Scholes, no
   dividends), the same for every provider. Schwab's own IV and greeks come with its live quotes; tracking stores
   them and the detail page shows them beside KESTREL's.

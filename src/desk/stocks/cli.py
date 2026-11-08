@@ -50,7 +50,7 @@ def add_parser(sub: Any) -> None:
                                   "repeat collection and forward PAPER while this terminal stays open")
         cmd.add_argument("--price-days", type=_bounded, default=20 if name == "collect" else 5)
         cmd.add_argument("--companies", type=_bounded, default=20)
-        cmd.add_argument("--options", type=_bounded, default=5)
+        cmd.add_argument("--options", type=_bounded, default=30)   # stocks a chain pass (one Schwab request each)
         if name in {"paper", "collect"}:
             cmd.add_argument("--minutes", type=float, default=1440)
             cmd.add_argument("--interval", type=float, default=300)

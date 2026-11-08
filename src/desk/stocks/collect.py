@@ -16,7 +16,7 @@ from desk.stocks import calendar as cal
 from desk.stocks import options as opt
 from desk.stocks.activity import VERSION as OPTIONS_VERSION
 from desk.stocks.activity import chain_activity, qualified_quotes, quote_session
-from desk.stocks.contracts import InsiderTrade
+from desk.stocks.contracts import InsiderTrade, OptionQuote
 from desk.stocks.fundamentals import CONCEPTS
 from desk.stocks.repo import FILING_FORMS, StocksMarket
 from desk.stocks.sectors import sector
@@ -440,6 +440,22 @@ async def rates(suite: StocksSuite, market: StocksMarket, now: datetime) -> dict
 
 
 # ── options ──────────────────────────────────────────────────────────────────────────────────────
+SPAN = 12          # listed expirations one Schwab chains request may span (names with daily expiries need several)
+
+
+def spans(listed: Sequence[date], chosen: Sequence[date], most: int = SPAN) -> list[list[date]]:
+    """The chosen expirations grouped so each group spans at most ``most`` listed ones: one request a group, so a
+    stock with weekly and monthly expiries needs one, and SPY's daily expiries a few rather than one huge answer."""
+    order = {e: i for i, e in enumerate(sorted(set(listed) | set(chosen)))}
+    groups: list[list[date]] = []
+    for e in sorted(chosen):
+        if groups and order[e] - order[groups[-1][0]] < most:
+            groups[-1].append(e)
+        else:
+            groups.append([e])
+    return groups
+
+
 def pick_expirations(expirations: Sequence[date], today: date, earnings: date | None = None) -> list[date]:
     """The nearest weekly (2+ days out), the ones closest to 30, 60, 90 and 180 days, the one nearest a year out (180+
     days), and the first after earnings: every bucket Learning's lifecycle recipes trade."""
@@ -480,23 +496,32 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                     skipped.append(symbol)
                     coverage[symbol] = {"status": "no_eligible_expirations", "contracts": 0}
                     continue
-                chains = {}
+                chains: dict[date, list[OptionQuote]] = {}
                 received_at = clock()
-                for e in chosen:
-                    chains[e] = await suite.tradier.chain(symbol, e)
+                price = last_prices.get(symbol)
+                ranged = getattr(suite.tradier, "chain_range", None)
+                # Schwab: one chains request covering every chosen expiry (a few for daily-expiry names), with the
+                # underlying's price in the same answer. Tradier: one request an expiry.
+                for group in (spans(expirations, chosen) if ranged else [[e] for e in chosen]):
+                    if ranged:
+                        got, quoted = await ranged(symbol, group)
+                        price = price or quoted
+                    else:
+                        got = {group[0]: await suite.tradier.chain(symbol, group[0])}
                     received_at = clock()
-                    # Persist the actual chain even when a subsequent underlying quote fails.
-                    # Never replace a useful stored expiry with an empty parser/provider response.
-                    if chains[e]:
-                        market.save_option_chain(symbol, quote_session(received_at), e, received_at,
-                                                 last_prices.get(symbol), chains[e],
-                                                 source=suite.option_source)
-                        contracts += len(chains[e])
+                    for e in group:
+                        chains[e] = got.get(e, [])
+                        # Persist the actual chain even when a subsequent underlying quote fails.
+                        # Never replace a useful stored expiry with an empty parser/provider response.
+                        if chains[e]:
+                            market.save_option_chain(symbol, quote_session(received_at), e, received_at,
+                                                     last_prices.get(symbol), chains[e],
+                                                     source=suite.option_source)
+                            contracts += len(chains[e])
                 if not any(chains.values()):
                     errors[symbol] = "No supported contracts returned; check provider response/standard deliverables"
                     coverage[symbol] = {"status": "empty_chain", "contracts": 0}
                     continue
-                price = last_prices.get(symbol)
                 if price is None:
                     stock = await suite.tradier.quotes([symbol])
                     price = stock[0].last if stock else None

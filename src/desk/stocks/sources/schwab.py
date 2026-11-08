@@ -19,6 +19,7 @@ from desk.stocks.contracts import Bar, IntradayBar, OptionQuote, OptionTick, Sto
 from desk.stocks.schwab_auth import SchwabTokens
 
 OCC = re.compile(r"^[A-Z0-9.]{1,6}\d{6}[CP]\d{8}$")
+CHAIN_STRIKES = 50          # strikes either side of the money in a multi-expiry chains request
 
 
 def _f(value: Any) -> float | None:
@@ -82,6 +83,11 @@ def _standard_deliverable(row: dict[str, Any], symbol: str) -> bool:
 
 
 def parse_chain(body: bytes, symbol: str, expiration: date) -> list[OptionQuote]:
+    return parse_chains(body, symbol, {expiration}).get(expiration, [])
+
+
+def parse_chains(body: bytes, symbol: str, wanted: set[date]) -> dict[date, list[OptionQuote]]:
+    """Every wanted expiration's standard contracts from one chain answer (a date range covers several)."""
     value = _body(body)
     out: dict[str, OptionQuote] = {}
     try:
@@ -92,7 +98,7 @@ def parse_chain(body: bytes, symbol: str, expiration: date) -> list[OptionQuote]
         for field, kind in (("callExpDateMap", "call"), ("putExpDateMap", "put")):
             for key, strikes in (value.get(field) or {}).items():
                 exp = date.fromisoformat(key.split(":")[0])
-                if exp != expiration:
+                if exp not in wanted:
                     continue
                 for contracts in strikes.values():
                     for row in contracts:
@@ -110,7 +116,10 @@ def parse_chain(body: bytes, symbol: str, expiration: date) -> list[OptionQuote]
                                                int(_f(row.get("openInterest")) or 0), None,
                                                _time(row.get("quoteTimeInLong")), _size(row.get("bidSize")),
                                                _size(row.get("askSize")))
-        return list(out.values())
+        grouped: dict[date, list[OptionQuote]] = {}
+        for q in out.values():
+            grouped.setdefault(q.expiration, []).append(q)
+        return grouped
     except (ValueError, TypeError, AttributeError) as exc:
         raise SchemaError("schwab chains: invalid expiration/strike map") from exc
 
@@ -351,24 +360,37 @@ class SchwabClient:
         return parse_expirations(await self._get("expirations", {"symbol": symbol}))
 
     async def chain(self, symbol: str, expiration: date) -> list[OptionQuote]:
-        body = await self._get("chains", {"symbol": symbol, "contractType": "ALL", "strategy": "SINGLE",
-                                                       "fromDate": expiration.isoformat(), "toDate": expiration.isoformat(),
-                                                       "includeUnderlyingQuote": "true"})
-        parsed = parse_chain(body, symbol, expiration)
+        return (await self.chain_range(symbol, [expiration], strikes=None))[0].get(expiration, [])
+
+    async def chain_range(self, symbol: str, expirations: list[date], *, strikes: int | None = CHAIN_STRIKES
+                          ) -> tuple[dict[date, list[OptionQuote]], float | None]:
+        """Every wanted expiration in ONE chains request (``fromDate`` the first, ``toDate`` the last), the ``strikes``
+        nearest the money either side (all when None), and the underlying's price from the same answer."""
+        params: dict[str, Any] = {"symbol": symbol, "contractType": "ALL", "strategy": "SINGLE",
+                                  "fromDate": min(expirations).isoformat(), "toDate": max(expirations).isoformat(),
+                                  "includeUnderlyingQuote": "true"}
+        if strikes:
+            params["strikeCount"] = strikes
+        body = await self._get("chains", params)
+        parsed = parse_chains(body, symbol, set(expirations))
         value = _body(body)
         stats = self.chain_diagnostics.setdefault(symbol, {"raw_contracts": 0, "parsed_contracts": 0,
               "volume_fields_present": 0, "positive_volume_contracts": 0, "reported_volume": 0})
         for field in ("callExpDateMap", "putExpDateMap"):
-            for strikes in (value.get(field) or {}).values():
-                for contracts in strikes.values():
+            for key, by_strike in (value.get(field) or {}).items():
+                if date.fromisoformat(key.split(":")[0]) not in expirations:
+                    continue
+                for contracts in by_strike.values():
                     for row in contracts:
                         volume = _f(row.get("totalVolume"))
                         stats["raw_contracts"] += 1
                         stats["volume_fields_present"] += volume is not None
                         stats["positive_volume_contracts"] += bool(volume)
                         stats["reported_volume"] += int(volume or 0)
-        stats["parsed_contracts"] += len(parsed)
-        return parsed
+        stats["parsed_contracts"] += sum(map(len, parsed.values()))
+        under = value.get("underlying")
+        price = _f(value.get("underlyingPrice")) or (_f(under.get("last")) if isinstance(under, dict) else None)
+        return parsed, price
 
     async def quotes(self, symbols: list[str]) -> list[StockQuote]:
         if not 1 <= len(symbols) <= 100:
