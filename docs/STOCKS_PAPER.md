@@ -247,6 +247,25 @@ lotto account's Historical replay card shows its version: picks, return on the m
 worthless, reached 3× and 10×, the best pick, KESTREL against random with a bootstrap range, and for the sold-at-triple
 account the daily-high upper bound.
 
+### Preregistered option research on real prices
+
+Four research-backed option rules were written down on 2026-11-08, before any result existed
+(`desk.stocks.option_research.RULES`, with a version hash shown beside the results), and replay only on the real data
+the IV history already downloads (no extra requests): each month's at-the-money call and put per stock, their real
+daily trades, and IV30 solved from them. Accounting as the real-price replays above ($1,000 a long trade, next real
+open plus 4% and $0.65 a contract a leg, later real closes less 4% and fees, intrinsic value at expiry).
+
+| Rule | Source | What it does |
+|---|---|---|
+| Vol-gap straddles | Goyal & Saretto (2009) | buy the monthly at-the-money straddle (30-60 days) when 20-day realized volatility is at least 1.25× IV30; at most 5 open, one per stock; +50% / −40% / 21 days to expiry; against a random stock's straddle the same day |
+| SPY put-write | Whaley (2002), CBOE PutWrite | each monthly expiry, sell SPY's at-the-money put on the first session with 45 days or fewer left (next open less 4% and fees), cash-secured, held to expiry; against holding SPY over the same days |
+| IV spread | Cremers & Weinbaum (2010) | each week's last session, call IV − put IV at the same strike (20-45 days); with 10+ stocks, buy the 5 highest and sell the 5 lowest at the next open for 5 sessions; the long-minus-short weekly return with a bootstrap range |
+| Regime chooser | volatility risk premium by regime | on each SPY put-write day: IV rank ≥ 50 writes the put, below 50 buys SPY's straddle; against always writing the put |
+
+They are recomputed at most every six hours while the IV history downloads and shown on the Paper page under
+"Preregistered option research". They are research only: never traded, never a forward grade, never a change to a
+model. The put-write's cash earns nothing here, which understates it slightly.
+
 ## Grading
 
 `desk.stocks.paper.report` compares each account's daily returns with its baseline's (random stocks for stock

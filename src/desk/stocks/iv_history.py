@@ -158,6 +158,13 @@ async def task(massive: Any, market: StocksMarket, home: Path, now: datetime, bu
             break
     for symbol in sorted(touched):
         rebuild(market, symbol, now)
+    from desk.stocks import option_research  # the preregistered strategies read these same contracts
+
+    if option_research.due(home, now):
+        try:
+            option_research.save(home, market, now)
+        except (ArithmeticError, KeyError, ValueError, OSError) as exc:     # never stops the download
+            problem = problem or f"Option research could not be computed: {type(exc).__name__}"
     detail = {"requests": used, **coverage(market, today)}
     market.job("iv_history", now, error=problem, detail=detail)
     return {"ok": problem is None, **detail, **({"error": problem} if problem else {})}

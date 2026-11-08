@@ -231,6 +231,9 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
                                        "coverage": lotto_history.coverage(StocksMarket(conn), cal.new_york(now).date())}
         except sqlite3.OperationalError:       # a database from before the lotto replay
             result["lotto_history"] = None
+        from desk.stocks import option_research
+
+        result["option_research"] = option_research.load(paths.home)
     result["session_status"] = {"last_processed": last.isoformat() if last else None,
         "latest_prices": latest.isoformat() if latest else None, "expected_close": target.isoformat(),
         "waiting_for_prices": latest is None or latest < target, "pending_orders": pending,

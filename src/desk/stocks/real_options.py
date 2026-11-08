@@ -180,42 +180,12 @@ class RealOptions:
 
     # ── the trades ───────────────────────────────────────────────────────────────────────────────
     def _trade(self, signal: dict[str, Any], p: dict[str, Any], closes: dict[date, float]) -> dict[str, Any] | None:
-        entry = cal.next_trading_day(signal["day"])
-        legs = signal["legs"]
-        expiry = date.fromisoformat(legs[0]["expiration"])
-        opens = [self.bars[leg["occ"]].get(entry) for leg in legs]
-        if entry >= expiry or not all(b and b[0] for b in opens):
-            return None
-        price = sum((b[0] or 0.0) for b in opens if b) * (1 + SLIP)
-        units = int(STAKE // (price * 100 + FEE * len(legs)))
-        if units < 1:
-            return None
-        cost = units * (price * 100 + FEE * len(legs))
         exit_on = None
         if signal.get("window") and p.get("exit_after_window") is not None:
             exit_on = cal.next_trading_day(date.fromisoformat(signal["window"][1]))
             for _ in range(int(p["exit_after_window"])):
                 exit_on = cal.next_trading_day(exit_on)
-        days = sorted({d for leg in legs for d in self.bars[leg["occ"]] if entry <= d < expiry})
-        for d in days:
-            marks = [self.bars[leg["occ"]].get(d) for leg in legs]
-            if not all(marks):
-                continue                                # a leg did not trade that day: nothing is made up
-            value = units * (sum(m[1] for m in marks if m) * (1 - SLIP) * 100 - FEE * len(legs))
-            change = value / cost - 1
-            reason = ("take-profit" if change >= p["take_profit"] else "stop" if change <= p["stop"]
-                      else "results are out" if exit_on and d >= exit_on
-                      else "days to expiry" if (expiry - d).days <= p["exit_dte"] else None)
-            if reason:
-                return {"entry_day": entry.isoformat(), "exit_day": d.isoformat(), "units": units, "cost": cost,
-                        "value": max(value, 0.0), "exit": f"{reason} on {d.isoformat()}"}
-        settle = closes.get(expiry)
-        if settle is None:
-            return None
-        value = units * sum(max(0.0, (max(settle - leg["strike"], 0.0) if leg["kind"] == "call"
-                                      else max(leg["strike"] - settle, 0.0)) * 100 - FEE) for leg in legs)
-        return {"entry_day": entry.isoformat(), "exit_day": expiry.isoformat(), "units": units, "cost": cost,
-                "value": value, "exit": "settled at expiry"}
+        return hold_long(self.bars, signal["legs"], signal["day"], p, closes, exit_on)
 
     def replay(self, market: StocksMarket) -> dict[str, Any]:
         """Each strategy's trades, at most ``MAX_OPEN`` open at once and one per stock, best signal first."""
@@ -258,6 +228,42 @@ class RealOptions:
                              "reports_wanted": len(self.wanted)},
                 "wanted_reports": sorted(self.wanted.values(), key=lambda w: (w["as_of"], w["symbol"])),
                 "method": METHOD}
+
+
+def hold_long(bars: dict[str, dict[date, tuple[float | None, float]]], legs: list[dict[str, Any]], decided: date,
+              p: dict[str, Any], closes: dict[date, float], exit_on: date | None = None) -> dict[str, Any] | None:
+    """One $1,000 long position on real prices: bought at the next session's real open plus ``SLIP`` and fees (None
+    when a leg did not trade then), checked on each later close where every leg traded (less ``SLIP`` and fees)
+    against the take-profit, stop, ``exit_on`` and days to expiry, else settled at intrinsic value at expiry."""
+    entry = cal.next_trading_day(decided)
+    expiry = date.fromisoformat(legs[0]["expiration"])
+    opens = [bars[leg["occ"]].get(entry) for leg in legs]
+    if entry >= expiry or not all(b and b[0] for b in opens):
+        return None
+    price = sum((b[0] or 0.0) for b in opens if b) * (1 + SLIP)
+    units = int(STAKE // (price * 100 + FEE * len(legs)))
+    if units < 1:
+        return None
+    cost = units * (price * 100 + FEE * len(legs))
+    for d in sorted({d for leg in legs for d in bars[leg["occ"]] if entry <= d < expiry}):
+        marks = [bars[leg["occ"]].get(d) for leg in legs]
+        if not all(marks):
+            continue                                    # a leg did not trade that day: nothing is made up
+        value = units * (sum(m[1] for m in marks if m) * (1 - SLIP) * 100 - FEE * len(legs))
+        change = value / cost - 1
+        reason = ("take-profit" if change >= p["take_profit"] else "stop" if change <= p["stop"]
+                  else "results are out" if exit_on and d >= exit_on
+                  else "days to expiry" if (expiry - d).days <= p["exit_dte"] else None)
+        if reason:
+            return {"entry_day": entry.isoformat(), "exit_day": d.isoformat(), "units": units, "cost": cost,
+                    "value": max(value, 0.0), "exit": f"{reason} on {d.isoformat()}"}
+    settle = closes.get(expiry)
+    if settle is None:
+        return None
+    value = units * sum(max(0.0, (max(settle - leg["strike"], 0.0) if leg["kind"] == "call"
+                                  else max(leg["strike"] - settle, 0.0)) * 100 - FEE) for leg in legs)
+    return {"entry_day": entry.isoformat(), "exit_day": expiry.isoformat(), "units": units, "cost": cost,
+            "value": value, "exit": "settled at expiry"}
 
 
 def summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -340,4 +346,5 @@ async def task(massive: Any, market: StocksMarket, home: Path, now: datetime, bu
     return {"ok": problem is None, **detail, **({"error": problem} if problem else {})}
 
 
-__all__ = ["BASELINE", "METHOD", "STRATEGY_IDS", "RealOptions", "choose", "earnings_lists", "summary", "task", "wanted"]
+__all__ = ["BASELINE", "METHOD", "STRATEGY_IDS", "RealOptions", "choose", "earnings_lists", "hold_long", "summary", "task",
+           "wanted"]

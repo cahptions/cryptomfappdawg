@@ -679,6 +679,39 @@ const KestrelPaper = (() => {
         strategyCards.append(b);
       }
       app.append(strategyCards);
+      const research = live.option_research;
+      if (research?.strategies) {
+        const box = el("details", undefined, "paper-research");
+        box.append(
+          el(
+            "summary",
+            "Preregistered option research on real past prices (4 rules)",
+          ),
+          el(
+            "p",
+            `Rules written ${research.preregistered}, before any result (version ${research.rules_sha256.slice(0, 8)}); replayed on the IV history's real contracts for ${research.stocks} stocks. Research only: never traded, never a forward grade.`,
+            "caption muted",
+          ),
+        );
+        for (const s of Object.values(research.strategies)) {
+          const line =
+            s.weeks !== undefined
+              ? s.weeks >= 5
+                ? `${s.weeks} weeks · long-minus-short ${percent(s.mean_weekly)} a week (90% range ${percent(s.low)} to ${percent(s.high)})`
+                : "Needs 10 stocks with an IV history on 5 or more weeks"
+              : s.trades
+                ? `${s.trades} trades · ${percent(s.return)} on the money put in · won ${percent(s.win_rate)}`
+                : "No trade on real prices yet";
+          const row = el("div", undefined, "paper-research-row");
+          row.append(
+            el("strong", s.title),
+            el("p", line),
+            el("p", `${s.rule} (${s.source})`, "caption muted"),
+          );
+          box.append(row);
+        }
+        app.append(box);
+      }
       const selectedTitle = el("div", undefined, "paper-account-title");
       selectedTitle.append(
         el("h2", account.title),
