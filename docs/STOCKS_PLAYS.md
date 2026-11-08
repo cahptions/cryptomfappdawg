@@ -291,7 +291,7 @@ them; the first run reads everything once), so grading does not slow down as the
 | ⚖️ **Biggest model edge** | Contracts KESTREL values above their ask: expected payoff per dollar paid ≥ +5%. 7–60 days, \|Δ\| 0.15–0.70, spread ≤ 12%. |
 | 🐋 **Unusual activity** | See below. |
 | 🏷️ **Cheap volatility** | At-the-money straddle (~30 days) where IV30 ≤ 0.9× realized volatility or IV rank ≤ 20. Chance shown: a move past either break-even. |
-| 📅 **Earnings plays** | Results window (estimated from past report dates) starting within 21 days; straddle on the first expiry after it; ranked by the stock's median results-day move ÷ the move options price. |
+| 📅 **Earnings plays** | Results date announced in Finnhub's free calendar (read daily when the optional key is set), else a window estimated from past report dates, starting within 21 days; straddle on the first expiry after it; ranked by the stock's median results-day move ÷ the move options price. Each play says which it used. |
 | 🎢 **Strangles** | Options not pricing more movement than the stock makes (IV30 ≤ realized, or IV rank ≤ 25): **buy** a call and a put each near 0.30 \|Δ\|, same expiry 21–60 days. Pays on a big move either way for less than a straddle; the chance shown is of finishing past either break-even. |
 | 🚀 **Trend calls** | Momentum ≥ 75 and above the 200-day average: call near 0.60 Δ, 30–75 days. |
 | 🐻 **Bearish puts** | Valuation ≤ 30, momentum ≤ 35 and below the 200-day, or a red-flag filing: put near 0.45 Δ, 30–75 days. |

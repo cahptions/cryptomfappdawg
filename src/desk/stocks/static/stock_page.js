@@ -625,11 +625,19 @@ const KestrelStockPage = (() => {
     if (e.next) {
       const next = el("div", undefined, "sp-next");
       next.append(
-        el("span", "Next report"),
+        el(
+          "span",
+          e.next.estimated ? "Next report (estimated)" : "Next report",
+        ),
         el(
           "strong",
-          `${fmt.date(e.next.date)}${e.next.when ? ` · ${e.next.when}` : ""}`,
+          e.next.estimated
+            ? `${fmt.date(e.next.date)} – ${fmt.date(e.next.to)}`
+            : `${fmt.date(e.next.date)}${e.next.when ? ` · ${e.next.when}` : ""}`,
         ),
+        ...(e.next.source && e.next.source !== e.source
+          ? [el("span", e.next.source, "caption muted")]
+          : []),
         ...(e.next.eps_estimate != null
           ? [el("span", `EPS estimate ${fmt.usd(e.next.eps_estimate)}`)]
           : []),

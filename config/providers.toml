@@ -653,7 +653,7 @@ verified_fields = ["[].{period,year,quarter,actual,estimate,surprise,surprisePer
 [providers.finnhub.endpoints.earnings_calendar]
 path = "/calendar/earnings"
 status = "to_verify"
-notes = "free tier: one month of history plus upcoming releases; non-GAAP estimates"
+notes = "free tier: one month of history plus upcoming releases; non-GAAP estimates. Per stock for the stock page; without a symbol, every stock's dates a week at a time, daily (desk.stocks.earnings_dates)"
 verified_fields = ["earningsCalendar[].{date,hour,year,quarter,epsEstimate,epsActual,revenueEstimate,revenueActual,symbol}"]
 
 # ── Tradier market data (options chains) ─────────────────────────────────────

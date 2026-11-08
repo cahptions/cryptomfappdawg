@@ -29,3 +29,16 @@ CREATE TABLE stk_delisted (
     source       TEXT NOT NULL,
     received_at  TEXT NOT NULL
 ) WITHOUT ROWID;
+
+-- Announced earnings dates (Finnhub's free calendar, read daily when its optional key is set): one row per stock and
+-- date with when it was first and last listed, so a moved date drops out of the newest calendar.
+CREATE TABLE stk_earnings_dates (
+    symbol       TEXT NOT NULL,
+    report_date  INTEGER NOT NULL,
+    hour         TEXT,
+    source       TEXT NOT NULL,
+    first_seen   TEXT NOT NULL,
+    last_seen    TEXT NOT NULL,
+    PRIMARY KEY (symbol, report_date)
+) WITHOUT ROWID;
+CREATE INDEX stk_earnings_dates_seen ON stk_earnings_dates(last_seen);

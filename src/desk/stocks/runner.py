@@ -370,6 +370,12 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["fails"] = await run_job("fails", collect.fails(suite, market, now))
         if _backfill_due(market, "short_volume", now, 24):
             jobs["short_volume"] = await run_job("short_volume", collect.short_volume(suite, market, now))
+        # Announced earnings dates (Finnhub's free calendar, the only free forward one; optional key): daily.
+        if suite.finnhub is not None and suite.finnhub.configured:
+            from desk.stocks import earnings_dates
+
+            if _due(market, earnings_dates.JOB, now, 24):
+                jobs[earnings_dates.JOB] = await run_job(earnings_dates.JOB, earnings_dates.job(suite, market, now))
         # Companies delisted during Massive's two years, once: the list, their bars a few days a pass, their splits.
         if suite.massive.configured:
             from desk.stocks import delisted
