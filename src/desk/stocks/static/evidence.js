@@ -169,6 +169,34 @@ const KestrelEvidence = (() => {
           "muted caption",
         ),
       );
+      const when = (iso) =>
+        new Date(iso).toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        });
+      if (data.schedule)
+        progress.append(
+          el(
+            "p",
+            `Runs by itself once a week while collection is on${data.schedule.last ? ` · last ${when(data.schedule.last)} · next about ${when(data.schedule.next)}` : " · the first run starts shortly"}.`,
+            "caption",
+          ),
+        );
+      const proposed = report?.committee_weights;
+      if (proposed && report?.advisory_only)
+        progress.append(
+          el(
+            "p",
+            `Proposed committee weights: ${Object.entries(proposed)
+              .filter(([, v]) => v)
+              .map(([k, v]) => `${k} ${Number(v).toFixed(2)}`)
+              .join(
+                ", ",
+              )}. Not adopted: adopting them is your choice (run desk stocks validate on the computer running KESTREL).`,
+            "caption",
+          ),
+        );
       app.append(progress);
       const stats = el("div", undefined, "evidence-stats");
       for (const [label, value, note] of [

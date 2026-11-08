@@ -50,7 +50,7 @@ def add_parser(sub: Any) -> None:
                                   "repeat collection and forward PAPER while this terminal stays open")
         cmd.add_argument("--price-days", type=_bounded, default=20 if name == "collect" else 5)
         cmd.add_argument("--companies", type=_bounded, default=20)
-        cmd.add_argument("--options", type=_bounded, default=5)
+        cmd.add_argument("--options", type=_bounded, default=30)   # stocks a chain pass (one Schwab request each)
         if name in {"paper", "collect"}:
             cmd.add_argument("--minutes", type=float, default=1440)
             cmd.add_argument("--interval", type=float, default=300)
@@ -71,6 +71,8 @@ def add_parser(sub: Any) -> None:
     commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
     commands.add_parser("options-history", help="read-only: can the Massive key read historical option prices? "
                         "(two requests)").set_defaults(func=run)
+    commands.add_parser("verify-schwab", help="read-only: which Schwab fields the app reads come back on this account "
+                        "(about eight requests; names and types only, never values or keys)").set_defaults(func=run)
     dash = commands.add_parser("dashboard", help="local Stocks dashboard with private Settings")
     dash.add_argument("--port", type=int)
     dash.add_argument("--open", action="store_true")
@@ -118,6 +120,29 @@ def _run(args: argparse.Namespace) -> int:
     loaded = load_config(paths.config_dir)
     settings = loaded.settings.stocks
     action = args.stocks_command
+    if action == "verify-schwab":
+        from desk.core.clock import utc_now
+        from desk.stocks import schwab_fields
+        from desk.stocks.connection import _atomic_private
+        from desk.stocks.suite import build_stocks_suite
+
+        dbs = StocksDatabases.open(paths)
+        suite = build_stocks_suite(paths, loaded, load_secrets(paths.secrets_file), dbs.runtime)
+
+        async def fields() -> dict[str, Any]:
+            try:
+                return await schwab_fields.verify(suite.schwab, utc_now())
+            finally:
+                await suite.aclose()
+
+        try:
+            report = asyncio.run(fields())
+        finally:
+            dbs.close()
+        _atomic_private(paths.home / "stocks-schwab-fields.json", json.dumps(report, indent=2))
+        print("\n".join(schwab_fields.summary(report)))
+        print(f"Saved to {paths.home / 'stocks-schwab-fields.json'} (safe to paste: names and types only).")
+        return 0 if report.get("ok") else 1
     if action == "status":
         from desk.core.clock import utc_now
         from desk.stocks import status
@@ -156,11 +181,13 @@ def _run(args: argparse.Namespace) -> int:
         finally:
             dbs.close()
         print(("✓ " if result["ok"] else "✗ ") + result["text"])
+        from desk.stocks import iv_history
         from desk.stocks.options_history import describe
 
         dbs = StocksDatabases.open(paths)
         try:
             print(describe(StocksMarket(dbs.market), paths))
+            print(iv_history.describe(StocksMarket(dbs.market), cal.new_york(utc_now()).date()))
         finally:
             dbs.close()
         return 0 if result["ok"] else 1

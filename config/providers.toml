@@ -777,3 +777,9 @@ verified_fields = []
 path = "/pricehistory"
 status = "to_verify"
 verified_fields = []
+
+[providers.schwab.endpoints.movers]
+path = "/movers/{index}"
+status = "to_verify"
+notes = "read only by desk stocks verify-schwab (one request, field names and types recorded); not used by the app"
+verified_fields = []

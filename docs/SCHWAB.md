@@ -110,6 +110,22 @@ https://github.com/alexgolec/schwab-py/blob/master/schwab/client/base.py
 The parser fixtures are documentation-shaped synthetic examples, not captured authenticated broker responses.
 Explicitly delayed Schwab chains are refused rather than silently mixed with the current execution model.
 
+Each collected stock costs one expiration-list request and **one chains request** covering every expiry it needs
+(`fromDate` the first, `toDate` the last, `strikeCount` 50, the underlying's quote included, so no separate stock
+quote); a name with daily expiries (SPY, QQQ) is split into a few requests so no answer carries thousands of unused
+contracts. At 30 stocks a 15-minute pass that is about 70 requests a pass. `desk stocks verify-schwab` asks each
+endpoint the app reads once and records which fields came back with the expected type (names and types only).
+
+## Checking which fields arrive: `desk stocks verify-schwab`
+
+The parsers were written from Schwab's documentation. `uv run desk stocks verify-schwab` asks each endpoint the app
+reads once (stock quotes with every section the stock page asks for, quotes for three option contracts, the expiration
+list, a chain, daily and minute price history, and `/movers`, which the app does not read yet): about eight requests.
+For every field the app reads it records **ok** (present, the expected type), **absent** or **another type**, prints
+one line per endpoint plus each field that did not arrive as expected, and saves the same to
+`~/desk-data/stocks-schwab-fields.json` (the data folder). Only field names, types and counts are kept: never
+a price, token, account or key, so the summary is safe to paste.
+
 ## Additional company statistics
 
 The stock-page quote request asks for `quote,fundamental,reference,extended,regular`. If Schwab returns HTTP 400 for

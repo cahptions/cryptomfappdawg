@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, datetime
+from contextlib import suppress
+from datetime import date, datetime, time
 from typing import Any
 
 from desk.stocks import calendar as cal
@@ -55,6 +56,42 @@ def price_card(conn: sqlite3.Connection, symbol: str, name: str | None = None, *
                                          == date_of(current["day"])),
             "history": [{"day": date_of(r["day"]).isoformat(), "close": r["close"], "gap_before": r["gap_before"]}
                         for r in reversed(rows)]}
+
+
+def intraday_movers(market: sqlite3.Connection, research: sqlite3.Connection, now: datetime, n: int = 3
+                    ) -> dict[str, Any]:
+    """Today's biggest movers among the stocks the app is already quoting on Schwab this session, at no extra request:
+    each stock's newest price from Plays tracking's option quotes (Schwab reports the underlying with every option,
+    every five minutes) or from an option chain collected today, against its last stored close. Empty outside a
+    session day; a stock split today is left out (its stored close is in the old shares)."""
+    session = cal.new_york(now).date()
+    if not cal.is_trading_day(session) or now < datetime.combine(session, time(9, 30), cal.NEW_YORK):
+        return {"session": session.isoformat(), "rows": [], "up": [], "down": [], "quoted": 0}
+    newest: dict[str, tuple[str, float, str]] = {}
+    with suppress(sqlite3.OperationalError):
+        for sym, price, at in research.execute(
+                "SELECT substr(occ, 1, length(occ) - 15), underlying, MAX(COALESCE(quoted_at, at)) FROM stk_track_ticks "
+                "WHERE session=? AND underlying>0 GROUP BY 1", (session.toordinal(),)):
+            newest[sym] = (at, float(price), "Plays tracking quotes")
+    for sym, price, at in market.execute(
+            "SELECT underlying, underlying_price, MAX(observed_at) FROM stk_option_chains WHERE day=? "
+            "AND underlying_price>0 GROUP BY underlying", (session.toordinal(),)):
+        if sym not in newest or at > newest[sym][0]:
+            newest[sym] = (at, float(price), "option chain")
+    split_today = {r[0] for r in market.execute("SELECT symbol FROM stk_splits WHERE execution_date=?",
+                                                (session.toordinal(),))}
+    rows: list[dict[str, Any]] = []
+    for sym, (at, price, source) in newest.items():
+        prev = market.execute("SELECT close FROM stk_bars WHERE symbol=? AND day<? ORDER BY day DESC LIMIT 1",
+                              (sym, session.toordinal())).fetchone()
+        if prev and prev[0] and sym not in split_today:
+            rows.append({"symbol": sym, "price": price, "change": price / float(prev[0]) - 1, "at": at,
+                         "source": source})
+    rows.sort(key=lambda r: (-r["change"], r["symbol"]))
+    return {"session": session.isoformat(), "quoted": len(rows), "up": [r for r in rows if r["change"] > 0][:n],
+            "down": [r for r in reversed(rows) if r["change"] < 0][:n],
+            "basis": "Schwab prices the app already fetches this session (Plays tracking, option chains) against the "
+                     "last stored close; only the stocks it is quoting, not the whole market."}
 
 
 def research_lists(research: StocksResearch, preview: dict[str, Any] | None = None) -> list[dict[str, Any]]:

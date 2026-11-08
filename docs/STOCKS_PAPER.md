@@ -52,25 +52,57 @@ trading (`desk.stocks.option_model`):
   this app collected and from Massive's real prices on an expanding window: refit at the start of each replayed month
   from observations dated before it, so no session is priced with what options did later, falling back to stated
   market-wide values until there are enough.
-- **Listings.** Monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid stand in for
-  the real listings. Open interest isn't stored historically: where Massive was asked about the days before a
-  decision, a contract that traded fewer than 10 contracts in the 10 days up to it is passed over as illiquid, and any
-  other rebuilt contract is assumed to clear the rules' 100-contract floor (the replay reports how many were checked).
-  Option strategies trade only the stocks whose chains this app has collected at some point. Dividends are: every option price and implied volatility reads
-  the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for later splits), in
-  the replay's model, its calibration and the PAPER fills and marks.
-- **Choosing never follows a real price.** Contracts are chosen from the model's prices, so one contract's real price
-  can't pull a rule toward it; the decision then sees that day's real price where there is one.
-- **Downloading.** Each collection pass fetches up to 12 of the contracts the latest replay traded (about 2½ minutes at
-  Massive's 5 requests a minute), so all of a replay's contracts arrive within hours. When a batch finishes, the
-  automatic replay runs once more to use them (never mid-download). The Lottos history (`desk.stocks.lotto_history`)
-  also reads Massive's option data, from the same 5-requests-a-minute budget. `kestrel options-history` shows how many are downloaded and how long the
-  rest will take; each option account's replay view shows what share of its held days were priced by real trades.
+- **Chains and listings.** A replayed day's chain is, in order: **KESTREL's own collected chain** for that stock and
+  session where one is stored (the last 45 days; real bid/ask, volume and open interest, exactly what forward PAPER
+  fills from; a contract held from earlier that it lacks keeps its rebuilt quote); else one **rebuilt on Massive's real
+  listing** for that month (the real expiries and strikes within 20% of the price, downloaded through the Massive
+  queue for each stock and month the latest replay traded, about one request each); else one rebuilt on the
+  **stand-in**: monthly expiries (the third Friday, moved off holidays) and a listing-style strike grid. The replay's
+  limitations say how many stock-days used each, and each option account's price mix counts KESTREL's own quotes.
+  Open interest isn't stored historically: where Massive was asked about the days before a decision, a contract that
+  traded fewer than 10 contracts in the 10 days up to it is passed over as illiquid, and any other rebuilt contract is
+  assumed to clear the rules' 100-contract floor (the replay reports how many were checked). Option strategies trade
+  only the stocks whose chains this app has collected at some point. Dividends: every option price and implied
+  volatility reads the stock's trailing-12-month cash dividend yield (stored dividends ex by that day, adjusted for
+  later splits), in the replay's model, its calibration and the PAPER fills and marks.
+- **Choosing never follows a real price.** Rebuilt contracts are chosen from the model's prices, so one contract's
+  real price can't pull a rule toward it; the decision then sees that day's real price where there is one. On a
+  collected day every contract is real, so the rule chooses from the real quotes as forward PAPER does.
+- **Downloading.** Every Massive option download goes through one queue (`desk.stocks.massive_options`) with one
+  budget a collection pass: 8 requests while the market is open, 40 while it is closed (Massive allows 5 a minute for
+  the whole account). Each task in turn gets an equal share of what is left and hands back what it does not need: the
+  contracts the latest replay traded first, then the IV history (`desk.stocks.iv_history`), then the straddles before
+  past reports (`desk.stocks.real_options`), then the real monthly listings of the stocks the replay trades, then the
+  Lottos history (`desk.stocks.lotto_history`). When a batch of the replay's contracts finishes, the automatic replay runs once more
+  to use them (never mid-download). `kestrel options-history` shows how many are downloaded and how long the rest will
+  take; each option account's replay view shows what share of its held days were priced by real trades.
 
-Strategies whose signal is option data itself are not replayed: **Calls when IV is cheap** (a model built from the
-stock's movement can't show options priced cheaply against it), **Cheap earnings straddles** (needs the move options
-priced before each report) and **Follow unusual call buying** (needs each day's real volume). They are tested forward
-on collected chains. **Squeeze calls** follows short interest, not option data, and replays with it (above).
+### Option-data strategies on real past prices
+
+**Calls when IV is cheap** and **Cheap earnings straddles** read option prices themselves, which a model built from
+the stock's movement can't show, so they are not replayed on modeled prices. Inside Massive's 2-year window they
+replay on **real prices** instead (`desk.stocks.real_options`), beside the modeled replay, in their own accounts:
+
+- **Signals:** each replayed session, the strategy's own rule reads that day's committee, momentum and results
+  calendar from the stock replay, with real option data: IV30 from the IV history (solved from real closing trades)
+  and, before a report, the expected move of the straddle on the first expiry after the results window, from its call's
+  and put's real closing trades.
+- **Contracts:** the call is the monthly call downloaded for the IV history nearest 0.50 delta (0.35-0.65) with 30-60
+  days left; the straddle is that report's call and put. **Random calls on real prices** (the same kind of call on a
+  random stock that has one that day) is the baseline both are compared with, by a bootstrap over days.
+- **Accounting** (as the lottos on real prices): $1,000 a trade (2% of $50,000), at most 5 open and one per stock,
+  bought at the next session's real opening trade plus 4% and $0.65 a contract a leg; later closes less 4% and fees
+  are checked against the rule's take-profit, stop and dates (a straddle leaves the second session after the results
+  window); still open at expiry, it settles at intrinsic value. A day a leg did not trade is skipped, never filled in.
+- **Downloading:** the straddles come through the Massive queue: the replay lists every report the rule looked at
+  (window centre 2-10 days ahead, 4+ past reports), and each costs 3 requests (the listing as of the first day the
+  rule saw it, then the call's and put's bars). The next replay uses them.
+
+The Paper card shows trades, the return on the money put in, the win rate, the best trade, random calls on real prices
+and the comparison, with the real data it had (stocks with an IV history, reports downloaded of those wanted). It is a
+replay: it never changes a forward grade or unlocks anything. **Follow unusual call buying** needs each day's
+whole-chain volume (about 450,000 requests) and is tested forward on collected chains only. **Squeeze calls** follows
+short interest, not option data, and replays with it (above).
 
 Historical rules were designed with knowledge of past data, and the stored listing universe/filing history can be
 incomplete. A favorable replay is exploratory reconstruction, not fresh prospective evidence. Replayed days never
@@ -192,25 +224,53 @@ fees, which on a $0.07 contract is 9% of its cost); up to 20 open at once, insid
 
 | Strategy | Enters | Exits |
 |---|---|---|
-| Lotto picks · sold at triple | the Plays **Lottos** section's picks recorded when the session closed, in rank order: ask $0.05–$0.50, 2–14 days, ≥ 3% out of the money, volume and open interest ≥ 50, spread ≤ 35%, ranked by the payoff on a one-standard-deviation move per dollar × KESTREL's chance in the money | sells when it is worth 3× (the Plays exit plan); otherwise held to expiry |
+| Lotto picks · sold at triple | the Plays **Lottos** section's picks recorded when the session closed, in rank order: ask $0.05–$0.50, 2–14 days, ≥ 3% out of the money, volume and open interest ≥ 50, spread ≤ 35%, ranked by the payoff on a one-standard-deviation move per dollar × KESTREL's chance in the money | sells when it is worth 3× (the Plays exit plan), checked on Schwab quotes every five minutes in the session and on the close; otherwise held to expiry |
 | Lotto picks · let them run | the same picks | held to expiry: the rare 20×–100× winner is kept whole, and nothing is sold early |
 
 Both are judged against **Random lottos**, not Random calls. They buy at the next session's ask within the usual limit
 (10% or 5 cents above the price seen); a lotto whose price ran further overnight is cancelled, as a limit order would
-be. Marks and exits are checked once a day on closing quotes, so a contract that spikes and falls back within a day
-is seen at its close.
+be. Marks and exits are checked on closing quotes, and **Lotto picks · sold at triple** (version 2, 2026-11-08) also
+checks its take-profit during the session (`desk.stocks.paper.intraday`): each Plays tracking pass, every five
+minutes, quotes the held contracts through Schwab `/quotes` (one request for up to 100) and, when a fresh bid (under
+five minutes old, after the entry) is worth triple, sells there with the usual fees, recording the decision, the order
+and its fill with the quote's own time. A spike between passes can still be missed. Its version-1 positions keep their
+record; the account shows its mixed-version warning until the new version's own record grades.
 
 **Lottos on real past prices** (`desk.stocks.lotto_history`). The modeled replay can't price lottos honestly (their
 value is in the far, short-dated tails a model gets wrong), so the lotto accounts are replayed on real prices instead:
 Massive's Options Basic archive, two years of daily bars per contract, weeklies included. Each collection pass
-downloads a batch (8 requests in market hours, 40 when closed, at Massive's shared 5 a minute): for each of SPY, QQQ,
+downloads a batch (its share of the one Massive queue, 8 requests a pass in market hours and 40 when closed): for each of SPY, QQQ,
 IWM, AAPL, NVDA, TSLA, AMD, AMZN, META, MSFT, GOOGL and NFLX and every past weekly expiry, the out-of-the-money
 contracts listed two weeks before it, then each candidate's real daily bars (about 73 hours of requests in all, so a
 few days). The replay then runs KESTREL's Lottos rule (one-standard-deviation payoff per dollar × chance in the money,
 from the contract's implied and the stock's realized volatility; no committee tilt) against a random qualifying
 contract per stock, sold at triple or held to expiry, $300 a pick, bought at the next session's real open plus 5%
-with $0.65 a contract. Each lotto account's Historical replay card shows its version: picks, return on the money put
-in, how many expired worthless, reached 3× and 10×, the best pick, and KESTREL against random with a bootstrap range.
+with $0.65 a contract. "Sold at triple" is tested two ways: on a later **close** less 5% (the main result), and, as its
+own clearly labelled variant, by a resting limit at 3× the cost counted as filled on the first day the contract's
+**daily high** reached it. A daily high is one trade at some moment of the day, not proof the whole position could
+have been sold there, so the high variant is an upper bound shown beside the close-based one, never in its place. Each
+lotto account's Historical replay card shows its version: picks, return on the money put in, how many expired
+worthless, reached 3× and 10×, the best pick, KESTREL against random with a bootstrap range, and for the sold-at-triple
+account the daily-high upper bound.
+
+### Preregistered option research on real prices
+
+Four research-backed option rules were written down on 2026-11-08, before any result existed
+(`desk.stocks.option_research.RULES`, with a version hash shown beside the results), and replay only on the real data
+the IV history already downloads (no extra requests): each month's at-the-money call and put per stock, their real
+daily trades, and IV30 solved from them. Accounting as the real-price replays above ($1,000 a long trade, next real
+open plus 4% and $0.65 a contract a leg, later real closes less 4% and fees, intrinsic value at expiry).
+
+| Rule | Source | What it does |
+|---|---|---|
+| Vol-gap straddles | Goyal & Saretto (2009) | buy the monthly at-the-money straddle (30-60 days) when 20-day realized volatility is at least 1.25× IV30; at most 5 open, one per stock; +50% / −40% / 21 days to expiry; against a random stock's straddle the same day |
+| SPY put-write | Whaley (2002), CBOE PutWrite | each monthly expiry, sell SPY's at-the-money put on the first session with 45 days or fewer left (next open less 4% and fees), cash-secured, held to expiry; against holding SPY over the same days |
+| IV spread | Cremers & Weinbaum (2010) | each week's last session, call IV − put IV at the same strike (20-45 days); with 10+ stocks, buy the 5 highest and sell the 5 lowest at the next open for 5 sessions; the long-minus-short weekly return with a bootstrap range |
+| Regime chooser | volatility risk premium by regime | on each SPY put-write day: IV rank ≥ 50 writes the put, below 50 buys SPY's straddle; against always writing the put |
+
+They are recomputed at most every six hours while the IV history downloads and shown on the Paper page under
+"Preregistered option research". They are research only: never traded, never a forward grade, never a change to a
+model. The put-write's cash earns nothing here, which understates it slightly.
 
 ## Grading
 

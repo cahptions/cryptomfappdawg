@@ -775,8 +775,8 @@ async function settingsPage() {
       ],
       [
         "Historical option prices (Massive Options Basic)",
-        "Real past option prices for the historical replay and the Lottos history",
-        "Uses the same Massive key, on the free Options Basic plan: each contract's daily closing trades for the last 2 years. The app downloads the contracts the replay traded and the weekly lotto history a few at a time (Massive's 5 requests a minute are shared); older or untraded prices are rebuilt from stock history. Historical bid/ask quotes and open interest are not included, so replay fills use a modeled spread.",
+        "Real past option prices for the historical replay, the IV rank's year and the Lottos history",
+        "Uses the same Massive key, on the free Options Basic plan: each contract's daily closing trades for the last 2 years. One queue downloads, a few at a time (Massive's 5 requests a minute are shared), the contracts the replay traded, the monthly at-the-money calls and puts the implied-volatility history is solved from, and the weekly lotto history; older or untraded prices are rebuilt from stock history. Historical bid/ask quotes and open interest are not included, so replay fills use a modeled spread.",
       ],
     ],
   );

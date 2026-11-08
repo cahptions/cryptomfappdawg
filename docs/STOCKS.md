@@ -31,7 +31,11 @@ each contract's greeks and three chances of finishing in the money ([STOCKS_PLAY
 split-adjusted line/candlestick charts and volume, financial statistics, the committee and twelve desks,
 bull/bear evidence and a dated calls/puts table. Missing observations remain missing; a chart breaks at
 missing sessions rather than manufacturing candles. Top10 means up to ten qualifying names, never padding.
-These are daily-close research views, not a live intraday ranking service.
+These are daily-close research views, not a live intraday ranking service. The one intraday view is Home's **Movers
+today** card: during the session, the biggest moves (three up, three down) among the stocks the app is already quoting
+on Schwab (the underlying's price with every Plays tracking quote, every five minutes, and with every option chain
+collected today), each against its last stored close and stamped with its quote time. It costs no extra request and
+covers only those stocks (it says how many), not the whole market.
 
 Install and open the Stocks application-menu shortcut, like Crypto and Solana:
 
@@ -210,7 +214,7 @@ address and add it to the home screen. The HP must be on and awake. `kestrel pho
 
 Opening Stocks starts `desk stocks paper --continuous --price-days 20` in the background. There is no24-hour
 cutoff for this app-owned worker. It checks again five minutes after each completed pass, collects up to20
-missing price sessions,20 companies and5 rotating option underlyings per pass, and respects the free provider
+missing price sessions, 20 companies and 30 rotating option underlyings per pass, and respects the free provider
 limits. Saved history is reused. Unavailable optional sources are recorded; each strategy still requires its own
 inputs and a qualifying setup. "Running PAPER" does not promise an immediate simulated trade.
 
@@ -244,12 +248,16 @@ uv run desk stocks collect --minutes 1440  # research-only alternative, no PAPER
 ```
 
 The ranked option focus is capped at 150 names. On trading days from 9:30 to 16:30 New York time the worker
-collects option chains every 15 minutes: SPY and QQQ every time plus a small rotating batch from the watchlist
-and the ranked focus (five chains a pass in all; the whole focus takes about two trading days), and every
-contract a PAPER position holds. Outside those hours it collects once if that session's chains were missed.
-It does **not** provide a daily full-universe option archive. Coverage and option signal availability are sparse,
-and option histories must not be interpreted as complete daily sampling. Held contracts are included regardless
-of the current rotating focus. Broader coverage needs measured API/runtime evidence before changing that budget.
+collects option chains every 15 minutes: SPY and QQQ every time plus a rotating batch from the watchlist and the
+ranked focus (30 stocks a pass in all), and every contract a PAPER position holds. With Schwab each stock costs two
+requests: its expiration list, then **one chain request covering every expiry it needs** (the nearest weekly, about
+30, 60, 90 and 180 days, the one nearest a year out and the first after results; names with daily expiries such as
+SPY need two to five, so no single answer runs to thousands of unused contracts), with up to 50 strikes either side of
+the money and the stock's price in the same answer. A pass is about 70 requests, under a minute of Schwab's 120 a
+minute, and the 150-name focus is covered about every 75 minutes, five or so times a session. Tradier still needs one
+request an expiry. Outside those hours it collects once if that session's chains were missed. It does **not** provide
+a daily full-universe option archive or continuous intraday history per name. Held contracts are included regardless
+of the current rotating focus. Chains are kept 45 days (roughly 5 MB a session at this coverage, about 0.25 GB in all).
 
 Free history is rate-limited. Roughly500 initial grouped-price requests consume at least100minutes at
 5/minute; the default five-day batches separated by a five-minute pause stretch the initial backfill across

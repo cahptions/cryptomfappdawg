@@ -3,7 +3,8 @@
 **Plays** (Stocks dashboard → Plays) ranks today's option ideas in twelve categories. Each play is a quoted,
 defined-risk position with everything needed to judge it: the action (buy or sell), the type (call, put, straddle
 or credit spread), strike, expiration and days left, the stock price, bid/ask and spread, volume and open interest,
-implied volatility and IV rank, the greeks (Δ delta, Γ gamma, Θ theta per day, ν vega per volatility point, net for
+implied volatility and IV rank (its year: the collected chains' IV30, else the IV solved from Massive's real closing
+trades, and the card says how many days came from each), the greeks (Δ delta, Γ gamma, Θ theta per day, ν vega per volatility point, net for
 multi-leg plays), cost or credit, worst case, best case, break-even, expected value, the one-standard-deviation move
 by expiry, and three chances of finishing in the money. Research only: no order can be placed from this desk, and
 nothing here sells an uncovered option. **Research, not financial advice.**
@@ -569,9 +570,10 @@ pass by construction, typically 4–6 a minute.
 
 ## Limits
 
-- Coverage is what the collector has fetched: rotating batches of the most-traded names plus your watchlist,
-  SPY and QQQ, and the expiries nearest 30, 60, 90, 180 and 365 days and the nearest weekly. It is not every listed
-  contract.
+- Coverage is what the collector has fetched: 30 stocks a 15-minute pass from the most-traded names and your
+  watchlist (the 150-name focus about every 75 minutes), SPY and QQQ every pass, and the expiries nearest 30, 60, 90,
+  180 and 365 days, the nearest weekly and the first after results, up to 50 strikes either side of the money. It is
+  not every listed contract.
 - Plays are ranked on greeks and implied volatility computed here from the bid/ask mid (Black-Scholes, no
   dividends), the same for every provider. Schwab's own IV and greeks come with its live quotes; tracking stores
   them and the detail page shows them beside KESTREL's.

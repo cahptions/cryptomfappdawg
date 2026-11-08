@@ -56,5 +56,9 @@ def test_replay_discloses_its_optioned_universe_and_liquidity_assumption(tmp_pat
         assert f"trade only the {result['option_pricing']['optioned_stocks']} stocks whose option chains" in notes
         assert "100-contract open-interest floor" in notes and "open interest is not modeled" not in notes
         assert result["option_pricing"]["liquidity_checks"] == {"liquid": 0, "illiquid": 0}
+        real = result["real_price"]                  # the option-data rules on real prices: nothing downloaded here
+        assert real["sessions"] == 8 and set(real["strategies"]) == {"cheap_iv_calls", "earnings_straddles",
+                                                                     "random_calls"}
+        assert all(v["trades"] == 0 for v in real["strategies"].values()) and "real prices inside" in notes
     finally:
         w.close()

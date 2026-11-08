@@ -59,6 +59,16 @@ const KestrelPaper = (() => {
           "caption",
         ),
       );
+      const high =
+        variant === "kestrel_triple" ? report.variants?.kestrel_high : null;
+      if (high?.picks)
+        card.append(
+          el(
+            "p",
+            `Sold by a limit at triple when the day's HIGH reached it: ${percent(high.return)} on the money put in, 3× or more ${percent(high.at_least_3x)}. An upper bound: a daily high is one trade at some moment, not proof the position could have been sold there.`,
+            "caption",
+          ),
+        );
       if (versus && !variant.startsWith("random"))
         card.append(
           el(
@@ -93,6 +103,64 @@ const KestrelPaper = (() => {
         ),
       );
   }
+  // Calls when IV is cheap and Cheap earnings straddles: replayed on real past prices, not on modeled ones.
+  function realReplay(card, real) {
+    const base = real.baseline,
+      versus = real.versus_random_calls,
+      cover = real.coverage || {};
+    if (real.trades) {
+      card.append(
+        el(
+          "strong",
+          `${real.trades} trades on real prices · ${percent(real.return)} on the money put in`,
+        ),
+        el(
+          "p",
+          `${real.first} to ${real.last} · won ${percent(real.win_rate)} · median ${percent(real.median_return)} a trade · best ${real.best.multiple.toFixed(2)}× (${real.best.symbol}, ${real.best.decided})`,
+          "caption muted",
+        ),
+      );
+      if (base?.trades)
+        card.append(
+          el(
+            "p",
+            `Random calls on real prices: ${base.trades} trades · ${percent(base.return)}`,
+            "caption",
+          ),
+        );
+      if (versus)
+        card.append(
+          el(
+            "p",
+            `Against random calls: ${versus.mean_gap >= 0 ? "+" : ""}${percent(versus.mean_gap)} a trade on average over ${versus.days} days (90% range ${percent(versus.low)} to ${percent(versus.high)}; chance it is no better: ${percent(versus.p_not_better)}).`,
+            "caption",
+          ),
+        );
+    } else
+      card.append(
+        el(
+          "strong",
+          real.signals
+            ? `${real.signals} signals on real prices; none could be bought at a real next-day open yet`
+            : "Waiting for real past option prices",
+        ),
+      );
+    const how = el("details");
+    how.append(
+      el("summary", "How it was replayed"),
+      el("p", real.method, "caption muted"),
+      el(
+        "p",
+        `Real data so far: IV history for ${cover.stocks_with_iv ?? 0} stocks, monthly calls for ${cover.stocks_with_calls ?? 0}, straddles for ${cover.reports_downloaded ?? 0} of ${cover.reports_wanted ?? 0} past reports the rule looked at. A replay, not forward evidence: it never changes the forward grade.`,
+        "caption muted",
+      ),
+    );
+    card.append(how);
+  }
+  const realStatus = (real) =>
+    real?.trades
+      ? `${real.trades} trades on real prices · ${percent(real.return)}`
+      : "downloading real past prices";
   function evidencePanel(account, live, openReplay) {
     const section = el("section", undefined, "paper-evidence"),
       grid = el("div", undefined, "paper-evidence-grid"),
@@ -176,7 +244,9 @@ const KestrelPaper = (() => {
         );
         replay.append(detail);
       }
-    } else
+    } else if (historical.real_prices)
+      realReplay(replay, historical.real_prices);
+    else
       replay.append(
         el(
           "p",
@@ -620,7 +690,7 @@ const KestrelPaper = (() => {
           ),
           el(
             "small",
-            `Historical replay: ${LOTTO_REPLAY[a.id] ? lottoStatus(live.lotto_history, LOTTO_REPLAY[a.id]) : live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
+            `Historical replay: ${LOTTO_REPLAY[a.id] ? lottoStatus(live.lotto_history, LOTTO_REPLAY[a.id]) : live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.real_prices ? realStatus(live.historical_replays[a.id].real_prices) : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
           ),
         );
         b.onclick = () => {
@@ -631,6 +701,39 @@ const KestrelPaper = (() => {
         strategyCards.append(b);
       }
       app.append(strategyCards);
+      const research = live.option_research;
+      if (research?.strategies) {
+        const box = el("details", undefined, "paper-research");
+        box.append(
+          el(
+            "summary",
+            "Preregistered option research on real past prices (4 rules)",
+          ),
+          el(
+            "p",
+            `Rules written ${research.preregistered}, before any result (version ${research.rules_sha256.slice(0, 8)}); replayed on the IV history's real contracts for ${research.stocks} stocks. Research only: never traded, never a forward grade.`,
+            "caption muted",
+          ),
+        );
+        for (const s of Object.values(research.strategies)) {
+          const line =
+            s.weeks !== undefined
+              ? s.weeks >= 5
+                ? `${s.weeks} weeks · long-minus-short ${percent(s.mean_weekly)} a week (90% range ${percent(s.low)} to ${percent(s.high)})`
+                : "Needs 10 stocks with an IV history on 5 or more weeks"
+              : s.trades
+                ? `${s.trades} trades · ${percent(s.return)} on the money put in · won ${percent(s.win_rate)}`
+                : "No trade on real prices yet";
+          const row = el("div", undefined, "paper-research-row");
+          row.append(
+            el("strong", s.title),
+            el("p", line),
+            el("p", `${s.rule} (${s.source})`, "caption muted"),
+          );
+          box.append(row);
+        }
+        app.append(box);
+      }
       const selectedTitle = el("div", undefined, "paper-account-title");
       selectedTitle.append(
         el("h2", account.title),
@@ -720,12 +823,13 @@ const KestrelPaper = (() => {
       );
       const mix = record === "live" ? null : account.option_prices;
       if (mix) {
-        const days = mix.real + mix.real_iv + mix.model;
+        const collected = mix.collected || 0,
+          days = collected + mix.real + mix.real_iv + mix.model;
         app.append(
           el(
             "p",
             days
-              ? `Option prices across these trades' held days: ${Math.round((100 * mix.real) / days)}% real closing trades from Massive, ${Math.round((100 * mix.real_iv) / days)}% from a real trade earlier that week, ${Math.round((100 * mix.model) / days)}% modeled from the stock's own volatility. Real prices fill in as they download; each replay uses all downloaded so far.`
+              ? `Option prices across these trades' held days: ${collected ? `${Math.round((100 * collected) / days)}% KESTREL's own collected quotes, ` : ""}${Math.round((100 * mix.real) / days)}% real closing trades from Massive, ${Math.round((100 * mix.real_iv) / days)}% from a real trade earlier that week, ${Math.round((100 * mix.model) / days)}% modeled from the stock's own volatility. Real prices fill in as they download; each replay uses all downloaded so far.`
               : "No option trades in this replay yet.",
             "muted caption",
           ),

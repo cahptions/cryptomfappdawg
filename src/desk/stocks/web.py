@@ -231,6 +231,9 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
                                        "coverage": lotto_history.coverage(StocksMarket(conn), cal.new_york(now).date())}
         except sqlite3.OperationalError:       # a database from before the lotto replay
             result["lotto_history"] = None
+        from desk.stocks import option_research
+
+        result["option_research"] = option_research.load(paths.home)
     result["session_status"] = {"last_processed": last.isoformat() if last else None,
         "latest_prices": latest.isoformat() if latest else None, "expected_close": target.isoformat(),
         "waiting_for_prices": latest is None or latest < target, "pending_orders": pending,
@@ -362,6 +365,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                     async with analysis_start_lock:
                         if not evidence.status()["running"]:
                             await asyncio.to_thread(backtests.maintain)
+                        if not backtests.status()["running"]:      # the weekly evaluation, never beside a replay
+                            await asyncio.to_thread(evidence.weekly)
                 else:
                     await asyncio.to_thread(backtests.pause_automatic)
                 with suppress(TimeoutError):
@@ -577,6 +582,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 mine = cockpit(research, utc_now())
             except sqlite3.OperationalError:
                 mine = {"rows": [], "open": 0, "priced": 0, "pnl": None}
+            from desk.stocks.hub import intraday_movers
+
+            movers = intraday_movers(market, research, utc_now())
         # Today's top ideas: the first Plays category's leaders, linked to their detail and calculator.
         board, ideas = saved_view(paths, "plays") or {}, []
         for category in board.get("categories", [])[:1]:
@@ -586,7 +594,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                               "category": category.get("title"),
                               "idea_id": idea_id(board["asof"], category["id"], str(board.get("method", "unknown")),
                                                  play)})
-        return {**value, "cockpit": {"plays": mine, "ideas": ideas, "ideas_asof": board.get("asof")}}
+        return {**value, "cockpit": {"plays": mine, "ideas": ideas, "ideas_asof": board.get("asof"), "movers": movers}}
 
     @app.post("/api/stocks/ui")
     def ui_preferences(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -987,8 +995,11 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def proof() -> dict[str, Any]:
         with reader(paths, RESEARCH_FILE) as conn:
             research = StocksResearch(conn)
+            from desk.stocks.evidence_job import schedule
+
             return {"validation": evidence_document(paths, "report") or research.latest_validation(),
-                    "job": evidence.status(), "runs": [dict(r) for r in research.runs(limit=20)]}
+                    "job": evidence.status(), "runs": [dict(r) for r in research.runs(limit=20)],
+                    "schedule": schedule(paths, utc_now())}
 
     @app.post("/api/stocks/proof/start")
     async def start_evaluation() -> dict[str, Any]:

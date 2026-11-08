@@ -212,7 +212,7 @@ try {
         .map((a) => [a.id, Object.keys(a.option_prices)])
         .sort(),
       ["bear_put_spreads", "momentum_call_spreads", "random_calls"].map(
-        (id) => [id, ["real", "real_iv", "model"]],
+        (id) => [id, ["collected", "real", "real_iv", "model"]],
       ),
     );
     assert.equal(

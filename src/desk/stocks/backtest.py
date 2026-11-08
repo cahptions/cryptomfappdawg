@@ -8,7 +8,9 @@ actions count once published. Macro inputs
 are dated market prints read as of each day. Short interest joins, as FINRA published it, once the stored settlements
 cover the replayed window (``short_history``). Option strategies whose
 signals come from the stock run on option prices rebuilt from stock history, with Massive's real daily option prices
-replacing the model where they exist (``desk.stocks.option_model``).
+replacing the model where they exist (``desk.stocks.option_model``). The two whose signal is option data (cheap
+implied volatility, earnings straddles) replay on real prices only, inside Massive's window, beside the modeled
+accounts (``desk.stocks.real_options``).
 """
 
 from __future__ import annotations
@@ -40,12 +42,13 @@ from desk.stocks.paper.fills import Dividends, fair_spread, index_chain
 from desk.stocks.paper.report import daily_returns, trade_stats
 from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
+from desk.stocks.real_options import RealOptions
 from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE, StocksMarket, StocksResearch, date_of
 from desk.stocks.signals import SHORT_PUBLICATION_LAG
 from desk.stocks.validation import evaluation_window
 from desk.storage.db import DbKind, migrate
 
-VERSION = 5
+VERSION = 6
 # Earlier sessions every replayed day needs: 12-month momentum, the 52-week high/low and the 200-day average read a
 # year of prices (desk.stocks.features), so a replay starting after the analysis' 60-bar floor would rank on partial ones.
 WARMUP_SESSIONS = 252
@@ -313,6 +316,24 @@ def short_history(market: StocksMarket, first: date, last: date) -> dict[str, An
                        f"until the stored history covers it ({SHORT_MIN_SETTLEMENTS} or more settlements, without gaps)."}
 
 
+def collected_chain(market: StocksMarket) -> Callable[[str, date], dict[date, list[OptionQuote]]]:
+    """KESTREL's own stored chain for a stock and session (only quotes stamped that session), as forward PAPER reads."""
+    row = market.conn.execute("SELECT MIN(day) FROM stk_option_chains").fetchone()
+    first = date_of(row[0]) if row and row[0] is not None else None
+
+    def chain(symbol: str, day: date) -> dict[date, list[OptionQuote]]:
+        if first is None or day < first:
+            return {}
+        found, chains = StocksMarket.option_chain(market, symbol, day)
+        if found != day:
+            return {}
+        same = {e: [q for q in quotes if q.quoted_at is not None and cal.new_york(q.quoted_at).date() == day]
+                for e, quotes in chains.items()}
+        return {e: quotes for e, quotes in same.items() if quotes}
+
+    return chain
+
+
 def lab_strategies(paths: DeskPaths) -> list[Strategy]:
     """Every lab strategy ever promoted, read from the research database without writing to it."""
     path = paths.db_dir / RESEARCH_FILE
@@ -385,10 +406,13 @@ def replay(
         # An expanding window: each replayed month's option model is fit only on what was observed before it.
         observations = option_model.observe(market, historical_panel(raw, days[-1], splits), real, rate_series(market),
                                             dividends=dividends)
+        from desk.stocks.options_history import listings
+
         modeled = ModeledOptions(observations.fit(selected[0]), real, market.optioned_symbols() & set(raw.symbols),
-                                 dividends)
+                                 dividends, listings=listings(source), collected=collected_chain(market))
         refits = 0
         market.options = engine.options = modeled
+        real_prices = RealOptions(source, selected[-1], set(modeled.optioned))
         skipped = []
         drawdowns: dict[str, tuple[float, float]] = {}
         for index, asof in enumerate(selected):
@@ -411,6 +435,7 @@ def replay(
             # Option rules see a modeled implied volatility only after the desks have scored without option data.
             modeled.session(asof, panel, engine._rate(asof))
             day.ctx.options = {s: o for s in sorted(modeled.optioned) if (o := modeled.summary(s))}
+            real_prices.observe(day, engine._rate(asof))      # the option-data rules, on real prices only
             result = engine.step(asof, cal.session_close(asof) + timedelta(minutes=1), day)
             if result.skipped:
                 skipped.append({"day": asof.isoformat(), "reason": result.skipped})
@@ -432,7 +457,7 @@ def replay(
         mix = modeled.price_mix(held, selected[-1])
         for account in accounts:
             if account["asset"] == "option":
-                account["option_prices"] = mix.get(account["id"], {"real": 0, "real_iv": 0, "model": 0})
+                account["option_prices"] = mix.get(account["id"], {"collected": 0, "real": 0, "real_iv": 0, "model": 0})
         contracts = option_model.wanted(held, selected[-1])
         from desk.stocks import replay_grades
 
@@ -484,10 +509,12 @@ def replay(
                 "contracts": len(contracts),
                 "with_real_prices": sum(1 for c in contracts if c["occ"] in real.series),
                 "liquidity_checks": dict(modeled.liquidity),
+                "chains": {k: modeled.chain_sources.get(k, 0) for k in ("collected", "listed", "stand_in")},
                 "optioned_stocks": len(modeled.optioned),
                 "not_replayed": dict(option_model.NOT_REPLAYED),
             },
             "option_contracts": contracts,
+            "real_price": real_prices.replay(market),
             "limitations": [
                 (f"Each day's universe is the listings as they stood that day. From {free.isoformat()} on it includes "
                  "companies delisted later (Massive's daily bars and its list of delisted companies), so those sessions "
@@ -504,9 +531,14 @@ def replay(
                 "volatility times how options on it have been priced against it (calibrated on collected chains and "
                 "Massive's prices), with a put skew and the typical quoted spread. The ratio, skew and spread are "
                 "refit at the start of each replayed month from observations dated before it (stated defaults until "
-                "there are enough), so no session is priced with what options did later. Monthly expiries and a "
-                "listing-style strike grid stand in for the real listings. Dividends enter every option price as the "
-                "stock's trailing-12-month cash dividend yield (stored dividends ex by that day).",
+                "there are enough), so no session is priced with what options did later. Dividends enter every "
+                "option price as the stock's trailing-12-month cash dividend yield (stored dividends ex by that day).",
+                f"Chains: {modeled.chain_sources.get('collected', 0)} stock-days used KESTREL's own collected chain "
+                "(real bid/ask, volume and open interest, as forward PAPER fills), "
+                f"{modeled.chain_sources.get('listed', 0)} were rebuilt on Massive's real listing for that month, and "
+                f"{modeled.chain_sources.get('stand_in', 0)} on the stand-in (monthly expiries and a listing-style "
+                "strike grid). Collected chains are kept 45 days; listings download for the stocks and months the "
+                "replay trades.",
                 "Open interest isn't stored historically. Where Massive was asked about the days before a decision, a "
                 f"contract that traded fewer than {option_model.LIQUID_VOLUME} contracts in the "
                 f"{option_model.LIQUID_DAYS} days up to it counts as illiquid and is passed over "
@@ -514,8 +546,10 @@ def replay(
                 "other rebuilt contract is assumed to clear the rules' 100-contract open-interest floor.",
                 f"Option strategies trade only the {len(modeled.optioned)} stocks whose option chains this app has "
                 "collected at some point, a narrower universe than the stock strategies'.",
-                "Option strategies whose signal is option data itself (cheap implied volatility, earnings straddles, "
-                "unusual activity) are not replayed.",
+                "Option strategies whose signal is option data itself are not replayed on modeled prices. Calls when "
+                "IV is cheap and Cheap earnings straddles replay on real prices inside Massive's 2-year window instead "
+                "(their own accounts, against random calls on real prices, never mixed with the modeled ones); "
+                "Follow unusual call buying needs each day's whole-chain volume and is not replayed.",
                 shorts["message"],
                 "Macro inputs (Treasury yields, credit spreads, VIX) are dated market prints, read only through each "
                 "decision date as first stored. The News desk (an observer with no vote) reads what was published by "

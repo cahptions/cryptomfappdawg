@@ -17,6 +17,7 @@ from typing import Any
 
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks.fundamentals import dcf_value, implied_growth
+from desk.stocks.iv_history import basis_text
 from desk.stocks.options import iv_rank
 from desk.stocks.sectors import LABELS
 
@@ -706,7 +707,9 @@ def options(ctx: Context, symbols: Sequence[str]) -> dict[str, DeskResult]:
     comps = [
         Component("iv_vs_rv", 1.0, False, False, iv_vs_rv,
                   lambda c, s, v, m: f"Implied volatility {v:.2f}× what the stock actually moved over 20 days"),
-        Component("iv_rank", 0.8, False, False, rank_of, lambda c, s, v, m: f"IV rank {v:.0f} (0 = cheapest of its year)"),
+        Component("iv_rank", 0.8, False, False, rank_of,
+                  lambda c, s, v, m: f"IV rank {v:.0f} (0 = cheapest of its year; "
+                                     f"{basis_text(c.options.get(s, {}).get('iv_basis'))})"),
         Component("term", 0.3, True, False, lambda c, s: c.options.get(s, {}).get("term_slope"),
                   lambda c, s, v, m: ("Term structure upward" if v > 0 else
                                       "Term structure inverted: the market expects the near term to be rougher")),
@@ -732,7 +735,8 @@ def options(ctx: Context, symbols: Sequence[str]) -> dict[str, DeskResult]:
         labels = ("Cheap options", "Cheaper than usual", "Priced fairly", "Pricier than usual", "Expensive options")
         out[s] = DeskResult(score, conf, verdict(score, labels),
                             _top_reasons(parts), {"iv30": o.get("iv30"), "iv_rank": rank, "iv_percentile": pctile,
-                                                  "iv_days": len(o.get("iv_history", [])), "term_slope": o.get("term_slope"),
+                                                  "iv_days": len(o.get("iv_history", [])), "iv_basis": o.get("iv_basis"),
+                                                  "term_slope": o.get("term_slope"),
                                                   "put_call_volume": o.get("put_call_volume"), "unusual": unusual[:5],
                                                   "expiries": o.get("expiries", [])}, parts)
     return out

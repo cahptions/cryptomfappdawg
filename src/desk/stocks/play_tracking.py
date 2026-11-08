@@ -700,6 +700,22 @@ def slot(now: datetime) -> str:
     return local.replace(minute=local.minute - local.minute % PASS_MINUTES, second=0, microsecond=0).isoformat()
 
 
+async def paper_take_profits(paths: DeskPaths, schwab: Any, now: datetime) -> dict[str, Any]:
+    """The PAPER strategies whose take-profit is checked intraday, on this pass's Schwab quotes. A failure is reported
+    and never stops tracking."""
+    from desk.stocks.paper.book import PaperBook
+    from desk.stocks.paper.intraday import take_profits
+    from desk.stocks.repo import LEDGER_FILE
+
+    ledger = connect(paths.db_dir / LEDGER_FILE, DbKind.STOCKS_LEDGER)
+    try:
+        return await take_profits(PaperBook(ledger), schwab, now)
+    except (DeskError, sqlite3.Error) as exc:
+        return {"error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    finally:
+        ledger.close()
+
+
 async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = None) -> dict[str, Any] | None:
     """The dashboard's tracking task: one pass per five-minute slot in market hours, one an hour otherwise."""
     from desk.core.secrets import load_secrets
@@ -731,6 +747,8 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = N
                                 chains=suite.options if suite else None, history=suite.schwab if suite else None,
                                 rate=lambda d: _rate(stocks_market, d))
         put_state(research, "cycle", {"slot": slot(now), "at": to_iso(now)}, now)
+        if market_open(now) and suite is not None:           # PAPER lottos sold at triple during the session
+            report["paper_take_profits"] = await paper_take_profits(paths, suite.schwab, now)
         if not market_open(now):
             from desk.stocks import play_learning, play_performance
 

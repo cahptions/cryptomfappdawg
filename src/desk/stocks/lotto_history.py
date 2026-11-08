@@ -16,6 +16,11 @@ one-standard-deviation move per dollar, times the chance in the money, from the 
 realized volatility; the replay has no committee tilt), the best per stock, the top 12 a day. Random lottos take a
 random qualifying contract per stock. Each pick is $300, bought at the next session's real open plus 5% (about half a
 lotto's spread) and $0.65 a contract; sold at triple on a later close less 5%, or held and settled at expiry.
+
+A third way to sell at triple is shown on its own: a resting limit order at three times the cost, counted as filled on
+the first day the contract's daily HIGH reached it (at the limit, from the entry day on). A daily high is one trade at
+some moment of the day, not proof that the whole position could have been sold there, so this variant is an upper
+bound beside the close-based one, never in its place.
 """
 
 from __future__ import annotations
@@ -51,9 +56,15 @@ METHOD = ("Each session, every downloaded contract that closed at $0.05-$0.50, 2
           "of the money and traded 50+ times that day qualifies. KESTREL's Lottos rule ranks them (payoff on a "
           "one-standard-deviation move per dollar x chance in the money; no committee tilt), the best per stock, top 12 "
           "a day; Random lottos take a random qualifying contract per stock. $300 a pick, bought at the next session's "
-          "real open plus 5% and $0.65 a contract; sold at triple on a later close less 5%, or settled at expiry.")
+          "real open plus 5% and $0.65 a contract; sold at triple on a later close less 5%, or settled at expiry. The "
+          "'on the day's high' variants instead count a resting limit sell at 3x the cost as filled on the first day the "
+          "contract's daily high reached it: a daily high is not proof you could have sold there, so it is an upper "
+          "bound shown beside the close-based result.")
 VARIANTS = (("kestrel_triple", "KESTREL's picks · sold at triple"), ("kestrel_run", "KESTREL's picks · let them run"),
-            ("random_triple", "Random lottos · sold at triple"), ("random_run", "Random lottos · let them run"))
+            ("random_triple", "Random lottos · sold at triple"), ("random_run", "Random lottos · let them run"),
+            ("kestrel_high", "KESTREL's picks · sold at triple on the day's high (upper bound)"),
+            ("random_high", "Random lottos · sold at triple on the day's high (upper bound)"))
+EXITS = (("triple", "close"), ("run", None), ("high", "high"))
 
 
 # ── what to download ─────────────────────────────────────────────────────────────────────────────
@@ -122,12 +133,13 @@ def _listings(conn: sqlite3.Connection) -> dict[tuple[str, date], dict[str, Any]
             for r in conn.execute("SELECT * FROM stk_lotto_lists")}
 
 
-async def download(massive: Any, market: StocksMarket, now: datetime) -> dict[str, Any]:
+async def download(massive: Any, market: StocksMarket, now: datetime, budget: int | None = None) -> dict[str, Any]:
     """One pass of the background download: listings first, then each listed candidate's real daily bars."""
     if not getattr(massive, "configured", False):
         return {"ok": False, "note": "No Massive key: the lotto replay needs MASSIVE_API_KEY (free Options Basic)."}
     today = cal.new_york(now).date()
-    budget = PER_PASS_OPEN if cal.market_session(now)["state"] in ("pre", "open") else PER_PASS_CLOSED
+    if budget is None:
+        budget = PER_PASS_OPEN if cal.market_session(now)["state"] in ("pre", "open") else PER_PASS_CLOSED
     listed, fetched = _listings(market.conn), market.option_bar_fetches()
     used, problem = 0, None
     for expiry in expiries(today):
@@ -222,8 +234,10 @@ def score(kind: str, price: float, spot: float, strike: float, years: float, rv:
 
 
 def trade(bars: dict[date, dict[str, Any]], decided: date, expiry: date, kind: str, strike: float,
-          settle_close: float | None, *, triple: bool) -> dict[str, Any] | None:
-    """One $300 lotto bought at the next session's real open; None when it did not trade that session."""
+          settle_close: float | None, *, triple: bool, on: str = "close") -> dict[str, Any] | None:
+    """One $300 lotto bought at the next session's real open; None when it did not trade that session. Sold at triple
+    on a later close less 5% (``on="close"``), or by a resting limit at 3x the cost on the first day the daily high
+    reached it (``on="high"``: an upper bound, a high is not proof of a fill)."""
     entry_day = cal.next_trading_day(decided)
     bar = bars.get(entry_day)
     if bar is None or not bar.get("open") or entry_day > expiry:
@@ -233,7 +247,13 @@ def trade(bars: dict[date, dict[str, Any]], decided: date, expiry: date, kind: s
     if units < 1:
         return None
     cost = units * (price * 100 + FEE)
-    if triple:
+    if triple and on == "high":
+        limit = (TRIPLE * cost / units + FEE) / 100          # the price per share that returns 3x the cost
+        for day in sorted(d for d in bars if entry_day <= d <= expiry):
+            if (bars[day].get("high") or 0) >= limit:
+                return {"entry_day": entry_day.isoformat(), "units": units, "cost": cost, "value": TRIPLE * cost,
+                        "exit": f"limit at triple reached by the day's high on {day.isoformat()}"}
+    elif triple:
         for day in sorted(d for d in bars if entry_day <= d <= expiry):
             value = units * (bars[day]["close"] * (1 - SLIP) * 100 - FEE)
             if value >= TRIPLE * cost:
@@ -292,24 +312,26 @@ def replay(market: StocksMarket, now: datetime) -> dict[str, Any]:
         for who, picks in chosen.items():
             for o in picks:
                 settle = settles.get((o["symbol"], o["expiry"]))
-                for triple in (True, False):
-                    done = trade(contract_bars[o["occ"]], day, o["expiry"], o["kind"], o["strike"], settle, triple=triple)
+                for name, on in EXITS:
+                    done = trade(contract_bars[o["occ"]], day, o["expiry"], o["kind"], o["strike"], settle,
+                                 triple=on is not None, on=on or "close")
                     if done is None:
-                        if triple and who == "kestrel":
+                        if name == "triple" and who == "kestrel":
                             unfilled += 1          # it did not trade at the next session's open
                         continue
-                    trades[f"{who}_{'triple' if triple else 'run'}"].append(
+                    trades[f"{who}_{name}"].append(
                         {**done, "occ": o["occ"], "symbol": o["symbol"], "decided": day.isoformat(),
                          "multiple": done["value"] / done["cost"]})
     summary = {v: summarize(trades[v]) for v, _ in VARIANTS}
     for v, title in VARIANTS:
         summary[v]["title"] = title
     days = sorted(pools)
-    return {"version": 1, "generated_at": to_iso(now),
+    return {"version": 2, "generated_at": to_iso(now),
             "first": days[0].isoformat() if days else None, "last": days[-1].isoformat() if days else None,
             "sessions": len(days), "names": list(NAMES), "unfilled_kestrel": unfilled, "variants": summary,
             "kestrel_vs_random": {"run": versus(trades["kestrel_run"], trades["random_run"]),
-                                  "triple": versus(trades["kestrel_triple"], trades["random_triple"])},
+                                  "triple": versus(trades["kestrel_triple"], trades["random_triple"]),
+                                  "high": versus(trades["kestrel_high"], trades["random_high"])},
             "coverage": coverage(market, today), "method": METHOD}
 
 
@@ -357,12 +379,13 @@ def load(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-async def job(massive: Any, market: StocksMarket, home: Path, now: datetime) -> dict[str, Any]:
+async def job(massive: Any, market: StocksMarket, home: Path, now: datetime, budget: int | None = None) -> dict[str, Any]:
     """Download a batch, then rebuild the report when enough is new (it reads every downloaded bar)."""
-    got = await download(massive, market, now)
+    got = await download(massive, market, now, budget)
     previous = load(home / REPORT)
     fetched = got.get("contracts_fetched", 0)
-    stale = previous is None or fetched - (previous.get("coverage") or {}).get("contracts_fetched", 0) >= 150 or (
+    stale = previous is None or previous.get("version") != 2 or fetched - (previous.get("coverage") or {}).get(
+        "contracts_fetched", 0) >= 150 or (
         got.get("requests_left") == 0 and (previous.get("coverage") or {}).get("requests_left") != 0)
     if stale and fetched:
         save(home / REPORT, replay(market, now))
@@ -370,5 +393,10 @@ async def job(massive: Any, market: StocksMarket, home: Path, now: datetime) -> 
     return got
 
 
+async def task(massive: Any, market: StocksMarket, home: Path, now: datetime, budget: int) -> dict[str, Any]:
+    """The Massive queue's share for the lottos (``desk.stocks.massive_options``)."""
+    return await job(massive, market, home, now, budget)
+
+
 __all__ = ["NAMES", "REPORT", "VARIANTS", "choose", "coverage", "download", "expiries", "job", "load", "replay",
-           "score", "summarize", "trade", "versus"]
+           "score", "summarize", "task", "trade", "versus"]
