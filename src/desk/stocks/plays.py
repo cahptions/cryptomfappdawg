@@ -40,6 +40,7 @@ from desk.stocks import options as opt
 from desk.stocks.activity import quote_session
 from desk.stocks.contracts import OptionQuote
 from desk.stocks.hub import adjusted_bars
+from desk.stocks.iv_history import basis_text, year_of_iv
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.paper.report import trade_stats
@@ -268,6 +269,7 @@ class Underlying:
     closes: list[float] = field(default_factory=list)
     iv30: float | None = None
     iv_rank: float | None = None
+    iv_basis: dict[str, Any] | None = None      # where the rank's year came from (desk.stocks.iv_history)
     earnings: tuple[date, date] | None = None
     past_moves: list[float] = field(default_factory=list)
     # occ → (volume, open interest, mid, underlying price, day) on the previous stored session
@@ -345,6 +347,7 @@ def load(market: StocksMarket, research: StocksResearch, session: date) -> list[
            + marks + ") ORDER BY day")                                  # placeholders only; values are bound
     for r in market.conn.execute(sql, (day_of(session - timedelta(days=400)), day_of(session), *symbols)):
         iv_rows[r["underlying"]].append((r["day"], r["iv"], r["vol"]))
+    year = year_of_iv(market.conn, {s: {d: iv for d, iv, _ in iv_rows.get(s, []) if iv} for s in symbols}, session)
     prior_days = market.option_days(session, PRIOR_SESSIONS)
     prior_chains = [market.chains_on(d, symbols) for d in prior_days]
     out = []
@@ -367,7 +370,8 @@ def load(market: StocksMarket, research: StocksResearch, session: date) -> list[
         current = [iv for day, iv, _ in history if day == day_of(session) and iv]
         u.iv30 = current[-1] if current else None
         if u.iv30:
-            u.iv_rank = opt.iv_rank([iv for _, iv, _ in history if iv], u.iv30)[0]
+            u.iv_rank = opt.iv_rank(year[symbol][0], u.iv30)[0]
+            u.iv_basis = year[symbol][1]
         volumes = [v for day, _, v in history if day < day_of(session) and v]
         u.option_volume_avg = statistics.fmean(volumes[-20:]) if len(volumes) >= 3 else None
         events = u.detail.get("events") or {}
@@ -1192,6 +1196,7 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         "open_interest": legs[0]["open_interest"],
         "vol_oi": round(legs[0]["volume"] / max(legs[0]["open_interest"], 1), 2) if legs[0]["volume"] else None,
         "iv": legs[0]["iv"], "iv_rank": None if u.iv_rank is None else round(u.iv_rank, 1),
+        "iv_rank_basis": None if u.iv_rank is None else basis_text(u.iv_basis),
         "delta": round(net_delta, 4), "gamma": round(net_gamma, 5), "theta": round(net_theta, 4),
         "vega": round(net_vega, 4), "entry": round(entry, 4), "cost": None if cost is None else round(cost, 2),
         "credit": None if credit is None else round(credit, 2), "max_loss": round(max_loss, 2),

@@ -3,7 +3,8 @@
 **Plays** (Stocks dashboard → Plays) ranks today's option ideas in twelve categories. Each play is a quoted,
 defined-risk position with everything needed to judge it: the action (buy or sell), the type (call, put, straddle
 or credit spread), strike, expiration and days left, the stock price, bid/ask and spread, volume and open interest,
-implied volatility and IV rank, the greeks (Δ delta, Γ gamma, Θ theta per day, ν vega per volatility point, net for
+implied volatility and IV rank (its year: the collected chains' IV30, else the IV solved from Massive's real closing
+trades, and the card says how many days came from each), the greeks (Δ delta, Γ gamma, Θ theta per day, ν vega per volatility point, net for
 multi-leg plays), cost or credit, worst case, best case, break-even, expected value, the one-standard-deviation move
 by expiry, and three chances of finishing in the money. Research only: no order can be placed from this desk, and
 nothing here sells an uncovered option. **Research, not financial advice.**

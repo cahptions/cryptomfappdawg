@@ -325,6 +325,7 @@ const KestrelPlays = (() => {
         "IV (rank)",
         `${pct(play.iv, 1)}${play.iv_rank === null || play.iv_rank === undefined ? "" : ` (${Math.round(play.iv_rank)})`}`,
       ],
+      ...(play.iv_rank_basis ? [["IV rank's year", play.iv_rank_basis]] : []),
       ["Δ Delta", greek(play.delta, 2)],
       ["Γ Gamma", greek(play.gamma)],
       ["Θ Theta / day", greek(play.theta, 2)],

@@ -218,7 +218,8 @@ def crowd(market: StocksMarket, asof_end: datetime) -> dict[str, dict[str, Any]]
 # ── options ──────────────────────────────────────────────────────────────────────────────────────
 def options(market: StocksMarket, asof: date, *, observed_by: datetime | None = None,
             symbol: str | None = None) -> dict[str, dict[str, Any]]:
-    """Each optioned stock's newest summary at or before ``asof`` with its IV30 history for rank and percentile."""
+    """Each optioned stock's newest summary at or before ``asof`` with its IV30 history for rank and percentile
+    (``iv_basis`` says how many of those days came from collected chains and how many from Massive's real trades)."""
     out: dict[str, dict[str, Any]] = {}
     rows = market.conn.execute(
         "SELECT underlying, day, summary_json, observed_at FROM stk_option_daily WHERE day <= ? AND day >= ? "
@@ -231,14 +232,18 @@ def options(market: StocksMarket, asof: date, *, observed_by: datetime | None = 
             "AND day<=? AND day>=? AND observed_at<=? ORDER BY day", (symbol, day_of(asof),
              day_of(asof-timedelta(days=400)),
              observed_by.astimezone(UTC).isoformat().replace("+00:00", "Z") if observed_by else "9999"))
-    history: dict[str, list[float]] = defaultdict(list)
+    collected: dict[str, dict[int, float]] = defaultdict(dict)
     for r in rows:
         summary = json.loads(r["summary_json"])
         if summary.get("iv30"):
-            history[r["underlying"]].append(summary["iv30"])
+            collected[r["underlying"]][int(r["day"])] = float(summary["iv30"])
         out[r["underlying"]] = {**summary, "day": date_of(r["day"]).isoformat(), "observed_at": r["observed_at"]}
+    from desk.stocks.iv_history import year_of_iv
+
+    # IV rank's year: the collected chain's IV30 where it exists, Massive's real closing trades on the other days
+    year = year_of_iv(market.conn, {s: collected.get(s, {}) for s in out}, asof, observed_by=observed_by)
     for symbol, summary in out.items():
-        summary["iv_history"] = history.get(symbol, [])
+        summary["iv_history"], summary["iv_basis"] = year[symbol]
         if not summary.get("activity") and summary["day"] == asof.isoformat():
             from desk.stocks.activity import chain_activity
 

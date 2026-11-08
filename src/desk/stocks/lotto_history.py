@@ -122,12 +122,13 @@ def _listings(conn: sqlite3.Connection) -> dict[tuple[str, date], dict[str, Any]
             for r in conn.execute("SELECT * FROM stk_lotto_lists")}
 
 
-async def download(massive: Any, market: StocksMarket, now: datetime) -> dict[str, Any]:
+async def download(massive: Any, market: StocksMarket, now: datetime, budget: int | None = None) -> dict[str, Any]:
     """One pass of the background download: listings first, then each listed candidate's real daily bars."""
     if not getattr(massive, "configured", False):
         return {"ok": False, "note": "No Massive key: the lotto replay needs MASSIVE_API_KEY (free Options Basic)."}
     today = cal.new_york(now).date()
-    budget = PER_PASS_OPEN if cal.market_session(now)["state"] in ("pre", "open") else PER_PASS_CLOSED
+    if budget is None:
+        budget = PER_PASS_OPEN if cal.market_session(now)["state"] in ("pre", "open") else PER_PASS_CLOSED
     listed, fetched = _listings(market.conn), market.option_bar_fetches()
     used, problem = 0, None
     for expiry in expiries(today):
@@ -357,9 +358,9 @@ def load(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-async def job(massive: Any, market: StocksMarket, home: Path, now: datetime) -> dict[str, Any]:
+async def job(massive: Any, market: StocksMarket, home: Path, now: datetime, budget: int | None = None) -> dict[str, Any]:
     """Download a batch, then rebuild the report when enough is new (it reads every downloaded bar)."""
-    got = await download(massive, market, now)
+    got = await download(massive, market, now, budget)
     previous = load(home / REPORT)
     fetched = got.get("contracts_fetched", 0)
     stale = previous is None or fetched - (previous.get("coverage") or {}).get("contracts_fetched", 0) >= 150 or (
@@ -370,5 +371,10 @@ async def job(massive: Any, market: StocksMarket, home: Path, now: datetime) -> 
     return got
 
 
+async def task(massive: Any, market: StocksMarket, home: Path, now: datetime, budget: int) -> dict[str, Any]:
+    """The Massive queue's share for the lottos (``desk.stocks.massive_options``)."""
+    return await job(massive, market, home, now, budget)
+
+
 __all__ = ["NAMES", "REPORT", "VARIANTS", "choose", "coverage", "download", "expiries", "job", "load", "replay",
-           "score", "summarize", "trade", "versus"]
+           "score", "summarize", "task", "trade", "versus"]

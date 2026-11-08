@@ -62,7 +62,7 @@ noted (sectors with fewer than 10 names use the whole universe), and blends them
 | **The crowd** | Reddit mention rank and velocity (ApeWisdom); the degen meter (0–5: volatility, short interest, a WSB surge, a call frenzy, a sub-$5 price); hype vs fundamentals. No crowd data for a day means no score |
 | **Risk** | volatility 1.0, beta 0.5, the 1-year maximum drawdown 0.6, liquidity 0.4, dilution 0.4 (higher score = lower risk) |
 | **Macro and sectors** | the sector's 3-month strength vs SPY; in a risk-off regime (SPY below its 200-day average, high-yield spreads up more than 0.75 points in three months, or VIX above 30) names with beta above 1.3 lose 15 points and below 0.8 gain 10 |
-| **Options** | IV30 / 20-day realized volatility 1.0, IV rank 0.8, term structure 0.3, put/call volume 0.3 (for the most-traded names whose chains are collected) |
+| **Options** | IV30 / 20-day realized volatility 1.0, IV rank 0.8, term structure 0.3, put/call volume 0.3 (for the most-traded names whose chains are collected). IV rank's year: the collected IV30 where it exists, else the IV solved from Massive's real closing trades (`desk.stocks.iv_history`); the reason says how many days came from each |
 | **News and world** | the week's company-news tone (Massive's sentiment, positive minus negative), attention (articles in three days against the usual daily count), supply shocks from world events and trade actions that touch the company; an observer with no vote until graded ([STOCKS_NEWS.md](STOCKS_NEWS.md)) |
 
 ## 5. The committee

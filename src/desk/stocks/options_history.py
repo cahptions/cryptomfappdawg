@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from desk.core.errors import DeskError, ProviderError
@@ -64,10 +65,11 @@ async def check(massive: Any, market: StocksMarket, today: date) -> dict[str, An
         f"${last['close']:.2f}). Historical option replays can use real prices (daily last trades, 2 years back).")}
 
 
-def wanted(paths: DeskPaths) -> list[dict[str, str]]:
+def wanted(paths: DeskPaths | Path) -> list[dict[str, str]]:
     """The contracts the latest replay traded inside Massive's window (empty without a replay)."""
+    home = paths if isinstance(paths, Path) else paths.home
     try:
-        value = json.loads((paths.home / REPORT).read_text())
+        value = json.loads((home / REPORT).read_text())
     except (OSError, ValueError):
         return []
     rows = value.get("option_contracts") if isinstance(value, dict) else None
@@ -82,16 +84,17 @@ def progress(market: StocksMarket, items: list[dict[str, str]]) -> dict[str, Any
             "minutes_left": math.ceil(left / 5)}
 
 
-async def download(massive: Any, market: StocksMarket, paths: DeskPaths, now: datetime) -> dict[str, Any]:
-    """Fetch up to ``PER_PASS`` contracts' real daily prices; a contract still held at the replay's end is asked
+async def download(massive: Any, market: StocksMarket, paths: DeskPaths | Path, now: datetime, *,
+                   per_pass: int = PER_PASS) -> dict[str, Any]:
+    """Fetch up to ``per_pass`` contracts' real daily prices; a contract still held at the replay's end is asked
     again once its replay window reaches past what was fetched."""
     items = wanted(paths)
     fetched = market.option_bar_fetches()
     todo = [w for w in items if fetched.get(w["occ"], date.min) < date.fromisoformat(w["last"])]
     if not todo:
-        return {"ok": True, **progress(market, items)}
+        return {"ok": True, "requests": 0, **progress(market, items)}
     done, problem = 0, None
-    for w in todo[:PER_PASS]:
+    for w in todo[:per_pass]:
         first, last = date.fromisoformat(w["first"]), date.fromisoformat(w["last"])
         try:
             bars = await massive.option_bars(w["occ"], first, last)
@@ -112,7 +115,13 @@ async def download(massive: Any, market: StocksMarket, paths: DeskPaths, now: da
         done += 1
     detail = {"fetched_now": done, **progress(market, items)}
     market.job("option_bars", now, error=problem, detail=detail)
-    return {"ok": problem is None, **detail, **({"error": problem} if problem else {})}
+    return {"ok": problem is None, "requests": done + (problem is not None), **detail,
+            **({"error": problem} if problem else {})}
+
+
+async def task(massive: Any, market: StocksMarket, home: Path, now: datetime, budget: int) -> dict[str, Any]:
+    """The Massive queue's share for the replay's contracts (``desk.stocks.massive_options``)."""
+    return await download(massive, market, home, now, per_pass=budget)
 
 
 def describe(market: StocksMarket, paths: DeskPaths) -> str:
@@ -128,4 +137,4 @@ def describe(market: StocksMarket, paths: DeskPaths) -> str:
                    else "; all downloaded.")
 
 
-__all__ = ["PER_PASS", "check", "describe", "download", "progress", "wanted"]
+__all__ = ["PER_PASS", "check", "describe", "download", "progress", "task", "wanted"]

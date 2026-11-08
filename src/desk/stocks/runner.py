@@ -157,10 +157,11 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     # Receipts change as history arrives; successful source jobs can add new fundamentals/options/crowd data.
     receipts = [tuple(r) for r in market.conn.execute(
         "SELECT day, rows, received_at FROM stk_bar_days WHERE day<=? ORDER BY day", (target.toordinal(),))]
-    # Real option prices only feed historical replays; news, world events and policy are read by the next analysis
-    # (they change every few minutes and would otherwise redo the whole analysis each pass).
+    # Real option prices feed historical replays; the IV history, news, world events and policy are read by the next
+    # analysis (they change every few minutes while downloading and would otherwise redo the whole analysis each pass).
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items()
-            if k not in ("prices", "option_bars", "world", "news", "policy")}
+            if k not in ("prices", "option_bars", "massive_options", "lotto_history", "iv_history", "world", "news",
+                         "policy")}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
                                          "config": loaded.snapshot_hash, "preview_version": 5,
@@ -404,23 +405,16 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             log.warning("news and world failed", extra={"error": str(exc)[:200]})
             market.job("world", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         if suite.massive.configured:
-            from desk.stocks import options_history
+            # Every Massive option download (the replay's contracts, the IV history, the lottos on real prices...)
+            # shares one budget a pass through one queue: Options Basic allows 5 requests a minute in all.
+            from desk.stocks import massive_options
 
             try:
-                jobs["option_bars"] = await run_job("option_bars", options_history.download(
-                    suite.massive, market, paths, utc_now()))
-            except Exception as exc:  # recorded; never stops collection
-                log.warning("option prices failed", extra={"error": str(exc)[:200]})
-                market.job("option_bars", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
-            # Lottos on real past prices: a batch of Massive's weekly option history each pass (more off-hours).
-            from desk.stocks import lotto_history
-
-            try:
-                jobs["lotto_history"] = await run_job("lotto_history", lotto_history.job(
+                jobs["massive_options"] = await run_job("massive_options", massive_options.job(
                     suite.massive, market, paths.home, utc_now()))
             except Exception as exc:  # recorded; never stops collection
-                log.warning("lotto history failed", extra={"error": str(exc)[:200]})
-                market.job("lotto_history", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+                log.warning("option history failed", extra={"error": str(exc)[:200]})
+                market.job("massive_options", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",
                   "research_only": research_only, "options_provider": suite.option_source,
                   "problems": suite.problems, "jobs": jobs, "market_events": events,

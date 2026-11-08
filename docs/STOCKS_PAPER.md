@@ -55,11 +55,13 @@ trading (`desk.stocks.option_model`):
   the replay's model, its calibration and the PAPER fills and marks.
 - **Choosing never follows a real price.** Contracts are chosen from the model's prices, so one contract's real price
   can't pull a rule toward it; the decision then sees that day's real price where there is one.
-- **Downloading.** Each collection pass fetches up to 12 of the contracts the latest replay traded (about 2½ minutes at
-  Massive's 5 requests a minute), so all of a replay's contracts arrive within hours. When a batch finishes, the
-  automatic replay runs once more to use them (never mid-download). The Lottos history (`desk.stocks.lotto_history`)
-  also reads Massive's option data, from the same 5-requests-a-minute budget. `kestrel options-history` shows how many are downloaded and how long the
-  rest will take; each option account's replay view shows what share of its held days were priced by real trades.
+- **Downloading.** Every Massive option download goes through one queue (`desk.stocks.massive_options`) with one
+  budget a collection pass: 8 requests while the market is open, 40 while it is closed (Massive allows 5 a minute for
+  the whole account). Each task in turn gets an equal share of what is left and hands back what it does not need: the
+  contracts the latest replay traded first, then the IV history (`desk.stocks.iv_history`), then the Lottos history
+  (`desk.stocks.lotto_history`). When a batch of the replay's contracts finishes, the automatic replay runs once more
+  to use them (never mid-download). `kestrel options-history` shows how many are downloaded and how long the rest will
+  take; each option account's replay view shows what share of its held days were priced by real trades.
 
 Strategies whose signal is option data itself are not replayed: **Calls when IV is cheap** (a model built from the
 stock's movement can't show options priced cheaply against it), **Cheap earnings straddles** (needs the move options
@@ -197,7 +199,7 @@ is seen at its close.
 **Lottos on real past prices** (`desk.stocks.lotto_history`). The modeled replay can't price lottos honestly (their
 value is in the far, short-dated tails a model gets wrong), so the lotto accounts are replayed on real prices instead:
 Massive's Options Basic archive, two years of daily bars per contract, weeklies included. Each collection pass
-downloads a batch (8 requests in market hours, 40 when closed, at Massive's shared 5 a minute): for each of SPY, QQQ,
+downloads a batch (its share of the one Massive queue, 8 requests a pass in market hours and 40 when closed): for each of SPY, QQQ,
 IWM, AAPL, NVDA, TSLA, AMD, AMZN, META, MSFT, GOOGL and NFLX and every past weekly expiry, the out-of-the-money
 contracts listed two weeks before it, then each candidate's real daily bars (about 73 hours of requests in all, so a
 few days). The replay then runs KESTREL's Lottos rule (one-standard-deviation payoff per dollar × chance in the money,
