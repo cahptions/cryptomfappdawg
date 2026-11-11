@@ -1079,13 +1079,24 @@ const KestrelPaper = (() => {
       }
       poll();
     }
+    // A refresh rebuilds the page in place: same scroll position, same focused control.
+    function redraw() {
+      const top = scrollY,
+        focused = document.activeElement;
+      draw();
+      if (focused?.isConnected && document.activeElement !== focused)
+        focused.focus({ preventScroll: true });
+      scrollTo({ top, behavior: "instant" });
+    }
     function poll() {
       clearTimeout(timer);
       timer = setTimeout(
         async () => {
           if (ticket !== generation) return;
+          // never rebuild under the reader: an open dialog, a field being edited, or a chart being inspected
           if (
             document.querySelector("dialog[open]") ||
+            app.querySelector(".kc-plot:hover") ||
             ["INPUT", "SELECT"].includes(
               document.activeElement?.tagName?.toUpperCase(),
             )
@@ -1114,7 +1125,7 @@ const KestrelPaper = (() => {
               signature(live, backtest) !== signature(nextLive, next);
             live = nextLive;
             backtest = next;
-            if (changed) draw();
+            if (changed) redraw();
             else {
               const phase = app.querySelector(
                   ".paper-backtest-controls [role='status']",

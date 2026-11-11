@@ -678,7 +678,12 @@ const KestrelCharts = (() => {
       };
       chart.onpointerleave = reset;
       chart.onpointercancel = reset;
-      chart.onblur = reset;
+      // a chart moved by a page refresh loses focus for a moment: only a real move elsewhere closes the readout
+      chart.onblur = () =>
+        setTimeout(() => {
+          if (document.activeElement !== chart && !chart.matches(":hover"))
+            reset();
+        });
       chart.onkeydown = (e) => {
         if (
           [
