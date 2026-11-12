@@ -556,6 +556,7 @@ COMMAND = """#!/bin/sh
 #   kestrel arbitrage open KESTREL Arbitrage (restarted on the latest code)
 #   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
 #   kestrel phone     open Stocks on your phone, privately, through Tailscale (kestrel phone off stops it)
+#   kestrel move-from user@address   copy that computer's Stocks data here; this computer keeps Stocks from then on
 cd {repo} || exit 1
 case "${{1:-status}}" in
   status) exec {uv} run desk stocks status ;;
@@ -569,9 +570,10 @@ case "${{1:-status}}" in
   learning) exec {uv} run desk stocks learning-report ;;
   options-history) exec {uv} run desk stocks options-history ;;
   phone) shift; exec {uv} run desk phone "$@" ;;
+  move-from) shift; exec {uv} run desk stocks move-from "$@" ;;
   *) echo "kestrel: '$1' is not a command in this version (kestrel update brings newer ones)"
      echo "usage: kestrel [status | update | open | signin | restart | learning | options-history | arbitrage |"
-     echo "                ebay-check | phone]"; exit 2 ;;
+     echo "                ebay-check | phone | move-from user@address]"; exit 2 ;;
 esac
 """
 REMOTE_COMMAND = """#!/bin/sh
@@ -586,12 +588,14 @@ REMOTE_COMMAND = """#!/bin/sh
 #   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
 #   kestrel phone     open {host}'s Stocks on your phone through Tailscale; kestrel phone arbitrage: this
 #                     computer's Arbitrage; add off to stop
+#   kestrel move-from {host}   copy {host}'s Stocks data here and run Stocks on this computer from then on
 # Any other word runs as `kestrel <word>` there, so new subcommands work here without reinstalling.
 action="${{1:-status}}"
 case "$action" in
   open) cd {repo} || exit 1; exec {uv} run desk open --desk stocks ;;
   arbitrage) cd {repo} || exit 1; exec {uv} run desk open --desk arbitrage --restart ;;
   ebay-check) cd {repo} || exit 1; shift; exec {uv} run desk arbitrage ebay-check "$@" ;;
+  move-from) cd {repo} || exit 1; shift; exec {uv} run desk stocks move-from "$@" ;;
   phone) case "${{2:-}}" in
       arbitrage) cd {repo} || exit 1; shift; exec {uv} run desk phone "$@" ;;
       off) exec ssh -t {host} "~/.local/bin/kestrel phone off" ;;

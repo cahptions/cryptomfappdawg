@@ -149,7 +149,7 @@ profit came from its best five trades, and whether its per-day average is distin
 
 ### Always on
 
-On the computer that holds the Schwab sign-in (the HP), Stocks runs as a user service,
+On the computer that holds the Schwab sign-in (now the Dell), Stocks runs as a user service,
 `desk-stocks-dashboard.service`: systemd restarts it 10 seconds after it stops for any reason (a crash, a failed
 restart, a stop) and, with lingering on, starts it when the computer powers on, before anyone logs in. `kestrel
 update` and `kestrel restart` install and enable it; `kestrel` shows an **Always on** line. Turning on lingering
@@ -187,6 +187,37 @@ Stocks app (its data is kept), and from then on:
   `kestrel open` opens the window here; `kestrel update` updates that computer and then this one's copy and command.
 
 `--remote off` brings back this computer's own Stocks app.
+
+### Moving Stocks to another computer
+
+`kestrel move-from USER@ADDRESS` (or `uv run desk stocks move-from USER@ADDRESS`) brings another computer's Stocks
+data — price history, Plays history, tracked plays, the PAPER books and Learning — to the computer you run it on,
+which keeps Stocks from then on. For the move from the HP to the Dell, on the Dell:
+
+```bash
+ssh-copy-id neo@192.168.0.10                         # once, if `ssh neo@192.168.0.10 true` still asks for a password
+kestrel move-from neo@192.168.0.10 --dry-run         # checks SSH and lists the HP's Stocks files; changes nothing
+kestrel move-from neo@192.168.0.10 --stop-other      # stops Stocks on the HP first, so the copy is its final state
+kestrel signin                                       # the Schwab sign-in is never copied
+```
+
+What it does, in order: refuses if the address is this computer; checks SSH works without a password prompt; with
+`--stop-other`, stops and switches off the other computer's Stocks service; asks the other computer to make
+consistent copies of its four Stocks databases with SQLite's online backup API (the same code as `desk backups
+create`; a live database is never copied without its write-ahead log), which stay there in
+`~/desk-data/backups/manual`; copies them here over SSH (scp) into a staging folder and checks every checksum,
+SQLite's integrity and foreign-key checks, and that the ledger is PAPER. Only then does it stop Stocks here, move
+this computer's own Stocks databases (with their `-wal`/`-shm` files) and derived reports into
+`~/desk-data/backups/before-move/<time>` (never deleted), put the copies in place, run the migrations, start Stocks
+again, and print what moved: price sessions, Plays sessions, tracked plays, PAPER trades and Learning positions,
+beside what this computer had. If this computer was set up to show the other one's Stocks (`--remote`), it now runs
+its own and the `kestrel` command is rewritten for it.
+
+A failed SSH, a failed copy or a copy that fails a check stops the move before anything here changes. It needs free
+disk for the copies plus 512 MB (the market database is several GB; the copy takes some minutes on a home network).
+Not copied: `secrets.env` (copy the key lines you need by hand, `chmod 600`), the Schwab sign-in (sign in again
+here with `kestrel signin`; a new sign-in ends the other computer's within hours) and Settings preferences.
+Without `--stop-other` the other computer keeps running its own Stocks; stop it there so the two do not both collect.
 
 ### On your phone
 

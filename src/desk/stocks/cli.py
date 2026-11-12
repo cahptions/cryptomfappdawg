@@ -77,6 +77,13 @@ def add_parser(sub: Any) -> None:
                                  "show the settings and recent alerts")
     alerts.add_argument("action", choices=["test", "status"])
     alerts.set_defaults(func=run)
+    move = commands.add_parser("move-from", help="copy another computer's Stocks data (plays history, PAPER, Learning) "
+                               "to this one, which keeps Stocks from now on; secrets are not copied")
+    move.add_argument("host", help="the other computer, as user@address (e.g. neo@192.168.0.10)")
+    move.add_argument("--dry-run", action="store_true", help="check SSH and list its files; change nothing")
+    move.add_argument("--stop-other", action="store_true",
+                      help="stop and switch off Stocks on the other computer first, so the copy is its final state")
+    move.set_defaults(func=run)
     dash = commands.add_parser("dashboard", help="local Stocks dashboard with private Settings")
     dash.add_argument("--port", type=int)
     dash.add_argument("--open", action="store_true")
@@ -153,6 +160,11 @@ def _run(args: argparse.Namespace) -> int:
 
         now = utc_now()
         print(status.render(status.lines(paths, loaded, now, online=not args.offline), now))
+        return 0
+    if action == "move-from":
+        from desk.ops.move import move_from
+
+        move_from(args.host, paths, port=settings.dashboard_port, dry_run=args.dry_run, stop_other=args.stop_other)
         return 0
     if action == "alerts":
         from desk.core.clock import utc_now
