@@ -474,6 +474,16 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                   "problems": suite.problems, "jobs": jobs, "market_events": events,
                   "analysis": analysis}
         _atomic_private(saved_path(paths, "worker"), json.dumps(result, allow_nan=False))
+        # The watchdog after every pass (research late, a job failing for hours); the always-on app also runs it
+        # every five minutes, which notices a worker that stopped. Never stops collection.
+        try:
+            from desk.stocks import alerts, watchdog
+
+            chosen = alerts.load(paths)
+            watchdog.record(paths, utc_now(), job_hours=chosen["job_hours"],
+                            research_minutes=chosen["research_minutes"], worker_running=True)
+        except Exception as exc:  # recorded in the log only
+            log.warning("watchdog check failed", extra={"error": type(exc).__name__})
         progress("idle")
         return result
     finally:

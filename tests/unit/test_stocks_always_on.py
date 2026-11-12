@@ -35,7 +35,7 @@ def test_systemd_accepts_the_units_it_installs(tmp_path: Path) -> None:
     """Rendered with this Python and the real repository folder; any warning (an unknown key, a command that is not
     executable, a quoting mistake) fails the test, not only an outright error."""
     units = {services.STOCKS_UNIT: services.render_stocks_unit(paths(tmp_path), sys.executable, 8767),
-             **services.render_backup_units(paths(tmp_path), sys.executable)}
+             services.LID_UNIT: services.render_lid_unit(), **services.render_backup_units(paths(tmp_path), sys.executable)}
     for name, content in units.items():
         (tmp_path / name).write_text(content)
     checked = subprocess.run(["systemd-analyze", "verify", *(str(tmp_path / n) for n in units)],
@@ -68,7 +68,8 @@ def test_updates_install_and_enable_it_once_and_say_how_to_start_it_at_power_on(
     target = units / services.STOCKS_UNIT
     assert target.read_text() == services.render_stocks_unit(paths(tmp_path), "/usr/bin/python3", 8767)
     assert oct(target.stat().st_mode & 0o777) == "0o600"
-    assert ["systemctl", "--user", "enable", services.STOCKS_UNIT] in systemd.calls
+    assert ["systemctl", "--user", "enable", services.STOCKS_UNIT, services.LID_UNIT] in systemd.calls
+    assert (units / services.LID_UNIT).read_text() == services.render_lid_unit()
     assert len(notes) == 1 and "sudo loginctl enable-linger" in notes[0]                 # lingering needs an admin
     # the hourly backups run on the computer that holds the Stocks databases (desk.ops.backups)
     assert ["systemctl", "--user", "enable", "--now", services.BACKUP_TIMER] in systemd.calls
@@ -116,3 +117,39 @@ def test_kestrel_reports_whether_stocks_stays_on(monkeypatch: pytest.MonkeyPatch
     assert services.always_on(answers("disabled", "", "yes"))[1].startswith("not set up yet · kestrel update")
     assert services.always_on(answers("enabled", "activating", "yes")) == (
         False, "service is activating; starts at power-on")
+
+
+def test_the_lid_unit_holds_a_user_lid_lock_while_stocks_runs_and_never_edits_system_settings() -> None:
+    unit = services.render_lid_unit()
+    assert ("ExecStart=/usr/bin/systemd-inhibit --what=handle-lid-switch:sleep --mode=block --who=KESTREL "
+            in unit and unit.rstrip().endswith("WantedBy=desk-stocks-dashboard.service"))
+    assert "BindsTo=desk-stocks-dashboard.service" in unit and "Restart=always\nRestartSec=60" in unit
+    assert "logind.conf" not in unit                                   # the system setting is the person's sudo
+    assert services.LID_SUDO.startswith("sudo ") and "HandleLidSwitch=ignore" in services.LID_SUDO
+
+
+def test_kestrel_says_whether_closing_the_lid_suspends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(services.shutil, "which", lambda name: f"/usr/bin/{name}")
+    lid = tmp_path / "lid"
+    etc = tmp_path / "etc"
+    roots = (etc, tmp_path / "usr", tmp_path / "run")
+
+    def answers(inhibitors: str, lid_unit: str):
+        def run(command: list[str], **_: object) -> SimpleNamespace:
+            return SimpleNamespace(returncode=0, stdout=inhibitors if command[0] == "systemd-inhibit" else lid_unit)
+        return run
+
+    assert services.lid_state(answers("", "active"), lid_dir=lid, roots=roots) == (True, "no lid on this computer")
+    (lid / "LID0").mkdir(parents=True)
+    held = "KESTREL 1000 neo 4242 systemd-inhibit handle-lid-switch:sleep KESTREL Stocks keeps collecting block\n"
+    assert services.lid_state(answers(held, "active"), lid_dir=lid, roots=roots) == (
+        True, "Lid close won't sleep while Stocks runs (KESTREL holds the lid lock)")
+    ok, text = services.lid_state(answers("", "activating"), lid_dir=lid, roots=roots)
+    assert not ok and "needs you logged in at the desktop" in text and services.LID_SUDO in text
+    ok, text = services.lid_state(answers("", "inactive"), lid_dir=lid, roots=roots)
+    assert not ok and "kestrel restart sets it up" in text
+    (etc / "logind.conf.d").mkdir(parents=True)
+    (etc / "logind.conf").write_text("[Login]\n#HandleLidSwitch=suspend\n")
+    (etc / "logind.conf.d" / "kestrel-lid.conf").write_text("[Login]\nHandleLidSwitch=ignore\n")
+    assert services.lid_state(answers("", "inactive"), lid_dir=lid, roots=roots) == (
+        True, "Lid close won't sleep (this computer is set to ignore the lid)")

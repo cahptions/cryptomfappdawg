@@ -110,7 +110,7 @@ def render_stocks_unit(paths: DeskPaths, python_executable: str, port: int) -> s
 
     Like the crypto engines, it runs under ``systemd-inhibit --what=idle:sleep``: while Stocks is running the
     computer does not go to sleep when it is left idle, which would stop collection and the PAPER books overnight.
-    Closing a laptop's lid is a separate system setting (logind's HandleLidSwitch) that this does not change."""
+    Closing a laptop's lid is handled by its companion unit, ``desk-stocks-lid.service`` (``render_lid_unit``)."""
     if not Path(python_executable).is_absolute():
         raise ValueError("an absolute Python executable is required")
     environment = _environment(paths)
@@ -125,6 +125,75 @@ def render_stocks_unit(paths: DeskPaths, python_executable: str, port: int) -> s
             "\n[Install]\nWantedBy=default.target\n")
 
 
+LID_UNIT = "desk-stocks-lid.service"
+LID_SUDO = ("sudo mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\\nHandleLidSwitch=ignore\\n"
+            "HandleLidSwitchExternalPower=ignore\\nHandleLidSwitchDocked=ignore\\n' | "
+            "sudo tee /etc/systemd/logind.conf.d/kestrel-lid.conf && sudo reboot")
+
+
+def render_lid_unit() -> str:
+    """While Stocks runs, closing the laptop's lid does not suspend it: a user-level ``handle-lid-switch`` block lock
+    (with ``sleep``), the lock desktops take to handle the lid themselves. Started with Stocks (WantedBy) and stopped
+    with it (BindsTo). Taking it needs the user's active desktop session (logind's polkit rule), so at power-on,
+    before anyone logs in, it is refused and retried every minute; Stocks itself never waits for it. It changes no
+    system setting: ``LID_SUDO`` is the one-time command that does, printed for the person to run."""
+    why = _quote("--why=KESTREL Stocks keeps collecting and running PAPER research with the lid closed", command=True)
+    return ("[Unit]\nDescription=KESTREL Stocks: closing the lid does not suspend while Stocks runs\n"
+            f"BindsTo={STOCKS_UNIT}\nAfter={STOCKS_UNIT}\nStartLimitIntervalSec=0\n"
+            "\n[Service]\nType=simple\n"
+            f"ExecStart=/usr/bin/systemd-inhibit --what=handle-lid-switch:sleep --mode=block --who=KESTREL {why} "
+            "sleep infinity\nRestart=always\nRestartSec=60\nUMask=0077\nNoNewPrivileges=true\n"
+            f"\n[Install]\nWantedBy={STOCKS_UNIT}\n")
+
+
+def _logind_lid(roots: tuple[Path, ...] = (Path("/etc/systemd"), Path("/usr/lib/systemd"), Path("/run/systemd"))
+                ) -> str | None:
+    """The HandleLidSwitch= logind will use (later files win, as logind reads them), or None when unset."""
+    files = [root / "logind.conf" for root in roots[:1]]
+    drop_ins = sorted((f for root in roots for f in (root / "logind.conf.d").glob("*.conf")), key=lambda f: f.name)
+    value = None
+    for path in [*files, *drop_ins]:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            key, _, setting = line.strip().partition("=")
+            if key.strip() == "HandleLidSwitch" and setting.strip():
+                value = setting.strip()
+    return value
+
+
+def lid_state(run: Callable[..., Any] = subprocess.run, *, lid_dir: Path = Path("/proc/acpi/button/lid"),
+              roots: tuple[Path, ...] = (Path("/etc/systemd"), Path("/usr/lib/systemd"), Path("/run/systemd"))
+              ) -> tuple[bool, str]:
+    """For ``kestrel``: will closing the lid suspend this computer while Stocks runs, and if so why."""
+    if not lid_dir.is_dir() or not any(lid_dir.iterdir()):
+        return True, "no lid on this computer"
+    if _logind_lid(roots) == "ignore":
+        return True, "Lid close won't sleep (this computer is set to ignore the lid)"
+    if not shutil.which("systemd-inhibit"):
+        return False, f"closing the lid suspends it (no systemd-inhibit here) · to stop that, once: {LID_SUDO}"
+
+    def ask(*command: str) -> str:
+        try:
+            return (run(list(command), check=False, capture_output=True, text=True, timeout=5).stdout or "").strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    held = any("KESTREL" in line and "handle-lid-switch" in line
+               for line in ask("systemd-inhibit", "--list", "--no-legend", "--no-pager").splitlines())
+    if held:
+        return True, "Lid close won't sleep while Stocks runs (KESTREL holds the lid lock)"
+    state = ask("systemctl", "--user", "is-active", LID_UNIT)
+    if state in {"activating", "failed"}:
+        why = ("the lid lock was refused: it needs you logged in at the desktop, and is retried every minute")
+    elif state == "active":
+        why = "the lid lock is starting"
+    else:
+        why = "the lid lock is not set up yet (kestrel restart sets it up)"
+    return False, f"closing the lid suspends it: {why} · to keep it awake with the lid closed anyway, once: {LID_SUDO}"
+
+
 def keep_stocks_running(paths: DeskPaths, python_executable: str, port: int, *, unit_dir: Path | None = None,
                         run: Callable[..., Any] = subprocess.run) -> list[str]:
     """Install or refresh the always-on Stocks service and enable it; turn on lingering so it starts at power-on.
@@ -134,7 +203,7 @@ def keep_stocks_running(paths: DeskPaths, python_executable: str, port: int, *, 
     if not shutil.which("systemctl"):
         return ["No systemd here: Stocks runs as a plain background process and stays off after it stops."]
     directory = unit_dir or Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "systemd" / "user"
-    files = {STOCKS_UNIT: render_stocks_unit(paths, python_executable, port),
+    files = {STOCKS_UNIT: render_stocks_unit(paths, python_executable, port), LID_UNIT: render_lid_unit(),
              **render_backup_units(paths, python_executable)}
     try:
         for name, content in files.items():
@@ -147,11 +216,14 @@ def keep_stocks_running(paths: DeskPaths, python_executable: str, port: int, *, 
     except OSError as exc:
         return [f"Could not write the always-on service ({type(exc).__name__}); Stocks runs as a plain process."]
     notes = []
-    for step in (["daemon-reload"], ["enable", STOCKS_UNIT]):
+    for step in (["daemon-reload"], ["enable", STOCKS_UNIT, LID_UNIT]):
         done = run(["systemctl", "--user", *step], check=False, capture_output=True, text=True)
         if done.returncode:
             return [f"systemd did not accept the always-on service ({' '.join(step)}: "
                     f"{(done.stderr or '').strip()[:160]}); Stocks runs as a plain process this time."]
+    running = run(["systemctl", "--user", "is-active", STOCKS_UNIT], check=False, capture_output=True, text=True)
+    if (running.stdout or "").strip() == "active":     # otherwise it starts with Stocks (WantedBy)
+        run(["systemctl", "--user", "start", "--no-block", LID_UNIT], check=False, capture_output=True, text=True)
     backups = run(["systemctl", "--user", "enable", "--now", BACKUP_TIMER], check=False, capture_output=True, text=True)
     if backups.returncode:
         notes.append(f"Hourly backups are not scheduled (systemd: {(backups.stderr or '').strip()[:160]}); "

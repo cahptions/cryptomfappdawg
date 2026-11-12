@@ -125,7 +125,8 @@ Environment variables override secrets.env, so remove an obsolete exported value
 folder, over SSH too:
 
 - **`kestrel`** prints a plain-English health report and says which items need attention. It covers the app, the
-  collector, the last close analysed, stored prices, the Schwab sign-in, one live test quote, and any failing job.
+  collector, whether it stays on and whether closing the lid suspends the computer, the last close analysed, stored
+  prices, the Schwab sign-in, one live test quote, any failing job and the watchdog (see Always on).
 - **`kestrel update`** pulls the latest version, installs it and restarts the app in the background. Saved data and
   PAPER preferences are kept.
 - **`kestrel open`** opens the app window.
@@ -149,7 +150,7 @@ profit came from its best five trades, and whether its per-day average is distin
 
 ### Always on
 
-On the computer that holds the Schwab sign-in (the HP), Stocks runs as a user service,
+On the computer that holds the Schwab sign-in (now the Dell), Stocks runs as a user service,
 `desk-stocks-dashboard.service`: systemd restarts it 10 seconds after it stops for any reason (a crash, a failed
 restart, a stop) and, with lingering on, starts it when the computer powers on, before anyone logs in. `kestrel
 update` and `kestrel restart` install and enable it; `kestrel` shows an **Always on** line. Turning on lingering
@@ -160,8 +161,32 @@ sudo loginctl enable-linger neo
 ```
 
 While it runs, the service holds a sleep lock (`systemd-inhibit --what=idle:sleep`, as the crypto engines do), so
-the computer does not go to sleep when it is left idle. Closing a laptop's lid is a separate system setting this
-does not change; leave the HP open or set its lid action to "do nothing". `systemd-inhibit --list` shows the lock.
+the computer does not go to sleep when it is left idle.
+
+**Closing the lid.** A companion user service, `desk-stocks-lid.service`, starts and stops with Stocks and holds a
+`handle-lid-switch:sleep` block lock as you (`systemd-inhibit --what=handle-lid-switch:sleep`), so closing the
+laptop's lid does not suspend it while Stocks runs. KESTREL never changes a system-wide setting itself. Limits, said
+plainly: logind lets a user take the lid lock only from an active desktop session, so at power-on, before you log
+in, it is refused and retried every minute (closing the lid then would suspend); and a desktop's own power settings
+may still act on the lid (on Linux Mint: System Settings → Power Management → "When the lid is closed" → "Do
+nothing"). `kestrel` prints a **Lid** line: "Lid close won't sleep" when the lock is held (or the system ignores
+the lid), otherwise why not. To make the lid never suspend this computer at all, whoever is signed in, run once
+(it writes one logind drop-in file, then reboots):
+
+```bash
+sudo mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' | sudo tee /etc/systemd/logind.conf.d/kestrel-lid.conf && sudo reboot
+```
+
+Undo with `sudo rm /etc/systemd/logind.conf.d/kestrel-lid.conf && sudo reboot`. `systemd-inhibit --list` shows the
+locks.
+
+**Watchdog.** Every five minutes the always-on app, and the worker at the end of each pass, checks three things:
+the daily research for the last closed session not finished 3 hours after the close (Settings → Phone alerts
+changes the minutes), a collection job failing for more than 6 hours (counted from when the check first saw it
+fail; the hours are a setting too), and the worker stopped for 15 minutes while Start PAPER is on, or stuck on one
+step for 90 minutes. What it finds is kept in `~/desk-data/stocks-watchdog.json`, shown in Evidence → Data health
+(Check data health) and on the **Watchdog** lines of `kestrel`, and, with phone alerts on, sent to your phone.
+Error texts are never copied: a failing job is described by a category (authorization, rate limit, network...).
 
 Until 2026-11-04 the app ran as a plain background process, so anything that stopped it left it off (and the
 research for that day's close unrun) until something opened it again. Its log is in the journal:
@@ -188,6 +213,37 @@ Stocks app (its data is kept), and from then on:
 
 `--remote off` brings back this computer's own Stocks app.
 
+### Moving Stocks to another computer
+
+`kestrel move-from USER@ADDRESS` (or `uv run desk stocks move-from USER@ADDRESS`) brings another computer's Stocks
+data — price history, Plays history, tracked plays, the PAPER books and Learning — to the computer you run it on,
+which keeps Stocks from then on. For the move from the HP to the Dell, on the Dell:
+
+```bash
+ssh-copy-id neo@192.168.0.10                         # once, if `ssh neo@192.168.0.10 true` still asks for a password
+kestrel move-from neo@192.168.0.10 --dry-run         # checks SSH and lists the HP's Stocks files; changes nothing
+kestrel move-from neo@192.168.0.10 --stop-other      # stops Stocks on the HP first, so the copy is its final state
+kestrel signin                                       # the Schwab sign-in is never copied
+```
+
+What it does, in order: refuses if the address is this computer; checks SSH works without a password prompt; with
+`--stop-other`, stops and switches off the other computer's Stocks service; asks the other computer to make
+consistent copies of its four Stocks databases with SQLite's online backup API (the same code as `desk backups
+create`; a live database is never copied without its write-ahead log), which stay there in
+`~/desk-data/backups/manual`; copies them here over SSH (scp) into a staging folder and checks every checksum,
+SQLite's integrity and foreign-key checks, and that the ledger is PAPER. Only then does it stop Stocks here, move
+this computer's own Stocks databases (with their `-wal`/`-shm` files) and derived reports into
+`~/desk-data/backups/before-move/<time>` (never deleted), put the copies in place, run the migrations, start Stocks
+again, and print what moved: price sessions, Plays sessions, tracked plays, PAPER trades and Learning positions,
+beside what this computer had. If this computer was set up to show the other one's Stocks (`--remote`), it now runs
+its own and the `kestrel` command is rewritten for it.
+
+A failed SSH, a failed copy or a copy that fails a check stops the move before anything here changes. It needs free
+disk for the copies plus 512 MB (the market database is several GB; the copy takes some minutes on a home network).
+Not copied: `secrets.env` (copy the key lines you need by hand, `chmod 600`), the Schwab sign-in (sign in again
+here with `kestrel signin`; a new sign-in ends the other computer's within hours) and Settings preferences.
+Without `--stop-other` the other computer keeps running its own Stocks; stop it there so the two do not both collect.
+
 ### On your phone
 
 **`kestrel phone`** (on the HP, or from the Dell, which runs it on the HP) puts the Stocks app on your phone, privately,
@@ -209,6 +265,40 @@ The first time, Tailscale may print a link to allow HTTPS certificates for your 
 `kestrel phone` again. On the phone: install the Tailscale app, sign in with the same account, open the printed
 address and add it to the home screen. The HP must be on and awake. `kestrel phone off` stops it.
 `kestrel phone arbitrage` does the same for Arbitrage on the computer that runs it, at port 8443.
+
+### Phone alerts
+
+Short plain messages to your phone, **off until you switch them on** in Settings → Phone alerts. Two free channels;
+set either or both in `~/.config/desk/secrets.env` (never on the page, in the repository or in chat):
+
+```bash
+# ntfy: install the ntfy app on the phone and subscribe to the same topic. Pick a long random topic name: anyone
+# who knows it can read it. Generate one with: echo kestrel-$(openssl rand -hex 12)
+NTFY_TOPIC_URL=https://ntfy.sh/kestrel-<long random topic>
+NTFY_TOKEN=tk_...              # only for a protected topic or your own ntfy server
+# Telegram: the same bot and chat as the optional Telegram control (RUNBOOK.md → Optional Telegram)
+TELEGRAM_BOT_TOKEN=123456:...
+TELEGRAM_CHAT_ID=123456789
+```
+
+Then `kestrel restart`, Settings → Phone alerts → **Send test alert** (or `uv run desk stocks alerts test`), tick
+**Send phone alerts** and save. `uv run desk stocks alerts status` prints the switches and the recent alerts.
+
+Each of these can be switched off on its own:
+
+- the Schwab sign-in ends within 24 hours (it lasts 7 days), or has ended;
+- one of **My tracked plays** reached its take-profit or its stop (its return in percent; no dollar amounts);
+- a PAPER lotto is worth 3× its cost (Lotto picks, Lotto picks · let them run, Random lottos);
+- a stock on your watchlist filed an 8-K red flag (bankruptcy, accelerated debt, impairment, delisting notice, auditor
+  change, non-reliance) or a late-filing notice (NT 10-K/10-Q), first seen after alerts were switched on;
+- the Stocks worker stopped (for 15 minutes while Start PAPER is on) or stuck, or a job failing for longer than the
+  hours you set (6 by default);
+- the daily research not finished the minutes you set after the close (180 by default).
+
+The always-on app checks every five minutes. Each event is sent once (an append-only alert log in
+`stocks-research.db`, table `stk_alerts`); a failed delivery is retried every 30 minutes, four times at most; no more
+than 6 alerts an hour and 24 a day go out, the rest wait for the next check. Messages never include a key, token, the
+topic address or an error text from a provider. An alert never places an order: research and PAPER only.
 
 ## 3. Automatic collection and PAPER trading
 
@@ -275,6 +365,22 @@ be marked/managed through stored missed sessions, but new entries are not discov
 recovery marks are simulations and must be segmented from uninterrupted prospective observations. An order
 created after an opening cannot fill at that past opening. A PAPER session commits atomically across accounts,
 so a failed transaction can be retried without a half-completed day.
+
+### Portfolio risk
+
+**Home → Your plays → Portfolio risk** (`#risk`, API `GET /api/stocks/risk`) adds up every open PAPER options
+position (the strategy books) and every entered one of **My tracked plays**: total delta in shares and dollars,
+beta-weighted to SPY (dollars per 1% SPY move, and SPY-equivalent shares), vega (dollars per 1 volatility point),
+theta (dollars a day), the largest single name and sector by gross dollar delta, expiries by week, and three
+modelled scenarios: SPY −5%, SPY +5% (each stock moved by its beta to SPY) and implied volatility +5 points.
+
+Each leg's greeks come from its tracked quotes where stored ("quotes"), otherwise from the app's option model
+("modelled": Black-Scholes at the latest stored close with the leg's own implied volatility, a 4% rate, no
+dividends); a leg with neither price nor volatility is **unknown**, counted and left out of the totals, never taken
+as zero. Betas come from up to a year of stored daily closes against SPY; a stock with fewer than 60 shared days is
+taken as 1 and says so. Scenarios reprice every leg with a known volatility in full, holding time, skew and
+liquidity still: a research approximation, not a broker's risk figure. The Learning research account is not
+included. On a phone the page is one column. Code: `src/desk/stocks/risk.py`, `static/risk.js`.
 
 ## 4. Read the evidence
 

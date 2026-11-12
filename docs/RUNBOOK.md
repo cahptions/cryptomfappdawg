@@ -208,6 +208,9 @@ There is no Telegram resume, arbitrary command execution, signing or LIVE arm co
 and leaves the guardian supervising. If its reply says the halt could not be confirmed, run `desk stop` locally.
 The local daily-report builder does not send anything by itself.
 
+The Stocks desk's phone alerts can send through the same bot and chat (one-way: the alerts send, they never read
+commands); see [STOCKS.md → Phone alerts](STOCKS.md#phone-alerts). They are off until switched on in Stocks Settings.
+
 ## Going LIVE (only after the readiness report and your own decision)
 
 Nothing here happens by itself, and every step is yours. The readiness report must say ELIGIBLE FOR MANUAL LIVE

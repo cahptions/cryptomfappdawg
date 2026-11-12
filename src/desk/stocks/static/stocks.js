@@ -737,6 +737,145 @@ function systemPage() {
     ),
   );
 }
+// Settings → Phone alerts (desk.stocks.alerts). Where alerts go lives only in secrets.env; this page never sees it.
+function alertsPanel() {
+  const box = panel(
+      "Phone alerts",
+      "Short messages to your phone through ntfy or Telegram, off until you switch them on. Where they go is set in ~/.config/desk/secrets.env (NTFY_TOPIC_URL, or TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID), never on this page. PAPER research only: an alert never places an order.",
+    ),
+    body = el("div"),
+    message = el("p", undefined, "muted");
+  box.id = "alerts";
+  message.setAttribute("role", "status");
+  box.append(body, message);
+  function draw(data) {
+    body.replaceChildren();
+    const ready = data.channels || {},
+      where = [ready.ntfy && "ntfy", ready.telegram && "Telegram"].filter(
+        Boolean,
+      );
+    body.append(
+      el(
+        "p",
+        where.length
+          ? `Set up: ${where.join(" and ")}.`
+          : "No channel set up yet: add NTFY_TOPIC_URL (for example https://ntfy.sh/ and a long random topic) to secrets.env, then kestrel restart.",
+        where.length ? "" : "muted",
+      ),
+    );
+    for (const problem of ready.problems || [])
+      body.append(el("p", problem, "error"));
+    const form = el("form", undefined, "alert-settings");
+    function check(label, checked, id) {
+      const row = el("label", undefined, "alert-toggle"),
+        input = el("input");
+      input.type = "checkbox";
+      input.checked = Boolean(checked);
+      input.id = id;
+      row.append(input, document.createTextNode(` ${label}`));
+      form.append(row);
+      return input;
+    }
+    const enabled = check("Send phone alerts", data.enabled, "alerts-enabled");
+    const events = {};
+    for (const [name, label] of Object.entries(data.labels || {}))
+      events[name] = check(label, data.events?.[name], `alert-${name}`);
+    function number(label, value, id, min, max) {
+      const l = el("label", label),
+        input = el("input");
+      l.htmlFor = id;
+      input.id = id;
+      input.type = "number";
+      input.min = min;
+      input.max = max;
+      input.step = 1;
+      input.value = value;
+      form.append(l, input);
+      return input;
+    }
+    const hours = number(
+        "A job counts as failing after (hours)",
+        data.job_hours,
+        "alert-job-hours",
+        1,
+        72,
+      ),
+      minutes = number(
+        "Daily research counts as late after the close (minutes)",
+        data.research_minutes,
+        "alert-research-minutes",
+        30,
+        720,
+      );
+    const save = el("button", "Save alert settings", "primary"),
+      test = el("button", "Send test alert");
+    save.type = "submit";
+    test.type = "button";
+    test.id = "alerts-test";
+    test.disabled = !where.length;
+    form.append(save, test);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      save.disabled = true;
+      try {
+        const next = await api("alerts", {
+          enabled: enabled.checked,
+          events: Object.fromEntries(
+            Object.entries(events).map(([k, v]) => [k, v.checked]),
+          ),
+          job_hours: Number(hours.value),
+          research_minutes: Number(minutes.value),
+        });
+        draw(next);
+        message.textContent = next.enabled
+          ? "Saved. Alerts are on."
+          : "Saved. Alerts are off.";
+      } catch (error) {
+        message.textContent = error.message;
+        save.disabled = false;
+      }
+    };
+    test.onclick = async () => {
+      test.disabled = true;
+      message.textContent = "Sending…";
+      try {
+        message.textContent = (await api("alerts/test", {})).message;
+        draw(await api("alerts"));
+      } catch (error) {
+        message.textContent = error.message;
+        test.disabled = false;
+      }
+    };
+    body.append(
+      form,
+      el(
+        "p",
+        `Each event is sent once; at most ${data.limits?.per_hour ?? 6} alerts an hour and ${data.limits?.per_day ?? 24} a day.`,
+        "muted",
+      ),
+    );
+    if (data.recent?.length)
+      body.append(
+        el("h3", "Recent alerts"),
+        table(
+          ["When", "Alert", "Result"],
+          data.recent.map((row) => [
+            new Date(row.at).toLocaleString("en-US", {
+              timeZone: "America/New_York",
+            }) + " ET",
+            row.text,
+            row.outcome === "failed"
+              ? "Not delivered"
+              : `${row.outcome === "test" ? "Test · " : ""}${row.channels || "not delivered"}`,
+          ]),
+        ),
+      );
+  }
+  api("alerts")
+    .then(draw)
+    .catch((error) => (message.textContent = error.message));
+  return box;
+}
 async function settingsPage() {
   heading(
     "Connect your data.",
@@ -925,6 +1064,7 @@ async function settingsPage() {
   };
   box.append(form, el("p"), connect, cancel, authorization);
   app.append(box);
+  app.append(alertsPanel());
   const guide = panel("Connection guide");
   const steps = el("ol");
   for (const text of [
@@ -1062,6 +1202,7 @@ async function render() {
     else if (route === "plays" || route.startsWith("plays/"))
       await KestrelPlays.show(ticket, route);
     else if (route === "learning") await KestrelLearning.show(ticket);
+    else if (route === "risk") await KestrelRisk.show(ticket);
     else if (route === "proof") await KestrelEvidence.show(ticket);
     else if (route === "events") await KestrelEvents.show(ticket);
     else if (route === "settings") await settingsPage();

@@ -102,6 +102,9 @@ def diagnose(paths: DeskPaths) -> dict[str, Any]:
     result['worker'] = {'running': _held(paths.home / 'run' / 'stocks-worker.lock'),
                          'dashboard_running': _held(paths.home / 'run' / 'stocks-dashboard.lock')}
     result['worker']['last_failure'] = read_failure(paths)
+    from desk.stocks.watchdog import saved as watchdog_saved
+
+    result['watchdog'] = watchdog_saved(paths)
     log_path = paths.logs_dir / 'stocks-research.log'
     if log_path.is_file():
         try:

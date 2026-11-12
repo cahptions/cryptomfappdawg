@@ -24,6 +24,27 @@ from desk.storage.db import transaction
 log = logging.getLogger("desk.telegram")
 
 
+TOKEN_PATTERN = re.compile(r"[0-9]+:[A-Za-z0-9_-]{20,}")
+
+
+def valid_token(token: str | None) -> bool:
+    return bool(token) and TOKEN_PATTERN.fullmatch(str(token)) is not None
+
+
+def send_message(client: httpx.Client, token: str, chat_id: int, text: str) -> bool:
+    """One message to one allowlisted chat (the Stocks phone alerts reuse this bot and chat). True when Telegram took
+    it. Never raises and never logs: an HTTP error's text carries the token-bearing URL."""
+    if not valid_token(token) or type(chat_id) is not int:
+        return False
+    try:
+        sent = client.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id,
+                                                                                    "text": text[:4000]})
+        receipt = sent.json() if sent.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        return False
+    return isinstance(receipt, dict) and receipt.get("ok") is True
+
+
 @dataclass(frozen=True)
 class TelegramAction:
     command: str
@@ -118,7 +139,7 @@ def handle_update(update: Any, allowed_chat_id: int, paths: DeskPaths) -> Telegr
 async def poll_telegram(paths: DeskPaths, token: str, allowed_chat_id: int, stop_event: asyncio.Event,
                         *, client: httpx.AsyncClient | None = None) -> None:
     """Explicit opt-in worker. Tests inject a transport; no polling happens at import/startup."""
-    if not re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]{20,}", token) or type(allowed_chat_id) is not int:
+    if not valid_token(token) or type(allowed_chat_id) is not int:
         raise ValueError("valid Telegram token and exact integer chat ID are required")
     redaction_filter().update([token])
     logging.getLogger("httpx").setLevel(logging.WARNING)

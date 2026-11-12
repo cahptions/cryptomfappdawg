@@ -80,6 +80,14 @@ class SelectionAction(BaseModel):
     action: Literal["cancel", "close"]
 
 
+class AlertSettings(BaseModel):
+    """Settings → Phone alerts. Where alerts go is never sent from the browser: it is read from secrets.env."""
+    enabled: bool | None = None
+    events: dict[Literal["schwab", "tracked_plays", "lotto", "filings", "worker", "research"], bool] | None = None
+    job_hours: int | None = Field(default=None, strict=True, ge=1, le=72)
+    research_minutes: int | None = Field(default=None, strict=True, ge=30, le=720)
+
+
 def saved_view(paths: DeskPaths, name: str) -> dict[str, Any] | None:
     try:
         return saved(paths, name)
@@ -373,6 +381,28 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 with suppress(TimeoutError):
                     await asyncio.wait_for(automation_stop.wait(), 5)
 
+        async def watch() -> None:
+            """The watchdog and phone alerts, every five minutes (desk.stocks.watchdog, desk.stocks.alerts)."""
+            from desk.stocks import alerts, watchdog
+
+            def once() -> None:
+                chosen = alerts.load(paths)
+                issues = watchdog.record(paths, utc_now(), job_hours=chosen["job_hours"],
+                                         research_minutes=chosen["research_minutes"])
+                alerts.cycle(paths, config, utc_now(), issues=issues)
+
+            while not automation_stop.is_set():
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 60)        # let the worker start first
+                if automation_stop.is_set():
+                    break
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(once), 120)
+                except Exception as exc:  # the next check retries; never a reason to stop the app
+                    log.warning("watchdog or alerts check failed", extra={"error": type(exc).__name__})
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 240)
+
         if auto_start:
             await asyncio.to_thread(collector.maintain)
         automation = asyncio.create_task(maintain()) if auto_start else None
@@ -381,6 +411,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         tracking_automation = asyncio.create_task(track_plays()) if auto_start else None
         company_automation = asyncio.create_task(company_data()) if auto_start else None
         feeds_automation = asyncio.create_task(symbol_data()) if auto_start else None
+        watch_automation = asyncio.create_task(watch()) if auto_start else None
         try:
             yield
         finally:
@@ -402,6 +433,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             if feeds_automation is not None:
                 feeds_automation.cancel()
                 await asyncio.gather(feeds_automation, return_exceptions=True)
+            if watch_automation is not None:
+                watch_automation.cancel()
+                await asyncio.gather(watch_automation, return_exceptions=True)
             await asyncio.to_thread(collector.stop, pause=False)
             await asyncio.to_thread(evidence.close)
             await asyncio.to_thread(backtests.close)
@@ -1031,6 +1065,35 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         from desk.stocks.diagnostics import diagnose
 
         return diagnose(paths)
+
+    @app.get("/api/stocks/risk")
+    def portfolio_risk() -> dict[str, Any]:
+        from desk.stocks.risk import portfolio
+
+        with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
+            if (paths.db_dir / LEDGER_FILE).exists():
+                with reader(paths, LEDGER_FILE) as ledger:
+                    return portfolio(ledger, research, market, utc_now())
+            return portfolio(None, research, market, utc_now())
+
+    @app.get("/api/stocks/alerts")
+    def alert_settings() -> dict[str, Any]:
+        from desk.stocks import alerts
+
+        return alerts.view(paths)
+
+    @app.post("/api/stocks/alerts")
+    def save_alerts(inputs: AlertSettings) -> dict[str, Any]:
+        from desk.stocks import alerts
+
+        alerts.save(paths, inputs.model_dump(exclude_none=True), utc_now())
+        return alerts.view(paths)
+
+    @app.post("/api/stocks/alerts/test")
+    async def test_alert() -> dict[str, Any]:
+        from desk.stocks import alerts
+
+        return await asyncio.to_thread(alerts.send_test, paths, utc_now())
 
     @app.get("/api/stocks/connection")
     def connection() -> dict[str, Any]:
