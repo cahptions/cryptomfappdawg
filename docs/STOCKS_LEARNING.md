@@ -194,6 +194,46 @@ Markdown/JSON downloads. Options shows a separate learning-findings panel and li
 does not blend social mentions or unusual-volume rankings into its evidence count. There is no supported finding until
 the experiment results warrant one.
 
+## Learning report
+
+The top of the Learning page is the **Learning report**: one readable page, computed from this computer's own
+databases, that says what every learning loop knows (`src/desk/stocks/learning_report.py`,
+`GET /api/stocks/learning/report`). Its headline (two to four sentences) is always visible; the sections fold:
+
+| Section | What it reads |
+|---|---|
+| What it has learned | Calibration now in use ("when KESTREL said 60–70% for Trend calls, 41% finished in the money … it now shows those as about 45%"), suggested exit rules, inputs that predict a week's return, challengers that won or were rejected, best holding times, the lab's promotions, options rich or cheap |
+| How it behaves | What it picks (sections, calls/puts/straddles, buying or selling, days to expiry, price, sectors, stocks) over the last 90 days, its odds against the market's own (more bullish? more confident?), Learning's mix, invested share and turnover, research against the $500,000 reference, concentration of P/L |
+| What it's getting wrong | Over/under-confidence by chance with the size of the gap, sections trailing their random twins or failing, losing recipes and Expiry-filter cohorts, small accounts losing, the biggest high-confidence misses, PAPER strategies behind or backwards, and data problems (estimated/modelled marks, failing jobs, Schwab history refused, quarantined plays) |
+| Achievements | Proven sections, promotions, calibration improving the Brier score against the uncalibrated model on the same plays, beating the market's odds, the biggest lotto multiple and winners, the best Learning and PAPER trades, milestones |
+| Surprises | E.g. a section whose odds are right but which loses money, a recipe that pays at one holding time only, an input that points the wrong way, a profit resting on a few trades |
+| Coming up | The nearest milestones with progress and, where there is a pace, an estimated date ("take-profit calibration for Bearish puts: 22 of 30 resolved, about a week"); a loop with no data says what it is waiting for |
+| Changed since last week | Counts, scores and grades against the previous weekly snapshot, and findings that are new |
+| Replays on past data | Historical replays, preregistered option research, lottos on real past prices and the Evidence page's rebuilt history and proposed weights, always labelled and never mixed with forward results |
+
+**Honesty rules.** Every finding shows its evidence, the number of items **and** of separate sessions or days, and a
+strength: **early** (below that loop's own threshold, such as 30 resolved plays for calibration or 60 settled plays
+over 20 sessions for a section verdict, or seen on fewer than 10 separate days whatever the count: 30 plays from 2
+sessions are early), **suggestive**, or **tested**, used only where that loop's own significance test or grade
+already says so (a proven or failing section, a suggested exit rule, a promotion, a working or backwards grade, a
+replay's bootstrap). Calibration reads graded results only, so estimated and modelled marks are never outcomes;
+recently graded plays use the current probability model only, like the Plays page. Proposed committee weights are
+shown as proposed unless you adopted them.
+
+**Read-only.** Building the report opens every database read-only and reads the saved views; it never trades,
+grades, adopts weights, calls a provider or an LLM, and no key or credential appears in it (failing jobs are named,
+their error texts are not). Aggregates run in SQLite, row reads are limited, and the two loops that read every graded
+chance and recent mark are remembered until those tables change. On a synthetic two-year desk (152,700 plays,
+576,000 graded chances, 1.56 million marks, 30,000 Learning positions) a first build took about 5 seconds and later
+ones about 0.7 seconds.
+
+**Weekly snapshot.** After Friday's close (16:30 New York, or over the weekend if the worker was off then), the
+collection worker appends one snapshot per week to `stk_learning_reports` (research migration
+`0015_learning_reports.sql`, append-only). "Changed since last week" compares with the newest snapshot from an
+earlier week. A page load never writes one. The Check-ins tab lists the weekly reports; the Markdown check-in
+download includes the report, and **Download learning report (Markdown)** sits beside it (also at the foot of the
+report).
+
 ## Verification
 
 Offline tests cover funding after losses, exclusion of deposits from P/L/drawdown, later-quote execution, shared
@@ -204,5 +244,6 @@ strikes, later-quote price jumps, no overdrafts/top-ups, retained losses on rest
 (including the holding time), and exclusion of repeated or finite account outcomes from independent research counts.
 The `learning-workflows` and `learning-retail` browser fixtures exercise engine-generated synthetic trades, funding,
 comparisons, account selection, trade details, registering a lifecycle recipe and downloads at desktop and phone
-widths.
+widths; the `learning-report` fixture (Plays history, the Learning book and an earlier weekly snapshot) exercises the
+Learning report's sections, strength chips, links and downloads at 1366 and 375 pixels.
 These checks validate implementation; they are not live provider or profitability evidence.
