@@ -289,10 +289,9 @@ from 2 sessions are closer to two observations than to thirty. Two rules follow:
    per session. One play a session is always worth one observation.
 
 The Learning report uses the same rule (it rebuilds each group's calibration from per-session sums), and its strength
-labels call calibration evidence "early" until it has both 30 plays and 10 sessions. Because the shown chance changed
-with this rule, `odds.MODEL_VERSION` went from 1 to 2: calibration learns only from plays recorded under version 2, so
-the two rules' chances are never mixed. Version-1 plays stay in History and Performance with their recorded chances
-and grades.
+labels call calibration evidence "early" until it has both 30 plays and 10 sessions. The rule changes how evidence is
+counted, not what the model predicts, so `odds.MODEL_VERSION` stays 1 and every play recorded before the rule still
+counts: calibration learns from the model's own raw chances, which are the same under either rule.
 
 Also shown: the chance of **profit** at expiry (beyond break-even), the chance the price **touches** the strike
 before expiry (reflection formula for geometric Brownian motion; "already in the money" when it has), and the

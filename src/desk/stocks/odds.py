@@ -24,9 +24,10 @@ from itertools import pairwise
 
 from desk.stocks.options import norm_cdf
 
-# Bump when the probability model changes: calibration restarts for it. 2 (2026-11-12): calibration counts evidence in
-# independent sessions (``MIN_CALIBRATION_SESSIONS``, and shrinkage by a clustering-adjusted effective sample size).
-MODEL_VERSION = 2
+# Bump when the probability model itself changes (what it predicts before calibration): calibration restarts for it.
+# How calibration counts evidence (``MIN_CALIBRATION_SESSIONS``, the clustering-adjusted effective sample size, added
+# 2026-11-12) is not the model: the raw predictions it learns from are unchanged, so earlier plays still count.
+MODEL_VERSION = 1
 TRADING_YEAR = 252
 IV_WEIGHT = 0.7                  # forecast variance = 0.7 × implied² + 0.3 × realized²
 IC_HORIZON_YEARS = 21 / 252      # the committee's information coefficient is measured over one month
