@@ -563,12 +563,22 @@ def pick_expirations(expirations: Sequence[date], today: date, earnings: date | 
     return sorted(picked)
 
 
+CHAIN_BUDGET_BYTES = 10 * 10**9   # stocks.option_chain_budget_gb's default
+
+
+def chain_budget(gb: float) -> int | None:
+    """The setting in bytes; 0 means no limit."""
+    return None if gb <= 0 else int(gb * 10**9)
+
+
 async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime, symbols: Sequence[str], *, rate: float,
                         last_prices: dict[str, float], earnings: dict[str, date] | None = None,
                         held: dict[str, set[date]] | None = None,
-                        clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
+                        clock: Callable[[], datetime] = utc_now,
+                        chain_budget_bytes: int | None = CHAIN_BUDGET_BYTES) -> dict[str, Any]:
     """Chains for ``symbols`` (and every underlying in ``held``): the picked expirations plus any expiration a PAPER
-    position holds, so a held contract is quoted every day until it closes."""
+    position holds, so a held contract is quoted every day until it closes. Every collected chain is kept: only past
+    ``chain_budget_bytes`` (``stocks.option_chain_budget_gb``; None = no limit) are the oldest sessions deleted."""
     async def work() -> dict[str, Any]:
         today = quote_session(now)
         done, contracts, skipped = 0, 0, []
@@ -635,8 +645,9 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
             except DeskError as exc:
                 errors[symbol] = str(exc)[:200]
                 continue
-        pruned = market.prune_option_chains(today - timedelta(days=45))
+        pruned = market.prune_option_chains(chain_budget_bytes, today)
         detail = {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned,
+                  "chain_storage": {**market.chain_storage(), "budget_bytes": chain_budget_bytes},
                 "source": suite.option_source, "errors": errors, "partial": bool(errors), "session": today.isoformat(),
                 "coverage": coverage, "parser_version": OPTIONS_VERSION}
         if errors and not done:
@@ -646,6 +657,7 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
     return await _job(market, "options", now, work)
 
 
-__all__ = ["COMPANY_FORMS", "FRED_SERIES", "MENTION_SOURCES", "companies", "corporate_actions", "fails", "filings_feed",
-           "insider_history", "listings", "mentions", "missing_price_days", "option_chains", "pick_expirations", "prices",
-           "quarter_end", "rates", "short_interest", "short_volume", "stale_companies"]
+__all__ = ["CHAIN_BUDGET_BYTES", "COMPANY_FORMS", "FRED_SERIES", "MENTION_SOURCES", "chain_budget", "companies",
+           "corporate_actions", "fails", "filings_feed", "insider_history", "listings", "mentions",
+           "missing_price_days", "option_chains", "pick_expirations", "prices", "quarter_end", "rates",
+           "short_interest", "short_volume", "stale_companies"]

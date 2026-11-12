@@ -53,7 +53,7 @@ trading (`desk.stocks.option_model`):
   from observations dated before it, so no session is priced with what options did later, falling back to stated
   market-wide values until there are enough.
 - **Chains and listings.** A replayed day's chain is, in order: **KESTREL's own collected chain** for that stock and
-  session where one is stored (the last 45 days; real bid/ask, volume and open interest, exactly what forward PAPER
+  session where one is stored (every collected session is kept within the storage budget; real bid/ask, volume and open interest, exactly what forward PAPER
   fills from; a contract held from earlier that it lacks keeps its rebuilt quote); else one **rebuilt on Massive's real
   listing** for that month (the real expiries and strikes within 20% of the price, downloaded through the Massive
   queue for each stock and month the latest replay traded, about one request each); else one rebuilt on the

@@ -718,6 +718,17 @@ function systemPage() {
       ),
     );
   }
+  const chains = snapshot.jobs.options?.detail?.chain_storage;
+  if (chains) {
+    const gb = (bytes) => `${(bytes / 1e9).toFixed(bytes < 1e8 ? 3 : 2)} GB`;
+    const pruned = snapshot.jobs.options.detail.pruned;
+    app.append(
+      panel(
+        "Stored option chains",
+        `${chains.sessions} sessions kept${chains.first ? ` (${chains.first} to ${chains.last})` : ""} · ${gb(chains.bytes)} compressed${chains.bytes_per_session ? `, about ${(chains.bytes_per_session / 1e6).toFixed(1)} MB a session` : ""} · budget ${chains.budget_bytes ? gb(chains.budget_bytes) : "no limit"}. Every collected chain is kept as real bid/ask history; only past the budget are the oldest sessions deleted${pruned?.sessions ? ` (the last pass deleted ${pruned.sessions} through ${pruned.through})` : ""}. Change it with stocks.option_chain_budget_gb (0 = no limit).`,
+      ),
+    );
+  }
   if (snapshot.plays_tracking)
     app.append(KestrelPlays.tracking(snapshot.plays_tracking));
   if (

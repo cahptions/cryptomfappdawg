@@ -537,8 +537,8 @@ def replay(
                 "(real bid/ask, volume and open interest, as forward PAPER fills), "
                 f"{modeled.chain_sources.get('listed', 0)} were rebuilt on Massive's real listing for that month, and "
                 f"{modeled.chain_sources.get('stand_in', 0)} on the stand-in (monthly expiries and a listing-style "
-                "strike grid). Collected chains are kept 45 days; listings download for the stocks and months the "
-                "replay trades.",
+                "strike grid). Collected chains are all kept (the oldest pruned only past the storage budget); "
+                "listings download for the stocks and months the replay trades.",
                 "Open interest isn't stored historically. Where Massive was asked about the days before a decision, a "
                 f"contract that traded fewer than {option_model.LIQUID_VOLUME} contracts in the "
                 f"{option_model.LIQUID_DAYS} days up to it counts as illiquid and is passed over "

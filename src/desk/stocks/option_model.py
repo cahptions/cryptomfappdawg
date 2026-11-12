@@ -2,9 +2,9 @@
 
 A past day's option chain is, in order of preference:
 
-1. **KESTREL's own collected chain** for that stock and session, where one is stored (the last 45 days): real bid/ask,
-   volume and open interest, exactly what forward PAPER fills from. A contract held from earlier that the collected
-   chain lacks keeps its rebuilt quote.
+1. **KESTREL's own collected chain** for that stock and session, where one is stored (every collected session,
+   within the storage budget): real bid/ask, volume and open interest, exactly what forward PAPER fills from. A
+   contract held from earlier that the collected chain lacks keeps its rebuilt quote.
 2. **Rebuilt on Massive's real listing** for that month, where it was downloaded (``listings_task`` in
    ``desk.stocks.options_history``, for the stocks and months the replay trades): the real expiries and strikes.
 3. **Rebuilt on the stand-in**: monthly expiries (the third Friday, listed for every optioned stock) and a

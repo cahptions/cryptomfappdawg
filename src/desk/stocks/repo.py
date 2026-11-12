@@ -472,8 +472,37 @@ class StocksMarket:
                                 (underlying, day_of(day))).fetchone()
         return None if row is None else row["underlying_price"]
 
-    def prune_option_chains(self, before: date) -> int:
-        return self.conn.execute("DELETE FROM stk_option_chains WHERE day < ?", (day_of(before),)).rowcount
+    def chain_storage(self) -> dict[str, Any]:
+        """Collected raw chains: sessions kept, first and last, and their compressed bytes (the stored blobs; the
+        database file also holds indexes and free pages, which SQLite reuses rather than returns)."""
+        rows = self.conn.execute("SELECT day, SUM(length(chain_zlib)) AS bytes, SUM(contracts) AS contracts "
+                                 "FROM stk_option_chains GROUP BY day ORDER BY day").fetchall()
+        total = sum(r["bytes"] for r in rows)
+        return {"sessions": len(rows), "first": date_of(rows[0]["day"]).isoformat() if rows else None,
+                "last": date_of(rows[-1]["day"]).isoformat() if rows else None, "bytes": total,
+                "contracts": sum(r["contracts"] for r in rows),
+                "bytes_per_session": round(total / len(rows)) if rows else None}
+
+    def prune_option_chains(self, max_bytes: int | None, keep_from: date) -> dict[str, Any]:
+        """Keep every collected chain; only past ``max_bytes`` (None = no limit) delete whole sessions, oldest first.
+        Sessions on or after ``keep_from`` (today's) are never deleted, even over the budget."""
+        out: dict[str, Any] = {"sessions": 0, "bytes": 0, "through": None}
+        if max_bytes is None:
+            return out
+        rows = self.conn.execute("SELECT day, SUM(length(chain_zlib)) AS bytes FROM stk_option_chains "
+                                 "GROUP BY day ORDER BY day").fetchall()
+        over = sum(r["bytes"] for r in rows) - max_bytes
+        doomed = []
+        for r in rows:
+            if over <= 0 or r["day"] >= day_of(keep_from):
+                break
+            doomed.append(r["day"])
+            over -= r["bytes"]
+            out["bytes"] += r["bytes"]
+        if doomed:
+            self.conn.execute("DELETE FROM stk_option_chains WHERE day <= ?", (doomed[-1],))
+            out.update(sessions=len(doomed), through=date_of(doomed[-1]).isoformat())
+        return out
 
     def save_option_daily(self, underlying: str, day: date, observed_at: datetime, summary: dict[str, Any]) -> None:
         self.conn.execute("INSERT OR REPLACE INTO stk_option_daily(underlying, day, observed_at, summary_json)"

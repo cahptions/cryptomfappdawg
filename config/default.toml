@@ -142,6 +142,7 @@ price_history_years = 10        # years of earlier daily bars from Schwab (0 = n
 min_price_usd = "1"
 min_median_dollar_volume_usd = "1000000"
 options_focus_symbols = 150     # ranked focus for bounded option batches; this is not a daily coverage guarantee
+option_chain_budget_gb = 10     # every collected option chain is kept; past this the oldest sessions are pruned (0 = no limit)
 refresh_after_close_minutes = 75
 paper_starting_capital_usd = "10000"
 paper_option_capital_usd = "50000"

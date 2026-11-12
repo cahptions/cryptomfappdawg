@@ -326,8 +326,9 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             offset = offset % max(1, len(rotating))
             remainder = max(0, option_limit - len(core))
             wanted = [*core, *(rotating + rotating)[offset:offset + remainder]]
-            jobs["options"] = await run_job("options", collect.option_chains(suite, market, now, wanted, rate=0.04,
-                                                         last_prices={}, held=held))
+            jobs["options"] = await run_job("options", collect.option_chains(
+                suite, market, now, wanted, rate=0.04, last_prices={}, held=held,
+                chain_budget_bytes=collect.chain_budget(settings.option_chain_budget_gb)))
             market.attempted_options(wanted, utc_now())
             if jobs["options"].get("ok"):
                 detail = {**jobs["options"], "next_offset": (offset + remainder) % max(1, len(rotating))}
