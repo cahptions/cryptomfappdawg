@@ -925,6 +925,7 @@ async function settingsPage() {
   };
   box.append(form, el("p"), connect, cancel, authorization);
   app.append(box);
+  app.append(KestrelAccount.settingsPanel());
   const guide = panel("Connection guide");
   const steps = el("ol");
   for (const text of [
@@ -1065,6 +1066,7 @@ async function render() {
     else if (route === "proof") await KestrelEvidence.show(ticket);
     else if (route === "events") await KestrelEvents.show(ticket);
     else if (route === "settings") await settingsPage();
+    else if (route === "account") await KestrelAccount.show(ticket);
     else if (route === "system") systemPage();
     else if (route === "stocks" || route === "lists")
       await KestrelExplore.show(ticket);

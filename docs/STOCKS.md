@@ -300,6 +300,13 @@ The **Events** tab logs unusual market days (big index, sector, theme and stock 
 corrections, VIX spikes, sharp rate moves) by fixed rules from stored closing data, as context for reading
 results. [How events are found](STOCKS_EVENTS.md).
 
+**My Schwab account** (header → Account) is an optional, **read-only** view of your real Schwab positions with
+KESTREL's view of each (committee verdict; for options the odds, the Plays-style exit plan and IV rank) and your
+closed real trades graded against random twins. It is off until you turn on Settings → **Read my Schwab account
+(read-only)**, needs the "Accounts and Trading Production" product on your Schwab developer app plus a fresh sign-in,
+and can never place an order; account numbers are never stored or shown (last four digits only). Your holdings join
+the watchlist. [Setup and what it requests](SCHWAB.md#reading-your-schwab-account-read-only).
+
 `uv run desk stop` activates the shared STOP file. The next Stocks pass cancels pending entries, continues
 managing held PAPER positions and suppresses new entries. `uv run desk resume` clears the shared STOP,
 so inspect its impact on other desks before deliberately resuming.

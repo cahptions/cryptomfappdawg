@@ -1,7 +1,8 @@
 # Schwab market data: free local HTTPS, optional Tailscale
 
-This integration is market-data-only. It does not request accounts, positions or orders and cannot place a
-brokerage trade. The Stocks ledger remains PAPER. Broker approval, API access and data entitlements still need
+This integration is market data, plus an **optional, off-by-default, read-only** view of your own account
+([Reading your Schwab account](#reading-your-schwab-account-read-only)). It never requests an order endpoint and
+cannot place, change or cancel a brokerage trade. The Stocks ledger remains PAPER. Broker approval, API access and data entitlements still need
 verification on the operator's laptop. No real authorization was performed in the cloud.
 
 ## Is 127.0.0.1 blocked?
@@ -195,3 +196,79 @@ waiting, then **Start browser authorization → Open Schwab authorization**, acc
 `127.0.0.1:8182` only, log in, and finish within about 30 seconds of Schwab's redirect. Alternative without the
 second forward: stop the dashboard, run `uv run desk stocks connect --manual` in the SSH terminal, open the printed
 URL on the other computer, and paste the final (failed-to-load) redirect address into the hidden prompt.
+
+## Reading your Schwab account (read only)
+
+**My Schwab account** (header → Account; on a phone, More → My Schwab account) shows your real positions with
+KESTREL's own view of each, and grades your closed real trades. It is **off by default**: nothing is requested from
+your account until you turn on Settings → **Read my Schwab account (read-only)**. Turning it off stops all account
+requests; saved snapshots are kept.
+
+### What you must do once
+
+1. At developer.schwab.com → Dashboard → your app → **Modify App**, add the product **Accounts and Trading
+   Production** next to Market Data Production and save. Schwab may review the change: wait until the app shows
+   **Ready For Use** again (market data can pause while it is pending; that is Schwab's process, not KESTREL's).
+2. On the computer that runs Stocks, sign in again: Settings → **Start browser authorization** → **Open Schwab
+   authorization** (or `kestrel signin` over SSH). On Schwab's login pages, **tick the accounts** you want KESTREL to
+   read. A sign-in made before the product was added does not include account access.
+3. Settings → turn on **Read my Schwab account (read-only)**, then My Schwab account → **Refresh now**.
+
+If Schwab refuses (HTTP 401 or 403), the view says plainly that the product is not enabled or the sign-in predates
+it, with the steps above. Signed out, it says so; Schwab not answering keeps the last saved positions on screen.
+
+### What it requests, and what it cannot
+
+`desk.stocks.sources.schwab_account` can issue **only HTTP GET**, and only to three paths under
+`https://api.schwabapi.com/trader/v1`:
+
+| Path | Why |
+| --- | --- |
+| `/accounts/accountNumbers` | account number → Schwab's `hashValue` (the hash addresses the account in requests) |
+| `/accounts?fields=positions` | positions: symbol or OCC option, quantity, average price, market value, today's P/L |
+| `/accounts/{hashValue}/transactions?types=TRADE` | executed trades, for grading |
+
+Any other path is refused in code before a request is made, and `tests/unit/test_stocks_schwab_account.py`
+inspects the module's source to prove it contains no other HTTP method and no order path. It uses the same private
+OAuth token as market data; responses are never stored raw.
+
+**Account numbers** never leave that module: they are not stored, logged, shown, exported or put in fixtures. Each
+account is kept as a one-way key derived from Schwab's hashValue, and shown only by its **last four digits**.
+
+### When it reads, and what it keeps
+
+On market days at **09:45, 12:30 and 15:30** New York time and once **after the close** (16:20; 13:20 on early-close
+days): one attempt per slot, whatever the outcome. Trades are read after the close (a year back on the first read,
+then from the last stored trade with a week's overlap). **Refresh now** reads at once, at most once a minute. The
+dashboard (`desk stocks dashboard`) does the reading; it pauses while the shared STOP file is active.
+
+Research database (append-only, migration `0016_schwab_account`): `stk_account_pulls` (each read and its outcome),
+`stk_account_positions` (each read's positions with source and time) and `stk_account_fills` (each trade once, by
+Schwab's activity id). Held stocks and options' underlyings with a stored listing are **added to the watchlist**
+(never removed: remove them yourself on the stock page).
+
+### KESTREL's view and "your decisions graded"
+
+- A stock: its committee score and verdict (or a note that KESTREL does not score it).
+- An option: KESTREL's chance of a profit at expiry from your average price and from today's price (volatility
+  forecast from the option's own implied volatility blended with the stock's realized, no drift); the same exit plan
+  a play gets (take-profit, stop and leave-by, also as stock prices) with the odds the take-profit comes first;
+  where it stands against that plan; IV rank. Sold puts are planned as cash-secured puts; sold calls get odds but no
+  plan (whether one is covered cannot be tied to shares reliably). Figures are per contract.
+- Graded: closed trades are paired first in, first out from the stored fills. Each is compared with a twin over
+  the same days: a stock with another stored stock picked at random (as Plays twins are another stock), an option
+  with SPY in the option's direction (a same-delta option twin needs that day's chains, which are not kept for
+  arbitrary names). Below 20 compared trades it says **Early**. A close with no stored opening (opened more than a
+  year before the first read) is left out; an option that reached expiration with no closing trade (expired,
+  exercised or assigned are not TRADE records) is counted but not graded.
+
+### For other features
+
+`desk.stocks.account.account_positions(conn)` (research database connection) returns the latest successful read's
+positions as `AccountPosition` values (last four digits, symbol, underlying via `.stock`, option fields, quantity,
+average price, market value, today's P/L, `taken_at`, source). Empty when the switch was never on or no read
+succeeded. Check `taken_at`: a later failed read keeps the previous positions.
+
+These parsers were written from Schwab's Trader API documentation and tested with documentation-shaped synthetic
+responses. No real account response was available when they were written; field names stay `to_verify` in
+`config/providers.toml` until a real read confirms them.

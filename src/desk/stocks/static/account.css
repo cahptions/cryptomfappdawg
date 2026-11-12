@@ -1,0 +1,85 @@
+/* My Schwab account: the user's real positions, read only (account.js). */
+.account-real {
+  border: 1px solid var(--warning);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 0 0 16px;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+.account-real strong {
+  color: var(--warning);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.8rem;
+}
+.account-real p {
+  margin: 4px 0 0;
+}
+.account-state {
+  margin: 0 0 16px;
+}
+.account-state button {
+  margin-top: 4px;
+}
+.account-detail {
+  max-width: 70ch;
+}
+.account-position {
+  display: grid;
+  gap: 2px;
+  min-width: 9rem;
+}
+.account-position small {
+  color: var(--muted);
+}
+.account-view {
+  min-width: 16rem;
+  max-width: 44rem;
+}
+.account-view p {
+  margin: 0 0 4px;
+}
+.account-plan-state {
+  font-weight: 600;
+}
+.account-early {
+  color: var(--warning);
+}
+.account-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+@media (max-width: 640px) {
+  .account-cards table,
+  .account-cards tbody,
+  .account-cards tr,
+  .account-cards td {
+    display: block;
+    width: 100%;
+  }
+  .account-cards thead {
+    display: none;
+  }
+  .account-cards tr {
+    border-bottom: 1px solid var(--line-strong);
+    padding: 8px 0;
+  }
+  .account-cards td {
+    border: 0;
+    padding: 2px 0;
+  }
+  .account-cards td[data-label]:not(:first-child)::before {
+    content: attr(data-label) ": ";
+    color: var(--muted);
+  }
+  .account-cards td[data-label="KESTREL's view"]::before {
+    display: block;
+  }
+  .account-view,
+  .account-position {
+    min-width: 0;
+    max-width: none;
+  }
+}

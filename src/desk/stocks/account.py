@@ -114,8 +114,9 @@ def current_slot(now: datetime) -> tuple[str, datetime, bool] | None:
     day = local.date()
     if not cal.is_trading_day(day):
         return None
-    starts = [(f"{day} {t:%H:%M}", datetime.combine(day, t, cal.NEW_YORK), False) for t in SLOTS]
     close = cal.session_close(day) + AFTER_CLOSE
+    starts = [(f"{day} {t:%H:%M}", datetime.combine(day, t, cal.NEW_YORK), False) for t in SLOTS
+              if datetime.combine(day, t, cal.NEW_YORK) < close]          # early closes skip the later slots
     starts.append((f"{day} close", close, True))
     passed = [s for s in starts if s[1] <= local]
     return passed[-1] if passed else None
