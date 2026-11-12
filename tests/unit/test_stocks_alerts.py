@@ -284,3 +284,27 @@ def test_settings_page_saves_switches_with_csrf_and_never_shows_where_alerts_go(
         assert client.post("/api/stocks/alerts", json={"job_hours": 99}, headers=headers).status_code == 422
         assert client.post("/api/stocks/alerts", json={"events": {"bogus": True}}, headers=headers).status_code == 422
         assert client.post("/api/stocks/alerts/test", json={}).status_code == 403
+
+
+def test_kestrel_status_and_the_health_page_show_the_watchdog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from desk.ops import services
+    from desk.stocks import status
+    from desk.stocks.diagnostics import diagnose
+
+    paths = setup(tmp_path)
+    assert diagnose(paths)["watchdog"] is None
+    monkeypatch.setattr(services, "lid_state", lambda: (True, "Lid close won't sleep while Stocks runs (KESTREL "
+                                                               "holds the lid lock)"))
+    monkeypatch.setattr(services, "always_on", lambda: (True, "restarts within seconds if it stops"))
+    watchdog.record(paths, NOW - timedelta(hours=1), worker_running=False)      # first saw it stopped an hour ago
+    found = status.lines(paths, load_config(REPO / "config"), NOW, online=False)
+    by = {label: (ok, text) for ok, label, text in found}
+    assert by["Lid"] == (True, "Lid close won't sleep while Stocks runs (KESTREL holds the lid lock)")
+    assert by["Watchdog"] == (False, "1 problem")
+    assert by["  worker"][1].startswith("The Stocks worker has been stopped since Thu Nov 12, 12:00 PM ET")
+    health = diagnose(paths)["watchdog"]
+    assert health["checked_at"] == (NOW - timedelta(hours=1)).isoformat() and health["issues"] == []
+    (paths.home / "stocks-automation.json").write_text('{"enabled": false}')
+    by = {label: (ok, text) for ok, label, text in status.lines(paths, load_config(REPO / "config"), NOW,
+                                                               online=False)}
+    assert by["Watchdog"][0] and by["Watchdog"][1].startswith("nothing late or stuck")

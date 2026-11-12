@@ -120,6 +120,9 @@ async def test_no_signup_jobs_run_without_price_sec_or_options_credentials(tmp_p
     assert set(calls) == {"listings", "mentions", "rates", "short_interest", "short_volume"}
     assert result["research_only"] and result["analysis"]["paper"] is None
     assert result["problems"]
+    from desk.stocks import watchdog
+
+    assert watchdog.saved(paths) is not None                  # the watchdog checks after every worker pass
 
 
 async def test_paper_uses_ready_data_despite_unavailable_optional_sources(tmp_path: Path, monkeypatch: Any) -> None:

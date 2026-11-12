@@ -39,6 +39,36 @@ const KestrelEvidence = (() => {
           ]),
         ),
       );
+      // The watchdog (desk.stocks.watchdog): research late, a job failing for hours, the worker stopped or stuck.
+      const watch = healthData.watchdog,
+        watchBox = el("div", undefined, "watchdog");
+      watchBox.id = "evidence-watchdog";
+      watchBox.append(el("h3", "Watchdog"));
+      if (!watch)
+        watchBox.append(
+          el(
+            "p",
+            "Not checked yet. The app checks every five minutes and after each worker pass.",
+            "muted",
+          ),
+        );
+      else {
+        const checked =
+          new Date(watch.checked_at).toLocaleString("en-US", {
+            timeZone: "America/New_York",
+          }) + " ET";
+        watchBox.append(
+          el(
+            "p",
+            watch.issues.length
+              ? `${watch.issues.length} problem${watch.issues.length > 1 ? "s" : ""} at the last check (${checked}).`
+              : `Nothing late or stuck at the last check (${checked}).`,
+            watch.issues.length ? "error" : "muted",
+          ),
+        );
+        for (const issue of watch.issues) watchBox.append(el("p", issue.text));
+      }
+      target.append(watchBox);
       const failure = healthData.worker?.last_failure;
       if (failure) {
         target.append(

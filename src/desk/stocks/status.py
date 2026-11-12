@@ -105,6 +105,21 @@ def _version(port: int, online: bool) -> Line:
     return False, "Version", f"{text} · a newer version is available: kestrel update"
 
 
+def _watchdog(paths: DeskPaths, now: datetime) -> list[Line]:
+    """The watchdog's view now (desk.stocks.watchdog), using its saved first-seen times; this report saves nothing."""
+    from desk.stocks import alerts, watchdog
+
+    chosen = alerts.load(paths)
+    previous = watchdog._read_json(paths.home / watchdog.STATE_FILE).get("first_seen")
+    issues, _ = watchdog.observe(paths, now, previous if isinstance(previous, dict) else {},
+                                 job_hours=chosen["job_hours"], research_minutes=chosen["research_minutes"])
+    if not issues:
+        return [(True, "Watchdog", f"nothing late or stuck (research due {chosen['research_minutes']} min after the "
+                 f"close; jobs flagged after {chosen['job_hours']} h failing)")]
+    return [(False, "Watchdog", f"{len(issues)} problem{'s' if len(issues) > 1 else ''}"),
+            *((False, "  " + i.kind, i.text) for i in issues)]
+
+
 def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool = True) -> list[Line]:
     from desk.stocks.connection import connection_status
 
@@ -121,8 +136,12 @@ def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool
     from desk.ops.services import always_on
 
     if remote_host(paths) is None:                  # the computer that runs Stocks
+        from desk.ops.services import lid_state
+
         on, text = always_on()
         out.insert(1, (on, "Always on", text))
+        lid_ok, lid_text = lid_state()
+        out.insert(2, (lid_ok, "Lid", lid_text))
     dbs = StocksDatabases.open(paths)
     try:
         market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
@@ -146,6 +165,7 @@ def lines(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, online: bool
         for name, job in sorted(failing.items()):
             out.append((False, f"  {name.replace('_', ' ')}",
                         f"{str(job['error'])[:110]} · last ok {_time(job.get('last_ok_at'))}"))
+        out.extend(_watchdog(paths, now))
     finally:
         dbs.close()
     return out

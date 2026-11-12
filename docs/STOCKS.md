@@ -125,7 +125,8 @@ Environment variables override secrets.env, so remove an obsolete exported value
 folder, over SSH too:
 
 - **`kestrel`** prints a plain-English health report and says which items need attention. It covers the app, the
-  collector, the last close analysed, stored prices, the Schwab sign-in, one live test quote, and any failing job.
+  collector, whether it stays on and whether closing the lid suspends the computer, the last close analysed, stored
+  prices, the Schwab sign-in, one live test quote, any failing job and the watchdog (see Always on).
 - **`kestrel update`** pulls the latest version, installs it and restarts the app in the background. Saved data and
   PAPER preferences are kept.
 - **`kestrel open`** opens the app window.
@@ -160,8 +161,32 @@ sudo loginctl enable-linger neo
 ```
 
 While it runs, the service holds a sleep lock (`systemd-inhibit --what=idle:sleep`, as the crypto engines do), so
-the computer does not go to sleep when it is left idle. Closing a laptop's lid is a separate system setting this
-does not change; leave the HP open or set its lid action to "do nothing". `systemd-inhibit --list` shows the lock.
+the computer does not go to sleep when it is left idle.
+
+**Closing the lid.** A companion user service, `desk-stocks-lid.service`, starts and stops with Stocks and holds a
+`handle-lid-switch:sleep` block lock as you (`systemd-inhibit --what=handle-lid-switch:sleep`), so closing the
+laptop's lid does not suspend it while Stocks runs. KESTREL never changes a system-wide setting itself. Limits, said
+plainly: logind lets a user take the lid lock only from an active desktop session, so at power-on, before you log
+in, it is refused and retried every minute (closing the lid then would suspend); and a desktop's own power settings
+may still act on the lid (on Linux Mint: System Settings → Power Management → "When the lid is closed" → "Do
+nothing"). `kestrel` prints a **Lid** line: "Lid close won't sleep" when the lock is held (or the system ignores
+the lid), otherwise why not. To make the lid never suspend this computer at all, whoever is signed in, run once
+(it writes one logind drop-in file, then reboots):
+
+```bash
+sudo mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' | sudo tee /etc/systemd/logind.conf.d/kestrel-lid.conf && sudo reboot
+```
+
+Undo with `sudo rm /etc/systemd/logind.conf.d/kestrel-lid.conf && sudo reboot`. `systemd-inhibit --list` shows the
+locks.
+
+**Watchdog.** Every five minutes the always-on app, and the worker at the end of each pass, checks three things:
+the daily research for the last closed session not finished 3 hours after the close (Settings → Phone alerts
+changes the minutes), a collection job failing for more than 6 hours (counted from when the check first saw it
+fail; the hours are a setting too), and the worker stopped for 15 minutes while Start PAPER is on, or stuck on one
+step for 90 minutes. What it finds is kept in `~/desk-data/stocks-watchdog.json`, shown in Evidence → Data health
+(Check data health) and on the **Watchdog** lines of `kestrel`, and, with phone alerts on, sent to your phone.
+Error texts are never copied: a failing job is described by a category (authorization, rate limit, network...).
 
 Until 2026-11-04 the app ran as a plain background process, so anything that stopped it left it off (and the
 research for that day's close unrun) until something opened it again. Its log is in the journal:
