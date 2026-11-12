@@ -678,7 +678,8 @@ def _sectors(market: sqlite3.Connection | None, symbols: list[str]) -> dict[str,
 # ── 4. The Learning workspace ────────────────────────────────────────────────────────────────────
 def workspace(src: Sources, r: Report) -> None:
     conn = src.learning
-    if not _has(conn, "stk_learning_experiments") or not _has(conn, "stk_learning_checkpoints"):
+    if (not _has(conn, "stk_learning_experiments") or not _has(conn, "stk_learning_checkpoints")
+            or conn is None or not conn.execute("SELECT 1 FROM stk_learning_experiments LIMIT 1").fetchone()):
         r.wait("Learning workspace", "The Learning book has not started: it opens with the dashboard during market "
                                      "hours once an options provider is connected.", LEARNING)
         return
@@ -787,13 +788,13 @@ def workspace(src: Sources, r: Report) -> None:
                   items=int(closed[0]), days=days_closed, unit="closed trades", day_unit="entry days",
                   strength=strength(int(closed[0]), days_closed, need=20), link=LEARNING, key="learning-few-winners",
                   weight=2)
-        b = top[0]
-        if b["pnl"] > 0:
-            r.add("achievements", f"Best Learning trade: {b['symbol']} {b['structure'].replace('_', ' ')} opened "
-                                  f"{short(b['entry_day'])}, {money(b['pnl'] / MICRO)} "
-                                  f"({signed(b['pnl'] / b['cost'] if b['cost'] else None)}).",
-                  "Research account, sold at a later executable quote or settled at expiry.", items=1, days=1,
-                  unit="trade", day_unit="day", strength="early", link=LEARNING, key="learning-best", weight=1.2)
+    b = top[0] if top else None
+    if b is not None and b["pnl"] > 0:
+        r.add("achievements", f"Best Learning trade: {b['symbol']} {b['structure'].replace('_', ' ')} opened "
+                              f"{short(b['entry_day'])}, {money(b['pnl'] / MICRO)} "
+                              f"({signed(b['pnl'] / b['cost'] if b['cost'] else None)}).",
+              "Research account, sold at a later executable quote or settled at expiry.", items=1, days=1,
+              unit="trade", day_unit="day", strength="early", link=LEARNING, key="learning-best", weight=1.2)
     _lifecycle(conn, r)
 
 
