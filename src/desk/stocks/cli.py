@@ -73,6 +73,10 @@ def add_parser(sub: Any) -> None:
                         "(two requests)").set_defaults(func=run)
     commands.add_parser("verify-schwab", help="read-only: which Schwab fields the app reads come back on this account "
                         "(about eight requests; names and types only, never values or keys)").set_defaults(func=run)
+    alerts = commands.add_parser("alerts", help="phone alerts (ntfy/Telegram, set in secrets.env): send a test, or "
+                                 "show the settings and recent alerts")
+    alerts.add_argument("action", choices=["test", "status"])
+    alerts.set_defaults(func=run)
     dash = commands.add_parser("dashboard", help="local Stocks dashboard with private Settings")
     dash.add_argument("--port", type=int)
     dash.add_argument("--open", action="store_true")
@@ -149,6 +153,25 @@ def _run(args: argparse.Namespace) -> int:
 
         now = utc_now()
         print(status.render(status.lines(paths, loaded, now, online=not args.offline), now))
+        return 0
+    if action == "alerts":
+        from desk.core.clock import utc_now
+        from desk.stocks import alerts
+
+        if args.action == "test":
+            sent = alerts.send_test(paths, utc_now())
+            print(("✓ " if sent["ok"] else "✗ ") + sent["message"])
+            return 0 if sent["ok"] else 1
+        shown = alerts.view(paths)
+        ready = shown["channels"]
+        print(f"Phone alerts: {'on' if shown['enabled'] else 'off'} · ntfy {'set up' if ready['ntfy'] else 'not set up'}"
+              f" · Telegram {'set up' if ready['telegram'] else 'not set up'}")
+        for problem in ready["problems"]:
+            print(f"  ✗ {problem}")
+        for name, label in shown["labels"].items():
+            print(f"  {'✓' if shown['events'][name] else '·'} {label}")
+        for row in shown["recent"]:
+            print(f"  {row['at'][:16]} {row['outcome']:<6} {row['text']}")
         return 0
     if action == "learning-report":
         from desk.core.clock import utc_now

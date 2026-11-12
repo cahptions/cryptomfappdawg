@@ -1118,3 +1118,18 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+
+/* Settings → Phone alerts */
+.alert-settings {
+  display: grid;
+  gap: 8px;
+  max-width: 600px;
+}
+.alert-settings .alert-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.alert-settings button {
+  justify-self: start;
+}

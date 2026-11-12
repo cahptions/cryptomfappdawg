@@ -210,6 +210,40 @@ The first time, Tailscale may print a link to allow HTTPS certificates for your 
 address and add it to the home screen. The HP must be on and awake. `kestrel phone off` stops it.
 `kestrel phone arbitrage` does the same for Arbitrage on the computer that runs it, at port 8443.
 
+### Phone alerts
+
+Short plain messages to your phone, **off until you switch them on** in Settings → Phone alerts. Two free channels;
+set either or both in `~/.config/desk/secrets.env` (never on the page, in the repository or in chat):
+
+```bash
+# ntfy: install the ntfy app on the phone and subscribe to the same topic. Pick a long random topic name: anyone
+# who knows it can read it. Generate one with: echo kestrel-$(openssl rand -hex 12)
+NTFY_TOPIC_URL=https://ntfy.sh/kestrel-<long random topic>
+NTFY_TOKEN=tk_...              # only for a protected topic or your own ntfy server
+# Telegram: the same bot and chat as the optional Telegram control (RUNBOOK.md → Optional Telegram)
+TELEGRAM_BOT_TOKEN=123456:...
+TELEGRAM_CHAT_ID=123456789
+```
+
+Then `kestrel restart`, Settings → Phone alerts → **Send test alert** (or `uv run desk stocks alerts test`), tick
+**Send phone alerts** and save. `uv run desk stocks alerts status` prints the switches and the recent alerts.
+
+Each of these can be switched off on its own:
+
+- the Schwab sign-in ends within 24 hours (it lasts 7 days), or has ended;
+- one of **My tracked plays** reached its take-profit or its stop (its return in percent; no dollar amounts);
+- a PAPER lotto is worth 3× its cost (Lotto picks, Lotto picks · let them run, Random lottos);
+- a stock on your watchlist filed an 8-K red flag (bankruptcy, accelerated debt, impairment, delisting notice, auditor
+  change, non-reliance) or a late-filing notice (NT 10-K/10-Q), first seen after alerts were switched on;
+- the Stocks worker stopped (for 15 minutes while Start PAPER is on) or stuck, or a job failing for longer than the
+  hours you set (6 by default);
+- the daily research not finished the minutes you set after the close (180 by default).
+
+The always-on app checks every five minutes. Each event is sent once (an append-only alert log in
+`stocks-research.db`, table `stk_alerts`); a failed delivery is retried every 30 minutes, four times at most; no more
+than 6 alerts an hour and 24 a day go out, the rest wait for the next check. Messages never include a key, token, the
+topic address or an error text from a provider. An alert never places an order: research and PAPER only.
+
 ## 3. Automatic collection and PAPER trading
 
 Opening Stocks starts `desk stocks paper --continuous --price-days 20` in the background. There is no24-hour
