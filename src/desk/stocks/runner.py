@@ -40,6 +40,11 @@ class MemoryPressure(DeskError):
     pass
 
 
+# The Plays board holds every section's picks, its budget picks and the Expiry filter's picks (several hundred plays
+# of about 5 KB each on a full day); every other saved report stays small.
+SAVED_LIMITS = {"plays": 64_000_000}
+
+
 def saved_path(paths: DeskPaths, name: str) -> Path:
     if name not in {"worker", "paper", "research", "progress", "options", "plays", "plays-performance"}:
         raise ValueError("unknown Stocks record")
@@ -51,7 +56,7 @@ def saved(paths: DeskPaths, name: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        if path.stat().st_size > 4_000_000:
+        if path.stat().st_size > SAVED_LIMITS.get(name, 4_000_000):
             raise ValueError
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):

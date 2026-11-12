@@ -303,3 +303,23 @@ def test_the_page_endpoint_serves_the_saved_plays(world: StocksWorld) -> None:
         assert client.post("/api/stocks/ui", json={"bankroll": {"amount": 0, "level": "careful"}},
                            headers=headers).status_code == 422
     assert math.isfinite(saved["coverage"]["contracts_scored"])
+
+
+def test_a_full_days_board_over_four_megabytes_is_served_compressed(world: StocksWorld) -> None:
+    """A full day's board (sections, budget picks and the Expiry filter's picks) passed 4 MB on 2026-11-12 and the
+    page showed "No plays yet"; tracking lost the board too."""
+    from desk.stocks import runner, web
+    runner.publish_plays(world.paths, world.dbs, OPEN)
+    path = runner.saved_path(world.paths, "plays")
+    board = json.loads(path.read_text())
+    first = board["categories"][0]
+    first["horizon_plays"] = [dict(first["plays"][0], rank=i + 1) for i in range(1200)]       # about 5 KB each
+    path.write_text(json.dumps(board))
+    assert path.stat().st_size > 4_000_000 and runner.saved(world.paths, "plays") is not None
+    with TestClient(web.create_app(world.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
+        response = client.get("/api/stocks/plays", headers={"Accept-Encoding": "gzip"})
+        assert response.headers.get("content-encoding") == "gzip"
+        assert len(response.json()["categories"][0]["horizon_plays"]) == 1200
+        path.write_text("{not json")
+        broken = client.get("/api/stocks/plays").json()
+        assert broken["unreadable"] and "could not be read" in broken["message"] and broken["categories"] == []

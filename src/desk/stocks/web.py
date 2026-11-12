@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -42,7 +43,7 @@ from desk.stocks.hub import home as hub_home
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE, StocksDatabases, StocksMarket, StocksResearch
 from desk.stocks.research_worker import ResearchWorker
-from desk.stocks.runner import saved
+from desk.stocks.runner import saved, saved_path
 from desk.stocks.runtime import UI_PROTOCOL, code_version, source_revision
 from desk.storage.db import DbKind
 from desk.storage.db import connect as open_database
@@ -409,6 +410,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
     app = FastAPI(title="KESTREL Stocks PAPER", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     install_browser_boundary(app, csrf)
+    app.add_middleware(GZipMiddleware, minimum_size=4096)        # the Plays board is several MB of JSON
 
     @app.exception_handler(DeskError)
     async def desk_error(_: Request, exc: DeskError) -> JSONResponse:
@@ -452,9 +454,12 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def plays_view() -> dict[str, Any]:
         value = saved_view(paths, "plays")
         if value is None:
-            return {"version": 1, "asof": None, "categories": [],
-                    "message": "Plays are built by the Stocks worker after each options pass. Collection starts with "
-                               "PAPER (System), and needs an options connection (Settings)."}
+            unreadable = saved_path(paths, "plays").exists()
+            return {"version": 1, "asof": None, "categories": [], "unreadable": unreadable,
+                    "message": ("The saved Plays board could not be read. The worker writes a new one after its next "
+                                "options pass; Evidence → Check data health shows what it is doing." if unreadable else
+                                "Plays are built by the Stocks worker after each options pass. Collection starts with "
+                                "PAPER (System), and needs an options connection (Settings).")}
         from desk.stocks.play_selections import idea_id
 
         for category in value.get("categories", []):
