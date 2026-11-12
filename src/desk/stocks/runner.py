@@ -454,6 +454,16 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             except Exception as exc:  # recorded; never stops collection
                 log.warning("option history failed", extra={"error": str(exc)[:200]})
                 market.job("massive_options", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+        # The Learning report's weekly snapshot, after Friday's close: at most once a week, never on a page load.
+        try:
+            from desk.stocks import learning_report
+
+            if learning_report.weekly(paths, dbs.research, utc_now()):
+                jobs["learning_report"] = {"ok": True, "week": learning_report.week_of(utc_now())}
+                market.job("learning_report", now, detail=jobs["learning_report"])
+        except Exception as exc:  # recorded; never stops collection
+            log.warning("learning report snapshot failed", extra={"error": str(exc)[:200]})
+            market.job("learning_report", now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         result = {"started_at": now.isoformat(), "finished_at": utc_now().isoformat(), "mode": "PAPER",
                   "research_only": research_only, "options_provider": suite.option_source,
                   "problems": suite.problems, "jobs": jobs, "market_events": events,

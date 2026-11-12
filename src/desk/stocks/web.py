@@ -877,6 +877,15 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             return {**learning.report(conn), "control": prefs, "worker": learning_state,
                     "paper_enabled": collector.status().get("enabled"), "stop": paths.stop_file.exists()}
 
+    @app.get("/api/stocks/learning/report")
+    def learning_synthesis() -> dict[str, Any]:
+        """The Learning report from the live databases, opened read-only; never trades, grades or adopts anything."""
+        from desk.stocks import learning_report as synthesis
+
+        out = synthesis.build(paths, utc_now())
+        out["markdown"] = synthesis.render_markdown(out)
+        return out
+
     @app.post("/api/stocks/learning/control")
     def learning_control(inputs: LearningControl) -> dict[str, Any]:
         from desk.stocks.learning_service import control
