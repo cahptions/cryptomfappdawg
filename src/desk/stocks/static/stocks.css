@@ -1133,3 +1133,35 @@ footer {
 .alert-settings button {
   justify-self: start;
 }
+
+/* #risk: whole-portfolio risk; one column on a phone */
+.risk-tiles,
+.risk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.risk-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+.risk-tile {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+.risk-tile strong {
+  font-size: 20px;
+}
+.risk-tile strong.unknown {
+  color: var(--muted, inherit);
+}
+@media (max-width: 650px) {
+  .risk-tiles,
+  .risk-grid {
+    grid-template-columns: 1fr;
+  }
+}

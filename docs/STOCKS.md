@@ -366,6 +366,22 @@ recovery marks are simulations and must be segmented from uninterrupted prospect
 created after an opening cannot fill at that past opening. A PAPER session commits atomically across accounts,
 so a failed transaction can be retried without a half-completed day.
 
+### Portfolio risk
+
+**Home → Your plays → Portfolio risk** (`#risk`, API `GET /api/stocks/risk`) adds up every open PAPER options
+position (the strategy books) and every entered one of **My tracked plays**: total delta in shares and dollars,
+beta-weighted to SPY (dollars per 1% SPY move, and SPY-equivalent shares), vega (dollars per 1 volatility point),
+theta (dollars a day), the largest single name and sector by gross dollar delta, expiries by week, and three
+modelled scenarios: SPY −5%, SPY +5% (each stock moved by its beta to SPY) and implied volatility +5 points.
+
+Each leg's greeks come from its tracked quotes where stored ("quotes"), otherwise from the app's option model
+("modelled": Black-Scholes at the latest stored close with the leg's own implied volatility, a 4% rate, no
+dividends); a leg with neither price nor volatility is **unknown**, counted and left out of the totals, never taken
+as zero. Betas come from up to a year of stored daily closes against SPY; a stock with fewer than 60 shared days is
+taken as 1 and says so. Scenarios reprice every leg with a known volatility in full, holding time, skew and
+liquidity still: a research approximation, not a broker's risk figure. The Learning research account is not
+included. On a phone the page is one column. Code: `src/desk/stocks/risk.py`, `static/risk.js`.
+
 ## 4. Read the evidence
 
 ```bash

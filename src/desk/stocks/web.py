@@ -1066,6 +1066,16 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         return diagnose(paths)
 
+    @app.get("/api/stocks/risk")
+    def portfolio_risk() -> dict[str, Any]:
+        from desk.stocks.risk import portfolio
+
+        with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
+            if (paths.db_dir / LEDGER_FILE).exists():
+                with reader(paths, LEDGER_FILE) as ledger:
+                    return portfolio(ledger, research, market, utc_now())
+            return portfolio(None, research, market, utc_now())
+
     @app.get("/api/stocks/alerts")
     def alert_settings() -> dict[str, Any]:
         from desk.stocks import alerts

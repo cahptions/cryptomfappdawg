@@ -335,7 +335,10 @@ const KestrelResearch = (() => {
       ),
     );
     if (!rows.length) {
-      box.append(link("Pick a play to track →", "#plays"));
+      box.append(
+        link("Pick a play to track →", "#plays"),
+        link("Portfolio risk →", "#risk"),
+      );
       return box;
     }
     const list = el("div", undefined, "cockpit-list");
@@ -371,7 +374,11 @@ const KestrelResearch = (() => {
       row.append(name, value);
       list.append(row);
     }
-    box.append(list, link("All my plays →", "#plays/mine"));
+    box.append(
+      list,
+      link("All my plays →", "#plays/mine"),
+      link("Portfolio risk →", "#risk"),
+    );
     return box;
   }
   function cockpitMarket(hub) {

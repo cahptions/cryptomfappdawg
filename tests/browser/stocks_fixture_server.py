@@ -133,14 +133,28 @@ def main() -> None:
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
-                                               "stock-page", "learning-report"],
+                                               "stock-page", "learning-report", "ops"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
         root = Path(directory)
         paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
-        if args.scenario == "archive-history":
+        if args.scenario == "ops":
+            # Portfolio risk, phone alerts and the watchdog. Alert delivery is a recorder: nothing leaves this computer.
+            import os
+
+            from desk.stocks import alerts, watchdog, web
+            from tests.unit.test_stocks_risk import NOW as RISK_NOW
+            from tests.unit.test_stocks_risk import world as risk_world
+
+            risk_world(root)
+            web.utc_now = lambda: RISK_NOW
+            paths.secrets_file.write_text("NTFY_TOPIC_URL=https://ntfy.example.test/kestrel-browser-fixture-topic\n")
+            os.chmod(paths.secrets_file, 0o600)
+            alerts.deliver = lambda text, secrets, client=None: ["ntfy"]
+            watchdog.record(paths, RISK_NOW, worker_running=True)
+        elif args.scenario == "archive-history":
             from desk.stocks import play_selections, play_tracking, web
             from desk.stocks.repo import StocksDatabases
             from tests.integration.test_stocks_play_archive import IDENTIFIED, LATER, board, initial_two, pick
