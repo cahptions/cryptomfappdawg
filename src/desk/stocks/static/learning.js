@@ -504,10 +504,104 @@ const KestrelLearning = (() => {
     load();
     return state.box;
   }
+  // The Learning report: every learning loop in plain sentences, each with its evidence and strength.
+  const strengthTitle = {
+    early:
+      "Early: below that loop's own threshold, or seen on too few separate days",
+    suggestive: "Suggestive: enough evidence to take seriously, not tested",
+    tested: "Tested: that loop's own significance test or grade says so",
+  };
+  function evidenceText(i) {
+    const e = i.evidence;
+    if (!e.items) return "Nothing to count yet";
+    const unit = (n, word) => (n === 1 ? word.replace(/s$/, "") : word);
+    return (
+      `${e.items.toLocaleString("en-US")} ${unit(e.items, e.unit)}` +
+      (e.days
+        ? ` · ${e.days.toLocaleString("en-US")} ${unit(e.days, e.day_unit)}`
+        : "")
+    );
+  }
+  function save(name, text, type = "text/markdown") {
+    const url = URL.createObjectURL(new Blob([text], { type })),
+      a = el("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const openByDefault = new Set(["learned", "wrong", "achievements"]);
+  function fillReport(box, report) {
+    box.replaceChildren();
+    const head = el("div", undefined, "learning-report-head");
+    head.append(
+      el("h2", "Learning report"),
+      el("small", `Updated ${stamp(report.generated_at)}`, "muted"),
+    );
+    const lead = el("div", undefined, "learning-report-headline");
+    for (const sentence of report.headline) lead.append(el("p", sentence));
+    box.append(head, lead);
+    for (const section of report.sections) {
+      if (!section.items.length) continue;
+      const fold = el("details", undefined, "learning-report-section");
+      fold.dataset.section = section.id;
+      fold.open = openByDefault.has(section.id);
+      const summary = el("summary");
+      summary.append(
+        el("span", section.title),
+        el("small", ` · ${section.items.length}`, "muted"),
+      );
+      const list = el("ul");
+      for (const item of section.items) {
+        const row = el("li", undefined, "learning-report-item"),
+          line = el("div", undefined, "learning-report-line"),
+          chip = el(
+            "span",
+            item.strength,
+            `learning-strength strength-${item.strength}`,
+          ),
+          foot = el("div", undefined, "learning-report-evidence");
+        chip.title = strengthTitle[item.strength];
+        line.append(el("strong", item.headline), chip);
+        foot.append(el("span", evidenceText(item)));
+        if (item.link && item.link !== "#learning")
+          foot.append(link("See the evidence →", item.link));
+        row.append(line, el("p", item.detail, "muted"), foot);
+        list.append(row);
+      }
+      fold.append(summary, list);
+      box.append(fold);
+    }
+    const download = el("button", "Download report (Markdown)");
+    download.onclick = () =>
+      save("kestrel-learning-report.md", report.markdown);
+    box.append(el("p", report.note, "caption muted"), download);
+  }
   async function show(ticket) {
     let data = await api("learning");
     if (ticket !== generation) return;
-    let timer;
+    let timer,
+      report = null;
+    const reportBox = el("section", undefined, "learning-report");
+    reportBox.setAttribute("aria-label", "Learning report");
+    reportBox.append(
+      el("h2", "Learning report"),
+      el("p", "Reading every learning loop…", "muted"),
+    );
+    api("learning/report")
+      .then((value) => {
+        if (ticket !== generation) return;
+        report = value;
+        fillReport(reportBox, value);
+        if (view === "checks") draw(); // its weekly reports and download need the report
+      })
+      .catch((error) => {
+        if (ticket !== generation) return;
+        reportBox.replaceChildren(
+          el("h2", "Learning report"),
+          el("p", `Report unavailable: ${error.message}`, "error"),
+        );
+      });
     function draw() {
       if (ticket !== generation) return;
       app.replaceChildren();
@@ -543,7 +637,7 @@ const KestrelLearning = (() => {
       };
       controls.append(pause);
       hero.append(text, controls);
-      app.append(hero, message);
+      app.append(hero, reportBox, message);
       const status = el("section", undefined, "paper-status");
       status.setAttribute("role", "status");
       status.append(
@@ -1073,12 +1167,23 @@ const KestrelLearning = (() => {
           );
           content.append(n);
         }
+        for (const week of report?.snapshots || []) {
+          const n = el("article", undefined, "paper-walk");
+          n.append(
+            el(
+              "strong",
+              `weekly report · ${week.week} · ${stamp(week.created_at)}`,
+            ),
+            ...week.headline.map((sentence) => el("p", sentence)),
+          );
+          content.append(n);
+        }
         for (const type of ["Markdown", "JSON"]) {
           const b = el("button", `Download ${type} check-in`);
           b.onclick = () => {
             const text =
               type === "JSON"
-                ? JSON.stringify(data, null, 2)
+                ? JSON.stringify({ ...data, learning_report: report }, null, 2)
                 : `# KESTREL PAPER Learning\n\n${stamp(new Date())}\n\n` +
                   data.accounts
                     .map(
@@ -1092,20 +1197,21 @@ const KestrelLearning = (() => {
                       (c) =>
                         `${stamp(c.at)}: ${c.report.new_outcomes} new outcomes; ${c.report.next}`,
                     )
-                    .join("\n");
-            const url = URL.createObjectURL(
-                new Blob([text], {
-                  type: type === "JSON" ? "application/json" : "text/markdown",
-                }),
-              ),
-              a = el("a");
-            a.href = url;
-            a.download = `kestrel-learning.${type === "JSON" ? "json" : "md"}`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    .join("\n") +
+                  (report ? `\n\n${report.markdown}` : "");
+            save(
+              `kestrel-learning.${type === "JSON" ? "json" : "md"}`,
+              text,
+              type === "JSON" ? "application/json" : "text/markdown",
+            );
           };
           content.append(b);
         }
+        const whole = el("button", "Download learning report (Markdown)");
+        whole.disabled = !report;
+        whole.onclick = () =>
+          save("kestrel-learning-report.md", report.markdown);
+        content.append(whole);
       }
       app.append(el("p", data.execution_note, "muted caption"));
       poll();

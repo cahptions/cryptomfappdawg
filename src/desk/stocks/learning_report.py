@@ -148,9 +148,11 @@ class Report:
                  key=f"wait:{loop}", weight=0.1)
 
     def metric(self, key: str, label: str, value: Any, *, items: int = 0, days: int = 0, strength: str = "early",
-               unit: str = "plays", day_unit: str = "sessions") -> None:
+               unit: str = "plays", day_unit: str = "sessions", kind: str = "count") -> None:
+        """A number or grade kept in the weekly snapshot, for "Changed since last week" (kind: count, money, share,
+        score or grade)."""
         self.metrics[key] = {"label": label, "value": value, "items": items, "days": days, "strength": strength,
-                             "unit": unit, "day_unit": day_unit}
+                             "unit": unit, "day_unit": day_unit, "kind": kind}
 
 
 def _rows(conn: sqlite3.Connection, sql: str, args: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
@@ -261,7 +263,8 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
         name, happened = EVENTS.get(event, (event, event))
         n, days, gap = int(x["n"]), int(x["days"]), x["rate"] - x["shown"]
         s = strength(n, days, need=od.MIN_CALIBRATION)
-        r.metric(f"plays.brier.{event}", f"Brier score, {name}", round(x["b_shown"], 4), items=n, days=days, strength=s)
+        r.metric(f"plays.brier.{event}", f"Brier score, {name}", round(x["b_shown"], 4), items=n, days=days, strength=s,
+                 kind="score")
         if abs(gap) >= 0.05 and n >= 10:
             off.append((abs(gap) * math.sqrt(n), event, name, happened, x, s))
         if x["adjusted"] and n >= 10:
@@ -433,7 +436,7 @@ def plays_learning(src: Sources, r: Report) -> None:
     for category, v in labels.items():
         title, settled, sessions = section_title(category), int(v.get("settled") or 0), int(v.get("sessions") or 0)
         mean, twins = v.get("mean"), v.get("vs_twins")
-        r.metric(f"plays.label.{category}", f"{title} verdict", v.get("state"), items=settled, days=sessions,
+        r.metric(f"plays.label.{category}", f"{title} verdict", v.get("state"), items=settled, days=sessions, kind="grade",
                  strength="tested" if v.get("state") in ("proven", "failing") else strength(
                      settled, sessions, need=pln.MIN_RESOLVED, need_days=pln.MIN_SESSIONS))
         if v.get("state") == "proven":
@@ -723,7 +726,7 @@ def workspace(src: Sources, r: Report) -> None:
                              "days": int(x["days"] or 0), "positions": int(x["positions"] or 0),
                              "week": int(x["week"] or 0), "marked": (x["marked"] or 0) / MICRO}
         if contributed:
-            r.metric(f"learning.pnl.{account}", f"{title} trading P/L", round(equity - contributed, 2),
+            r.metric(f"learning.pnl.{account}", f"{title} trading P/L", round(equity - contributed, 2), kind="money",
                      items=int(x["closed"] or 0), days=int(x["days"] or 0), unit="closed trades", day_unit="entry days",
                      strength=strength(int(x["closed"] or 0), int(x["days"] or 0), need=20))
     for account in lab.SMALL_ACCOUNTS:
@@ -742,7 +745,7 @@ def workspace(src: Sources, r: Report) -> None:
                   weight=1.5)
     research, reference = accounts[lab.RESEARCH], accounts[lab.REFERENCE]
     if research["positions"]:
-        mix = Counter({x[0]: x[1] for x in conn.execute(
+        mix: Counter[str] = Counter({x[0]: x[1] for x in conn.execute(
             "SELECT structure, COUNT(*) FROM stk_positions WHERE account = ? GROUP BY structure", (lab.RESEARCH,))})
         total = sum(mix.values())
         invested = research["marked"] / research["equity"] if research["equity"] > 0 else None
@@ -754,10 +757,12 @@ def workspace(src: Sources, r: Report) -> None:
     if research["contributed"] and reference["contributed"] and (research["closed"] or reference["closed"]):
         short_of_cash = conn.execute("SELECT COUNT(*) FROM stk_pending WHERE account = ? AND (note LIKE "
                                      "'%insufficient cash%' OR note LIKE '%buying power%')", (lab.REFERENCE,)).fetchone()[0]
-        r.add("behaviour", f"Research made {money(research['pnl'])}; the $500,000 reference, on the same orders with "
-                           f"finite cash, made {money(reference['pnl'])}.",
-              f"The reference could not afford {count(short_of_cash, 'order')} in full. The $1,000 and $5,000 "
-              "accounts choose their own affordable contracts.", items=research["closed"], days=research["days"],
+        r.add("behaviour", f"Trading P/L: research {money(research['pnl'])}; the $500,000 reference, on the same "
+                           f"orders with finite cash, {money(reference['pnl'])}.",
+              "Open positions are marked at their last quote. "
+              + (f"The reference could not afford {count(short_of_cash, 'order')} in full. " if short_of_cash else "")
+              + "The $1,000 and $5,000 accounts choose their own affordable contracts.",
+              items=research["closed"], days=research["days"],
               unit="closed trades", day_unit="entry days", strength=strength(research["closed"], research["days"], need=20),
               link=LEARNING, key="research-vs-reference", weight=1)
 
@@ -767,7 +772,7 @@ def workspace(src: Sources, r: Report) -> None:
     top = _rows(conn, f"SELECT symbol, structure, entry_day, {pnl} pnl, entry_cost_micros + entry_fees_micros cost "  # noqa: S608
                       "FROM stk_positions WHERE account = ? AND state = 'CLOSED' ORDER BY pnl DESC LIMIT 5",
                 (lab.RESEARCH,))
-    if closed[0] and top:
+    if closed[0] > len(top) and top:
         realized, best5 = closed[1] / MICRO, sum(x["pnl"] for x in top) / MICRO
         days_closed = research["days"]
         r.add("behaviour", f"Concentration: its best {len(top)} research trades made {money(best5)} of "
@@ -814,8 +819,9 @@ def _lifecycle(conn: sqlite3.Connection, r: Report) -> None:
               "GROUP BY 1", (lab.RESEARCH,))}
 
     def name(cfg: dict[str, Any]) -> str:
-        bucket = lab.BUCKETS.get(cfg.get("bucket") or "", ("",))[0]
-        return f"{bucket.lower()} {cfg['structure'].replace('long_', '').replace('_', ' ')}s".strip()
+        bucket = {"weekly": "weekly", "1m": "1-month", "3m": "3-month", "6m": "6-month", "leaps": "LEAPS"}.get(
+            cfg.get("bucket") or "", "")
+        return f"{bucket} {cfg['structure'].replace('long_', '').replace('_', ' ')}s".strip()
 
     best_found, pending = [], []
     for ident, cfg in recipes.items():
@@ -855,6 +861,7 @@ def _lifecycle(conn: sqlite3.Connection, r: Report) -> None:
               key=f"best-hold:{cfg.get('structure')}:{cfg.get('bucket')}", weight=2)
         r.metric(f"learning.best_hold.{cfg.get('structure')}.{cfg.get('bucket')}", f"Best holding time, {name(cfg)}",
                  f"{best['hold']} days", items=best["n"], days=best["days"], unit="positions", day_unit="entry days",
+                 kind="grade",
                  strength=strength(best["n"], best["days"], need=MIN_CHECKPOINT))
     for _, cfg, most in sorted(pending, key=lambda t: t[0])[:2]:
         r.add("coming", f"Best holding time for {name(cfg)}: {most['n']} of {MIN_CHECKPOINT} positions valued at "
@@ -876,7 +883,7 @@ def paper_forward(src: Sources, r: Report) -> None:
     for a in accounts:
         g = (a.get("grade") or {}).get("grade")
         title, sessions, trades = a.get("title") or a.get("id"), int(a.get("sessions") or 0), int(a.get("trades") or 0)
-        r.metric(f"paper.grade.{a.get('id')}", f"PAPER {title}", g, items=trades, days=sessions, unit="trades",
+        r.metric(f"paper.grade.{a.get('id')}", f"PAPER {title}", g, items=trades, days=sessions, unit="trades", kind="grade",
                  strength="tested" if g in ("working", "backwards") else "early" if g == "early" else "suggestive")
         detail = (f"{signed(a.get('return'), 1)} against SPY's {signed(a.get('spy_return'), 1)} over the same "
                   f"{count(sessions, 'session')}; {count(trades, 'closed trade')}. "
@@ -965,7 +972,7 @@ def evidence(src: Sources, r: Report) -> None:
             label = f"{'Rebuilt history' if replay else 'Live record'}: the {title} {kind}"
             common: dict[str, Any] = {"items": n, "days": months, "unit": "observations", "day_unit": "independent months",
                       "link": PROOF}
-            r.metric(f"evidence.{kind}.{ident}", f"{title} ({kind})", g.get("grade"), items=n, days=months,
+            r.metric(f"evidence.{kind}.{ident}", f"{title} ({kind})", g.get("grade"), items=n, days=months, kind="grade",
                      unit="observations", day_unit="independent months",
                      strength="tested" if g.get("grade") in ("working", "backwards") else "early")
             if g.get("grade") == "working":
@@ -1111,7 +1118,7 @@ def health(src: Sources, r: Report) -> None:
         weak = sum(marks.get(s, (0, 0))[0] for s in ("estimated", "modelled"))
         days = max((d for _, d in marks.values()), default=0)
         if total:
-            r.metric("health.estimated_share", "Share of play marks estimated or modelled", round(weak / total, 4),
+            r.metric("health.estimated_share", "Share of play marks estimated or modelled", round(weak / total, 4), kind="share",
                      items=total, days=days, unit="marks", day_unit="days")
         if total and weak / total >= 0.05:
             r.add("wrong", f"{weak / total:.0%} of the last {RECENT_DAYS} days' play marks were estimated or "
@@ -1158,20 +1165,24 @@ def changes(r: Report, previous: dict[str, Any] | None) -> None:
     when = short(previous.get("generated_at") or to_iso(r.now))
     for key, m in r.metrics.items():
         old = (before.get(key) or {}).get("value")
-        new = m["value"]
-        if old == new or (old is None and new in (None, 0)):
+        new, kind = m["value"], m.get("kind", "count")
+        if old == new or (old is None and new in (None, 0, "unproven", "early", "info")):
             continue
-        if isinstance(new, (int, float)) and isinstance(old, (int, float)) and not isinstance(new, bool):
+        if kind != "grade" and isinstance(new, (int, float)) and isinstance(old, (int, float)):
             delta = new - old
-            if isinstance(new, float) and abs(delta) < 1e-3:
+            if abs(delta) < (0.0005 if kind in ("share", "score") else 0.5):
                 continue
-            text = (f"{m['label']}: {_fmt(old)} → {_fmt(new)} ({'+' if delta > 0 else '−'}{_fmt(abs(delta))}).")
+            text = f"{m['label']}: {_fmt(old, kind)} → {_fmt(new, kind)}."
         else:
-            was = GRADE_WORDS.get(str(old), old) if old is not None else "new"
-            text = f"{m['label']}: {was} → {GRADE_WORDS.get(str(new), new)}."
+            was = GRADE_WORDS.get(str(old), old) if old is not None else "none"
+            shown = _fmt(new, kind) if kind != "grade" else GRADE_WORDS.get(str(new), new)
+            text = f"{m['label']}: {was if kind == 'grade' or old is None else _fmt(old, kind)} → {shown}."
         r.add("changed", text, f"Since the snapshot of {when}.", items=m["items"], days=m["days"], unit=m["unit"],
               day_unit=m["day_unit"], strength=m["strength"], link=LEARNING, key=f"changed:{key}",
-              weight=2 if not isinstance(new, (int, float)) else 1)
+              weight=3 if kind == "grade" else 1)
+    moved = sorted((i for i in r.items if i["section"] == "changed"), key=lambda i: -i["weight"])
+    for i in moved[8:]:
+        r.items.remove(i)
     seen = {i["key"] for s in previous.get("sections") or [] for i in s.get("items") or []}
     fresh = [i for i in r.items if i["section"] in ("wrong", "achievements", "learned") and i["key"] not in seen]
     for i in sorted(fresh, key=lambda i: -i["weight"])[:5]:
@@ -1180,8 +1191,16 @@ def changes(r: Report, previous: dict[str, Any] | None) -> None:
               key=f"changed-new:{i['key']}", weight=i["weight"])
 
 
-def _fmt(x: float) -> str:
-    return f"{x:,}" if isinstance(x, int) else f"{x:,.4g}" if abs(x) < 10 else f"{x:,.0f}"
+def _fmt(x: Any, kind: str = "count") -> str:
+    if not isinstance(x, (int, float)):
+        return str(x)
+    if kind == "money":
+        return money(x)
+    if kind == "share":
+        return pct(x)
+    if kind == "score":
+        return f"{x:.3f}"
+    return f"{x:,.0f}"
 
 
 def headline(r: Report) -> list[str]:
