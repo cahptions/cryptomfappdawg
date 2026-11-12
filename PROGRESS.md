@@ -1,5 +1,16 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-12 — Learning report and Paper chart refresh fix
+
+- Learning report (`desk.stocks.learning_report`, research migration 0015): one read-only synthesis of every learning
+  loop on the user's own data: headline, what it has learned, how it behaves, what it's getting wrong, achievements,
+  surprises, coming up (with estimated dates), changed since last week (weekly append-only snapshot written by the
+  worker), and replays kept in their own section. Every finding shows items and distinct days and a strength label
+  (early / suggestive / tested); Brier gaps under 0.01 are called a tie. Top of the Learning page, in the check-ins and
+  as a Markdown download. ~0.65 s per build on a synthetic two-year desk after the first (~5 s).
+- Paper: the 10-second refresh waits while a chart is hovered and keeps scroll and focus when it rebuilds.
+- 1,802 tests and the Learning, personal, smoke and Paper browser tests pass. Not yet seen on real data.
+
 ## 2026-11-08 — Wave 2: Stocks history depth and options realism (HP retired; Stocks runs on the Dell)
 
 - History: Schwab daily price history before Massive's first day (default 10 years, `price_history_years`, max 20),
