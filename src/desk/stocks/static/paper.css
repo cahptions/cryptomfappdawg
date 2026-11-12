@@ -557,3 +557,81 @@
 .learning-holding td.negative {
   color: var(--down);
 }
+/* The Learning report: headline always visible, sections fold, a strength chip on every finding. */
+.learning-report {
+  margin: 8px 0 28px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.learning-report-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.learning-report-head h2 {
+  margin: 0;
+}
+.learning-report-headline p {
+  margin: 10px 0;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text-strong);
+}
+.learning-report-section {
+  border-top: 1px solid var(--line);
+}
+.learning-report-section summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 650;
+}
+.learning-report-section ul {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.learning-report-item {
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.learning-report-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.learning-report-item p {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+.learning-strength {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.learning-strength.strength-suggestive {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+}
+.learning-strength.strength-tested {
+  border-color: color-mix(in srgb, var(--up) 55%, transparent);
+  color: var(--up);
+}
+.learning-report-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}

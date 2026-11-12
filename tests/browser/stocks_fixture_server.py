@@ -6,6 +6,7 @@ uv run python -m tests.browser.stocks_fixture_server --scenario populated --port
 from __future__ import annotations
 
 import argparse
+import json
 import tempfile
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -132,7 +133,7 @@ def main() -> None:
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
-                                               "stock-page"],
+                                               "stock-page", "learning-report"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
@@ -157,7 +158,7 @@ def main() -> None:
                     "VALUES (?,?,?,?,?,?,?,?)",(p["legs"][0]["occ"],LATER.isoformat(),LATER.date().toordinal(),
                                                4.,4.1,102.,LATER.isoformat(),"synthetic_archive_fixture"))
             dbs.close()
-        elif args.scenario == "plays-history":
+        elif args.scenario in {"plays-history", "learning-report"}:
             from desk.stocks import play_learning, play_performance
             from tests.integration.test_stocks_play_history import simulate
 
@@ -165,8 +166,31 @@ def main() -> None:
             world = make_world(root, n=60)
             simulate(world)
             evening = cal.session_close(world.days[-1]) + timedelta(hours=2)
+            if args.scenario == "learning-report":
+                # The Learning report's richest fixture: last week's snapshot is taken before the Plays learning
+                # report and the Learning book exist, so "Changed since last week" has something to say.
+                from desk.stocks import learning_report
+
+                earlier = learning_report.build(paths, evening)
+                world.research.conn.execute(
+                    "INSERT INTO stk_learning_reports(week, created_at, report_json) VALUES (?, ?, ?)",
+                    (learning_report.week_of(evening), evening.isoformat(), json.dumps(earlier)))
             play_learning.learn(world.market.conn, world.research.conn, evening)
             play_performance.refresh(world.paths, world.market.conn, world.research.conn, evening, changed=True)
+            if args.scenario == "learning-report":
+                from desk.stocks import learning
+                from tests.unit.test_stocks_learning import AT
+                from tests.unit.test_stocks_learning_lifecycle import ladder
+
+                lab = learning.open_book(paths)
+                try:     # lifecycle recipes on every bucket: fills, a 1-day checkpoint and the weeklies' sale
+                    for at, bid, ask in [(AT, 4.8, 5.0), (AT + timedelta(minutes=1), 4.8, 5.0),
+                                         (AT + timedelta(days=1), 5.4, 5.6),
+                                         (datetime(2026, 10, 28, 16, tzinfo=UTC), 5.8, 6.0)]:
+                        ladder(world, at, bid, ask, source="synthetic_browser_fixture")
+                        learning.tick(lab, world.market, at)
+                finally:
+                    lab.close()
             world.close()
         elif args.scenario != "empty":
             through = NOW.date() - timedelta(days=7) if args.scenario == "paper-workflows" else NOW.date()
@@ -280,7 +304,6 @@ def main() -> None:
                 finally:
                     lab.close()
             if args.scenario == "personal-workflows":
-                import json
                 from copy import deepcopy
 
                 from desk.stocks import play_selections
