@@ -276,18 +276,21 @@ def test_chronological_selection_uses_prior_labels_and_preserves_losing_held_out
         learning.check_in(conn, datetime(2026, 1, 1, tzinfo=UTC))
         assert learning.state(conn, "model") is None  # future outcomes cannot train a past model
         before = conn.execute("SELECT COUNT(*) FROM stk_learning_experiments").fetchone()[0]
+        # A promotion made under the earlier rules stays in the record, relabelled, and loses its priority.
+        learning.set_state(conn, "model", {"version": 1, "champion": "long_put", "promoted": True})
         learning.check_in(conn, AT)
         model = learning.state(conn, "model")
+        assert model["legacy_champion"] == "long_put" and model["legacy_label"].startswith("provisional (before")
+        assert conn.execute("SELECT stage FROM stk_learning_promotions WHERE experiment_id='structure:long_put'"
+                            ).fetchone()[0] == "legacy"
         assert model["candidate"] == "long_call"
         assert model["test_net_return"] == pytest.approx(held_call_return)
-        assert model["promoted"] is (held_call_return > 0)
+        # 2026-11-13 rules: clearing the Holm-corrected hurdle makes the recipe provisional, not a finding; its
+        # doubled-size follow-up waits for the untouched confirmation days (tests/unit/test_stocks_learning_promotion.py).
+        assert model["promoted"] is False and model["champion"] is None
+        assert (configs["long_call"]["id"] in model["provisional"]) is (held_call_return > 0)
         after = conn.execute("SELECT COUNT(*) FROM stk_learning_experiments").fetchone()[0]
-        assert (after > before) is (held_call_return > 0)
-        if model["promoted"]:
-            import json
-
-            followups = [json.loads(r[0]) for r in conn.execute("SELECT config_json FROM stk_learning_experiments")]
-            assert any(config.get("parent_experiment") == configs["long_call"]["id"] for config in followups)
+        assert after == before
         assert conn.execute("SELECT COUNT(*) FROM stk_learning_outcomes").fetchone()[0] == 150
     finally:
         conn.close()

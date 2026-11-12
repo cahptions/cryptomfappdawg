@@ -25,6 +25,55 @@ const KestrelLearning = (() => {
     n.append(el("small", label), el("strong", value));
     return n;
   }
+  // Promotions under the 2026-11-13 rules: provisional (cleared Holm across every recipe), confirmed on untouched
+  // days (the only findings), failed confirmations (kept) and promotions from before the rules (relabelled).
+  function promotions(p) {
+    const box = el("div", undefined, "learning-promotions");
+    box.append(
+      el("h3", "Promotions"),
+      el(
+        "p",
+        `A recipe is promoted provisionally when its held-out entry-day results clear a one-sided test after Holm's correction across every recipe (family ${Math.round(100 * p.alpha)}%, at least ${p.min_days} days). It becomes a finding only if its next ${p.confirm_days} entry days, fixed in advance and never used to promote it, confirm it. Each recipe's plan is frozen with a hash when it is registered (${p.manifests} so far${p.backfilled_manifests ? `, ${p.backfilled_manifests} frozen when these rules arrived` : ""}).`,
+        "caption muted",
+      ),
+    );
+    const name = (x) => `${x.recipe || x.structure || x.experiment_id}`;
+    const rows = [
+      ...p.confirmed.map((x) => [
+        "Confirmed finding",
+        name(x),
+        `${x.window[0]} to ${x.window[1]}: ${percent(x.mean)} a day over ${x.days} untouched days (p ${x.p.toFixed(3)})`,
+      ]),
+      ...p.provisional.map((x) => [
+        "Provisional · confirming",
+        name(x),
+        `${percent(x.mean)} a day over ${x.days} days (p ${x.p.toFixed(4)} cleared ${x.holm_threshold.toFixed(4)} across ${x.recipes_compared} recipes); ${x.confirmation_days} of ${p.confirm_days} confirmation days after ${x.promotion_day}`,
+      ]),
+      ...p.failed.map((x) => [
+        "Failed confirmation",
+        name(x),
+        `${x.window[0]} to ${x.window[1]}: ${percent(x.mean)} a day over ${x.days} days (p ${x.p.toFixed(3)}); kept in the record`,
+      ]),
+      ...p.legacy.map((x) => [
+        p.legacy_label,
+        name(x),
+        `${x.rule}${x.promoted_through ? `; through ${x.promoted_through}` : ""}`,
+      ]),
+    ];
+    if (rows.length) {
+      const t = table(["Stage", "Recipe", "Evidence"], rows);
+      t.classList.add("wrap-cells");
+      box.append(t);
+    } else
+      box.append(
+        el(
+          "p",
+          "No recipe has cleared the corrected test yet, so nothing is promoted.",
+          "muted",
+        ),
+      );
+    return box;
+  }
   function learningEvidence(data) {
     const section = el(
         "section",
@@ -108,10 +157,11 @@ const KestrelLearning = (() => {
       section.append(
         el(
           "p",
-          `Prior-data candidate: ${model.candidate}. Held-out mean net return: ${percent(model.test_net_return)}. ${model.promoted ? "PAPER policy promoted." : "No promotion; forward experimentation continues."}`,
+          `Prior-data candidate: ${model.candidate}. Held-out mean net return: ${percent(model.test_net_return)}. ${model.promoted ? "A recipe is a confirmed finding." : "No confirmed finding; forward experimentation continues."}`,
           "muted",
         ),
       );
+    if (data.promotions) section.append(promotions(data.promotions));
     const reasons = el("ul", undefined, "learning-evidence-blockers");
     for (const reason of evidence.blockers || [])
       reasons.append(el("li", reason));
@@ -216,7 +266,7 @@ const KestrelLearning = (() => {
     ({
       starter: "Starter policy · research still gathering outcomes",
       provisional: "Provisional research findings · still being tested",
-      research_champion: "Promoted research structure · small-account test",
+      research_champion: "Confirmed research finding · small-account test",
       waiting: "Holding cash · waiting for supported findings",
     })[mode] || "Waiting for a policy decision";
   // Does holding longer pay? One row per recipe (structure × expiry bucket), one column per checkpoint: the average
@@ -1295,7 +1345,7 @@ const KestrelLearning = (() => {
         section.append(
           el(
             "p",
-            `${data.model.champion.replaceAll("_", " ")} · ${data.model.test_blocks || 0} underlying/day held-out blocks · ${percent(data.model.test_net_return)} held-out mean net return. Capacity remains estimated; this does not establish a market edge.`,
+            `Confirmed finding: ${data.model.champion.replaceAll("_", " ")}, after a Holm-corrected test and untouched confirmation days · ${data.model.test_blocks || 0} underlying/day held-out blocks · ${percent(data.model.test_net_return)} held-out mean net return. Capacity remains estimated; this does not establish a market edge.`,
             "muted",
           ),
         );

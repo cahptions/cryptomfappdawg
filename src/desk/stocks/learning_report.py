@@ -681,6 +681,50 @@ def _sectors(market: sqlite3.Connection | None, symbols: list[str]) -> dict[str,
     return out
 
 
+def _promotions(r: Report, conn: sqlite3.Connection, model: dict[str, Any], matured: int, days: int) -> None:
+    """Learning promotions under the 2026-11-13 rules (desk.stocks.learning_promotion): only a confirmed recipe is
+    called a finding; provisional ones are confirming; failed confirmations and earlier promotions stay visible."""
+    from desk.stocks import learning_promotion as promo
+
+    kw: dict[str, Any] = {"unit": "entry days", "day_unit": "entry days", "link": LEARNING}
+    legacy_now = model.get("champion") and model.get("rules") != promo.RULES     # before the first check-in under them
+    if legacy_now:
+        r.add("learned", f"An earlier Learning promotion of {str(model['champion']).replace('_', ' ')}s is "
+                         f"{promo.LEGACY_LABEL}.",
+              "It cleared an uncorrected mean-minus-three-standard-errors hurdle; it is not a finding until a recipe "
+              "passes the corrected test and its untouched confirmation days.", items=matured, days=days,
+              strength="suggestive", key="learning-legacy-promotion", weight=2, **{**kw, "unit": "positions"})
+    if not _has(conn, "stk_learning_promotions"):
+        return
+    view = promo.overview(conn, r.now)
+    for x in view["confirmed"]:
+        r.add("achievements", f"Learning confirmed a finding: {x['recipe']}.",
+              f"After clearing Holm's correction across every recipe, its next {x['days']} untouched entry days "
+              f"({x['window'][0]} to {x['window'][1]}) averaged {signed(x['mean'], 1)} a day (one-sided p "
+              f"{x['p']:.3f}). PAPER research; capacity is top-of-book only.", items=x["days"], days=x["days"],
+              strength="tested", key=f"learning-confirmed:{x['experiment_id']}", weight=4, **kw)
+    for x in view["provisional"]:
+        r.add("coming", f"Confirming {x['recipe']}: {x['confirmation_days']} of {view['confirm_days']} untouched "
+                        "entry days.",
+              f"Provisionally promoted on {x['promotion_day']}: {signed(x['mean'], 1)} a day over {x['days']} days "
+              f"cleared Holm's correction across {x['recipes_compared']} recipes. Not a finding until confirmed.",
+              items=x["days"], days=x["days"], strength="suggestive",
+              key=f"learning-provisional:{x['experiment_id']}", weight=2.5, **kw)
+    for x in view["failed"]:
+        r.add("wrong", f"{x['recipe']} failed its confirmation.",
+              f"Its {x['days']} untouched entry days ({x['window'][0]} to {x['window'][1]}) averaged "
+              f"{signed(x['mean'], 1)} a day (p {x['p']:.3f}); the provisional promotion stays in the record.",
+              items=x["days"], days=x["days"], strength="tested", key=f"learning-failed:{x['id']}", weight=3, **kw)
+    for x in view["legacy"]:
+        if legacy_now:
+            break
+        r.add("learned", f"An earlier Learning promotion of {str(x['structure']).replace('_', ' ')}s is "
+                         f"{promo.LEGACY_LABEL}.",
+              "Kept in the record; it cleared an uncorrected hurdle and gives its structure no priority now.",
+              items=int(x.get("test_blocks") or 0), days=int(x.get("test_blocks") or 0), strength="suggestive",
+              key=f"learning-legacy:{x['id']}", weight=1.5, **{**kw, "unit": "blocks"})
+
+
 # ── 4. The Learning workspace ────────────────────────────────────────────────────────────────────
 def workspace(src: Sources, r: Report) -> None:
     conn = src.learning
@@ -699,13 +743,7 @@ def workspace(src: Sources, r: Report) -> None:
              strength=strength(matured, days, need=lab.MIN_COMPARISON_BLOCKS, need_days=lab.MIN_COMPARISON_DAYS),
              unit="positions", day_unit="entry days")
     model = lab.state(conn, "model", {}) or {}
-    if model.get("promoted") or model.get("champion"):
-        r.add("achievements", f"Learning promoted {str(model.get('champion')).replace('_', ' ')}s in its "
-                              "chronological comparison.",
-              f"Held-out mean {signed(model.get('test_net_return'), 1)} over {model.get('test_blocks', 0)} "
-              "underlying/day blocks; advisory, capacity is top-of-book only.", items=matured, days=days,
-              unit="positions", day_unit="entry days", strength="tested", link=LEARNING, key="learning-promotion",
-              weight=4)
+    _promotions(r, conn, model, matured, days)
     if not ev["ready_for_comparison"]:
         r.add("coming", f"Learning's first formal comparison: {days} of {lab.MIN_COMPARISON_DAYS} entry days, "
                         f"{blocks} of {lab.MIN_COMPARISON_BLOCKS} underlying/day blocks.",
