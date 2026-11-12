@@ -19,7 +19,7 @@ from desk.stocks import calendar as cal
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.play_marks import profit, settle_day
 from desk.stocks.play_tracking import get_state, legs_key, tick_time, unpack
-from desk.stocks.plays import BY_CATEGORY, RECORDED, TYPES, spread_width
+from desk.stocks.plays import BY_CATEGORY, RECORDED, RETIRED, TYPES, spread_width
 from desk.stocks.repo import day_of
 
 VERSION = 1
@@ -201,6 +201,57 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime) -> 
     return {"version": VERSION, "session": session.isoformat(), "generated_at": now.isoformat(),
             "categories": categories, "summary": _summary(every), "repair": get_state(research, "repair"),
             "methods": sorted({r["method"] for r in every})}
+
+
+# ── section filter and order ──────────────────────────────────────────────────────────────────
+SORTS = {"rank": "Board order", "best": "Best return", "worst": "Worst return", "newest": "Newest first"}
+
+
+def section_label(category_id: str) -> str:
+    """The section as Today's plays titles it; a retired section says its plays are older records."""
+    c = BY_CATEGORY[category_id]
+    return f"{c.title} (older recorded {c.title})" if any(r.id == c.id for r in RETIRED) else c.title
+
+
+def _newest_key(row: dict[str, Any]) -> str:
+    return str(row.get("identified_at") or (row.get("first_seen") or {}).get("at") or "")
+
+
+def order(rows: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+    """Rows in the chosen order; plays without a value yet sort last for best/worst. Ties keep board order."""
+    rows = list(rows)
+    if sort == "best":
+        return sorted(rows, key=lambda r: (r.get("latest") is None, -(r["latest"]["pct"] if r.get("latest") else 0)))
+    if sort == "worst":
+        return sorted(rows, key=lambda r: (r.get("latest") is None, r["latest"]["pct"] if r.get("latest") else 0))
+    if sort == "newest":
+        return sorted(rows, key=_newest_key, reverse=True)
+    return rows
+
+
+def filtered(view: dict[str, Any], section: str, sort: str) -> dict[str, Any]:
+    """One section (or all) of a session view, in the chosen order. The session summary becomes the section's own,
+    computed by the view's own scope (its per-category summary), so the headline numbers match what is listed."""
+    if section != "all" and section not in BY_CATEGORY:
+        raise ValueError(f"unknown section {section!r}")
+    if sort not in SORTS:
+        raise ValueError(f"unknown sort {sort!r}")
+    categories = view.get("categories") or []
+    counts = {c["id"]: len(c["plays"]) for c in categories}
+    sections = [{"id": c.id, "title": section_label(c.id), "emoji": c.emoji, "plays": counts.get(c.id, 0)}
+                for c in RECORDED]
+    out = {**view, "sections": sections, "sorts": [{"id": k, "title": v} for k, v in SORTS.items()],
+           "filters": {"section": section, "sort": sort, "scope": view.get("scope", "closing")}}
+    if section != "all":
+        chosen = [c for c in categories if c["id"] == section]
+        out["categories"] = chosen
+        out["summary"] = chosen[0]["summary"] if chosen else None
+        out["section_total"] = sum(counts.values())
+        if not chosen and categories:
+            out["message"] = (f"No {section_label(section)} plays were saved for this session. Choose All sections "
+                              "or another section.")
+    out["categories"] = [{**c, "plays": order(c["plays"], sort)} for c in out["categories"]]
+    return out
 
 
 # ── one play ─────────────────────────────────────────────────────────────────────────────────────
@@ -470,5 +521,5 @@ def resolve(research: sqlite3.Connection, when: str, now: datetime) -> date | No
     return nearest_session(research, date.fromisoformat(when))
 
 
-__all__ = ["basis_loss", "exit_opportunities", "label", "live_values", "nearest_session", "play_view", "pnl",
-           "point_time", "resolve", "session_view", "sessions"]
+__all__ = ["SORTS", "basis_loss", "exit_opportunities", "filtered", "label", "live_values", "nearest_session", "order",
+           "play_view", "pnl", "point_time", "resolve", "section_label", "session_view", "sessions"]

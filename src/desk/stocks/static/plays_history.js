@@ -2,7 +2,8 @@
 // Plays history: what each session's picks did afterwards, and a P/L chart for every play from the moment it was
 // suggested. Everything here is read from stored records: picks, closing marks, five-minute paths and live quotes.
 const KestrelPlaysHistory = (() => {
-  let historyScope = "all",
+  // History's coverage, section and order: null until the first answer brings the saved choice (Settings keep it).
+  let historyPrefs = null,
     historySerial = 0,
     historyTimer;
   const svg = (tag, attrs) => {
@@ -140,6 +141,52 @@ const KestrelPlaysHistory = (() => {
     return bar;
   }
 
+  // Section and order pickers. A choice is saved with the app's display preferences so it survives a reload.
+  function historyFilters(data, rerender) {
+    const bar = el("div", undefined, "pl-history-filters");
+    const choose = (label, options, value, key) => {
+      const wrap = el("label", undefined, "pl-history-filter"),
+        select = el("select");
+      for (const [id, title] of options) select.append(new Option(title, id));
+      select.setAttribute("aria-label", label);
+      select.value = value;
+      select.onchange = () => {
+        historyPrefs = { ...historyPrefs, [key]: select.value };
+        saveHistoryPrefs();
+        rerender();
+      };
+      wrap.append(el("span", label, "muted"), select);
+      bar.append(wrap);
+    };
+    const total = (data.sections || []).reduce((n, s) => n + s.plays, 0);
+    choose(
+      "Section",
+      [
+        ["all", `All sections (${total})`],
+        ...(data.sections || []).map((s) => [
+          s.id,
+          `${s.emoji} ${s.title} (${s.plays})`,
+        ]),
+      ],
+      historyPrefs.section,
+      "section",
+    );
+    choose(
+      "Order",
+      (data.sorts || []).map((s) => [s.id, s.title]),
+      historyPrefs.sort,
+      "sort",
+    );
+    return bar;
+  }
+  function saveHistoryPrefs() {
+    api("ui", { history: historyPrefs })
+      .then((ui) => {
+        if (typeof snapshot !== "undefined" && snapshot) snapshot.ui = ui;
+      })
+      .catch(() => {});
+  }
+
   function summaryPanel(title, s) {
     const box = el("section", undefined, "panel pl-summary");
     box.append(el("h3", title));
@@ -235,13 +282,20 @@ const KestrelPlaysHistory = (() => {
     clearTimeout(historyTimer);
     const serial = ++historySerial;
     when = when || "latest";
+    const chosen = historyPrefs
+      ? `&scope=${historyPrefs.scope}&section=${historyPrefs.section}&sort=${historyPrefs.sort}`
+      : "";
     const [list, data] = await Promise.all([
       api("plays/sessions"),
-      api(
-        `plays/history?when=${encodeURIComponent(when)}&scope=${historyScope}`,
-      ),
+      api(`plays/history?when=${encodeURIComponent(when)}${chosen}`),
     ]);
     if (ticket !== generation || serial !== historySerial) return;
+    historyPrefs = data.filters || {
+      scope: "all",
+      section: "all",
+      sort: "rank",
+    };
+    const historyScope = historyPrefs.scope;
     app.replaceChildren();
     app.className = "plays-page";
     const hero = el("div", undefined, "explorer-heading"),
@@ -272,12 +326,16 @@ const KestrelPlaysHistory = (() => {
       const b = el("button", title);
       b.setAttribute("aria-pressed", String(value === historyScope));
       b.onclick = () => {
-        historyScope = value;
+        historyPrefs = { ...historyPrefs, scope: value };
+        saveHistoryPrefs();
         history(ticket, when);
       };
       scopes.append(b);
     }
-    app.append(scopes);
+    app.append(
+      scopes,
+      historyFilters(data, () => history(ticket, when)),
+    );
     if (data.coverage) {
       const c = data.coverage;
       app.append(
@@ -293,7 +351,7 @@ const KestrelPlaysHistory = (() => {
       if (
         document.hidden ||
         document.querySelector("dialog[open]") ||
-        document.activeElement?.tagName === "INPUT"
+        ["INPUT", "SELECT"].includes(document.activeElement?.tagName)
       ) {
         historyTimer = setTimeout(poll, 20000);
         return;
@@ -330,10 +388,25 @@ const KestrelPlaysHistory = (() => {
         ),
       );
     if (!data.categories?.length) {
-      app.append(panel("Nothing recorded yet", data.message || ""));
+      app.append(
+        panel(
+          data.sections && historyPrefs.section !== "all" && data.session
+            ? "No plays in this section"
+            : "Nothing recorded yet",
+          data.message || "",
+        ),
+      );
       return;
     }
-    app.append(summaryPanel("This session", data.summary));
+    const section = (data.sections || []).find(
+      (s) => s.id === historyPrefs.section,
+    );
+    app.append(
+      summaryPanel(
+        section ? `This session · ${section.title}` : "This session",
+        data.summary,
+      ),
+    );
     if ((data.methods || []).length > 1)
       app.append(
         el(

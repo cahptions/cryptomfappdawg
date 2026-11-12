@@ -120,6 +120,45 @@ def test_bankroll_sizing_keeps_every_cap_and_spreads_the_risk() -> None:
     assert not tiny["picks"] and "cheapest play with at least 2 of 5 checks risks $30" in tiny["message"]
 
 
+def proven(play: dict[str, Any], chance: float, level: str | None = "this category") -> dict[str, Any]:
+    play["exit_plan"]["odds"] = {"take_profit": chance, "take_profit_raw": chance, "calibration": level}
+    return play
+
+
+def test_kelly_needs_a_calibrated_chance_and_follows_the_payoff() -> None:
+    play = fake("A", "debit_spreads", "bull_call_debit", 100, 4)                  # +$50 at take-profit, −$50 at stop
+    assert pp.kelly(play)["basis"] == "fixed" and "no take-profit chance" in pp.kelly(play)["reason"]
+    model = pp.kelly(proven(play, 0.6, None))
+    assert model["basis"] == "fixed" and "30 resolved plays from 10 separate sessions" in model["reason"]
+    sized = pp.kelly(proven(play, 0.6))
+    # b = a = 0.5: f = 0.6 / 0.5 − 0.4 / 0.5 = 0.4 of the bankroll at risk; a quarter of it is 0.1
+    assert sized["basis"] == "quarter_kelly" and sized["kelly"] == pytest.approx(0.4)
+    assert sized["fraction"] == pytest.approx(0.1) and sized["calibration"] == "this category"
+    no_stop = {**play, "exit_plan": {**play["exit_plan"], "stop": None}}          # the whole worst case is at stake
+    assert pp.kelly(no_stop)["kelly"] == pytest.approx(0.6 / 1 - 0.4 / 0.5)
+    assert pp.kelly(proven(fake("B", "x", "long_call", 100, 4), 0.3))["fraction"] == 0   # no edge: nothing
+
+
+def test_bankroll_sizes_proven_plays_at_a_quarter_kelly_within_the_caps() -> None:
+    edge = proven(fake("A", "debit_spreads", "bull_call_debit", 20, 5), 0.6)      # quarter Kelly 10%: $100 of $1,000
+    rich = proven(fake("B", "trend_calls", "long_call", 20, 5), 0.9)              # quarter Kelly 21%: per-play cap
+    weak = proven(fake("C", "bear_puts", "long_put", 20, 5), 0.4)                 # no edge: passed over
+    model = fake("D", "squeeze", "long_put", 20, 5)                               # model chance only: fixed share
+    out = pp.bankroll(board(edge, rich, weak, model), 1000, "balanced")          # $100 a play, $350 in all
+    picked = {p["play"]["symbol"]: p for p in out["picks"]}
+    assert set(picked) == {"A", "B", "D"}
+    assert picked["A"]["sizing"]["basis"] == "quarter_kelly" and picked["A"]["quantity"] == 5   # $100 / $20
+    assert picked["B"]["sizing"]["capped"] and picked["B"]["risk"] <= out["per_play_cap"]
+    assert picked["D"]["sizing"]["basis"] == "fixed" and picked["D"]["quantity"] == 5           # fills the cap
+    assert out["kelly_passed"] == [{"symbol": "C", "category": "bear_puts", "kelly": pytest.approx(-0.4),
+                                    "reason": "no edge at its calibrated chance"}]
+    assert out["summary"]["risk"] <= out["risk_cap"] and out["kelly_share"] == 0.25
+    small = pp.bankroll(board(proven(fake("A", "debit_spreads", "bull_call_debit", 20, 5), 0.52)), 1000, "balanced")
+    assert small["picks"][0]["quantity"] == 1                                     # 0.25 × 0.08 × $1,000 = $20
+    alone = pp.bankroll(board(proven(fake("A", "debit_spreads", "bull_call_debit", 90, 5), 0.52)), 1000, "balanced")
+    assert not alone["picks"] and "quarter Kelly" in alone["message"]
+
+
 def test_tracked_status_says_take_profit_stop_time_add_or_hold() -> None:
     play = built("debit_spreads")
     plan = play["exit_plan"]

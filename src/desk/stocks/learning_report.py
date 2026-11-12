@@ -111,6 +111,12 @@ def strength(items: int, days: int, *, need: int, need_days: int = MIN_DAYS, tes
     return "early" if items < need or days < need_days else "suggestive"
 
 
+def calibration_strength(items: int, days: int) -> str:
+    """Early until the evidence could calibrate a group: ``odds.MIN_CALIBRATION`` plays from
+    ``odds.MIN_CALIBRATION_SESSIONS`` separate sessions, the same rule ``odds.Calibration`` applies."""
+    return strength(items, days, need=od.MIN_CALIBRATION, need_days=od.MIN_CALIBRATION_SESSIONS)
+
+
 def section_title(category: str) -> str:
     from desk.stocks.plays import BY_CATEGORY, HORIZONS
 
@@ -204,13 +210,11 @@ def plays_calibration(src: Sources, r: Report) -> None:
         research.execute("DROP TABLE IF EXISTS temp.report_graded")
 
 
-def _calibration(rows: list[dict[str, Any]]) -> od.Calibration:
-    """``odds.Calibration.learn`` from per-tenth aggregates of the model's own number (the same buckets, without
-    reading every play into memory)."""
-    if sum(x["n"] for x in rows) < od.MIN_CALIBRATION:
-        return od.Calibration()
-    ordered = sorted(rows, key=lambda x: x["tenth"])
-    return od.Calibration(tuple((x["s_raw"] / x["n"], x["n"], x["hits"] / x["n"]) for x in ordered))
+def _calibration(cells: dict[tuple[int, int], list[float]]) -> od.Calibration:
+    """``odds.Calibration.learn`` from per-tenth, per-session aggregates of the model's own number (the same buckets
+    and the same session clustering, without reading every play into memory)."""
+    return od.Calibration.from_cells(od.Cell(tenth, session, int(v[0]), v[1], v[2], v[3], v[4])
+                                     for (tenth, session), v in cells.items())
 
 
 def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
@@ -221,20 +225,16 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
                PERFORMANCE)
         return
     # the model's own number in tenths: what calibration learns from, at the three levels the Plays page uses
-    raw_rows: dict[tuple[str, ...], list[sqlite3.Row]] = defaultdict(list)
-    for x in _rows(research, "SELECT event, section, bucket, MIN(CAST(raw * 10 AS INTEGER), 9) tenth, COUNT(*) n, "
-                             "SUM(raw) s_raw, SUM(hit) hits FROM report_graded GROUP BY 1, 2, 3, 4"):
-        raw_rows[(x["event"], x["section"], x["bucket"])].append(x)
-    merged: dict[tuple[str, ...], dict[int, list[float]]] = defaultdict(lambda: defaultdict(lambda: [0.0, 0.0, 0.0]))
-    for (event, section, bucket), xs in raw_rows.items():
-        for x in xs:
-            for key in ((event,), (event, section), (event, section, bucket)):
-                acc = merged[key][x["tenth"]]
-                acc[0] += x["n"]
-                acc[1] += x["s_raw"]
-                acc[2] += x["hits"]
-    calibrations = {key: _calibration([{"tenth": t, "n": int(v[0]), "s_raw": v[1], "hits": v[2]} for t, v in tenths.items()])
-                    for key, tenths in merged.items()}
+    merged: dict[tuple[str, ...], dict[tuple[int, int], list[float]]] = defaultdict(
+        lambda: defaultdict(lambda: [0.0, 0.0, 0.0, 0.0, 0.0]))
+    for x in _rows(research, "SELECT event, section, bucket, MIN(CAST(raw * 10 AS INTEGER), 9) tenth, session, "
+                             "COUNT(*) n, SUM(raw) s_raw, SUM(hit) hits, SUM(hit - raw) res, "
+                             "SUM((hit - raw) * (hit - raw)) res2 FROM report_graded GROUP BY 1, 2, 3, 4, 5"):
+        for key in ((x["event"],), (x["event"], x["section"]), (x["event"], x["section"], x["bucket"])):
+            acc = merged[key][(x["tenth"], x["session"])]
+            for i, column in enumerate(("n", "s_raw", "hits", "res", "res2")):
+                acc[i] += x[column]
+    calibrations = {key: _calibration(tenths) for key, tenths in merged.items()}
 
     def calibrator(event: str, section: str, bucket: str) -> od.Calibration:
         for key in ((event, section, bucket), (event, section), (event,)):
@@ -256,7 +256,7 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
     r.notes["section_itm"] = {s: x for (e, s), x in sections.items() if e == "itm"}
     calibrated = sorted(k for k, c in calibrations.items() if c.buckets)
     r.metric("plays.graded_chances", "Graded chances", int(total[0]), items=int(total[0]), days=int(total[1]),
-             strength=strength(int(total[0]), int(total[1]), need=od.MIN_CALIBRATION))
+             strength=calibration_strength(int(total[0]), int(total[1])))
     r.metric("plays.calibrated_groups", "Calibrated odds groups", len(calibrated))
 
     # what the miscalibration is, event by event: the three largest on their own, the rest in one line
@@ -264,7 +264,7 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
     for event, x in sorted(events.items(), key=lambda kv: -kv[1]["n"]):
         name, happened = EVENTS.get(event, (event, event))
         n, days, gap = int(x["n"]), int(x["days"]), x["rate"] - x["shown"]
-        s = strength(n, days, need=od.MIN_CALIBRATION)
+        s = calibration_strength(n, days)
         r.metric(f"plays.brier.{event}", f"Brier score, {name}", round(x["b_shown"], 4), items=n, days=days, strength=s,
                  kind="score")
         if abs(gap) >= 0.05 and n >= 10:
@@ -290,7 +290,7 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
         r.add("wrong", f"{'Over' if over else 'Under'}-confident on {name}: it showed {pct(x['shown'])} on average "
                        f"and {pct(x['rate'])} {happened} — {points(gap)} too {'high' if over else 'low'}.",
               f"{count(n, 'graded play')} over {count(days, 'session')}, every section together. Calibration "
-              "corrects a group once it has 30 resolved plays.", items=n, days=days, strength=s,
+              "corrects a group once it has 30 resolved plays from 10 separate sessions.", items=n, days=days, strength=s,
               link=PERFORMANCE, key=f"calibration:{event}", weight=2 + 8 * abs(gap) + (s != "early"))
     if len(off) > 3:
         rest = off[3:]
@@ -302,11 +302,12 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
               key="calibration:rest", weight=1)
     if calibrated:
         r.add("achievements", f"{count(len(calibrated), 'odds group')} now calibrated on its own history.",
-              "A group (a chance, a section, a days-to-expiry range) is calibrated once 30 of its plays have resolved; "
+              "A group (a chance, a section, a days-to-expiry range) is calibrated once 30 of its plays have resolved over at "
+              "least 10 separate sessions; "
               "the chance shown is then pulled toward how often that group really hit. Groups: "
               + "; ".join(_group_name(k) for k in calibrated[:6]) + ("…" if len(calibrated) > 6 else "."),
               items=int(total[0]), days=int(total[1]), unit="graded chances",
-              strength=strength(int(total[0]), int(total[1]), need=od.MIN_CALIBRATION), link=PERFORMANCE,
+              strength=calibration_strength(int(total[0]), int(total[1])), link=PERFORMANCE,
               key="calibrated-groups", weight=1.5)
 
     # the cells: "when it said 60–70% for …, 41% happened; it now shows about 45%"
@@ -321,8 +322,9 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
     for c in learned[:3]:
         used.add((c["event"], c["section"], c["bucket"], c["tenth"]))
         r.add("learned", _cell_sentence(c) + f" It now shows those as about {pct(c['now'])}.",
-              "Calibrated on that group's resolved plays (shrunk by 20 pseudo-observations, so a few outcomes move it "
-              "only a little).", items=c["n"], days=c["days"], strength=strength(c["n"], c["days"], need=od.MIN_CALIBRATION),
+              "Calibrated on that group's resolved plays (shrunk by 20 pseudo-observations, and plays of one session count "
+              "as less than independent evidence, so a few outcomes or one market day move it only a little).",
+              items=c["n"], days=c["days"], strength=calibration_strength(c["n"], c["days"]),
               link=PERFORMANCE, key=f"cell:{c['event']}:{c['section']}:{c['bucket']}:{c['tenth']}", weight=2)
     misses = sorted((c for c in cells if abs(c["gap"]) >= 0.1 and (c["event"], c["section"], c["bucket"], c["tenth"])
                      not in used), key=lambda c: -abs(c["gap"]) * math.sqrt(c["n"]))
@@ -331,8 +333,9 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
         fixed = calibrator(c["event"], c["section"], c["bucket"]).buckets
         r.add("wrong", _cell_sentence(c),
               (f"It now shows those as about {pct(c['now'])}." if fixed else
-               f"That group is not calibrated yet: {group['n']} of {od.MIN_CALIBRATION} resolved."),
-              items=c["n"], days=c["days"], strength=strength(c["n"], c["days"], need=od.MIN_CALIBRATION),
+               f"That group is not calibrated yet: {group['n']} of {od.MIN_CALIBRATION} resolved, from "
+               f"{group['days']} of {od.MIN_CALIBRATION_SESSIONS} sessions."),
+              items=c["n"], days=c["days"], strength=calibration_strength(c["n"], c["days"]),
               link=PERFORMANCE, key=f"miss:{c['event']}:{c['section']}:{c['bucket']}:{c['tenth']}",
               weight=1.5 + 5 * abs(c["gap"]))
 
@@ -340,12 +343,16 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
     pending = []
     for key, x in [*(((e, s), v) for (e, s), v in sections.items()), *groups.items()]:
         n = int(x["n"])
-        if 0 < n < od.MIN_CALIBRATION and not calibrations.get(key, od.Calibration()).buckets:
+        if n > 0 and not calibrations.get(key, od.Calibration()).buckets:
             pace = (x["recent"] or 0) / (PACE_DAYS / 7)
-            pending.append((key, n, int(x["days"]), None if pace <= 0 else (od.MIN_CALIBRATION - n) / pace))
+            plays_left, sessions_left = max(0, od.MIN_CALIBRATION - n), max(0, od.MIN_CALIBRATION_SESSIONS - int(x["days"]))
+            # at most five new sessions a week, however fast plays resolve
+            eta = None if plays_left and pace <= 0 else max(plays_left / pace if plays_left else 0.0, sessions_left / 5)
+            pending.append((key, n, int(x["days"]), eta))
     pending.sort(key=lambda p: (p[3] is None, p[3] or 0, -p[1]))
     for key, n, days, eta in pending[:3]:
-        r.add("coming", f"Calibrating its odds of {_group_name(key)}: {n} of {od.MIN_CALIBRATION} resolved, "
+        r.add("coming", f"Calibrating its odds of {_group_name(key)}: {n} of {od.MIN_CALIBRATION} resolved from "
+                        f"{days} of {od.MIN_CALIBRATION_SESSIONS} sessions, "
                         f"{weeks(eta)}.", "Estimated from the last four weeks' pace of resolved plays in that group.",
               items=n, days=days, strength="early", link=PERFORMANCE, key=f"next-calibration:{':'.join(key)}",
               weight=1 + (1 / (1 + (eta if eta is not None else 99))))
@@ -385,7 +392,7 @@ def _market_view(research: sqlite3.Connection, r: Report) -> None:
     days = int(research.execute("SELECT COUNT(DISTINCT p.session) FROM stk_plays p JOIN stk_play_outcomes o "
                                 "USING (session, category, rank) WHERE p.event = 'itm' AND p.itm_market IS NOT NULL"
                                 ).fetchone()[0])
-    s = strength(n, days, need=od.MIN_CALIBRATION)
+    s = calibration_strength(n, days)
     parts = []
     for x in rows:
         if x["n"] < 5 or abs(x["bias"]) < 0.01:
@@ -566,12 +573,12 @@ def plays_records(src: Sources, r: Report) -> None:
     total = research.execute("SELECT COUNT(*), COUNT(DISTINCT session) FROM stk_play_outcomes").fetchone()
     n, days = int(total[0]), int(total[1])
     r.metric("plays.graded", "Plays graded at expiry", n, items=n, days=days,
-             strength=strength(n, days, need=od.MIN_CALIBRATION))
+             strength=calibration_strength(n, days))
     reached = [m for m in MILESTONES if m <= n]
     if reached:
         r.add("achievements", f"Milestone: {reached[-1]:,} plays graded at expiry.",
               f"{n:,} so far, over {count(days, 'session')}; each is judged on the stock's official close.",
-              items=n, days=days, strength=strength(n, days, need=od.MIN_CALIBRATION), link=PERFORMANCE,
+              items=n, days=days, strength=calibration_strength(n, days), link=PERFORMANCE,
               key=f"milestone:{reached[-1]}", weight=1)
     # the Expiry filter's own cohorts, by section and band
     bands = _rows(research, "SELECT category, COUNT(*) n, COUNT(DISTINCT session) days, AVG(net_return) mean, "
@@ -616,7 +623,7 @@ def plays_records(src: Sources, r: Report) -> None:
                   f"{x['symbol']} {x['event_kind']} ({section_title(x['category'])}) picked {short(x['session'])} at "
                   f"{pct(x['chance'])}, {signed(x['net_return'])} at expiry" for x in worst_misses) + ".",
               items=int(sure["n"]), days=int(sure["days"]),
-              strength=strength(int(sure["n"]), int(sure["days"]), need=od.MIN_CALIBRATION), link=PERFORMANCE,
+              strength=calibration_strength(int(sure["n"]), int(sure["days"])), link=PERFORMANCE,
               key="high-confidence-misses", weight=1 + 3 * (sure["missed"] / max(sure["n"], 1)))
 
 

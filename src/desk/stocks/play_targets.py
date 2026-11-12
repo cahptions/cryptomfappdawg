@@ -2,8 +2,8 @@
 
 Option payoffs are piecewise linear in the stock price. Integrate the favorable intervals under the already
 recorded KESTREL lognormal forecast. These are the model's own numbers: each recorded play's targets are graded at
-expiry against its real return (``plays.grade_events``) and, once 30 have resolved in a group, the chance shown is
-calibrated on them (``plays.calibrated``). They are not path predictions, nor a claim that an option can be sold at
+expiry against its real return (``plays.grade_events``) and, once 30 from 10 sessions have resolved in a group, the chance
+shown is calibrated on them (``plays.calibrated``). They are not path predictions, nor a claim that an option can be sold at
 its theoretical maximum.
 """
 
@@ -79,7 +79,7 @@ def build(play: dict[str, Any], sigma: float, drift: float, years: float) -> dic
                 "The theoretical maximum gain is unlimited; use a practical profit target instead."),
             "note": "Model estimates of profit at expiration after opening fees, not the chance of hitting a "
                     "sale target earlier. Each recorded play's targets are graded at expiry against its real return; "
-                    "once 30 have resolved, the chance shown is calibrated on them."}
+                    "once 30 from 10 separate sessions have resolved, the chance shown is calibrated on them."}
 
 
 def computed_later(play: dict[str, Any], identified: date) -> dict[str, Any] | None:

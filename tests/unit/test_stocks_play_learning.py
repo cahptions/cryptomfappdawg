@@ -159,6 +159,33 @@ def test_categories_are_labelled_proven_failing_or_unproven() -> None:
 
 
 # ── calibration and inputs ───────────────────────────────────────────────────────────────────────
+def test_calibration_counts_sessions_and_the_learning_report_agrees(research: sqlite3.Connection) -> None:
+    from desk.stocks import learning_report as lr
+
+    def add(sessions: list[date], start: int) -> None:
+        for i in range(30):
+            s = sessions[i % len(sessions)]
+            research.execute(
+                "INSERT INTO stk_plays(session, category, rank, symbol, action, structure, expiration, event, event_kind,"
+                " event_strike, event_width, entry, max_loss, legs_json, underlying, itm_market, itm_history, itm_kestrel,"
+                " itm_kestrel_raw, profit_kestrel, play_json, method, recorded_at) VALUES (?, 'edge', ?, 'X', 'BUY', "
+                "'long_call', ?, 'itm', 'call', 10, 0, 1, 101, '[]', 10, 0.5, 0.5, 0.6, 0.6, 0.4, ?, 'm', 'x')",
+                (day_of(s), start + i, day_of(s + timedelta(days=20)), json.dumps({"odds_version": od.MODEL_VERSION})))
+            research.execute("INSERT INTO stk_play_outcomes VALUES (?, 'edge', ?, 'x', 10, ?, 0, 0)",
+                             (day_of(s), start + i, int(i % 3 == 0)))
+
+    add(SESSIONS[:2], 0)                                         # 30 plays from 2 sessions: not calibrated
+    groups = pl.calibration(StocksResearch(research))
+    assert groups["itm"].resolved == 30 and groups["itm"].sessions == 2 and not groups["itm"].buckets
+    assert pl.calibrator(groups, "itm", "edge", 20) == (groups["itm"], None)
+    assert lr.calibration_strength(30, 2) == "early"
+    add(SESSIONS[2:14], 100)                                     # 30 more over 12 more sessions: calibrated
+    groups = pl.calibration(StocksResearch(research))
+    found, level = pl.calibrator(groups, "itm", "edge", 20)
+    assert level == "this category at this expiry" and found.sessions == 14 and found.apply(0.6) < 0.6
+    assert lr.calibration_strength(60, 14) == "suggestive"
+
+
 def test_calibration_uses_the_most_specific_group_with_enough_plays(research: sqlite3.Connection) -> None:
     rng = random.Random(4)
     for i in range(80):
@@ -184,7 +211,7 @@ def test_calibration_uses_the_most_specific_group_with_enough_plays(research: sq
     assert level == "all plays" and pooled.resolved == 80
     assert pl.calibrator(groups, "move", "earnings", 20) == (groups["move"], None)
     summary = pl.calibration_summary(StocksResearch(research))
-    assert summary["groups"]["itm|edge|8–30 days"] == {"resolved": 40, "applied": True}
+    assert summary["groups"]["itm|edge|8–30 days"] == {"resolved": 40, "applied": True, "sessions": 40, "effective": 40.0}
 
 
 def test_input_information_coefficients_find_what_predicts_returns() -> None:

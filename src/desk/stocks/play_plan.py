@@ -241,11 +241,44 @@ def status(play: Mapping[str, Any], plan: Mapping[str, Any] | None, price: float
 # (worst case per play, all plays together) as shares of the amount set aside for options.
 LEVELS = {"careful": (0.05, 0.20, "Careful"), "balanced": (0.10, 0.35, "Balanced"), "bold": (0.20, 0.60, "Bold")}
 MAX_PICKS = 6
+KELLY_SHARE = 0.25        # quarter Kelly: full Kelly on an estimated edge is far too volatile
+
+
+def kelly(play: Mapping[str, Any]) -> dict[str, Any]:
+    """How to size ``play``: a quarter of the Kelly fraction from its **calibrated** take-profit chance and its exit
+    plan's payoff, or ``fixed`` (the level's share) with the reason when that chance is not proven.
+
+    Kelly (1956) for a bet won with chance p for b × the stake and lost with 1 − p for a × the stake bets
+    f = p / a − (1 − p) / b of the bankroll at risk. Here the stake is the play's worst case; b is the take-profit's
+    gain and a the stop's loss over it (the whole worst case without a stop), and every outcome but the take-profit
+    counts as the stop: a conservative two-outcome reading of the plan (leaving at the leave-by date usually loses
+    less than the stop). Only a chance calibrated on the play's own group of graded plays (30 resolved from 10
+    sessions, ``odds.Calibration``) is used; the model's own number is not evidence enough to size on."""
+    plan = play.get("exit_plan") or {}
+    odds, take, stop, worst = plan.get("odds") or {}, plan.get("take_profit"), plan.get("stop"), play.get("max_loss")
+    if not odds or not take or not worst:
+        return {"basis": "fixed", "reason": "no take-profit chance for this play's exit plan"}
+    if not odds.get("calibration"):
+        return {"basis": "fixed", "reason": "its take-profit chance is the model's own: this group has not yet "
+                                            "calibrated on 30 resolved plays from 10 separate sessions"}
+    p = float(odds["take_profit"])
+    b = float(take["pnl"]) / float(worst)
+    a = min(1.0, -float(stop["pnl"]) / float(worst)) if stop and float(stop["pnl"]) < 0 else 1.0
+    if b <= 0 or a <= 0:
+        return {"basis": "fixed", "reason": "its exit plan has no gain or loss to size on"}
+    full = p / a - (1 - p) / b
+    return {"basis": "quarter_kelly", "chance": round(p, 4), "calibration": odds["calibration"],
+            "win": round(b, 4), "loss": round(a, 4), "kelly": round(full, 4),
+            "fraction": round(max(0.0, KELLY_SHARE * full), 4)}
 
 
 def bankroll(board: Mapping[str, Any], amount: float, level: str = "balanced") -> dict[str, Any]:
     """The day's plays for ``amount``: no play's worst case above the level's share of it, the total at risk capped,
-    one play per stock, two per category at most, no direction above 60% of the cap; best confidence first."""
+    one play per stock, two per category at most, no direction above 60% of the cap; best confidence first.
+
+    A play whose take-profit chance is calibrated on its group's graded plays is sized at a quarter Kelly (``kelly``),
+    never above those caps, and passed over when that is under one contract; any other play keeps the fixed sizing
+    (as many contracts as the caps allow). Each pick's ``sizing`` says which basis it used and why."""
     per_play, total, title = LEVELS[level]
     cap, budget = amount * per_play, amount * total
     pool: dict[str, dict[str, Any]] = {}
@@ -264,18 +297,30 @@ def bankroll(board: Mapping[str, Any], amount: float, level: str = "balanced") -
     categories: Counter[str] = Counter()
     directions: Counter[str] = Counter()
     left = budget
+    passed: list[dict[str, Any]] = []
     for p in chosen:
         direction = DIRECTION.get(p["structure"], "other")
         if p["symbol"] in symbols or categories[p["category"]] >= 2:
             continue
         qty = min(int(cap // p["max_loss"]), int(left // p["max_loss"]),
                   int((0.6 * budget - directions[direction]) // p["max_loss"]))
+        sizing = kelly(p)
+        if qty >= 1 and sizing["basis"] == "quarter_kelly":
+            wanted = int(sizing["fraction"] * amount // p["max_loss"])
+            sizing["contracts"] = wanted
+            sizing["capped"] = wanted > qty
+            if wanted < 1:
+                passed.append({"symbol": p["symbol"], "category": p["category"], "kelly": sizing["kelly"],
+                               "reason": ("no edge at its calibrated chance" if sizing["kelly"] <= 0 else
+                                          "a quarter Kelly is less than one contract at this amount")})
+                continue
+            qty = min(qty, wanted)
         if qty < 1:
             continue
         risk = qty * p["max_loss"]
         plan = p.get("exit_plan") or {}
         cash = qty * (p["cost"] if p["action"] == "BUY" else p["max_loss"])
-        picks.append({"play": p, "quantity": qty, "risk": round(risk, 2), "cash": round(cash, 2),
+        picks.append({"play": p, "quantity": qty, "risk": round(risk, 2), "cash": round(cash, 2), "sizing": sizing,
                       "share": round(risk / amount, 4),
                       "expected_value": round(qty * (p.get("expected_value") or 0.0), 2),
                       "at_take_profit": None if not plan.get("take_profit") else round(qty * plan["take_profit"]["pnl"], 2),
@@ -288,7 +333,10 @@ def bankroll(board: Mapping[str, Any], amount: float, level: str = "balanced") -
             break
     cheapest = min((p["max_loss"] for p in ranked if p["confidence"]["score"] >= 2), default=None)
     message = None
-    if not picks:
+    if not picks and passed:
+        message = (f"Every qualifying play with a calibrated take-profit chance sizes below one contract at a quarter "
+                   f"Kelly ({len(passed)} passed over), and no other play fits.")
+    elif not picks:
         message = (f"Nothing qualifies at a {per_play:.0%} worst case per play (${cap:,.0f})."
                    + (f" The cheapest play with at least 2 of 5 checks risks ${cheapest:,.0f}: raise the amount or "
                       "choose a bolder level." if cheapest else " No play passes 2 of the 5 checks today."))
@@ -297,6 +345,7 @@ def bankroll(board: Mapping[str, Any], amount: float, level: str = "balanced") -
     risk = sum(p["risk"] for p in picks)
     return {"amount": amount, "level": level, "level_title": title, "per_play": per_play, "total": total,
             "per_play_cap": round(cap, 2), "risk_cap": round(budget, 2), "picks": picks, "message": message,
+            "kelly_share": KELLY_SHARE, "kelly_passed": passed,
             "summary": {"plays": len(picks), "risk": round(risk, 2), "share": round(risk / amount, 4) if amount else 0,
                         "cash": round(sum(p["cash"] for p in picks), 2),
                         "expected_value": round(sum(p["expected_value"] for p in picks), 2),
@@ -397,5 +446,5 @@ def attach(play: dict[str, Any], category: str, record: Mapping[str, Any] | None
     return play
 
 
-__all__ = ["DIRECTION", "LEVELS", "attach", "bankroll", "confidence", "exit_plan", "plan_odds", "status",
+__all__ = ["DIRECTION", "KELLY_SHARE", "LEVELS", "attach", "bankroll", "confidence", "exit_plan", "kelly", "plan_odds", "status",
            "stock_levels", "target_value"]

@@ -212,7 +212,7 @@ databases, that says what every learning loop knows (`src/desk/stocks/learning_r
 | Replays on past data | Historical replays, preregistered option research, lottos on real past prices and the Evidence page's rebuilt history and proposed weights, always labelled and never mixed with forward results |
 
 **Honesty rules.** Every finding shows its evidence, the number of items **and** of separate sessions or days, and a
-strength: **early** (below that loop's own threshold, such as 30 resolved plays for calibration or 60 settled plays
+strength: **early** (below that loop's own threshold, such as 30 resolved plays from 10 sessions for calibration or 60 settled plays
 over 20 sessions for a section verdict, or seen on fewer than 10 separate days whatever the count: 30 plays from 2
 sessions are early), **suggestive**, or **tested**, used only where that loop's own significance test or grade
 already says so (a proven or failing section, a suggested exit rule, a promotion, a working or backwards grade, a

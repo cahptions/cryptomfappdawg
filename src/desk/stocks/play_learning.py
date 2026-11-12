@@ -1,7 +1,7 @@
 """Plays learning: refine the picks from how they did, without fooling itself (docs/STOCKS_PLAYS.md → Learning).
 
 * **Calibration** of KESTREL's chance per category and days to expiry (``plays.calibration``), falling back to the
-  category and then to every play until a group has 30 resolved plays.
+  category and then to every play until a group has 30 resolved plays from 10 sessions.
 * **Exit rules**: take profit at +X%, stop at −Y% or leave after N sessions, tried on each category's quoted closing
   marks. The rule is chosen walk-forward: at each block of five sessions, the best rule on plays that had fully
   resolved before the block is applied to the block's plays, which it never saw, and compared with holding to expiry.

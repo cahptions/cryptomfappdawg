@@ -347,7 +347,25 @@ the money and the stock's price in the same answer. A pass is about 70 requests,
 minute, and the 150-name focus is covered about every 75 minutes, five or so times a session. Tradier still needs one
 request an expiry. Outside those hours it collects once if that session's chains were missed. It does **not** provide
 a daily full-universe option archive or continuous intraday history per name. Held contracts are included regardless
-of the current rotating focus. Chains are kept 45 days (roughly 5 MB a session at this coverage, about 0.25 GB in all).
+of the current rotating focus.
+
+**Every collected chain is kept** (until 2026-11 they were deleted after 45 days): they are the only real bid/ask,
+volume and open-interest history the app has, and the replay prices a past day from its own collected chain wherever
+one is stored. They stay compressed as before (one zlib JSON blob per stock, session and expiry, `stk_option_chains`,
+each row labelled with its provider `source`). Instead of an age limit there is a disk budget,
+`stocks.option_chain_budget_gb` (default 10; 0 = no limit): after each collection pass, only if the stored chains are
+over it, whole sessions are deleted oldest first until they fit, never the current session. System → **Stored option
+chains** shows the sessions kept, their date range, compressed size, size per session and the budget, and what the last
+pass deleted (also in the options job's detail as `chain_storage` and `pruned`). Roughly 5 MB a session at this
+coverage (about 35 bytes a contract) makes 10 GB about 2,000 sessions, some eight years. The database file does not
+shrink when old sessions go; SQLite reuses the freed pages for new chains. (The comment in migration 0001 saying raw
+chains are pruned after 45 days describes the old rule; migrations are checksummed, so it is left as written.)
+
+Storage format, measured (synthetic world, 11 stocks, about 7,850 contracts a session, with Schwab-like noise in
+volumes, open interest, quote times and sizes): zlib level 6 per stock-session-expiry, the format in use, 275 KB a
+session; zlib 9 saves 1%; lzma saves 13% but decodes about 4× slower (the replay decodes chains constantly); packing a
+stock's whole session into one blob saves 20–30% on noiseless data only. None is worth a format change: the budget,
+not the encoding, is what keeps the archive bounded.
 
 Free history is rate-limited. Roughly500 initial grouped-price requests consume at least100minutes at
 5/minute; the default five-day batches separated by a five-minute pause stretch the initial backfill across

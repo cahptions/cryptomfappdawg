@@ -56,11 +56,49 @@ try {
     );
     assert.ok(data.picks.every((p) => p.risk <= data.per_play_cap));
     assert.ok(data.summary.risk <= data.risk_cap);
-    if (data.picks.length)
+    if (data.picks.length) {
       assert.match(
         await page.locator(".bankroll-pick-head").first().innerText(),
         /^(Buy|Sell) \d+ ×/,
       );
+      // every pick says how it was sized; the fixture has no calibrated group, so none uses Kelly
+      for (const text of await page.locator(".bankroll-sizing").allInnerTexts())
+        assert.match(text, /^Sized by the level's limits: .+\.$/);
+      assert.ok(data.picks.every((p) => p.sizing.basis === "fixed"));
+    }
+    // a pick sized from a calibrated chance shows its quarter-Kelly basis
+    await page.route("**/api/stocks/plays/bankroll?*", async (route) => {
+      const value = await (await route.fetch()).json();
+      if (value.picks.length)
+        value.picks[0].sizing = {
+          basis: "quarter_kelly",
+          chance: 0.6,
+          calibration: "this category",
+          win: 0.5,
+          loss: 0.5,
+          kelly: 0.4,
+          fraction: 0.1,
+          contracts: 9,
+          capped: true,
+        };
+      value.kelly_passed = [
+        {
+          symbol: "ZZZ",
+          category: "edge",
+          kelly: -0.2,
+          reason: "no edge at its calibrated chance",
+        },
+      ];
+      await route.fulfill({ json: value });
+    });
+    await page.getByRole("button", { name: "Pick my plays" }).click();
+    await page.locator(".bankroll-kelly-passed", { hasText: "ZZZ" }).waitFor();
+    if (data.picks.length)
+      assert.match(
+        await page.locator(".bankroll-sizing").first().innerText(),
+        /^Sized at a quarter Kelly: calibrated take-profit chance 60% \(this category\).*10\.0% of the amount; capped by the limits from 9 contracts\.$/,
+      );
+    await page.unroute("**/api/stocks/plays/bankroll?*");
     await page.reload();
     await page.locator(".bankroll-summary").waitFor();
     assert.equal(await amount.inputValue(), "5000");

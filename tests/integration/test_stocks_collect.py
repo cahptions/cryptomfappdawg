@@ -17,7 +17,7 @@ from desk.core.paths import DeskPaths
 from desk.core.secrets import Secrets
 from desk.stocks import calendar as cal
 from desk.stocks import collect
-from desk.stocks.contracts import Listing
+from desk.stocks.contracts import Listing, OptionQuote
 from desk.stocks.repo import StocksDatabases, StocksMarket
 from desk.stocks.suite import StocksSuite, build_stocks_suite
 from tests.conftest import REPO
@@ -357,9 +357,17 @@ async def test_crowd_rates_and_option_chains(world: World) -> None:
         return httpx.Response(200, json={"options": {"option": options}})
 
     respx.get(url__startswith="https://sandbox.tradier.com/v1/markets/options/chains").mock(side_effect=chain)
+    # a chain collected long ago is kept: chains are only pruned past the disk budget, never by age
+    old = date(2026, 6, 1)
+    world.market.save_option_chain("OLDC", old, date(2026, 6, 19), NOW - timedelta(days=150), 50.0,
+                                   [OptionQuote("OLDC260619C00050000", "OLDC", "call", 50.0, date(2026, 6, 19), 1.0,
+                                                1.1, 1.05, 10, 100, 10, None)], source="tradier")
     report = await collect.option_chains(world.suite, world.market, NOW, ["SPCX"], rate=0.04,
                                          last_prices={"SPCX": 100.0}, clock=lambda: NOW)
     assert report["ok"] and report["symbols"] == 1 and report["contracts"] == 24
+    assert report["pruned"]["sessions"] == 0 and world.market.option_chain("OLDC")[0] == old
+    storage = report["chain_storage"]
+    assert storage["sessions"] == 2 and storage["first"] == old.isoformat() and storage["budget_bytes"] == 10**10
     day, chains = world.market.option_chain("SPCX")
     assert day == date(2026, 10, 21) and sorted(chains) == exps
     [(_, summary)] = world.market.option_daily("SPCX")
