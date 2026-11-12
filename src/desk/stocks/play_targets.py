@@ -1,10 +1,11 @@
 """Expiry profit-target probabilities, distinct from ITM and from touching a profit target before expiry.
 
 Option payoffs are piecewise linear in the stock price. Integrate the favorable intervals under the already
-recorded KESTREL lognormal forecast. These are the model's own numbers: each recorded play's targets are graded at
-expiry against its real return (``plays.grade_events``) and, once 30 from 10 sessions have resolved in a group, the chance
-shown is calibrated on them (``plays.calibrated``). They are not path predictions, nor a claim that an option can be sold at
-its theoretical maximum.
+recorded KESTREL forecast: the chain's own distribution reshaped to KESTREL's volatility and drift where the expiry's
+smile could be fitted (``chain_odds``), otherwise the lognormal. These are the model's own numbers: each recorded
+play's targets are graded at expiry against its real return (``plays.grade_events``) and, once 30 from 10 sessions
+have resolved in a group, the chance shown is calibrated on them (``plays.calibrated``). They are not path
+predictions, nor a claim that an option can be sold at its theoretical maximum.
 """
 
 from __future__ import annotations
@@ -12,13 +13,24 @@ from __future__ import annotations
 import math
 from datetime import date
 from itertools import pairwise
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from desk.stocks.odds import above
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT
 
+if TYPE_CHECKING:
+    from desk.stocks.chain_odds import Distribution
 
-def chance(play: dict[str, Any], target: float, sigma: float, drift: float, years: float) -> float:
+
+def chance(play: dict[str, Any], target: float, sigma: float, drift: float, years: float,
+           dist: Distribution | None = None) -> float:
+    """The chance the play's return at expiry reaches ``target`` (of the maximum loss): under ``dist`` (a terminal
+    distribution of the stock) when given, else the lognormal at ``sigma`` and ``drift``."""
+    s0 = play["underlying_price"]
+
+    def beyond(level: float) -> float:
+        return float(dist.above(s0, level)) if dist is not None else above(s0, level, years, sigma, drift)
+
     legs = play["legs"]
     cost = play["entry"] * 100 * (-1 if play["action"] == "BUY" else 1)
     cost -= OPTION_FEE_PER_CONTRACT * len(legs)
@@ -48,8 +60,7 @@ def chance(play: dict[str, Any], target: float, sigma: float, drift: float, year
                 high = min(high, crossing)
         if low >= high:
             continue
-        result += (above(play["underlying_price"], low, years, sigma, drift) -
-                   (above(play["underlying_price"], high, years, sigma, drift) if math.isfinite(high) else 0.0))
+        result += beyond(low) - (beyond(high) if math.isfinite(high) else 0.0)
     return max(0.0, min(1.0, result))
 
 
@@ -65,12 +76,13 @@ MAX_GAIN_NOTES = {
 }
 
 
-def build(play: dict[str, Any], sigma: float, drift: float, years: float) -> dict[str, Any]:
-    targets = {str(int(target * 100)): round(chance(play, target, sigma, drift, years), 4)
+def build(play: dict[str, Any], sigma: float, drift: float, years: float,
+          dist: Distribution | None = None) -> dict[str, Any]:
+    targets = {str(int(target * 100)): round(chance(play, target, sigma, drift, years, dist), 4)
                for target in (0.0, 0.25, 0.5, 1.0)}
     structure = play["structure"]
     capped = (play["action"] == "SELL" or structure.endswith("debit")) and bool(play.get("max_gain"))
-    maximum = chance(play, play["max_gain"] / play["max_loss"], sigma, drift, years) if capped else None
+    maximum = chance(play, play["max_gain"] / play["max_loss"], sigma, drift, years, dist) if capped else None
     return {"version": 1, "horizon": "At expiry", "returns": targets,
             "max_gain_probability": None if maximum is None else round(maximum, 4),
             "max_gain_note": MAX_GAIN_NOTES.get(structure) or (

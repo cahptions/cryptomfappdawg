@@ -121,7 +121,15 @@ const KestrelPlays = (() => {
     );
     if (odds && take && odds.history)
       box.append(el("small", takeHistory(odds.history), "play-chance-history"));
+    if (play.odds_basis)
+      box.append(el("small", oddsBasis(play.odds_basis), "play-chance-basis"));
     return box;
+  }
+  // Which distribution the chances came from: the expiry's own smile, or the lognormal fallback and why.
+  function oddsBasis(b) {
+    return b.basis === "chain"
+      ? `Chances from this expiry's own smile (${b.strikes} strikes): skew and fat tails included`
+      : `Chances from a lognormal at the option's own volatility: ${b.reason}`;
   }
   // How often recorded plays shown about this chance really reached their take-profit first.
   function takeHistory(h) {

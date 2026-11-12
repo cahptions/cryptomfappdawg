@@ -264,9 +264,9 @@ group first: this category at this expiry, then the category, then every play); 
 
 | View | What it is |
 |---|---|
-| **Market** | What the option's own price implies: lognormal at its implied volatility, drifting at the risk-free rate. A price, not a forecast. |
+| **Market** | What the option chain prices: the expiry's own distribution, read from its whole smile (skew and fat tails included; see "The chain's own skew"), or, where the smile cannot be fitted, the lognormal at the option's implied volatility drifting at the risk-free rate. A price, not a forecast. |
 | **History** | How often this stock actually moved that far in that many trading sessions, from up to three years of its own closes, rescaled to today's realized volatility. Keeps the stock's fat tails and skew; drops its old trend. |
-| **KESTREL** | A forecast. Volatility blends 70% implied and 30% realized variance (implied volatility usually overstates the move that follows). The drift is tilted by the committee's view only as far as the committee's measured information coefficient allows — expected move = IC × z-score × volatility (Grinold), with the IC shrunk by its evidence n / (n + 24 months) and never extrapolated past the one-month horizon it was measured on. With no positive measured IC there is no tilt. |
+| **KESTREL** | A forecast: the chain's own distribution reshaped, or the lognormal where the chain falls back. Volatility blends 70% implied and 30% realized variance (implied volatility usually overstates the move that follows). The drift is tilted by the committee's view only as far as the committee's measured information coefficient allows — expected move = IC × z-score × volatility (Grinold), with the IC shrunk by its evidence n / (n + 24 months) and never extrapolated past the one-month horizon it was measured on. With no positive measured IC there is no tilt. |
 
 KESTREL's chance is then **calibrated against how past plays actually finished**. Every recorded play is graded at
 expiration; once a group has 30 resolved plays **from at least 10 separate sessions**, predicted chances are grouped in
@@ -275,7 +275,7 @@ In-the-money events and straddle moves are calibrated separately, and each categ
 own calibration once it meets the same two minimums (see Learning). Until then the page says "not yet calibrated"
 and how many plays and sessions it has.
 
-**Evidence is counted in independent days, not plays** (probability model version 2, 2026-11-12). Plays picked the
+**Evidence is counted in independent days, not plays** (2026-11-12). Plays picked the
 same session share that session's market: one rally finishes most of a day's calls in the money together, so 30 plays
 from 2 sessions are closer to two observations than to thirty. Two rules follow:
 
@@ -290,8 +290,77 @@ from 2 sessions are closer to two observations than to thirty. Two rules follow:
 
 The Learning report uses the same rule (it rebuilds each group's calibration from per-session sums), and its strength
 labels call calibration evidence "early" until it has both 30 plays and 10 sessions. The rule changes how evidence is
-counted, not what the model predicts, so `odds.MODEL_VERSION` stays 1 and every play recorded before the rule still
-counts: calibration learns from the model's own raw chances, which are the same under either rule.
+counted, not what the model predicts, so it did not change `odds.MODEL_VERSION`: calibration learns from the model's
+own raw chances, which are the same under either rule.
+
+### The chain's own skew (probability model version 2)
+
+A lognormal at one implied volatility treats the stock as equally likely to jump up or down, with thin tails. The
+chain disagrees: out-of-the-money puts usually cost more volatility than calls (skew) and both wings more than the
+money (smile), because the market expects sharper falls and bigger moves than a lognormal. Since probability model
+version 2 (`odds.MODEL_VERSION = 2`, 2026-11-12) both the **Market** and the **KESTREL** chances read the expiry's whole
+chain (`src/desk/stocks/chain_odds.py`):
+
+1. **Fit the smile.** For each stock and expiry: the out-of-the-money quotes (puts below the forward, calls above;
+   an in-the-money option's price is mostly intrinsic value, so its spread swamps its volatility), each quoted within
+   30% of its mid and within four standard deviations, one per strike. Implied volatility is smoothed against
+   log-moneyness with a kernel-weighted local quadratic (Gaussian kernel, half a standard deviation of the move wide
+   and at least 1.5 strike spacings), each quote weighted by how precisely it pins its volatility (its vega over half
+   its spread).
+2. **Read the chances off it.** Breeden–Litzenberger: the chance of finishing above K is minus the forward value of
+   the call price's slope in strike. Differentiating the fitted smile analytically gives
+   P(S_T > K) = N(d₂) − φ(d₂)·√T·dσ/d ln K: the Black-Scholes digital plus its skew correction. Outside the quoted
+   strikes the smile continues along its edge tangent (kept within 0.3–3× the money's volatility). The chance is
+   tabulated on 1,201 points and checked: it must fall as the strike rises; a rise of more than 2 points anywhere
+   (a negative probability) rejects the fit.
+3. **KESTREL's forecast.** The same shape, its spread rescaled by KESTREL's volatility blend (70% of the money's implied
+   variance, 30% realized), and shifted so the expected price grows at KESTREL's drift: the risk-free rate plus the
+   committee tilt, exactly as before. On a flat smile this is the old lognormal.
+
+Why this method: differencing quoted prices directly (raw Breeden–Litzenberger) needs dense, tight strikes and turns
+every bid/ask error into a negative density on a retail chain; SVI or splines need a non-linear fit and many clean
+strikes, and can fail silently. A smoothed smile differentiated in closed form is linear algebra only, stable from
+five strikes, and degrades toward a straight skew where strikes are few.
+
+**Fallback.** An expiry with fewer than five usable strikes (or fewer than two either side of the money), a fit whose
+residual exceeds 15% of the money's volatility, or a fit implying a negative probability keeps today's lognormal at
+each contract's own implied volatility. Every play stores its basis (`odds_basis`: "chain" with the strikes used and
+the money's volatility, or "lognormal" with the reason) and the card's chances say which.
+
+**What uses it.** The Market and KESTREL chances in the money, the chance of profit beyond break-even, KESTREL's
+expected value per contract (and so every section that ranks on it), the expiry targets (+25/50/100%, maximum gain)
+and the take-profit chance's Monte Carlo: each path's value at expiry is drawn from the stored KESTREL distribution
+(35 quantiles kept with the play, `forecast.quantiles`) and the path to it is a Brownian bridge at KESTREL's
+volatility, so the paths finish where the other chances say. Still lognormal, and labelled so: the **touch** chance
+(a path quantity the terminal distribution does not give; the reflection formula at KESTREL's volatility and drift),
+the History view (unchanged), a tracked play's "chance from here" (a new price and horizon; compared with the same
+lognormal at the pick, so "worth adding" stays like for like) and the Calculator's market view.
+
+**Measured** on synthetic chains with known skew (risk-neutral mixtures of two lognormals: a 20% "crash" regime, and
+a 50/50 calm-and-wild mixture for fat tails), calls and puts from 70% to 135% of the price, mids jittered inside the
+quoted spread, 20 seeds each, scored on the chance of finishing above 45 levels from 75% to 130% of the price against
+the true chance (expected Brier score and log-loss; `tests/unit/test_stocks_chain_odds.py`):
+
+| Synthetic chain (2.5% strikes, 4% spreads) | Brier: chain / lognormal own IV / lognormal ATM | Log-loss: chain / own / ATM | Worst error: chain / own |
+|---|---|---|---|
+| Crash skew, 30 days | 0.08075 / 0.08161 / 0.08165 (truth 0.08074) | 0.2653 / 0.2784 / 0.2764 | 0.3 / 6.7 points |
+| Crash skew, 7 days | 0.04739 / 0.04785 / 0.04790 (truth 0.04739) | 0.1591 / 0.1729 / 0.1702 | 0.8 / 6.1 points |
+| Crash skew, 90 days | 0.13321 / 0.13380 / 0.13381 (truth 0.13321) | 0.4191 / 0.4219 / 0.4218 | 0.2 / 4.5 points |
+| Fat tails, 30 days | 0.08264 / 0.08299 / 0.08300 (truth 0.08264) | 0.2753 / 0.2806 / 0.2805 | 0.6 / 3.9 points |
+| Flat (true lognormal), 30 days | 0.08644 / 0.08644 / 0.08644 | 0.2767 / 0.2766 / 0.2766 | 0.2 / 0.1 points |
+
+With sparser, wider chains (5% strikes, 12% spreads) the chain stays within 2 points of the truth at 30 and 90 days
+(Brier 0.08076 against 0.08159 for the lognormal at the crash skew's 30 days); the 7-day chain then has only a few
+out-of-the-money strikes on one side and falls back to the lognormal on every seed, as designed. The lognormal's
+errors are concentrated exactly where lottos and far targets live: it misses the crash skew's far-put chance by 6–7
+points.
+
+**Calibration restarts for version 2.** Calibration learns from the model's own raw chances, and version 2 predicts
+different ones, so only plays recorded under version 2 calibrate later plays (every chance and every group starts again
+from 30 resolved plays from 10 sessions; the page says "not yet calibrated" until then). Plays recorded under version 1
+are not lost: they stay in History and Performance, graded as before, and their grades keep their own model version
+(`stk_play_grades.model_version`), so Learning can compare the two models on the same kind of plays. The rule-set
+fingerprint (`plays.method`) includes the model version, so version-2 plays are a new rule version in Performance.
 
 Also shown: the chance of **profit** at expiry (beyond break-even), the chance the price **touches** the strike
 before expiry (reflection formula for geometric Brownian motion; "already in the money" when it has), and the
@@ -622,6 +691,10 @@ pass by construction, typically 4–6 a minute.
   differ.
 - Probabilities are model estimates. Until plays have resolved, KESTREL's chance is uncalibrated, and until the
   committee has a positive measured information coefficient it carries no directional tilt. The page states both.
+- The chain's own distribution is read from the latest snapshot's out-of-the-money quotes, solved as European options
+  without dividends (American early exercise and dividends shift deep in-the-money prices, which is one reason only
+  out-of-the-money quotes are used). It is as good as the strikes collected: up to 50 either side of the money, so a
+  lotto far beyond the quoted strikes reads the smile's edge tangent, not a quote.
 - History values are closing marks at the bid/ask; a real order could fill nearer the mid. Estimated and modelled
   values are Black-Scholes, not quotes, and are never graded.
 - Whether Schwab's quotes endpoint serves option symbols to the operator's app is recorded by the first tracking
