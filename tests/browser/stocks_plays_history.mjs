@@ -69,6 +69,107 @@ try {
       fullPage: true,
     });
 
+    // section filter and order: the summary follows the section, and the choice survives a reload
+    const sectionPick = page.getByLabel("Section", { exact: true });
+    const orderPick = page.getByLabel("Order", { exact: true });
+    const sectionTexts = await sectionPick.locator("option").allTextContents();
+    assert.match(sectionTexts[0], /^All sections \(\d+\)$/);
+    for (const title of [
+      "Most likely to finish ITM",
+      "Biggest model edge",
+      "Unusual activity",
+      "Cheap volatility",
+      "Earnings plays",
+      "Strangles",
+      "Trend calls",
+      "Bearish puts",
+      "Squeeze calls",
+      "Debit spreads",
+      "Sell rich premium",
+      "Iron condors",
+      "Iron butterflies",
+      "Cash-secured puts",
+      "Lottos",
+      "Your watchlist",
+      "LEAPS (older recorded LEAPS)",
+    ])
+      assert.ok(
+        sectionTexts.some((t) => t.includes(title)),
+        `the section list offers ${title}`,
+      );
+    const allRows = await rows.count();
+    const busiest = (
+      await sectionPick.locator("option").evaluateAll((os) =>
+        os
+          .slice(1)
+          .map((o) => [o.value, Number(o.textContent.match(/\((\d+)\)$/)[1])])
+          .sort((a, b) => b[1] - a[1]),
+      )
+    )[0];
+    const allSummary = await summary.innerText();
+    await sectionPick.selectOption(busiest[0]);
+    await page
+      .locator(".pl-summary h3", { hasText: "This session · " })
+      .waitFor();
+    assert.equal(await page.locator("section.pl-category").count(), 1);
+    assert.ok(
+      (await rows.count()) < allRows || busiest[1] === allRows,
+      "only the chosen section is listed",
+    );
+    const counted = (text) => Number(text.match(/% of (\d+)/)[1]);
+    assert.ok(
+      counted(await summary.innerText()) <= busiest[1] &&
+        counted(await summary.innerText()) < counted(allSummary),
+      "the summary counts only the chosen section",
+    );
+    await orderPick.selectOption("best");
+    await page.waitForFunction(() => {
+      const values = [...document.querySelectorAll("a.pl-row .pl-now strong")]
+        .map((n) => n.textContent.replace("−", "-").replace("%", ""))
+        .filter((t) => t !== "—")
+        .map(Number);
+      return values.every((v, i) => i === 0 || values[i - 1] >= v);
+    });
+    await page.reload();
+    await page.getByRole("heading", { name: /^Plays of / }).waitFor();
+    assert.equal(await sectionPick.inputValue(), busiest[0]);
+    assert.equal(await orderPick.inputValue(), "best");
+    assert.equal(await page.locator("section.pl-category").count(), 1);
+    for (const range of ["1 week", "1 year"]) {
+      await page.getByRole("link", { name: range, exact: true }).click();
+      await page.waitForFunction(
+        () => document.querySelectorAll("section.pl-category").length <= 1,
+      );
+      assert.equal(await sectionPick.inputValue(), busiest[0]);
+    }
+    await page.getByRole("button", { name: "Closing snapshot" }).click();
+    await page
+      .getByRole("button", { name: "Closing snapshot", pressed: true })
+      .waitFor();
+    assert.equal(await sectionPick.inputValue(), busiest[0]);
+    assert.ok((await page.locator("section.pl-category").count()) <= 1);
+    await sectionPick.selectOption("leaps");
+    await page.getByText(/No LEAPS \(older recorded LEAPS\) plays/).waitFor();
+    assert.ok((await overflow()) <= 1, `section filters fit at ${width}px`);
+    if (width === 375) {
+      const boxes = await page
+        .locator(".pl-history-filter")
+        .evaluateAll((ls) => ls.map((l) => l.getBoundingClientRect().left));
+      assert.equal(boxes[0], boxes[1], "the phone shows one filter per line");
+    }
+    await page.screenshot({
+      path: `${out}/plays-history-section-${width}.png`,
+      fullPage: true,
+    });
+    // back to the default view for the rest of the walk
+    await sectionPick.selectOption("all");
+    await page.getByRole("button", { name: "All identified plays" }).click();
+    await orderPick.selectOption("rank");
+    await page.getByRole("link", { name: "Today", exact: true }).click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("section.pl-category").length > 1,
+    );
+
     // the oldest session: a pick that lived through the laptop-off session
     await date.fill((await date.getAttribute("min")) || "");
     await date.dispatchEvent("change");

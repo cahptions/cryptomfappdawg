@@ -41,6 +41,7 @@ from desk.stocks.evidence_job import document as evidence_document
 from desk.stocks.hub import adjusted_bars, list_detail, option_table, research_lists
 from desk.stocks.hub import home as hub_home
 from desk.stocks.paper.book import PaperBook
+from desk.stocks.plays import BY_CATEGORY
 from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE, StocksDatabases, StocksMarket, StocksResearch
 from desk.stocks.research_worker import ResearchWorker
 from desk.stocks.runner import saved, saved_path
@@ -108,7 +109,21 @@ def ui_prefs(paths: DeskPaths) -> dict[str, Any]:
     valid = (isinstance(bankroll, dict) and isinstance(bankroll.get("amount"), (int, float))
              and not isinstance(bankroll.get("amount"), bool) and 1 <= bankroll["amount"] <= 10_000_000
              and bankroll.get("level") in ("careful", "balanced", "bold"))
-    return {"explain": value.get("explain") is True, "bankroll": bankroll if valid else None}
+    return {"explain": value.get("explain") is True, "bankroll": bankroll if valid else None,
+            "history": history_prefs(value.get("history"))}
+
+
+def history_prefs(value: Any) -> dict[str, str]:
+    """Plays → History's saved view: coverage, section and order. Anything unknown falls back to the default."""
+    value = value if isinstance(value, dict) else {}
+    scope, section, sort = value.get("scope"), value.get("section"), value.get("sort")
+    return {"scope": scope if scope in ("all", "closing") else "all",
+            "section": section if section == "all" or section in BY_CATEGORY else "all",
+            "sort": sort if sort in play_history.SORTS else "rank"}
+
+
+def valid_history_prefs(value: Any) -> bool:
+    return isinstance(value, dict) and set(value) == {"scope", "section", "sort"} and history_prefs(value) == value
 
 
 def snapshot(paths: DeskPaths, loaded: LoadedConfig) -> dict[str, Any]:
@@ -535,23 +550,33 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.get("/api/stocks/plays/history")
     def plays_history(when: str = Query(default="latest",
                                         pattern=r"^(latest|yesterday|week|month|quarter|year|\d{4}-\d{2}-\d{2})$"),
-                      scope: Literal["all","closing"] = "all"
+                      scope: Literal["all", "closing"] | None = None,
+                      section: str | None = Query(default=None, pattern=r"^[a-z_]{1,40}$"),
+                      sort: Literal["rank", "best", "worst", "newest"] | None = None,
                       ) -> dict[str, Any]:
+        """One session's plays. Coverage, section and order not given come from the saved History preferences."""
         from desk.stocks import play_archive
 
+        saved = ui_prefs(paths)["history"]
+        scope, section, sort = scope or saved["scope"], section or saved["section"], sort or saved["sort"]
+        if section != "all" and section not in BY_CATEGORY:
+            raise HTTPException(400, "Choose a valid section")
         now = utc_now()
         try:
             with reader(paths, RESEARCH_FILE) as conn:
                 session = (play_archive.resolve(conn, when, now) if scope == "all"
                            else play_history.resolve(conn, when, now))
                 if session is None:
-                    return {"version": play_history.VERSION, "session": None, "categories": [], "summary": None,
-                            "message": "No saved plays yet. Every automatically identified play is archived; "
-                                       "manual confirmations are not required."}
-                return (play_archive.session_view(conn,session,now) if scope == "all" else
-                        {**play_history.session_view(conn,session,now),"scope":"closing"})
+                    return play_history.filtered(
+                        {"version": play_history.VERSION, "session": None, "categories": [], "summary": None,
+                         "scope": scope, "message": "No saved plays yet. Every automatically identified play is "
+                                                    "archived; manual confirmations are not required."},
+                        section, sort)
+                view = (play_archive.session_view(conn, session, now) if scope == "all" else
+                        {**play_history.session_view(conn, session, now), "scope": "closing"})
         except ValueError as exc:
             raise HTTPException(400, "Choose a valid date") from exc
+        return play_history.filtered(view, section, sort)
 
     @app.get("/api/stocks/plays/play")
     def plays_play(session: date, category: str = Query(pattern=r"^[a-z_]{1,40}$"),
@@ -605,7 +630,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def ui_preferences(inputs: dict[str, Any]) -> dict[str, Any]:
         """This desk's display preferences (numbers first, or explanations shown). Kept beside the other settings."""
         bankroll = inputs.get("bankroll")
-        if (set(inputs) - {"explain", "bankroll"} or not isinstance(inputs.get("explain", False), bool)
+        if (set(inputs) - {"explain", "bankroll", "history"} or not isinstance(inputs.get("explain", False), bool)
+                or ("history" in inputs and not valid_history_prefs(inputs["history"]))
                 or (bankroll is not None and not (
                     isinstance(bankroll, dict) and set(bankroll) == {"amount", "level"}
                     and isinstance(bankroll["amount"], (int, float)) and not isinstance(bankroll["amount"], bool)

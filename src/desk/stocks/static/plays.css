@@ -17,6 +17,25 @@
   border-color: var(--green);
   color: var(--green);
 }
+.pl-history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+}
+.pl-history-filter {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+}
+.pl-history-filter select {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
 .pl-history-coverage {
   line-height: 1.7;
   margin: 16px 0;
@@ -766,6 +785,17 @@
   }
   .pl-date {
     margin-left: 0;
+  }
+  .pl-history-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pl-history-filter {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .pl-history-filter select {
+    width: 100%;
   }
   .pl-headline strong {
     font-size: 28px;

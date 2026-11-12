@@ -259,6 +259,52 @@ def test_the_history_endpoints_serve_sessions_plays_and_charts(history: Any) -> 
         assert client.get("/api/stocks/session").json()["ui_protocol"] == runtime.UI_PROTOCOL
 
 
+def test_history_filters_by_section_orders_rows_and_remembers_the_choice(history: Any) -> None:
+    from fastapi.testclient import TestClient
+
+    from desk.stocks import web
+
+    first = history.sessions[0].isoformat()
+    with TestClient(web.create_app(history.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
+        for scope in ("all", "closing"):
+            every = client.get(f"/api/stocks/plays/history?when={first}&scope={scope}&section=all&sort=rank").json()
+            assert every["filters"] == {"scope": scope, "section": "all", "sort": "rank"}
+            assert [s["id"] for s in every["sections"]] == [c.id for c in pl.RECORDED]
+            titles = {s["id"]: s["title"] for s in every["sections"]}
+            assert titles["edge"] == "Biggest model edge" and titles["leaps"] == "LEAPS (older recorded LEAPS)"
+            counts = {c["id"]: len(c["plays"]) for c in every["categories"]}
+            assert {s["id"]: s["plays"] for s in every["sections"] if s["plays"]} == counts
+            chosen = max(counts, key=lambda k: counts[k])
+            one = client.get(f"/api/stocks/plays/history?when={first}&scope={scope}&section={chosen}&sort=best").json()
+            assert [c["id"] for c in one["categories"]] == [chosen]
+            section = next(c for c in every["categories"] if c["id"] == chosen)
+            assert one["summary"] == section["summary"] and one["summary"]["plays"] <= counts[chosen]
+            pcts = [r["latest"]["pct"] for r in one["categories"][0]["plays"] if r["latest"]]
+            assert pcts == sorted(pcts, reverse=True)
+            worst = client.get(f"/api/stocks/plays/history?when={first}&scope={scope}&section={chosen}&sort=worst")
+            pcts = [r["latest"]["pct"] for r in worst.json()["categories"][0]["plays"] if r["latest"]]
+            assert pcts == sorted(pcts)
+            for when in ("latest", "yesterday", "week", "month", "quarter", "year"):
+                view = client.get(f"/api/stocks/plays/history?when={when}&scope={scope}&section={chosen}").json()
+                assert all(c["id"] == chosen for c in view["categories"])
+            empty = client.get(f"/api/stocks/plays/history?when={first}&scope={scope}&section=leaps").json()
+            assert empty["categories"] == [] and empty["summary"] is None and "LEAPS" in empty["message"]
+        assert client.get(f"/api/stocks/plays/history?when={first}&section=nonsense").status_code == 400
+        assert client.get(f"/api/stocks/plays/history?when={first}&sort=random").status_code == 422
+        # saved with the display preferences; a request without choices uses them
+        bad = {"scope": "all", "section": "nonsense", "sort": "rank"}
+        assert client.post("/api/stocks/ui", json={"history": bad}, headers=web_headers(client)).status_code == 422
+        saved = {"scope": "closing", "section": chosen, "sort": "newest"}
+        assert client.post("/api/stocks/ui", json={"history": saved},
+                           headers=web_headers(client)).json()["history"] == saved
+        view = client.get(f"/api/stocks/plays/history?when={first}").json()
+        assert view["filters"] == saved and view["scope"] == "closing"
+        assert [c["id"] for c in view["categories"]] == [chosen]
+        assert client.get("/api/stocks/snapshot").json()["ui"]["history"] == saved
+        default = {"scope": "all", "section": "all", "sort": "rank"}
+        client.post("/api/stocks/ui", json={"history": default}, headers=web_headers(client))
+
+
 def test_performance_grades_quoted_marks_and_settlements_against_twins_and_spy(history: Any) -> None:
     from desk.stocks import play_performance as perf
 
@@ -322,3 +368,7 @@ def test_challengers_run_in_shadow_and_learning_reports_once_per_session(history
     assert report["exits"] and all(e["dte_bucket"] in labels for e in report["exits"].values())
     out = perf.build(history.market.conn, conn, when, report["labels"])
     assert all(c["label"]["state"] == "unproven" for c in out["categories"])
+
+
+def web_headers(client: Any) -> dict[str, str]:
+    return {"X-CSRF-Token": client.get("/api/stocks/session").json()["csrf_token"]}

@@ -385,6 +385,14 @@ Unexpired archived contracts stay in the shared quote rotation even after leavin
 gap estimates, expiry comparisons and split quarantine also cover them, under the existing provider budgets.
 Original intraday quote snapshots are not relabelled as closing quotes. An archive entry cannot receive marks
 before the time it was identified. Actual bid/ask liquidation values and fees drive progress; estimates stay labelled.
+**Section and Order.** A Section picker narrows History to one of Today's plays sections (Most likely to finish ITM,
+Biggest model edge, … Your watchlist, and LEAPS for the older recorded LEAPS of the retired section); each entry shows
+how many plays that session saved in it. With a section chosen, the "This session" summary (average, median, in
+profit, $100 in each, random twins) is that section's own, computed exactly as the per-section line below it. Order
+lists each section's plays in board order, best or worst latest return (plays without a value yet last), or newest
+first (time identified, else first shown on the live board). Both work for All identified plays and Closing snapshot
+and every date button, and are saved with the app's display preferences (`stocks-ui.json`, `history`), so a reload
+keeps them. The API takes them as `section` and `sort` (`/api/stocks/plays/history`); omitted, the saved choice applies.
 History checks saved observations every twenty seconds while visible, preserving scroll and date input focus.
 The individual closing-cohort detail page checks every fifteen seconds, updating its chart, exit cards, Greeks and
 daily marks without resetting the chart range, basis, quantity or inspected point. **Refresh saved values** retries
