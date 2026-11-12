@@ -252,3 +252,14 @@ def test_one_weekly_snapshot_after_fridays_close_feeds_changed_since_last_week(d
     assert later["snapshots"][0]["week"] == "2026-W46"
     # the same week's snapshot is never "last week"
     assert lr.build(paths, saturday)["previous"] is None
+
+
+def test_a_tiny_brier_gap_with_the_market_is_called_a_tie_not_a_win(desk: Any) -> None:
+    paths, dbs = desk
+    for i, session in enumerate(SESSIONS[:12]):
+        for rank in range(3):                                   # 60% against the market's 61%: noise, not skill
+            play(dbs.research, session, rank, shown=0.60, hit=(i * 3 + rank) % 10 < 6, market=0.61)
+    report = lr.build(paths, NOW)
+    assert find(report, "behaviour", "about as accurate as the market's own")
+    assert not [i for i in items(report, "achievements") if "beat the market" in i["headline"]]
+    assert not [i for i in items(report, "wrong") if "market's own odds have been more accurate" in i["headline"]]

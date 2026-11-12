@@ -63,6 +63,8 @@ PLAYS, PERFORMANCE, LEARNING, PAPER, PROOF, SYSTEM = (
 
 
 # ── formatting ───────────────────────────────────────────────────────────────────────────────────
+BRIER_MARGIN = 0.01        # Brier gaps smaller than this are noise at these sample sizes: never called better or worse
+
 def pct(x: float | None, digits: int = 0) -> str:
     return "—" if x is None else f"{x:.{digits}%}"
 
@@ -268,8 +270,8 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
         if abs(gap) >= 0.05 and n >= 10:
             off.append((abs(gap) * math.sqrt(n), event, name, happened, x, s))
         if x["adjusted"] and n >= 10:
-            better = x["b_shown"] < x["b_raw"] - 0.001
-            worse = x["b_shown"] > x["b_raw"] + 0.001
+            better = x["b_shown"] < x["b_raw"] - BRIER_MARGIN
+            worse = x["b_shown"] > x["b_raw"] + BRIER_MARGIN
             if better or worse:
                 text = (f"Brier score {x['b_shown']:.3f} for the chances shown against {x['b_raw']:.3f} for the "
                         f"uncalibrated model on the same {n:,} plays (lower is better; each shown chance was "
@@ -343,7 +345,7 @@ def _calibration_findings(research: sqlite3.Connection, r: Report) -> None:
             pending.append((key, n, int(x["days"]), None if pace <= 0 else (od.MIN_CALIBRATION - n) / pace))
     pending.sort(key=lambda p: (p[3] is None, p[3] or 0, -p[1]))
     for key, n, days, eta in pending[:3]:
-        r.add("coming", f"{first_upper(_group_name(key))} calibration: {n} of {od.MIN_CALIBRATION} resolved, "
+        r.add("coming", f"Calibrating its odds of {_group_name(key)}: {n} of {od.MIN_CALIBRATION} resolved, "
                         f"{weeks(eta)}.", "Estimated from the last four weeks' pace of resolved plays in that group.",
               items=n, days=days, strength="early", link=PERFORMANCE, key=f"next-calibration:{':'.join(key)}",
               weight=1 + (1 / (1 + (eta if eta is not None else 99))))
@@ -400,9 +402,13 @@ def _market_view(research: sqlite3.Connection, r: Report) -> None:
               f"It is {'more' if sure > 0 else 'less'} confident than the option prices (further from 50/50 by "
               f"{points(sure)} on average). Graded plays only.", items=n, days=days, strength=s, link=PERFORMANCE,
               key="vs-market", weight=1.5)
-    if abs(b_k - b_m) > 0.002:
-        text = (f"Brier score {b_k:.3f} for KESTREL against {b_m:.3f} for the option price's own odds on the same "
-                f"{n:,} plays finishing in the money (lower is better).")
+    text = (f"Brier score {b_k:.3f} for KESTREL against {b_m:.3f} for the option price's own odds on the same "
+            f"{n:,} plays finishing in the money (lower is better).")
+    if abs(b_k - b_m) < BRIER_MARGIN:
+        r.add("behaviour", "Its in-the-money odds are about as accurate as the market's own so far.",
+              text + f" A gap under {BRIER_MARGIN} is too small to call either one better.", items=n, days=days,
+              strength=s, link=PERFORMANCE, key="matches-market-odds", weight=1)
+    else:
         if b_k < b_m:
             r.add("achievements", "KESTREL's in-the-money odds beat the market's own.", text, items=n, days=days,
                   strength=s, link=PERFORMANCE, key="beats-market-odds", weight=2 + (s != "early"))
