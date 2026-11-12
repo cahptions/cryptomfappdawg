@@ -171,7 +171,7 @@ def positions_view(research: sqlite3.Connection, market: sqlite3.Connection, now
             s, basis = _price(market, detail, p.stock, now)
             try:
                 row["option"] = {**_option_view(p, detail, s, rate, today), "price_basis": basis}
-            except (ValueError, ZeroDivisionError, OverflowError):
+            except Exception:  # one position KESTREL cannot value must not hide the rest
                 row["option"] = {"note": "KESTREL could not value this option from the stored prices."}
         rows.append(row)
     return rows

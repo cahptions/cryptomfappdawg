@@ -244,8 +244,9 @@ dashboard (`desk stocks dashboard`) does the reading; it pauses while the shared
 
 Research database (append-only, migration `0016_schwab_account`): `stk_account_pulls` (each read and its outcome),
 `stk_account_positions` (each read's positions with source and time) and `stk_account_fills` (each trade once, by
-Schwab's activity id). Held stocks and options' underlyings with a stored listing are **added to the watchlist**
-(never removed: remove them yourself on the stock page).
+Schwab's activity id). Newly held stocks and options' underlyings with a stored listing are **added to the
+watchlist** when a read first sees them; KESTREL never removes one, and a stock you remove while still holding it is
+not added back.
 
 ### KESTREL's view and "your decisions graded"
 

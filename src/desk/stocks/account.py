@@ -201,10 +201,12 @@ def _add(a: float | None, b: float | None) -> float | None:
 
 
 def watch_holdings(research: sqlite3.Connection, market: sqlite3.Connection, positions: list[sa.Position],
-                   now: datetime) -> list[str]:
-    """Add held stocks (and options' underlyings) with a stored listing to the stock watchlist. Never removes one."""
+                   now: datetime, *, held_before: set[str] | None = None) -> list[str]:
+    """Add newly held stocks (and options' underlyings) with a stored listing to the stock watchlist. Never removes
+    one; a stock already held at the previous read is not added again, so removing it from the watchlist sticks."""
     added = []
-    for symbol in sorted({p.underlying or p.symbol for p in positions if p.asset_type in WATCH_TYPES}):
+    for symbol in sorted({p.underlying or p.symbol for p in positions if p.asset_type in WATCH_TYPES}
+                         - (held_before or set())):
         if market.execute("SELECT 1 FROM stk_listings WHERE symbol = ?", (symbol,)).fetchone() is None:
             continue
         cur = research.execute("INSERT OR IGNORE INTO stk_watchlist(symbol, added_at) VALUES (?, ?)",
@@ -271,8 +273,9 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime, *, manual
                 return _record(research, now, label, "error",
                                "Schwab did not answer the account read; the last saved positions are shown. "
                                "It is tried again at the next scheduled time.")
+        held_before = {p.stock for p in account_positions(research)}
         result = _record(research, now, label, "ok", None, accounts=accounts, positions=positions, fills=fills)
-        result["watched"] = watch_holdings(research, dbs.market, positions, now)
+        result["watched"] = watch_holdings(research, dbs.market, positions, now, held_before=held_before)
         return result
     finally:
         dbs.close()

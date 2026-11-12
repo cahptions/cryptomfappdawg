@@ -87,8 +87,13 @@ async def test_a_read_saves_positions_fills_once_and_watches_holdings(paths: Des
         assert sorted(first["watched"]) == ["AAPL", "MSFT", "SPY"]      # SWVXX has no listing: not watched
         assert trades.call_count == 2                              # the first read looks a year back
         assert await account.cycle(paths, loaded, ny(DAY, 11), factory=factory(paths)) is None   # same slot
+        # The user removes a stock still held: the next read does not add it back.
+        dbs = StocksDatabases.open(paths)
+        dbs.research.execute("DELETE FROM stk_watchlist WHERE symbol = 'AAPL'")
+        dbs.close()
         after = await account.cycle(paths, loaded, ny(DAY, 16, 25), factory=factory(paths))
         assert after is not None and after["fills_new"] == 0       # the same activity ids are stored once
+        assert after["watched"] == []
         assert all(call.request.method == "GET" for call in mock.calls)
     dbs = StocksDatabases.open(paths)
     try:
