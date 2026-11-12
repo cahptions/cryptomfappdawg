@@ -223,6 +223,19 @@ collateral; a cash-secured put ties up the cash for the shares), what happens if
 hits, and KESTREL's expected value. With an amount saved, every other card shows how many of that play fit it. When
 nothing fits, the page names the cheapest qualifying play's risk.
 
+**Sizing from proven odds (quarter Kelly).** A pick whose take-profit chance is **calibrated** on its own group's
+graded plays (30 resolved from 10 separate sessions, the rule in "KESTREL's chance is then calibrated" above) is sized
+at a quarter of the Kelly fraction instead of filling its limit. Kelly's bet for a chance p of winning b × the stake and
+losing a × the stake otherwise is f = p / a − (1 − p) / b of the bankroll at risk; the stake is the play's worst case,
+b the exit plan's take-profit gain over it, a the stop's loss over it (the whole worst case without a stop), and every
+outcome other than the take-profit counts as the stop, a conservative reading (leaving at the leave-by date usually
+loses less). The pick risks a quarter of f times the amount, rounded down to whole contracts and never above the
+level's per-play, total and direction limits; a quarter Kelly under one contract, or no edge at all (f ≤ 0), passes the
+play over and the page lists it. A play whose chance is still the model's own keeps the fixed sizing (as many
+contracts as the limits allow), and its pick says why. Each pick shows its basis: the calibrated chance and its group,
+gain and loss, the fraction and whether the limits capped it (`play_plan.kelly`). Full Kelly on an estimated edge is
+far too volatile, hence a quarter; nothing here places an order.
+
 ## The headline chance: reaching the take-profit
 
 The big number and bar on every card is the **chance to hit the take-profit**: the share of KESTREL's simulated

@@ -563,6 +563,12 @@ const KestrelPlays = (() => {
         go.disabled = false;
       }
     }
+    function sizingText(z) {
+      if (!z) return "";
+      if (z.basis !== "quarter_kelly")
+        return `Sized by the level's limits: ${z.reason}.`;
+      return `Sized at a quarter Kelly: calibrated take-profit chance ${pct(z.chance, 0)} (${z.calibration}), gain ${pct(z.win, 0)} or loss ${pct(z.loss, 0)} of the worst case, so ${pct(z.fraction, 1)} of the amount${z.capped ? `; capped by the limits from ${z.contracts} contracts` : ""}.`;
+    }
     function draw(data) {
       const s = data.summary,
         stats = el("dl", undefined, "bankroll-summary");
@@ -596,15 +602,24 @@ const KestrelPlays = (() => {
             `${verb} ${pick.quantity} × · risk ${money(pick.risk)} (${pct(pick.share, 1)}) · cash ${money(pick.cash)} · ${pick.play.category_title}`,
             "bankroll-pick-head",
           ),
+          el("p", sizingText(pick.sizing), "bankroll-sizing caption muted"),
           card(pick.play),
         );
         grid.append(wrap);
       }
       if (data.picks.length) parts.push(grid);
+      if (data.kelly_passed?.length)
+        parts.push(
+          el(
+            "p",
+            `Passed over at a quarter Kelly: ${data.kelly_passed.map((p) => `${p.symbol} (${p.reason})`).join("; ")}.`,
+            "caption muted bankroll-kelly-passed",
+          ),
+        );
       parts.push(
         el(
           "p",
-          `Limits: no play's worst case above ${money(data.per_play_cap)}; all plays together at most ${money(data.risk_cap)}; one play per stock, two per category, and no direction (bullish, bearish, neutral, big-move) above 60% of the total. Plays need 3 of 5 confidence checks (2 when few qualify), most confident first. Sold plays tie up their worst case as collateral; a cash-secured put ties up the cash to buy the shares.`,
+          `Limits: no play's worst case above ${money(data.per_play_cap)}; all plays together at most ${money(data.risk_cap)}; one play per stock, two per category, and no direction (bullish, bearish, neutral, big-move) above 60% of the total. Plays need 3 of 5 confidence checks (2 when few qualify), most confident first. Sold plays tie up their worst case as collateral; a cash-secured put ties up the cash to buy the shares. Sizing: a play whose take-profit chance is calibrated on its group's graded plays (30 resolved from 10 separate sessions) gets a quarter of the Kelly fraction for that chance and its plan's gain and loss, never above these limits; any other play gets as many contracts as the limits allow.`,
           "caption muted",
         ),
       );
