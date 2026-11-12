@@ -783,3 +783,36 @@ path = "/movers/{index}"
 status = "to_verify"
 notes = "read only by desk stocks verify-schwab (one request, field names and types recorded); not used by the app"
 verified_fields = []
+
+[providers.schwab_account]
+display_name = "Schwab Trader API, read only: account numbers, positions and trade history (never orders)"
+base_url = "https://api.schwabapi.com/trader/v1"
+auth = "none"
+cost_usd_month = 0
+documented_limit = "Not independently verified; a few reads per market day, paced far below the market-data budget"
+measured_limit = "not measured: operator authorization required"
+freshness_seconds = 3600
+failure_handling = "same private bearer token as market data; 401/403 -> the Accounts and Trading product is not enabled or not signed in; never retried in a loop"
+fallback = "none; the account view keeps the last saved snapshot"
+allowed_usage = "the operator's own accounts, read only, after opting in under Settings; GET accountNumbers, accounts?fields=positions and TRADE transactions only (desk.stocks.sources.schwab_account enforces it)"
+evidence = ["docs/SCHWAB.md"]
+
+[providers.schwab_account.buckets.default]
+windows = [[20, 60], [2, 1]]
+
+[providers.schwab_account.endpoints.account_numbers]
+path = "/accounts/accountNumbers"
+status = "to_verify"
+verified_fields = []
+
+[providers.schwab_account.endpoints.accounts]
+path = "/accounts"
+status = "to_verify"
+notes = "fields=positions"
+verified_fields = []
+
+[providers.schwab_account.endpoints.transactions]
+path = "/accounts/{hash}/transactions"
+status = "to_verify"
+notes = "types=TRADE; startDate/endDate at most a year apart"
+verified_fields = []

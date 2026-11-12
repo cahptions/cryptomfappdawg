@@ -16,6 +16,7 @@ from desk.core.errors import DeskError
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
 from desk.stocks import calendar as cal
+from desk.stocks import learning_promotion as promo
 from desk.stocks.backtest import position_view
 from desk.stocks.contracts import OptionQuote
 from desk.stocks.paper import fills
@@ -45,7 +46,7 @@ LIFECYCLE_DAILY_ENTRIES = 2                           # per recipe per day: evid
 LIFECYCLE_SWITCH = "lifecycle_switch"
 MIN_COMPARISON_DAYS = 4
 MIN_COMPARISON_BLOCKS = 12
-CHECK_METHOD_VERSION = 2
+CHECK_METHOD_VERSION = 3        # 3: the 2026-11-13 promotion rules (desk.stocks.learning_promotion)
 SOLD, SETTLED = "sold at a quote", "settled at intrinsic"     # stk_learning_outcomes.basis
 HELD_LEGS = "(held legs)"     # stk_learning_sources.underlying of a per-contract quote observation of held/pending legs
 
@@ -111,6 +112,7 @@ def add_experiment(
             canonical_json(spec),
         ),
     )
+    promo.freeze(conn, ident, now)          # its experiment manifest, frozen with a hash at registration
     return ident
 
 
@@ -147,6 +149,7 @@ def add_lifecycle(conn: sqlite3.Connection, now: datetime, structure: str, bucke
                  (ident, to_iso(now), f"Test {structure.replace('_', ' ')} on {title.lower()} options at a "
                   f"${LIFECYCLE_DEBIT:,.0f} target debit, held up to {hold_days} days and valued along the way, net of "
                   "costs", digest, canonical_json(spec)))
+    promo.freeze(conn, ident, now)          # its experiment manifest, frozen with a hash at registration
     return ident
 
 
@@ -173,6 +176,7 @@ def initialize(conn: sqlite3.Connection, now: datetime) -> None:
         if state(conn, LIFECYCLE_SWITCH) is None:            # once: retire what existed before, then seed
             set_state(conn, LIFECYCLE_SWITCH, {"at": to_iso(now), "retired": [
                 r[0] for r in conn.execute("SELECT id FROM stk_learning_experiments ORDER BY id")]})
+        promo.backfill(conn, now)           # recipes registered before the 2026-11-13 rules, marked as such
         for structure in STRUCTURES:
             for bucket in BUCKETS:
                 add_lifecycle(conn, now, structure, bucket)
@@ -784,43 +788,41 @@ def check_in(conn: sqlite3.Connection, now: datetime) -> None:
                 "promoted": False,
                 "note": "Overlapping days, top-of-book-only size and multiple trials limit confidence",
             }
-            daily: dict[str, list[float]] = {}
-            for row in held:
-                daily.setdefault(row["block"].split(":")[0], []).append(row["net_return"])
-            prior_promotion = state(conn, "last_promotion_day", "")
-            values = [mean(v) for day, v in daily.items() if day > prior_promotion]
-            # Conservative approximate multiple-comparison hurdle, using days rather than correlated fill count.
-            if len(values) >= 20 and mean(values) - 3 * stdev(values) / math.sqrt(len(values)) > 0:
-                training.update(promoted=True, champion=chosen, status="PAPER challenger promoted; capacity is top-of-book only")
-                set_state(conn, "last_promotion_day", max(daily))
-                by_experiment: dict[str, list[Any]] = {}
-                for r in train:
-                    if json.loads(r["config_json"])["structure"] == chosen:
-                        by_experiment.setdefault(r["experiment_id"], []).append(r)
-                best_group = max(by_experiment.values(), key=lambda group: mean(r["net_return"] for r in group))
-                best = best_group[0]
-                config = json.loads(best["config_json"])
-                target = config["target_debit"] * 2
-                if config.get("kind") == "lifecycle" or best["experiment_id"] in retired(conn):
-                    # Lifecycle recipes compare expiries and holding times at a fixed size; retired ones stay retired.
+            # Promotion (2026-11-13 rules, desk.stocks.learning_promotion): per recipe, Holm-corrected across every
+            # active recipe, then confirmed on its next untouched entry days. An earlier promotion stays in the record,
+            # labelled provisional, and no longer gives its structure priority.
+            previous = state(conn, "model", {}) or {}
+            promo.relabel_legacy(conn, previous, state(conn, "last_promotion_day"), now)
+            gone = retired(conn)
+            active = [r[0] for r in conn.execute("SELECT id FROM stk_learning_experiments ORDER BY id")
+                      if r[0] not in gone]
+            changed = promo.decide(conn, rows, boundary, now, active)
+            champion = promo.champion(conn)
+            pending = [i for i, r in promo.stages(conn).items() if r["stage"] == "provisional"]
+            legacy = previous.get("legacy_champion") or (previous.get("champion")
+                                                         if previous.get("rules") != promo.RULES else None)
+            training.update(rules=promo.RULES, promoted=bool(champion), champion=champion,
+                            provisional=pending, newly=changed,
+                            status=("Confirmed finding: a recipe passed its untouched confirmation days"
+                                    if champion else "Provisional promotion awaiting its confirmation days"
+                                    if pending else "Chronological comparison; advisory"))
+            if legacy:
+                training["legacy_champion"] = legacy
+                training["legacy_label"] = promo.LEGACY_LABEL
+            for ident in changed["confirmed"]:
+                config = json.loads(conn.execute("SELECT config_json FROM stk_learning_experiments WHERE id=?",
+                                                 (ident,)).fetchone()[0])
+                if config.get("kind") == "lifecycle":
+                    # Lifecycle recipes compare expiries and holding times at a fixed size.
                     training["next_size_experiment"] = "Not applicable: recipes compare expiries and holding times"
-                else:
-                    try:
-                        add_experiment(
-                            conn,
-                            now,
-                            chosen,
-                            target,
-                            config["hold_minutes"],
-                            config.get("repeat_minutes", 0),
-                            parent=best["experiment_id"],
-                        )
-                        training["next_size_experiment"] = target
-                    except DeskError:
-                        training["next_size_experiment"] = ("Ledger representation limit reached; existing "
-                                                            "experiments continue")
-            elif state(conn, "model", {}).get("champion"):
-                training["champion"] = state(conn, "model")["champion"]
+                    continue
+                try:
+                    add_experiment(conn, now, config["structure"], config["target_debit"] * 2, config["hold_minutes"],
+                                   config.get("repeat_minutes", 0), parent=ident)
+                    training["next_size_experiment"] = config["target_debit"] * 2
+                except DeskError:
+                    training["next_size_experiment"] = ("Ledger representation limit reached; existing "
+                                                        "experiments continue")
             set_state(conn, "model", training)
     last_total = state(conn, "check_total", 0)
     payload = {
@@ -1023,6 +1025,7 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
         "collection": state(conn, "collection", {}),
         "model": state(conn, "model", {"version": 0, "status": "Untrained; collecting matured forward outcomes"}),
         "evidence":evidence_progress(conn,now),
+        "promotions": promo.overview(conn, now),
         "experiments": experiments,
         "experiment_total": experiment_total,
         "check_ins": checks,

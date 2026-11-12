@@ -264,3 +264,39 @@ def test_a_tiny_brier_gap_with_the_market_is_called_a_tie_not_a_win(desk: Any) -
     assert find(report, "behaviour", "about as accurate as the market's own")
     assert not [i for i in items(report, "achievements") if "beat the market" in i["headline"]]
     assert not [i for i in items(report, "wrong") if "market's own odds have been more accurate" in i["headline"]]
+
+
+def test_learning_promotions_are_described_by_their_stage(desk: Any) -> None:
+    """Only a confirmed recipe is called a finding; a provisional one is 'confirming', a failed confirmation stays in
+    "What it's getting wrong", and a promotion from before the 2026-11-13 rules is labelled provisional."""
+    from desk.stocks import learning_promotion as promo
+
+    paths, _ = desk
+    conn = learning.open_book(paths)
+    try:
+        at = datetime(2026, 10, 1, 15, tzinfo=UTC)
+        learning.initialize(conn, at)
+        ids = [r[0] for r in conn.execute("SELECT id FROM stk_learning_experiments ORDER BY id")]
+        for ident, stage, detail in (
+                (ids[0], "confirmed", {"window": ["2026-10-01", "2026-10-28"], "days": 20, "mean": 0.03, "p": 0.01,
+                                       "promotion_id": 1, "alpha": 0.05, "fresh_after": "2026-10-28"}),
+                (ids[1], "provisional", {"promotion_day": "2026-11-02", "days": 22, "first_day": "2026-09-01",
+                                         "mean": 0.02, "p": 0.001, "holm_threshold": 0.0033, "recipes_compared": 15,
+                                         "alpha": 0.05, "confirmation": {"entry_days": 20, "after": "2026-11-02"}}),
+                (ids[2], "failed", {"window": ["2026-09-01", "2026-09-29"], "days": 20, "mean": -0.01, "p": 0.7,
+                                    "promotion_id": 2, "alpha": 0.05, "fresh_after": "2026-09-29"})):
+            promo._record(conn, ident, at, stage, detail)
+        promo.relabel_legacy(conn, {"champion": "long_put", "test_blocks": 25}, "2026-09-15", at)
+        learning.set_state(conn, "model", {"version": 3, "rules": promo.RULES, "champion": "long_call"})
+    finally:
+        conn.close()
+    report = lr.build(paths, NOW)
+    confirmed = find(report, "achievements", "Learning confirmed a finding")
+    assert confirmed["strength"] == "tested" and "untouched entry days" in confirmed["detail"]
+    provisional = find(report, "coming", "Confirming ")
+    assert provisional["strength"] == "suggestive" and "Not a finding until confirmed" in provisional["detail"]
+    assert "0 of 20 untouched" in provisional["headline"]
+    assert find(report, "wrong", "failed its confirmation")["strength"] == "tested"
+    legacy = find(report, "learned", "An earlier Learning promotion of long puts")
+    assert "provisional (before 2026-11-13 rules)" in legacy["headline"] and legacy["strength"] == "suggestive"
+    assert not any("Learning promoted" in i["headline"] for s in report["sections"] for i in s["items"])

@@ -382,6 +382,19 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 with suppress(TimeoutError):
                     await asyncio.wait_for(automation_stop.wait(), 8)
 
+        async def account_data() -> None:
+            from desk.stocks import account
+
+            # The real Schwab account, read only, and only after the user turns it on in Settings.
+            while not automation_stop.is_set():
+                if account.enabled(paths) and not paths.stop_file.exists():
+                    try:
+                        await asyncio.wait_for(account.cycle(paths, config, utc_now()), 120)
+                    except Exception as exc:  # the next slot retries; saved snapshots are kept
+                        log.warning("schwab account read failed", extra={"error": type(exc).__name__})
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(automation_stop.wait(), 60)
+
         async def maintain() -> None:
             while not automation_stop.is_set():
                 await asyncio.to_thread(collector.maintain)
@@ -427,9 +440,13 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         company_automation = asyncio.create_task(company_data()) if auto_start else None
         feeds_automation = asyncio.create_task(symbol_data()) if auto_start else None
         watch_automation = asyncio.create_task(watch()) if auto_start else None
+        account_automation = asyncio.create_task(account_data()) if auto_start else None
         try:
             yield
         finally:
+            if account_automation is not None:
+                account_automation.cancel()
+                await asyncio.gather(account_automation, return_exceptions=True)
             if automation is not None:
                 automation_stop.set()
                 await asyncio.gather(automation, return_exceptions=True)
@@ -469,6 +486,10 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     async def storage_error(_: Request, exc: sqlite3.Error) -> JSONResponse:
         return JSONResponse({"detail": "Stored data is temporarily busy or unavailable. Use Evidence → Check data health "
                                        "and retry. Existing data was preserved."}, status_code=503)
+
+    from desk.stocks import account_view
+
+    account_view.install(app, paths, config, lambda: utc_now(), reader)   # My Schwab account (read only)
 
     @app.get("/")
     def home() -> Response:

@@ -43,9 +43,10 @@ The transfer policy groups prior uncapped outcomes into recipe families: structu
 holding time and entry spacing. A 30-day hold of 1-month options and a 30-day hold of 3-month options are different
 families, so the expiry window a small account buys from always belongs to the evidence that chose it. Repeated fills
 and sizing variants are averaged within underlying/day blocks, then their mean net return is shrunk toward zero. Only outcomes that
-matured strictly before a decision, within the previous 90 days, can enter that decision. A previously recorded promoted
-structure takes priority among positive families; otherwise selections are explicitly **provisional**, not validated
-predictions. Small-account outcomes do not train the uncapped model or inflate the transfer policy's research sample.
+matured strictly before a decision, within the previous 90 days, can enter that decision. The structure of a **confirmed
+finding** (below: corrected test, then untouched confirmation days) takes priority among positive families; a
+provisional promotion, and any promotion from before the 2026-11-13 rules, does not. Otherwise selections are explicitly
+**provisional**, not validated predictions. Small-account outcomes do not train the uncapped model or inflate the transfer policy's research sample.
 If all available research families have nonpositive estimates, the small accounts hold cash while uncapped experiments
 continue. Before any research outcomes mature, a visibly labeled fixed starter long-call policy provides a baseline.
 
@@ -165,11 +166,36 @@ fills are grouped by underlying/entry day rather than counted as independent pro
 contracts do not increase the sample's independent evidence count.
 
 Chronological comparisons select among structure families on the earlier half of entry dates and evaluate on later dates.
-Training labels must mature before test entries. Advisory promotion requires at least 20 new test days since the previous
-promotion and an approximate mean-minus-three-standard-errors hurdle over day means. A promotion prioritizes that structure
-and registers a linked doubled-budget sizing experiment; all challengers and losses remain. The comparison reports its
-uninvested-cash baseline and separate finite-capital book. Reused rolling comparisons, overlapping exposures, multiple
-trials and top-of-book-only size limit confidence; the hurdle is not a formal guarantee of profitability or significance.
+Training labels must mature before test entries. The comparison reports its uninvested-cash baseline and separate
+finite-capital book; all challengers and losses remain.
+
+**Promotion (rules of 2026-11-13, `src/desk/stocks/learning_promotion.py`).** The earlier rule (at least 20 new test days
+and an approximate mean-minus-three-standard-errors hurdle over day means, with no correction for how many recipes were
+compared and no confirmation) was exploratory. A recipe now becomes a **finding** only in three steps:
+
+1. **Frozen manifest.** When a recipe is registered, its manifest (exact configuration, hypothesis, metric, sample, test,
+   correction and confirmation rule) is frozen with a SHA-256 hash in `stk_learning_manifests` (append-only, ledger
+   migration `0008`). Recipes that existed before the rules were frozen when the rules arrived and are marked
+   `backfilled`.
+2. **Provisional, after correcting for the number of recipes.** The sample is the recipe's entry-day means (each day's
+   mean of its underlying/day block means) on held-out entry days (the later half) after any failed confirmation; it
+   needs at least 20 days. Its one-sided t-test p-value (mean above zero) must clear **Holm's step-down correction across
+   every active recipe** at family alpha 5% (recipes without 20 days, or already confirming, count as p = 1: with the 15
+   seeds the best recipe must reach p < 0.33%). Passing records a **provisional** promotion with the confirmation rule
+   fixed in advance.
+3. **Confirmed on untouched days.** The confirmation sample is the recipe's **next 20 entry days after the promotion day**,
+   decided once every position entered on them has finished. None of those days took part in the promotion. Their
+   day means must again be above zero at one-sided 5% (one pre-specified test). Pass: **confirmed** (the only stage
+   called a finding, the only one that gives its structure priority in the small accounts, and the only one that
+   registers a doubled-budget follow-up for a non-lifecycle recipe). Fail: **failed confirmation**, kept and shown; the
+   recipe can be promoted again only on entry days after that window.
+
+Every decision is appended to `stk_learning_promotions`. Promotions made before these rules stay in the record,
+relabelled **provisional (before 2026-11-13 rules)**, and no longer give their structure priority. The Learning page's
+**Promotions** table and the Learning report show each stage with its evidence. Re-testing a growing sample at each
+check-in is a form of repeated looking, which is why nothing short of confirmation is called a finding; overlapping
+exposures and top-of-book-only size still limit confidence, and a confirmed finding is not a guarantee of profit. The
+small accounts keep using only research outcomes matured strictly before each of their decisions.
 
 Formal comparison starts after at least **4 entry days with completed outcomes and 12 distinct underlying/day blocks**,
 with eligible earlier training labels and later held-out entries. These are evidence requirements, not spending or trade
@@ -192,7 +218,7 @@ they do not create trades, labels or a trained model. Pause/STOP continue to con
 The page shows model version, training/test coverage, changes, open/closed trades and daily/Friday weekly check-ins, with
 Markdown/JSON downloads. Options shows a separate learning-findings panel and links to the supporting workspace. Learning
 does not blend social mentions or unusual-volume rankings into its evidence count. There is no supported finding until
-the experiment results warrant one.
+a recipe passes its confirmation days.
 
 ## Learning report
 

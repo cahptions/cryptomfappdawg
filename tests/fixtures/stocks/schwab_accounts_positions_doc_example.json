@@ -1,0 +1,50 @@
+[
+  {
+    "securitiesAccount": {
+      "type": "MARGIN",
+      "accountNumber": "SYNTH0001234",
+      "roundTrips": 0,
+      "isDayTrader": false,
+      "isClosingOnlyRestricted": false,
+      "pfcbFlag": false,
+      "positions": [
+        {"shortQuantity": 0, "averagePrice": 180.25, "currentDayProfitLoss": 12.5, "currentDayProfitLossPercentage": 0.65,
+         "longQuantity": 10, "settledLongQuantity": 10, "settledShortQuantity": 0,
+         "instrument": {"assetType": "EQUITY", "cusip": "000000000", "symbol": "AAPL", "netChange": 1.25},
+         "marketValue": 1915.0, "maintenanceRequirement": 574.5, "averageLongPrice": 180.25, "longOpenProfitLoss": 112.5,
+         "previousSessionLongQuantity": 10, "currentDayCost": 0},
+        {"shortQuantity": 0, "averagePrice": 4.1, "currentDayProfitLoss": -30.0, "currentDayProfitLossPercentage": -3.5,
+         "longQuantity": 2, "settledLongQuantity": 2, "settledShortQuantity": 0,
+         "instrument": {"assetType": "OPTION", "cusip": "0AAPL.LK60200000", "symbol": "AAPL  261218C00200000",
+                        "description": "APPLE INC 12/18/2026 $200 Call", "netChange": -0.15, "type": "VANILLA",
+                        "putCall": "CALL", "underlyingSymbol": "AAPL"},
+         "marketValue": 830.0, "maintenanceRequirement": 0, "averageLongPrice": 4.1, "longOpenProfitLoss": 10.0},
+        {"shortQuantity": 1, "averagePrice": 2.5, "currentDayProfitLoss": 15.0, "currentDayProfitLossPercentage": 6.0,
+         "longQuantity": 0, "settledLongQuantity": 0, "settledShortQuantity": 1,
+         "instrument": {"assetType": "OPTION", "cusip": "0MSFT.XK60400000", "symbol": "MSFT  261218P00400000",
+                        "description": "MICROSOFT CORP 12/18/2026 $400 Put", "putCall": "PUT", "underlyingSymbol": "MSFT"},
+         "marketValue": -235.0, "maintenanceRequirement": 8000.0, "averageShortPrice": 2.5, "shortOpenProfitLoss": 15.0},
+        {"shortQuantity": 0, "averagePrice": 1.0, "currentDayProfitLoss": 0, "currentDayProfitLossPercentage": 0,
+         "longQuantity": 512.33,
+         "instrument": {"assetType": "CASH_EQUIVALENT", "symbol": "SWVXX", "type": "MONEY_MARKET_FUND"},
+         "marketValue": 512.33}
+      ],
+      "initialBalances": {"cashBalance": 0},
+      "currentBalances": {"cashBalance": 0},
+      "projectedBalances": {"cashBalance": 0}
+    },
+    "aggregatedBalance": {"currentLiquidationValue": 0, "liquidationValue": 0}
+  },
+  {
+    "securitiesAccount": {
+      "type": "CASH",
+      "accountNumber": "SYNTH0005678",
+      "positions": [
+        {"shortQuantity": 0, "averagePrice": 500.0, "currentDayProfitLoss": 3.0, "currentDayProfitLossPercentage": 0.12,
+         "longQuantity": 5,
+         "instrument": {"assetType": "COLLECTIVE_INVESTMENT", "symbol": "SPY", "type": "EXCHANGE_TRADED_FUND"},
+         "marketValue": 2600.0}
+      ]
+    }
+  }
+]

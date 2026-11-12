@@ -133,7 +133,7 @@ def main() -> None:
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
-                                               "stock-page", "learning-report", "ops"],
+                                               "stock-page", "learning-report", "ops", "account"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
@@ -355,6 +355,10 @@ def main() -> None:
                 stock_page_fixture(world)
             if args.scenario in {"populated", "stock-page"}:
                 events_fixture(world)
+            if args.scenario == "account":
+                from tests.browser.account_fixture import populate
+
+                populate(world, NOW)
             world.close()
         # Workflows assert explanatory text, so fixtures show it; the desk's own default is numbers first.
         paths.ensure()
