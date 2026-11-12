@@ -227,8 +227,10 @@ async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, 
         trades, refresh = 0, set()
         through = state.get("through")
         d, began, behind = first, clock(), False
+        unpublished: list[str] = []
+        missed_last = False                           # the previous EDGAR day had no index either
         while d < today:
-            if not cal.is_trading_day(d):
+            if not cal.is_edgar_day(d):               # EDGAR's own business days, not the market's
                 d += timedelta(days=1)
                 through = (d - timedelta(days=1)).isoformat()
                 continue
@@ -238,10 +240,22 @@ async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, 
                 break
             try:
                 entries = await suite.sec.daily_index(d)
-            except DeskError as exc:
-                if "not found" in str(exc):           # not published yet: try again later
+            except ProviderError as exc:
+                missing = exc.status_code in (403, 404) or "not found" in str(exc)
+                if not missing:
+                    raise
+                # Not published yet, or the SEC was closed (an unscheduled federal closure). A day at least two days
+                # old is skipped, once, and noted; a second missing day in a row is a real error (a 403 can also mean
+                # the contact in the User-Agent was refused), and a recent one is simply tried again later.
+                if (today - d).days < 3:
                     break
-                raise
+                if missed_last:
+                    raise
+                missed_last = True
+                unpublished.append(d.isoformat())
+                through = d.isoformat()
+                d += timedelta(days=1)
+                continue
             rows: list[tuple[InsiderTrade, date]] = []
             for e in entries:
                 if e.cik not in universe:
@@ -253,10 +267,12 @@ async def filings_feed(suite: StocksSuite, market: StocksMarket, now: datetime, 
                 elif e.form in COMPANY_FORMS or e.form in FILING_FORMS:
                     refresh.add(e.cik)
             trades += market.save_insider_trades(rows)
+            missed_last = False
             processed.append(d.isoformat())
             through = d.isoformat()
             d += timedelta(days=1)
-        report: dict[str, Any] = {"days": processed, "insider_rows": trades, "through": through, "behind": behind}
+        report: dict[str, Any] = {"days": processed, "insider_rows": trades, "through": through, "behind": behind,
+                                  **({"no_index": unpublished} if unpublished else {})}
         if refresh:
             report["companies"] = await companies(suite, market, now, sorted(refresh))
         return report

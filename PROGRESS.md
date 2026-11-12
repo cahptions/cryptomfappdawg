@@ -1,5 +1,20 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-12 — PAPER crash root cause: unversioned rule changes; SEC feed stuck on Veterans Day
+
+- **The PAPER/research "exit code 1"** (open since the HP, 2026-11-05) is found, from the user's Dell health report:
+  `StorageError` in `daily.register_specs`. The News desk (2026-11-03) changed the desks and validation rule sets
+  without new versions, so every database that had recorded them before refused each daily run. Fixed by desks
+  METHOD_VERSION 3 and validation VERSION 2. New guard: `tests/unit/test_stocks_spec_versions.py` with
+  `stocks_spec_fingerprints.json` fails whenever any frozen rule set (desks, validation, lists, PAPER strategies,
+  market events) changes without a new version, plus a test with the old rules already stored. A history scan found
+  no other unversioned change.
+- **SEC filings feed** stalled since 2026-11-11 (health: `authorization`): it walked market trading days, and EDGAR
+  publishes no index on Veterans Day (market open). It now walks EDGAR's own business days
+  (`calendar.is_edgar_day`: weekdays less federal holidays, so Good Friday is included and Columbus/Veterans Day are
+  not); a past day with no index is skipped once and noted (`no_index`), two in a row still fail.
+- 1,807 tests pass.
+
 ## 2026-11-12 — Learning report and Paper chart refresh fix
 
 - Learning report (`desk.stocks.learning_report`, research migration 0015): one read-only synthesis of every learning

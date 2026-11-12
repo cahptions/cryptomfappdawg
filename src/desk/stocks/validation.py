@@ -53,7 +53,7 @@ from desk.stocks.universe import RESEARCH_KINDS, SECTOR_FUNDS
 
 Array = np.ndarray
 
-VERSION = 1
+VERSION = 2                 # v2 (2026-11-12): the News desk's claim (added 2026-11-03)
 HORIZONS = {"1w": 5, "1m": 21, "3m": 63, "12m": 252}
 PRIMARY = "1m"
 DRAWDOWN_HORIZON = "3m"

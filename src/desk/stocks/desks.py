@@ -21,7 +21,7 @@ from desk.stocks.iv_history import basis_text
 from desk.stocks.options import iv_rank
 from desk.stocks.sectors import LABELS
 
-METHOD_VERSION = 2
+METHOD_VERSION = 3          # v3 (2026-11-12): the News and world desk (added 2026-11-03) and its zero default weight
 DESKS = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "crowd", "risk", "macro", "options",
          "news")
 DESK_LABELS = {"valuation": "Valuation", "quality": "Quality", "growth": "Growth", "momentum": "Momentum",

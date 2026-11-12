@@ -120,12 +120,13 @@ async def test_the_filings_feed_catches_up_ten_days_a_pass_and_says_it_is_behind
     sec = Feed()
     suite = SimpleNamespace(sec=sec)
     first = await collect.filings_feed(suite, market, NOW, start=date(2026, 10, 1), max_days=10)
-    assert first["ok"] and len(first["days"]) == 10 and first["behind"] and first["through"] == "2026-10-14"
+    assert first["ok"] and len(first["days"]) == 10 and first["behind"] and first["through"] == "2026-10-15"
     second = await collect.filings_feed(suite, market, NOW, start=date(2026, 10, 1), max_days=10)
-    assert second["days"][0] == "2026-10-15" and second["behind"] and second["companies"]["missing"] == [22]
+    assert second["days"][0] == "2026-10-16" and second["behind"] and second["companies"]["missing"] == [22]
     last = await collect.filings_feed(suite, market, NOW, start=date(2026, 10, 1), max_days=10)
     assert not last["behind"] and last["through"] == "2026-11-04"                        # today is not published yet
-    assert len(sec.days) == len(set(sec.days)) == 25                                       # every trading day, once
+    assert len(sec.days) == len(set(sec.days)) == 24                                       # every EDGAR day, once
+    assert date(2026, 10, 12) not in sec.days                                             # Columbus Day: no index
 
 
 async def test_the_filings_feed_starts_no_new_day_after_its_time_budget(market: StocksMarket) -> None:
@@ -281,3 +282,50 @@ async def test_fails_backfill_two_years_of_files_four_a_pass_each_once(market: S
     assert len(detail["loaded"]) == 46 and detail["missing"] == [sec.gone] and calls + 1 == 12      # 46 files, 4 a pass
     assert {n for n in sec.downloads if sec.downloads.count(n) > 1} == {sec.late}   # only the recent one is retried
     assert min(detail["loaded"]) == "cnsfails202411a.zip"                           # 24 months back from October
+
+
+def test_edgar_days_follow_the_federal_calendar_not_the_markets() -> None:
+    assert not cal.is_edgar_day(date(2026, 11, 11)) and cal.is_trading_day(date(2026, 11, 11))      # Veterans Day
+    assert not cal.is_edgar_day(date(2026, 10, 12)) and cal.is_trading_day(date(2026, 10, 12))      # Columbus Day
+    assert cal.is_edgar_day(date(2026, 4, 3)) and not cal.is_trading_day(date(2026, 4, 3))          # Good Friday
+    assert not cal.is_edgar_day(date(2021, 12, 31))                     # New Year's Day 2022 fell on a Saturday
+    assert not cal.is_edgar_day(date(2027, 6, 18))                      # Juneteenth 2027 is a Saturday: Friday off
+    assert not cal.is_edgar_day(date(2026, 11, 26)) and cal.is_edgar_day(date(2026, 11, 27))        # Thanksgiving
+
+
+class Closed(Feed):
+    """An index that is missing on the given days, as EDGAR answers for a day it published nothing (403 or 404)."""
+
+    def __init__(self, missing: set[date], status: int = 403) -> None:
+        super().__init__()
+        self.missing, self.status = missing, status
+
+    async def daily_index(self, day: date) -> list[IndexEntry]:
+        from desk.core.errors import ProviderError, ProviderErrorKind
+
+        if day in self.missing:
+            self.days.append(day)
+            raise ProviderError("sec_www", ProviderErrorKind.HTTP_ERROR, f"daily_index: HTTP {self.status}", self.status)
+        return await super().daily_index(day)
+
+
+async def test_the_filings_feed_moves_past_veterans_day_and_an_unscheduled_closure(market: StocksMarket) -> None:
+    now = datetime(2026, 11, 17, 22, 0, tzinfo=UTC)
+    market.job("filings_feed", now, detail={"through": "2026-11-10"})          # stuck before Veterans Day
+    sec = Closed({date(2026, 11, 13)})                                         # and an unplanned closure that Friday
+    report = await collect.filings_feed(SimpleNamespace(sec=sec), market, now, start=date(2026, 10, 1))
+    assert report["ok"] and date(2026, 11, 11) not in sec.days
+    assert report["days"] == ["2026-11-12", "2026-11-16"] and report["no_index"] == ["2026-11-13"]
+    assert report["through"] == "2026-11-16"
+
+
+async def test_two_missing_days_in_a_row_are_a_real_error_and_a_recent_one_waits(market: StocksMarket) -> None:
+    now = datetime(2026, 11, 20, 22, 0, tzinfo=UTC)
+    market.job("filings_feed", now, detail={"through": "2026-11-12"})
+    refused = await collect.filings_feed(SimpleNamespace(sec=Closed({date(2026, 11, 13), date(2026, 11, 16)})),
+                                         market, now, start=date(2026, 10, 1))
+    assert not refused["ok"]                                                    # e.g. the contact was refused
+    market.job("filings_feed", now, detail={"through": "2026-11-17"})
+    waits = await collect.filings_feed(SimpleNamespace(sec=Closed({date(2026, 11, 19)}, status=404)), market, now,
+                                       start=date(2026, 10, 1))
+    assert waits["ok"] and waits["through"] == "2026-11-18" and "no_index" not in waits    # not published yet

@@ -58,6 +58,29 @@ def holidays(year: int) -> frozenset[date]:
     return frozenset(days)
 
 
+@cache
+def federal_holidays(year: int) -> frozenset[date]:
+    """US federal holidays as observed (a Saturday holiday on the Friday before, a Sunday one on the Monday after, so
+    New Year's Day on a Saturday is observed on December 31). The SEC, and so EDGAR's daily index, is closed on them,
+    including Columbus Day and Veterans Day, when the stock market is open."""
+    def observed(d: date) -> date:
+        return d - timedelta(days=1) if d.weekday() == 5 else d + timedelta(days=1) if d.weekday() == 6 else d
+
+    fixed = [date(year, 1, 1), date(year, 7, 4), date(year, 11, 11), date(year, 12, 25)]
+    if year >= 2021:
+        fixed.append(date(year, 6, 19))
+    days = {observed(d) for d in fixed} | {d for d in (observed(date(year + 1, 1, 1)),) if d.year == year}
+    days |= {_nth_weekday(year, 1, 0, 3), _nth_weekday(year, 2, 0, 3), _last_weekday(year, 5, 0),
+             _nth_weekday(year, 9, 0, 1), _nth_weekday(year, 10, 0, 2), _nth_weekday(year, 11, 3, 4)}
+    return frozenset(d for d in days if d.year == year)
+
+
+def is_edgar_day(d: date) -> bool:
+    """A day EDGAR publishes a daily index: a weekday that isn't a federal holiday. Not the trading calendar: EDGAR is
+    open on Good Friday and closed on Columbus Day and Veterans Day."""
+    return d.weekday() < 5 and d not in federal_holidays(d.year)
+
+
 def is_trading_day(d: date) -> bool:
     return d.weekday() < 5 and d not in holidays(d.year)
 
@@ -134,6 +157,7 @@ def last_closed_session(now: datetime, after_close: timedelta = timedelta(0)) ->
     return d
 
 
-__all__ = ["CLOSE", "EARLY_CLOSE", "NEW_YORK", "close_time", "early_closes", "holidays", "is_trading_day",
+__all__ = ["CLOSE", "EARLY_CLOSE", "NEW_YORK", "close_time", "early_closes", "federal_holidays", "holidays",
+           "is_edgar_day", "is_trading_day",
            "last_closed_session", "market_session", "new_york", "next_trading_day", "previous_trading_day",
            "session_close", "trading_days"]

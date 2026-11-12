@@ -1,0 +1,149 @@
+{
+ "stocks_desks": {
+  "3": "149baf97f1fb8798d2bac1d3592272128a2f0c48b7451dcdcf873b30f1962dad"
+ },
+ "stocks_list_big_moves": {
+  "1": "c5b7f621c842898b7dbf4a7ecf5bf89391963785bba2648c37c3f44266373a8b"
+ },
+ "stocks_list_cheap_iv": {
+  "1": "a3363d7223e0062094a56a79d7085919e8655240fbfd006bef2fcbaab3b86098"
+ },
+ "stocks_list_committee": {
+  "1": "032b17dea534c1654f8419cb9c7dee96ee5b5378ec5267e1f2208f290545b1f1"
+ },
+ "stocks_list_dilution": {
+  "1": "26365a363ed406bd19dd10fd5880e1c3e24c8fef3ac349c43fe65e6aa9b401ae"
+ },
+ "stocks_list_earnings_week": {
+  "1": "98cb6702b690da875aa10c6e238007b907dcdb88c6842d24aba88aecafeb4c04"
+ },
+ "stocks_list_gainers": {
+  "1": "4e15e2639d219d30f1faf3f89381b981e4d43ec4ef570c6f6965017e5650a3e5"
+ },
+ "stocks_list_insider_buying": {
+  "1": "19e9c63577dd481f3cbbd5ac088843a1ee9e3832b474ee397fd572a99a532511"
+ },
+ "stocks_list_just_reported": {
+  "1": "ab75390e646d36fe4ebe8120578a7cdb5a8354ed1f2bf07f3c05ef52161483a1"
+ },
+ "stocks_list_losers": {
+  "1": "edfad245f226821473204d6ddc8984d64d7b5f29f6cd3aea73fab3e2b95f627b"
+ },
+ "stocks_list_market_activity": {
+  "1": "6c34ff61ac5a129a048a485529144fd0d57cff26bb473f41be21e26a55ddda97"
+ },
+ "stocks_list_momentum": {
+  "1": "376e81cdd28a707111f650e030397e75e4749c37dda5434289f6c737764d63c9"
+ },
+ "stocks_list_new_highs": {
+  "1": "dea5fff4f21c1ea03f8a16bcc2b49542dba567b139ddc50eb3f86858231a2724"
+ },
+ "stocks_list_new_lows": {
+  "1": "500748b1a42c9fb00a73756cced3bea9ffdc96a3456061c729a4d152927d0177"
+ },
+ "stocks_list_options_activity": {
+  "1": "f80e6bcc8b5a1a6b500982617c8467fd9e18a35e23471f2102961349f206d5e7"
+ },
+ "stocks_list_overvalued": {
+  "1": "d61682de94bf61a9703b4968068c2dc4f8e22ff8a50549a65c03a89ac71f79eb"
+ },
+ "stocks_list_quality_fair": {
+  "1": "1772e3b5e3289fb55c62f3d5392b46fe863377ec96b9254587ed2990b0f14ec8"
+ },
+ "stocks_list_squeeze": {
+  "1": "6e7724c65758af96782b2ae1d06333361a3624d0433e419a9c1a3e0d063098cd"
+ },
+ "stocks_list_trending": {
+  "2": "8b6cafdd3b6a0b130eda63b65d66f5a7646c52dba44f8ce864bf2b5180f78f70"
+ },
+ "stocks_list_undervalued": {
+  "1": "d6a0d78af56ea90977644e0771e2ada2364f9333a95a13fc4c1814628e4ba7f6"
+ },
+ "stocks_list_unusual_options": {
+  "2": "fbc71a48b42543a067ac315b4d364d2c825cb79b3c4a251f585cdcebeb0a85d1"
+ },
+ "stocks_list_value_traps": {
+  "1": "fd31c55d0b118b6a8697fc8fa099d2230810da8baba3af1b91cd52f24277740f"
+ },
+ "stocks_list_wsb": {
+  "1": "89705a6861cfd99a25169e5243dccb3d8542b54309111660719f64bdf83709bd"
+ },
+ "stocks_list_wsb_vs_reality": {
+  "1": "f7cfef816499852729608b47119e7529aaaeda5da970bade8062c2ce9105ac4e"
+ },
+ "stocks_market_events": {
+  "1": "b1ccd2551c4ca9c59427a3be9af1d7131860a7115141c5017883781ae6e15ef3"
+ },
+ "stocks_paper_bear_put_spreads": {
+  "1": "a8dff24df1db86a048dfc4bd6327bf35aa7714fe2d1d9ae70b56de903c00b08e"
+ },
+ "stocks_paper_breakout": {
+  "2": "05ff6ec60579717d674920824231043532be463ec0a8e0f77439e6eb2b1440ca"
+ },
+ "stocks_paper_cheap_catalyst": {
+  "1": "32ef51d46819f47c8a57328c9132f5f417b427d8c9637475a7a18d5235a84df3"
+ },
+ "stocks_paper_cheap_iv_calls": {
+  "1": "fcd47e6da363d7b2168b028356d372b9c22b5efccd439eb7b0533d5f8b45e012"
+ },
+ "stocks_paper_committee_top": {
+  "1": "4f7bbeeada27a9c92e80d0fc23aa2379f917de8818fd5ebdf590deb31d245c6e"
+ },
+ "stocks_paper_earnings_drift": {
+  "2": "c93476e2d29ea1572ac02663c6f4b816d5200acee3b8d5f5b56a4011b9ea9e0d"
+ },
+ "stocks_paper_earnings_straddles": {
+  "1": "5228886477ad7617e06223b83f56e75a1423ef69d82ca5054f7553d2ebba3ad0"
+ },
+ "stocks_paper_insider_cluster": {
+  "2": "9928f8993cab9a864716090a9f1799f734b3d2c7dd51300345dd7c08858e07f9"
+ },
+ "stocks_paper_lotto_picks": {
+  "2": "b57792348f9b40006324010c278fe112e75e7daf7c8a1d3c013633a10db9c849"
+ },
+ "stocks_paper_lotto_runners": {
+  "1": "e3a196e2c117346468d84736d4b89c7e0edc372489b0b2d355ed7c68d8560c65"
+ },
+ "stocks_paper_momentum": {
+  "1": "4865aeaa6968ebd4a00952767c58fe45f81ca40a5a3196f04fedd039ee7e1ead"
+ },
+ "stocks_paper_momentum_call_spreads": {
+  "1": "b632946ae42c2fe6499bef823cb3f17828a9df560293d9bd9cf9a8ac71f31208"
+ },
+ "stocks_paper_quality_fair": {
+  "1": "0c33f33149d35e2d930c91081483764022ba1ca8bba1e700b46c3eae5b3e70b1"
+ },
+ "stocks_paper_quality_momentum": {
+  "1": "a872e1937a488a476bb0557103bf183b089f151a740fd49af44ec276954bd017"
+ },
+ "stocks_paper_random_10": {
+  "1": "4c9e237b8000819a79ad13d6ecfa478763ece454fc5ed7452c633f06e8cf4a18"
+ },
+ "stocks_paper_random_calls": {
+  "1": "08e69ba355ba0a8e2a231cb50f26afa5dcd16fc39abb818b8b580f0d4cd5452a"
+ },
+ "stocks_paper_random_lottos": {
+  "1": "980ab771aef9881aa0ba45e0e0cbef401e905d510feed2a33fe8a844e6d77988"
+ },
+ "stocks_paper_spy_hold": {
+  "1": "59ac65ac20bae35fd522921d435cbf0e1cbe33b7fbcc6b8594b4cb13885e2dd3"
+ },
+ "stocks_paper_squeeze_calls": {
+  "1": "c82f76ddeac3d0e7d687e1560622b7a3231a58648c46c5f62ec5878c4663bfd2"
+ },
+ "stocks_paper_squeeze_runner": {
+  "2": "c946f9e3f79f30cb34c77d3e1631dbcfd95c7c7110545e5f2153d9ad42278f32"
+ },
+ "stocks_paper_undervalued": {
+  "1": "b5a57a8d1789f899fb507cc2da024146951595be60f57ec641ac72e316ca6f4c"
+ },
+ "stocks_paper_unusual_follow": {
+  "1": "dd89a1fef43d38544924edc231d7c96bede2c8bfe059d718cffdb2c75510fb12"
+ },
+ "stocks_paper_value_momentum": {
+  "1": "8af6d42066d277f142049a3752244440b93cad01a3bffb964cc5d9b17f4dae59"
+ },
+ "stocks_validation": {
+  "2": "052ae64f4c3ecca0fd361ce6a1053c49b0da12f13717b21e8c50c828108f7f14"
+ }
+}
