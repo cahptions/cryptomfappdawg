@@ -17,20 +17,24 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_left
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Hashable, Iterable, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 
 from desk.stocks.options import norm_cdf
 
-MODEL_VERSION = 1                # bump when the probability model changes: calibration restarts for it
+# Bump when the probability model changes: calibration restarts for it. 2 (2026-11-12): calibration counts evidence in
+# independent sessions (``MIN_CALIBRATION_SESSIONS``, and shrinkage by a clustering-adjusted effective sample size).
+MODEL_VERSION = 2
 TRADING_YEAR = 252
 IV_WEIGHT = 0.7                  # forecast variance = 0.7 × implied² + 0.3 × realized²
 IC_HORIZON_YEARS = 21 / 252      # the committee's information coefficient is measured over one month
 IC_SHRINK_MONTHS = 24            # an IC from n independent months counts n / (n + 24) of itself
 MIN_HISTORY_WINDOWS = 120
 CALIBRATION_PRIOR = 20           # pseudo-observations pulling each bucket toward its own prediction
-MIN_CALIBRATION = 30             # resolved plays before any calibration is applied
+MIN_CALIBRATION = 30             # resolved plays before any calibration is applied ...
+MIN_CALIBRATION_SESSIONS = 10    # ... and the separate sessions they were picked in (one market day moves them all)
 
 
 def above(s: float, level: float, t: float, sigma: float, mu: float) -> float:
@@ -126,35 +130,111 @@ def tilt(ic: float | None, independent_months: float, z: float | None, sigma: fl
 
 
 @dataclass(frozen=True)
+class Cell:
+    """One session's resolved plays in one tenth of predicted chance, as sums (so SQL can aggregate them): plays,
+    predicted, hits, and the residual (hit − predicted) and its square."""
+    tenth: int
+    session: Hashable
+    n: int
+    predicted: float
+    hits: float
+    residual: float
+    residual2: float
+
+
+def cells(predicted: Sequence[float], outcomes: Sequence[bool], sessions: Sequence[Hashable]) -> list[Cell]:
+    acc: dict[tuple[int, Hashable], list[float]] = defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0])
+    for p, hit, session in zip(predicted, outcomes, sessions, strict=True):
+        a, r = acc[(min(int(p * 10), 9), session)], float(hit) - p
+        a[0] += 1
+        a[1] += p
+        a[2] += float(hit)
+        a[3] += r
+        a[4] += r * r
+    return [Cell(t, s, int(a[0]), a[1], a[2], a[3], a[4]) for (t, s), a in acc.items()]
+
+
+def session_correlation(rows: Iterable[Cell]) -> float:
+    """How alike the plays of one session turn out beyond what was predicted: the one-way ANOVA intraclass correlation
+    of the residuals (hit − predicted) with sessions as groups, clipped to [0, 1]. 1 (fully alike) when it cannot be
+    estimated (a single session, or one play a session)."""
+    by: dict[Hashable, list[float]] = defaultdict(lambda: [0, 0.0, 0.0])
+    for c in rows:
+        a = by[c.session]
+        a[0] += c.n
+        a[1] += c.residual
+        a[2] += c.residual2
+    k, n = len(by), sum(a[0] for a in by.values())
+    if k < 2 or n <= k:
+        return 1.0
+    mean = sum(a[1] for a in by.values()) / n
+    between = sum(a[0] * (a[1] / a[0] - mean) ** 2 for a in by.values()) / (k - 1)
+    within = sum(a[2] - a[1] ** 2 / a[0] for a in by.values()) / (n - k)
+    m0 = (n - sum(a[0] ** 2 for a in by.values()) / n) / (k - 1)
+    denominator = between + (m0 - 1) * within
+    if denominator <= 0:
+        return 0.0 if between <= within else 1.0
+    return max(0.0, min(1.0, (between - within) / denominator))
+
+
+@dataclass(frozen=True)
 class Calibration:
     """Predicted-probability buckets (tenths) → how often plays in them actually finished in the money, shrunk toward
-    the prediction by ``CALIBRATION_PRIOR`` pseudo-observations. Empty until ``MIN_CALIBRATION`` plays resolve."""
-    buckets: tuple[tuple[float, int, float], ...] = ()      # (mean predicted, resolved, observed hit rate)
+    the prediction by ``CALIBRATION_PRIOR`` pseudo-observations. Empty until ``MIN_CALIBRATION`` plays from at least
+    ``MIN_CALIBRATION_SESSIONS`` separate sessions resolve.
+
+    Plays picked the same session share that session's market, so they are not independent: a rally finishes most of
+    one day's calls in the money together. Each bucket's evidence is therefore its effective sample size, the plays
+    divided by the design effect 1 + (m − 1)·ρ (Kish), where m is the bucket's average plays per session (weighted by
+    plays) and ρ how alike one session's outcomes are beyond their predictions (``session_correlation``, estimated
+    over the whole group). Independent outcomes keep every play; fully clustered ones count about one per session."""
+    buckets: tuple[tuple[float, int, float, float], ...] = ()   # (mean predicted, resolved, hit rate, effective n)
+    sessions: int = 0           # separate sessions among the resolved plays (counted even before it is applied)
+    plays: int = 0              # resolved plays (likewise)
 
     @classmethod
-    def learn(cls, predicted: Sequence[float], outcomes: Sequence[bool]) -> Calibration:
-        if len(predicted) < MIN_CALIBRATION:
-            return cls()
-        bins: dict[int, list[tuple[float, bool]]] = {}
-        for p, hit in zip(predicted, outcomes, strict=True):
-            bins.setdefault(min(int(p * 10), 9), []).append((p, hit))
+    def learn(cls, predicted: Sequence[float], outcomes: Sequence[bool], *,
+              sessions: Sequence[Hashable]) -> Calibration:
+        """``sessions[i]`` is the session play ``i`` was picked in (its market day)."""
+        return cls.from_cells(cells(predicted, outcomes, sessions))
+
+    @classmethod
+    def from_cells(cls, rows: Iterable[Cell]) -> Calibration:
+        rows = list(rows)
+        distinct = len({c.session for c in rows})
+        plays = sum(c.n for c in rows)
+        if plays < MIN_CALIBRATION or distinct < MIN_CALIBRATION_SESSIONS:
+            return cls((), distinct, plays)
+        rho = session_correlation(rows)
+        bins: dict[int, list[Cell]] = defaultdict(list)
+        for c in rows:
+            bins[c.tenth].append(c)
         out = []
         for b in sorted(bins):
-            rows = bins[b]
-            mean_p = sum(p for p, _ in rows) / len(rows)
-            out.append((mean_p, len(rows), sum(h for _, h in rows) / len(rows)))
-        return cls(tuple(out))
+            group = bins[b]
+            n = sum(c.n for c in group)
+            per_session: dict[Hashable, int] = defaultdict(int)
+            for c in group:
+                per_session[c.session] += c.n
+            m = sum(v * v for v in per_session.values()) / n
+            effective = n / (1 + (m - 1) * rho)
+            out.append((sum(c.predicted for c in group) / n, n, sum(c.hits for c in group) / n, round(effective, 4)))
+        return cls(tuple(out), distinct, plays)
 
     @property
     def resolved(self) -> int:
-        return sum(n for _, n, _ in self.buckets)
+        return self.plays or sum(b[1] for b in self.buckets)
+
+    @property
+    def effective(self) -> float:
+        return sum(b[3] for b in self.buckets)
 
     def apply(self, p: float) -> float:
         """Interpolate the shrunk observed rate between bucket centres; identity where there is no evidence."""
         if not self.buckets:
             return p
-        points = [(mean_p, (n * rate + CALIBRATION_PRIOR * mean_p) / (n + CALIBRATION_PRIOR))
-                  for mean_p, n, rate in self.buckets]
+        points = [(mean_p, (n_eff * rate + CALIBRATION_PRIOR * mean_p) / (n_eff + CALIBRATION_PRIOR))
+                  for mean_p, _, rate, n_eff in self.buckets]
         if p <= points[0][0]:
             return max(0.0, min(1.0, p + points[0][1] - points[0][0]))
         if p >= points[-1][0]:
@@ -206,5 +286,5 @@ def brier(predicted: Sequence[float], outcomes: Sequence[bool]) -> float | None:
     return sum((p - float(o)) ** 2 for p, o in zip(predicted, outcomes, strict=True)) / len(predicted)
 
 
-__all__ = ["Calibration", "History", "Odds", "above", "brier", "expected_payoff", "finishes_beyond", "forecast_sigma",
-           "odds", "tilt", "touch"]
+__all__ = ["Calibration", "Cell", "History", "Odds", "above", "brier", "cells", "expected_payoff", "finishes_beyond",
+           "forecast_sigma", "odds", "session_correlation", "tilt", "touch"]

@@ -98,15 +98,44 @@ def test_odds_for_buyers_and_sellers() -> None:
 
 
 def test_calibration_learns_only_from_enough_outcomes() -> None:
-    assert od.Calibration.learn([0.3] * 10, [True] * 10).apply(0.3) == 0.3   # too few: identity
+    assert od.Calibration.learn([0.3] * 10, [True] * 10, sessions=range(10)).apply(0.3) == 0.3   # too few: identity
     rng = random.Random(2)
     predicted = [rng.uniform(0.05, 0.95) for _ in range(4000)]
     outcomes = [rng.random() < p * 0.6 for p in predicted]                 # overconfident by 40%
-    cal = od.Calibration.learn(predicted, outcomes)
-    assert cal.resolved == 4000
+    sessions = [i % 200 for i in range(4000)]                              # 200 sessions, independent outcomes
+    cal = od.Calibration.learn(predicted, outcomes, sessions=sessions)
+    assert cal.resolved == 4000 and cal.sessions == 200
     for p in (0.25, 0.5, 0.75):
         assert cal.apply(p) == pytest.approx(0.6 * p, abs=0.05)
     assert od.brier([cal.apply(p) for p in predicted], outcomes) < od.brier(predicted, outcomes)
-    honest = od.Calibration.learn(predicted, [rng.random() < p for p in predicted])
+    honest = od.Calibration.learn(predicted, [rng.random() < p for p in predicted], sessions=sessions)
     assert honest.apply(0.5) == pytest.approx(0.5, abs=0.05)
     assert 0.0 <= cal.apply(0.0) <= cal.apply(1.0) <= 1.0
+
+
+def test_calibration_needs_ten_separate_sessions_not_just_thirty_plays() -> None:
+    predicted, outcomes = [0.6] * 30, [i % 3 == 0 for i in range(30)]     # said 60%, a third happened
+    two = od.Calibration.learn(predicted, outcomes, sessions=[i % 2 for i in range(30)])
+    assert not two.buckets and two.apply(0.6) == 0.6 and two.sessions == 2 and two.resolved == 30
+    twelve = od.Calibration.learn(predicted, outcomes, sessions=[i % 12 for i in range(30)])
+    assert twelve.buckets and twelve.sessions == 12 and twelve.apply(0.6) < 0.6
+    assert od.MIN_CALIBRATION == 30 and od.MIN_CALIBRATION_SESSIONS == 10
+
+
+def test_clustered_outcomes_count_as_less_evidence_and_shrink_more() -> None:
+    """Same plays, sessions, predictions and hit rate (a third): mixed within each session, or whole sessions hitting
+    or missing together. The clustered record is closer to one observation a session, so it moves the chance less."""
+    sessions = [i // 5 for i in range(60)]                                 # 12 sessions of 5 plays
+    predicted = [0.6] * 60
+    mixed = [i % 3 == 0 for i in range(60)]
+    clustered = [s % 3 == 0 for s in sessions]
+    assert sum(mixed) == sum(clustered) == 20
+    spread = od.Calibration.learn(predicted, mixed, sessions=sessions)
+    together = od.Calibration.learn(predicted, clustered, sessions=sessions)
+    assert od.session_correlation(od.cells(predicted, mixed, sessions)) < 0.1
+    assert od.session_correlation(od.cells(predicted, clustered, sessions)) == pytest.approx(1.0)
+    assert spread.effective > 50 and together.effective == pytest.approx(12, abs=0.01)
+    assert spread.apply(0.6) < together.apply(0.6) < 0.6                   # both learn; the clustered one less
+    # independent plays, one per session, keep their full weight
+    alone = od.Calibration.learn(predicted[:30], mixed[:30], sessions=range(30))
+    assert alone.effective == pytest.approx(30)

@@ -15,6 +15,7 @@ from desk.core.paths import DeskPaths
 from desk.stocks import calendar as cal
 from desk.stocks import learning
 from desk.stocks import learning_report as lr
+from desk.stocks import odds as od
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.repo import StocksDatabases
 from tests.conftest import REPO
@@ -40,9 +41,9 @@ def play(conn: sqlite3.Connection, session: date, rank: int, *, shown: float, hi
                  "event_strike, event_width, entry, max_loss, legs_json, underlying, itm_market, itm_history, itm_kestrel, "
                  "itm_kestrel_raw, profit_kestrel, play_json, method, recorded_at) "
                  "VALUES (?, ?, ?, ?, 'BUY', 'long_call', ?, ?, ?, 100, 0, 1.5, 150, '[]', 100, ?, NULL, ?, ?, NULL, "
-                 "'{}', 'm', ?)",
+                 "?, 'm', ?)",
                  (session.toordinal(), category, rank, symbol, expiration.toordinal(), event, kind, market, shown, raw,
-                  session.isoformat()))
+                  json.dumps({"odds_version": od.MODEL_VERSION}), session.isoformat()))
     if hit is not None:
         conn.execute("INSERT INTO stk_play_outcomes VALUES (?, ?, ?, ?, 100, ?, 0, ?)",
                      (session.toordinal(), category, rank, expiration.isoformat() + "T21:00:00+00:00", int(hit), net))

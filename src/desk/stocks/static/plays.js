@@ -1044,7 +1044,7 @@ const KestrelPlays = (() => {
     app.append(hero, KestrelPlaysHistory.views("board"));
     const strip = el("p", undefined, "muted caption play-strip");
     strip.textContent = data.asof
-      ? `Loaded options session ${data.asof} · ${data.coverage.underlyings} underlyings · ${number(data.coverage.contracts_scored)} contracts scored · ${data.source || "stored chains"} · built ${when(data.generated_at)} · chance model: ${data.calibration.applied ? `calibrated on ${data.calibration.resolved} resolved plays` : `not yet calibrated (${data.calibration.resolved} of ${data.calibration.needed} resolved plays)`}${data.model.ic ? ` · committee tilt from IC ${data.model.ic.toFixed(3)} over ${data.model.ic_months} months` : " · no committee tilt yet (no positive measured IC)"}`
+      ? `Loaded options session ${data.asof} · ${data.coverage.underlyings} underlyings · ${number(data.coverage.contracts_scored)} contracts scored · ${data.source || "stored chains"} · built ${when(data.generated_at)} · chance model: ${data.calibration.applied ? `calibrated on ${data.calibration.resolved} resolved plays from ${data.calibration.sessions} sessions` : `not yet calibrated (${data.calibration.resolved} of ${data.calibration.needed} resolved plays${data.calibration.needed_sessions ? `, ${data.calibration.sessions ?? 0} of ${data.calibration.needed_sessions} sessions` : ""})`}${data.model.ic ? ` · committee tilt from IC ${data.model.ic.toFixed(3)} over ${data.model.ic_months} months` : " · no committee tilt yet (no positive measured IC)"}`
       : data.message;
     app.append(strip);
     if (!data.categories?.length) {

@@ -202,7 +202,8 @@ def method(promoted: Mapping[str, str] | None = None) -> str:
     """The rule version: categories, the probability model and any challenger promoted into the live rules."""
     content: dict[str, Any] = {"version": VERSION, "categories": [c.content() for c in CATEGORIES],
                                "iv_weight": od.IV_WEIGHT, "ic_shrink": od.IC_SHRINK_MONTHS,
-                               "calibration_prior": od.CALIBRATION_PRIOR}
+                               "calibration_prior": od.CALIBRATION_PRIOR, "odds_version": od.MODEL_VERSION,
+                               "calibration_sessions": od.MIN_CALIBRATION_SESSIONS}
     if promoted:
         content["promoted"] = dict(sorted(promoted.items()))
     return sha256_hex(canonical_json(content))[:16]
@@ -1268,8 +1269,9 @@ def dte_bucket(dte: int) -> str:
 
 def calibration(research: StocksResearch) -> dict[str, od.Calibration]:
     """Calibrations keyed ``event``, ``event|category`` and ``event|category|days to expiry``, learned from resolved
-    plays of the current probability model only (a group stays empty until it has enough resolved plays)."""
-    rows: dict[str, tuple[list[float], list[bool]]] = defaultdict(lambda: ([], []))
+    plays of the current probability model only (a group stays empty until it has enough resolved plays from enough
+    separate sessions; same-session plays count as less than independent evidence: ``odds.Calibration``)."""
+    rows: dict[str, tuple[list[float], list[bool], list[int]]] = defaultdict(lambda: ([], [], []))
     for r in research.conn.execute(
             "SELECT p.event, p.category, p.session, p.expiration, p.itm_kestrel_raw, o.hit FROM stk_plays p JOIN "
             "stk_play_outcomes o USING (session, category, rank) WHERE p.itm_kestrel_raw IS NOT NULL AND "
@@ -1279,15 +1281,17 @@ def calibration(research: StocksResearch) -> dict[str, od.Calibration]:
         for key in (r["event"], f"{r['event']}|{category}", f"{r['event']}|{category}|{bucket}"):
             rows[key][0].append(float(r["itm_kestrel_raw"]))
             rows[key][1].append(bool(r["hit"]))
+            rows[key][2].append(int(r["session"]))
     # the other shown chances (``grade_events``), learned from what each predicted before any calibration
-    for r in research.conn.execute("SELECT event, category, dte, predicted_raw, hit FROM stk_play_grades "
+    for r in research.conn.execute("SELECT event, category, session, dte, predicted_raw, hit FROM stk_play_grades "
                                    "WHERE model_version = ?", (od.MODEL_VERSION,)):
         bucket, category = dte_bucket(r["dte"]), r["category"].split("@")[0]
         for key in (r["event"], f"{r['event']}|{category}", f"{r['event']}|{category}|{bucket}"):
             rows[key][0].append(float(r["predicted_raw"]))
             rows[key][1].append(bool(r["hit"]))
+            rows[key][2].append(int(r["session"]))
     out = {event: od.Calibration() for event in ("itm", "move", *GRADED_EVENTS)}
-    out.update({key: od.Calibration.learn(p, h) for key, (p, h) in rows.items()})
+    out.update({key: od.Calibration.learn(p, h, sessions=s) for key, (p, h, s) in rows.items()})
     return out
 
 
@@ -1306,7 +1310,9 @@ def calibration_summary(research: StocksResearch | sqlite3.Connection) -> dict[s
     conn = research.conn if isinstance(research, StocksResearch) else research
     groups = calibration(StocksResearch(conn))
     return {"model_version": od.MODEL_VERSION, "needed": od.MIN_CALIBRATION,
-            "groups": {key: {"resolved": c.resolved, "applied": bool(c.buckets)} for key, c in sorted(groups.items())
+            "needed_sessions": od.MIN_CALIBRATION_SESSIONS,
+            "groups": {key: {"resolved": c.resolved, "applied": bool(c.buckets), "sessions": c.sessions,
+                             "effective": round(c.effective, 1)} for key, c in sorted(groups.items())
                        if c.resolved or key in ("itm", "move")}}
 
 
@@ -2002,9 +2008,10 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         "coverage": {"underlyings": len(tables), "contracts_scored": int(sum(len(tb) for tb in tables)),
                      "with_analysis": sum(1 for tb in tables if tb.u.detail)},
         "calibration": {"applied": bool(cal_itm.buckets), "resolved": cal_itm.resolved, "needed": od.MIN_CALIBRATION,
+                        "sessions": cal_itm.sessions, "needed_sessions": od.MIN_CALIBRATION_SESSIONS,
                         "specific_groups": groups,
-                        "buckets": [{"predicted": round(p, 3), "resolved": n, "observed": round(o, 3)}
-                                    for p, n, o in cal_itm.buckets],
+                        "buckets": [{"predicted": round(p, 3), "resolved": n, "observed": round(o, 3),
+                                     "effective": round(e, 1)} for p, n, o, e in cal_itm.buckets],
                         "take_profit": {"graded": int(sum(c[0] for c in take_history.get("*", {}).values())),
                                         "applied": bool(ctx.calibration["take_profit"].buckets)}},
         "model": {"ic": ic, "ic_months": round(months, 1), "ic_source": source, "iv_weight": od.IV_WEIGHT,

@@ -140,7 +140,7 @@ maximum risk at expiry**, with +25%/+100% targets in the expandable explanation.
 favorable regions of the exact piecewise terminal payoff under the recorded lognormal forecast, after opening
 fees. They do not estimate selling at a peak or hitting a target before expiry. Each recorded play's profit,
 +25/50/100% and maximum-gain chances are **graded at expiry** against its real return, and once a group has 30
-resolved plays the chance shown is **calibrated** on them, like the in-the-money chance (see "Every chance,
+resolved plays from 10 separate sessions the chance shown is **calibrated** on them, like the in-the-money chance (see "Every chance,
 graded"). The meters say "calibrated" when that has happened and "model" before. A saved idea from before targets
 existed gets them when its page is opened, **computed later** from its own saved legs, entry and stock price at its
 saved KESTREL forecast (else its saved one-standard-deviation move, with no drift), and says so; one that kept
@@ -177,7 +177,7 @@ Code: `company_profiles.py`, SEC submissions parser and market migration `0006_c
 profit is shown separately). Open it on any card to see each check and why:
 
 1. **Better than even odds**: KESTREL's chance of a profit at expiry is 50% or more (calibrated on graded plays
-   once 30 have resolved in its group).
+   once 30 from 10 separate sessions have resolved in its group).
 2. **KESTREL's math favours it**: its expected value after fees is above zero.
 3. **The research agrees**: bullish plays need a bullish committee lean (≥ 58), bearish ones a bearish lean (< 42),
    condors and butterflies no strong lean (42–58), straddles and strangles a stock moving more than its options price.
@@ -256,10 +256,30 @@ group first: this category at this expiry, then the category, then every play); 
 | **KESTREL** | A forecast. Volatility blends 70% implied and 30% realized variance (implied volatility usually overstates the move that follows). The drift is tilted by the committee's view only as far as the committee's measured information coefficient allows — expected move = IC × z-score × volatility (Grinold), with the IC shrunk by its evidence n / (n + 24 months) and never extrapolated past the one-month horizon it was measured on. With no positive measured IC there is no tilt. |
 
 KESTREL's chance is then **calibrated against how past plays actually finished**. Every recorded play is graded at
-expiration; once 30 have resolved, predicted chances are grouped in tenths and pulled toward the observed hit rate
-of each group (shrunk by 20 pseudo-observations, so a few outcomes move it only a little). In-the-money events and
-straddle moves are calibrated separately, and each category and days-to-expiry group gets its own calibration once
-it has 30 resolved plays (see Learning). Until then the page says "not yet calibrated".
+expiration; once a group has 30 resolved plays **from at least 10 separate sessions**, predicted chances are grouped in
+tenths and pulled toward the observed hit rate of each tenth, shrunk toward the prediction by 20 pseudo-observations.
+In-the-money events and straddle moves are calibrated separately, and each category and days-to-expiry group gets its
+own calibration once it meets the same two minimums (see Learning). Until then the page says "not yet calibrated"
+and how many plays and sessions it has.
+
+**Evidence is counted in independent days, not plays** (probability model version 2, 2026-11-12). Plays picked the
+same session share that session's market: one rally finishes most of a day's calls in the money together, so 30 plays
+from 2 sessions are closer to two observations than to thirty. Two rules follow:
+
+1. **A minimum of 10 separate sessions** besides the 30 plays (`odds.MIN_CALIBRATION_SESSIONS`).
+2. **Shrinkage by an effective sample size.** Each tenth's weight against the 20 pseudo-observations is not its play
+   count n but n divided by the design effect 1 + (m − 1)·ρ (Kish's formula for clustered samples). m is the tenth's
+   average number of plays per session, weighted by plays (Σ mₛ² / Σ mₛ). ρ is how alike one session's outcomes turn
+   out beyond what was predicted: the intraclass correlation of the residuals (hit − predicted chance) with sessions
+   as groups (one-way ANOVA), estimated over the whole group and clipped to [0, 1]. Outcomes that vary freely within
+   each session (ρ ≈ 0) keep every play; outcomes where whole sessions hit or miss together (ρ = 1) count about one
+   per session. One play a session is always worth one observation.
+
+The Learning report uses the same rule (it rebuilds each group's calibration from per-session sums), and its strength
+labels call calibration evidence "early" until it has both 30 plays and 10 sessions. Because the shown chance changed
+with this rule, `odds.MODEL_VERSION` went from 1 to 2: calibration learns only from plays recorded under version 2, so
+the two rules' chances are never mixed. Version-1 plays stay in History and Performance with their recorded chances
+and grades.
 
 Also shown: the chance of **profit** at expiry (beyond break-even), the chance the price **touches** the strike
 before expiry (reflection formula for geometric Brownian motion; "already in the money" when it has), and the
@@ -268,7 +288,8 @@ before expiry (reflection formula for geometric Brownian motion; "already in the
 ### Every chance, graded
 
 Every chance a recorded play showed is graded once it can be decided, append-only (`stk_play_grades`, research
-migration `0014_play_grades.sql`), and calibrated the same way once a group has 30 resolved plays (this category
+migration `0014_play_grades.sql`), and calibrated the same way once a group has 30 resolved plays from 10 sessions,
+with the same session-clustering shrinkage (this category
 at this expiry, then the category, then every play), always learning from the model's own number before any
 calibration:
 
@@ -536,7 +557,7 @@ Code: `src/desk/stocks/play_learning.py`; one report per closed session (`stk_pl
 Performance → What it has learned.
 
 - **Calibration** of KESTREL's chance per category and days to expiry (≤ 7, 8–30, 31–90, over 90), falling back to the
-  category and then to every play until a group has 30 resolved plays; only plays of the current probability model
+  category and then to every play until a group has 30 resolved plays from 10 sessions; only plays of the current probability model
   (`odds.MODEL_VERSION`) count. Each play records which level was applied. The same is done separately for every
   other graded chance (take-profit first, profit, +25/50/100%, maximum gain, touch; `stk_play_grades`).
 - **Exit rules**: every combination of take profit at +25/50/100/200%, stop at −25/50/75% and leaving after 5/10/21
