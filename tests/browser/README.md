@@ -49,3 +49,7 @@ The shared chart overhaul is checked by `stocks_charting.mjs` against two dispos
 missing observations, single-point history, zoom, keyboard event markers, calculator price/time scenarios, tooltip bounds
 and console errors at desktop and 375px. Restart fixture servers after changing static assets: the server captures them
 at startup, just like the installed app. Run the PAPER/replay browser workflow alone to avoid its known CPU timing flake.
+
+`stocks_ops.mjs` uses `stocks_fixture_server --scenario ops`: the Portfolio risk page (totals, modelled scenarios,
+quoted/modelled/unknown greeks, one column at 375px), Settings → Phone alerts (channel presence only, switches saved
+with the session token, a test alert to a recorder that sends nothing) and the watchdog on Evidence → Data health.
