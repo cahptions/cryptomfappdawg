@@ -1108,7 +1108,8 @@ def replays(src: Sources, r: Report) -> None:
 
 
 # ── 8. Operational health that weakens the evidence ─────────────────────────────────────────────
-def health(src: Sources, r: Report) -> None:
+def marks_health(src: Sources, r: Report) -> None:
+    """How much of the last 90 days' play marks were estimated or modelled: never outcomes, so they slow learning."""
     since = (cal.new_york(r.now).date() - timedelta(days=RECENT_DAYS)).toordinal()
     if _has(src.research, "stk_play_marks"):
         assert src.research is not None
@@ -1128,6 +1129,10 @@ def health(src: Sources, r: Report) -> None:
                   "never graded or learned from, so learning waits for quoted marks.", items=total, days=days,
                   unit="marks", day_unit="days", strength=strength(total, days, need=30), link="#plays/history",
                   key="estimated-marks", weight=1 + 3 * weak / total)
+
+def health(src: Sources, r: Report) -> None:
+    if _has(src.research, "stk_play_marks"):
+        assert src.research is not None
         if _has(src.research, "stk_play_quarantine"):
             q = src.research.execute("SELECT COUNT(*) FROM stk_play_quarantine WHERE twin = 0").fetchone()[0]
             if q:
@@ -1234,14 +1239,55 @@ def headline(r: Report) -> list[str]:
 
 # ── build ────────────────────────────────────────────────────────────────────────────────────────
 LOOPS = (plays_calibration, plays_learning, plays_records, plays_behaviour, workspace, paper_forward, evidence,
-         replays, health)
+         replays, marks_health, health)
+# The two loops that read every graded chance and every recent mark are remembered until those tables change (new
+# grades and marks arrive once a session): on a large desk they are most of the time a report takes.
+HEAVY = frozenset({"plays_calibration", "marks_health"})
+_MEMO: dict[tuple[Any, ...], tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]] = {}
+
+
+def _signature(src: Sources, now: datetime) -> tuple[Any, ...] | None:
+    """What the heavy loops read, summarized cheaply (counts and newest timestamps, by primary key)."""
+    research = src.research
+    if not _has(research, "stk_play_outcomes") or not _has(research, "stk_play_marks"):
+        return None
+    assert research is not None
+    grades = ("(SELECT COUNT(*) FROM stk_play_grades), (SELECT MAX(resolved_at) FROM stk_play_grades)"
+              if _has(research, "stk_play_grades") else "0, 0")
+    row = research.execute(
+        "SELECT (SELECT COUNT(*) FROM stk_play_outcomes), (SELECT MAX(resolved_at) FROM stk_play_outcomes), "  # noqa: S608
+        f"{grades}, (SELECT MAX(session) FROM stk_play_marks), (SELECT COUNT(*) FROM stk_play_marks WHERE "
+        "session = (SELECT MAX(session) FROM stk_play_marks)), (SELECT COUNT(*) FROM stk_plays)").fetchone()
+    database = research.execute("PRAGMA database_list").fetchone()[2]
+    return (database, cal.new_york(now).date().isoformat(), *tuple(row))
+
+
+def _run(loop: Any, src: Sources, r: Report, signature: tuple[Any, ...] | None) -> None:
+    key = (loop.__name__, signature)
+    if signature is None or loop.__name__ not in HEAVY:
+        loop(src, r)
+        return
+    if key not in _MEMO:
+        part = Report(r.now)
+        loop(src, part)
+        if len(_MEMO) >= 8:
+            _MEMO.pop(next(iter(_MEMO)))
+        _MEMO[key] = (part.items, part.metrics, part.notes)
+    found, metrics, notes = _MEMO[key]
+    r.items.extend(dict(i) for i in found)
+    r.metrics.update(metrics)
+    r.notes.update(notes)
 
 
 def compose(src: Sources, now: datetime, previous: dict[str, Any] | None = None) -> dict[str, Any]:
     r = Report(now)
+    try:
+        signature = _signature(src, now)
+    except sqlite3.Error:
+        signature = None
     for loop in LOOPS:
         try:
-            loop(src, r)
+            _run(loop, src, r, signature)
         except sqlite3.Error:      # a database from before that loop existed, or one being repaired
             r.add("wrong", f"Part of the report could not be read ({loop.__name__.replace('_', ' ')}).",
                   "That database may be from an older version or in use; the rest of the report is unaffected.",
