@@ -1,5 +1,23 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-13 — Wave 4: History filter, review improvements, read-only Schwab account
+
+- Plays: a full day's board over 4 MB showed "No plays yet" (limit raised to 64 MB, responses gzip). History has a
+  Section and Order picker; the session summary follows the section.
+- Evidence: option chains are kept (10 GB budget, oldest sessions pruned only over budget, instead of 45 days);
+  calibration needs 30 plays from 10+ sessions and shrinks by a clustering-adjusted effective sample size (model
+  version stays 1, so earlier plays still count); bankroll sizing uses quarter Kelly only for calibrated groups.
+- Operations: opt-in phone alerts (ntfy/Telegram, six events, deduplicated, research migration 0016);
+  `kestrel move-from USER@HOST` copies another computer's Stocks data (backups API, verified, old data kept);
+  laptop lid lock unit and a watchdog in `kestrel` status and Evidence; whole-portfolio Risk page.
+- Read-only Schwab account (user approved "read only"): GET-only allowlisted client (accountNumbers, positions,
+  transactions), off by default, account numbers never stored, snapshots and trades append-only (research 0017),
+  My Schwab account page with KESTREL's view of each position and "your decisions graded". Needs Accounts and
+  Trading Production on the user's Schwab app and a new sign-in.
+- Learning promotion: frozen manifests, Holm across recipes, then an untouched 20-entry-day confirmation; earlier
+  promotions relabelled provisional.
+- 1,865 tests and 16 browser tests pass. Not verified against real Schwab account, ntfy/Telegram, SSH move or lid.
+
 ## 2026-11-12 — PAPER crash root cause: unversioned rule changes; SEC feed stuck on Veterans Day
 
 - **The PAPER/research "exit code 1"** (open since the HP, 2026-11-05) is found, from the user's Dell health report:
