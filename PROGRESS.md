@@ -1,5 +1,20 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-14 — The Learner (machine learning on every candidate trade), phases 1–4
+
+- Phase 1: every candidate trade it considers, as a parameterised action (10 defined-risk structures × delta × expiry
+  × width, 10 exit rules), with 76 point-in-time features and outcomes at 1/5/10/21 sessions and expiry (research
+  migration 0019); replay rows from real past prices; an exploration slice.
+- Phase 2: a gradient-boosted outcome model (scikit-learn), walk-forward with purge, hashed registry, weekly retraining,
+  shown in shadow on Plays and in the Learning report.
+- Phase 3: a Learner PAPER account ($50,000) and its random twin: contextual bandit (85% exploit on a positive lower
+  bound, 15% of new risk to Thompson-sampled exploration), the model's best exit, fixed risk limits, every decision
+  recorded with its reasoning. Trades only after a model beats random on 20+ held-out days.
+- Phase 4: do / don't findings from held-out days (BH-corrected, confirmed on later untouched days, retired when
+  contradicted), market regimes as features and in reports, promotion after 20 entry days beating Random and the
+  rule-based strategies. Learner page (#learner). 1,955 tests and the Learner/Learning/Paper browser tests pass.
+- Not yet verified on real data: the gate has never been passed by a real model.
+
 ## 2026-11-13 — Output accuracy checks (`kestrel check`)
 
 - `desk.stocks.accuracy`: 21 invariant checks over the real databases and saved views (chances in [0,1] and ordered,
