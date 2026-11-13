@@ -156,6 +156,30 @@ def replay_fixture(world: StocksWorld) -> None:
                           -0.2, at))
 
 
+def learner_fixture(root: Path) -> None:
+    """Forty recorded closing sessions of synthetic chains, labelled, a small shadow model trained on them (short
+    trees, so the fixture starts in seconds) and the shadow views saved: synthetic data, never real prices."""
+    from desk.stocks import plays
+    from desk.stocks.learner import experience, labels, model, view
+    from desk.stocks.runner import publish_plays
+
+    world = make_world(root, n=14)
+    add_chains(world, ["SPY", "QQQ", "CHEAP", "SQZ", "S10", "S11", "S12"], world.days[-70:], max_days=120)
+    for d in world.days[-70:-28]:
+        close = cal.session_close(d) + timedelta(minutes=30)
+        plays.build(world.market, world.research, close)
+        experience.record_forward(world.market, world.research, d, close)
+    evening = cal.session_close(world.days[-1]) + timedelta(hours=4)
+    labels.run(world.research.conn, world.market.conn, labels.ForwardPrices(world.market.conn, world.research.conn),
+               evening, limit=10_000)
+    model.PARAMS = {**model.PARAMS, "max_iter": 12}
+    model.EXIT_PARAMS = {**model.EXIT_PARAMS, "max_iter": 6}
+    model.train(world.research.conn, world.paths.home, evening, note="synthetic browser fixture")
+    publish_plays(world.paths, world.dbs, evening)
+    view.refresh(world.paths, world.dbs, evening, force=True)
+    world.close()
+
+
 def prepare(root: Path, scenario: str) -> DeskPaths:
     """Build one scenario's synthetic data directory under ``root`` (no server): the browser fixture's data, also
     used by the accuracy checks (desk.stocks.accuracy) to test every scenario's numbers."""
@@ -175,6 +199,8 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
         os.chmod(paths.secrets_file, 0o600)
         alerts.deliver = lambda text, secrets, client=None: ["ntfy"]
         watchdog.record(paths, RISK_NOW, worker_running=True)
+    elif args.scenario == "learner":
+        learner_fixture(root)
     elif args.scenario == "archive-history":
         from desk.stocks import play_selections, play_tracking, web
         from desk.stocks.repo import StocksDatabases
@@ -394,7 +420,7 @@ def main() -> None:
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
-                                               "stock-page", "learning-report", "ops", "account"],
+                                               "stock-page", "learning-report", "ops", "account", "learner"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()

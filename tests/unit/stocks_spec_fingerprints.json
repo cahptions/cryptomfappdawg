@@ -2,6 +2,18 @@
  "stocks_desks": {
   "3": "149baf97f1fb8798d2bac1d3592272128a2f0c48b7451dcdcf873b30f1962dad"
  },
+ "stocks_learner_actions": {
+  "1": "6e901a5177fd13692d83b627d08fe44510b468915b71c0493d7488a1757356ff"
+ },
+ "stocks_learner_features": {
+  "1": "1896184740aedee5596e47844a1e64fccca9e69414242fde967e13a1a409fba5"
+ },
+ "stocks_learner_labels": {
+  "1": "31e44eac64cd410ec95d1cb4e92939d8619338a0db6332988a8e28cbab691bab"
+ },
+ "stocks_learner_model": {
+  "1": "4715e60f545b8c7ae898d636f12ce8a5744c5fd649ae68109f0e58e07d8c788a"
+ },
  "stocks_list_big_moves": {
   "1": "c5b7f621c842898b7dbf4a7ecf5bf89391963785bba2648c37c3f44266373a8b"
  },

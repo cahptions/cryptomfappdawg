@@ -289,6 +289,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     collector = worker or ResearchWorker(paths)
     evidence = EvidenceWorker(paths)
     backtests = BacktestWorker(paths)
+    from desk.stocks.learner.train import Trainer
+
+    learner_trainer = Trainer(paths)
     analysis_start_lock = asyncio.Lock()
     learning_state: dict[str, Any] = {"phase": "Preparing learning workspace"}
 
@@ -404,6 +407,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                             await asyncio.to_thread(backtests.maintain)
                         if not backtests.status()["running"]:      # the weekly evaluation, never beside a replay
                             await asyncio.to_thread(evidence.weekly)
+                        if not backtests.status()["running"] and not evidence.status()["running"]:
+                            await asyncio.to_thread(learner_trainer.weekly)   # the Learner's shadow model, weekly
                 else:
                     await asyncio.to_thread(backtests.pause_automatic)
                 with suppress(TimeoutError):
@@ -471,6 +476,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             await asyncio.to_thread(collector.stop, pause=False)
             await asyncio.to_thread(evidence.close)
             await asyncio.to_thread(backtests.close)
+            await asyncio.to_thread(learner_trainer.close)
             if attempt is not None:
                 await asyncio.to_thread(attempt.stop)
 
@@ -537,6 +543,19 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                          *category.get("horizon_plays", [])]:
                 play["idea_id"] = idea_id(value["asof"], category["id"], str(value.get("method", "unknown")), play)
         return value
+
+    @app.get("/api/stocks/learner")
+    def learner_view() -> dict[str, Any]:
+        """The Learner's shadow views and status, as the worker last saved them (nothing is computed here)."""
+        from desk.stocks.learner import train, view
+
+        value = view.saved(paths.home)
+        if value is None:
+            value = {"label": view.LABEL, "plays": {}, "ideas": {"session": None, "items": []}, "generated_at": None}
+            if (paths.db_dir / RESEARCH_FILE).exists():
+                with reader(paths, RESEARCH_FILE) as conn:
+                    value.update(view.summary(conn))
+        return {**value, "training": train.state(paths)}
 
     @app.get("/api/stocks/plays/bankroll")
     def plays_bankroll(amount: float = Query(gt=0, le=10_000_000, allow_inf_nan=False),

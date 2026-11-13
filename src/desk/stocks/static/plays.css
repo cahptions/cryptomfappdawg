@@ -1103,3 +1103,37 @@
   font-size: 22px;
   cursor: pointer;
 }
+/* The Learner's shadow views: visibly apart from the rules' own numbers. */
+.learner-view {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.learner-view p {
+  margin: 4px 0;
+}
+.learner-ideas {
+  margin: 32px 0 0;
+  padding: 16px 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  min-width: 0;
+}
+.learner-ideas h2 {
+  margin-top: 0;
+}
+.learner-ideas .table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.learner-ideas-table {
+  font-size: 13px;
+}
+.learner-ideas-table th,
+.learner-ideas-table td {
+  white-space: normal;
+  vertical-align: top;
+}

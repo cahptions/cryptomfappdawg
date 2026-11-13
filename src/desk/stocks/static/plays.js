@@ -40,6 +40,129 @@ const KestrelPlays = (() => {
     { id: "leaps", label: "LEAPS (9+ months)", lo: 271, hi: 1200 },
   ];
   let boardHorizons = null; // the loaded board's bands
+  // The Learner's shadow view (GET /api/stocks/learner): shown beside the rules, read by nothing that ranks.
+  let learner = null;
+  const legsKey = (legs) =>
+    (legs || [])
+      .map((l) => `${l.occ}:${l.side}`)
+      .sort()
+      .join(",");
+  const learnerRange = (v) =>
+    v.q10 === null || v.q90 === null
+      ? ""
+      : ` (10–90%: ${signed(100 * v.q10, 0)}% to ${signed(100 * v.q90, 0)}%)`;
+  function learnerView(play) {
+    const v = learner?.plays?.[legsKey(play.legs)];
+    if (!v) return null;
+    const box = el("div", undefined, "learner-view");
+    box.setAttribute("aria-label", "Learner's view (shadow)");
+    const p = v.p_profit || {};
+    const chances = [
+      ["5 sessions", p.s5],
+      ["21 sessions", p.s21],
+      ["expiry", p.exp],
+    ]
+      .filter(([, x]) => x !== null && x !== undefined)
+      .map(([label, x]) => `${pct(x)} at ${label}`);
+    box.append(
+      el("strong", "Learner's view · shadow"),
+      el(
+        "p",
+        `Profit chance ${chances.join(", ") || "—"} · expected ${v.expected === null ? "—" : `${signed(100 * v.expected, 0)}%`} on the money at risk held to expiry${learnerRange(v)}${v.best_exit ? ` · best exit: ${v.best_exit.title}` : ""}`,
+      ),
+      el(
+        "small",
+        "A statistical model's estimate, not traded, not used by this ranking, not yet proven.",
+        "muted",
+      ),
+    );
+    return box;
+  }
+  function learnerIdeas(view) {
+    const box = el("section", undefined, "learner-ideas");
+    box.setAttribute("aria-label", "Learner's own top ideas (shadow)");
+    box.append(el("h2", "Learner's own top ideas (shadow)"));
+    const m = view?.model,
+      vol = view?.volume?.forward;
+    if (!m) {
+      box.append(
+        el(
+          "p",
+          vol
+            ? `The Learner has recorded ${number(vol.candidates)} candidate trades over ${number(vol.sessions)} closing sessions and trains weekly once enough have results. Until then it shows nothing beside the plays.`
+            : "The Learner records every candidate trade from the next closing session, then learns from what happened. Nothing is shown until it has trained.",
+          "muted",
+        ),
+      );
+      return box;
+    }
+    const h = m.held_out || {},
+      dec = h.deciles || {};
+    box.append(
+      el(
+        "p",
+        `Trades it would compose itself from the ${view.ideas?.session || "latest"} close, ranked by its expected return. Not traded and not yet proven: shown so its judgement can be checked against the rules over time.`,
+        "muted",
+      ),
+      el(
+        "p",
+        `Model ${m.id}, trained ${when(m.trained_at)}${h.rank_correlation === null || h.rank_correlation === undefined ? "" : ` · held out on ${number(h.test_days)} later sessions: rank correlation ${h.rank_correlation.toFixed(2)}`}${dec.top_minus_random ? `, top tenth ${signed(100 * dec.top_minus_random.mean, 0)}% a trade against a random candidate (90% range ${signed(100 * dec.top_minus_random.low, 0)}% to ${signed(100 * dec.top_minus_random.high, 0)}%)` : ""}.`,
+        "caption muted",
+      ),
+    );
+    const items = view.ideas?.items || [];
+    if (!items.length) {
+      box.append(
+        el("p", "No ideas from the latest recorded session.", "muted"),
+      );
+      return box;
+    }
+    const wrap = el("div", undefined, "table-wrap"),
+      t = el("table", undefined, "learner-ideas-table"),
+      head = el("tr");
+    for (const h of [
+      "Stock",
+      "Trade (dials)",
+      "Legs",
+      "Entry / at risk",
+      "Expected",
+      "Profit chance at expiry",
+      "Best exit",
+    ])
+      head.append(el("th", h));
+    t.append(head);
+    for (const i of items) {
+      const r = el("tr"),
+        v = i.learner || {};
+      r.append(
+        el("td", i.symbol),
+        el("td", i.dials),
+        el(
+          "td",
+          i.legs
+            .map(
+              (l) =>
+                `${l.side === "buy" ? "Buy" : "Sell"} ${money(l.strike)} ${l.kind} ${l.expiration}`,
+            )
+            .join(" · "),
+        ),
+        el(
+          "td",
+          `${money(i.entry * 100)} ${i.action === "SELL" ? "credit" : "debit"} / ${money(i.max_loss)}`,
+        ),
+        el(
+          "td",
+          `${v.expected === null || v.expected === undefined ? "—" : `${signed(100 * v.expected, 0)}%`}${learnerRange(v)}`,
+        ),
+        el("td", pct(v.p_profit?.exp)),
+        el("td", v.best_exit?.title || "—"),
+      );
+      t.append(r);
+    }
+    wrap.append(t);
+    box.append(wrap, el("small", view.label, "muted"));
+    return box;
+  }
   const horizons = () => boardHorizons || HORIZONS,
     horizon = () => horizons().find((h) => h.id === state.expiry);
   try {
@@ -307,7 +430,12 @@ const KestrelPlays = (() => {
     const legs = legsLine(play);
     if (legs) c.append(legs);
     c.append(chanceMeter(play));
-    for (const part of [confidenceMeter(play), yourSize(play), exitBlock(play)])
+    for (const part of [
+      confidenceMeter(play),
+      yourSize(play),
+      exitBlock(play),
+      learnerView(play),
+    ])
       if (part) c.append(part);
     c.append(KestrelPlayWorkflow.targets(play));
     const metrics = el("dl", undefined, "setup-metrics play-metrics");
@@ -1048,9 +1176,13 @@ const KestrelPlays = (() => {
       return KestrelPlaysHistory.detail(ticket, parts[2], parts[3], parts[4]);
     if (parts[1] === "performance")
       return KestrelPlaysHistory.performance(ticket);
-    const data = await api("plays");
+    const [data, shadow] = await Promise.all([
+      api("plays"),
+      api("learner").catch(() => null),
+    ]);
     if (ticket !== generation) return;
     boardHorizons = data.horizons || null;
+    learner = shadow;
     app.className = "plays-page";
     const hero = el("div", undefined, "explorer-heading"),
       titles = el("div");
@@ -1288,6 +1420,7 @@ const KestrelPlays = (() => {
     // Categories first (what kind of play), then a compact filter bar; the method notes close the page.
     app.append(tabs, controls.element, controls.budgets, summary, body);
     draw();
+    if (learner) app.append(learnerIdeas(learner));
     const method = el("details", undefined, "play-method");
     method.append(
       el("summary", "How plays are chosen and filtered"),

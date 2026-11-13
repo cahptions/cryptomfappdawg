@@ -132,6 +132,11 @@ def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None
                  "message": f"Plays could not be built this pass ({type(exc).__name__}); stored data is unchanged and the "
                             "next options pass retries. Evidence → Check data health shows source status."}
     _atomic_private(saved_path(paths, "plays"), json.dumps(value, allow_nan=False))
+    # The Learner's experience log (research only): the closed session's candidates once, then the labels that came
+    # due and a few replay days. Recorded as the "learner" job; never stops collection or changes the board.
+    from desk.stocks.learner import job as learner_job
+
+    learner_job.run(paths, dbs, value, now)
     if value.get("categories"):
         from desk.stocks.play_tracking import first_seen
 
@@ -166,7 +171,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     # analysis (they change every few minutes while downloading and would otherwise redo the whole analysis each pass).
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items()
             if k not in ("prices", "option_bars", "massive_options", "lotto_history", "iv_history", "earnings_history",
-                         "replay_listings", "world", "news", "policy")}
+                         "replay_listings", "world", "news", "policy", "learner")}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
                                          "config": loaded.snapshot_hash, "preview_version": 5,
