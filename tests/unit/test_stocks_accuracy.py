@@ -423,3 +423,21 @@ def test_a_paper_option_of_bought_contracts_is_never_sold_for_less_than_its_exit
     assert report.closed == 1 and closed[0].pnl == pytest.approx(-50 - FEE)
     assert trade_stats(closed)["avg_return"] == pytest.approx(-1.0)
     conn.close()
+
+
+def test_calibrated_chances_keep_their_nesting() -> None:
+    """Each expiry chance is calibrated on its own graded plays; a small group can map +50% above +25% (an
+    impossible order the accuracy check flags). The shown chance is capped by the chance it implies."""
+    from desk.stocks import odds as od
+
+    def flat(hit: float) -> od.Calibration:
+        return od.Calibration(buckets=tuple((b / 10 + 0.05, 500, hit, 500.0) for b in range(10)), sessions=50,
+                              plays=5000)
+
+    play = long_call(probability_targets={"returns": {"0": 0.3, "25": 0.25, "50": 0.2, "100": 0.1},
+                                          "max_gain_probability": None})
+    calibrations = {"profit": flat(0.35), "target25": flat(0.30), "target50": flat(0.45), "target100": flat(0.40)}
+    shown = pl.calibrated(play, calibrations, "edge", 30)
+    assert shown["target50"]["raw"] == 0.2 and shown["target50"]["shown"] <= shown["target25"]["shown"]
+    assert shown["target100"]["shown"] <= shown["target50"]["shown"] <= shown["profit"]["shown"]
+    assert acc.chance_order({**play, "calibrated": shown}) == []

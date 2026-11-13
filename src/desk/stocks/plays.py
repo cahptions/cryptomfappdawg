@@ -1256,6 +1256,12 @@ def calibrated(play: Mapping[str, Any], calibrations: Mapping[str, od.Calibratio
     for event, raw in raw_chances(play).items():
         found, level = calibrator(calibrations, event, category, days)
         out[event] = {"raw": round(raw, 4), "shown": round(found.apply(raw), 4), "level": level}
+    # Each event is calibrated on its own graded plays, which can invert chances that are nested: +50% at expiry is
+    # never likelier than +25%, nor the maximum gain than any profit. A shown chance is capped by the one it implies.
+    for smaller, larger in (("target25", "profit"), ("target50", "target25"), ("target100", "target50"),
+                            ("max_gain", "profit")):
+        if smaller in out and larger in out and out[smaller]["shown"] > out[larger]["shown"]:
+            out[smaller]["shown"] = out[larger]["shown"]
     return out
 
 
