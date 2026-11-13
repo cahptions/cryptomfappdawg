@@ -1,5 +1,17 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-13 — Output accuracy checks (`kestrel check`)
+
+- `desk.stocks.accuracy`: 21 invariant checks over the real databases and saved views (chances in [0,1] and ordered,
+  losses within money at risk, settlement, History/Performance arithmetic and twin pairing, PAPER/Learning books,
+  prices/quotes/IV, Learning report numbers). `kestrel check` / `desk stocks check-accuracy`; counts in Evidence → Data
+  health; examples in the health download.
+- Fixed at the source: sold structures' marks below −100% (held to expiry instead; research migration 0018 corrects
+  stored marks below −100% to exactly −100%); twin comparisons now pair only plays that have a twin; expiry grading uses
+  only the settlement session's own close; bought contracts worth less than the exit fee are written off at zero in
+  Learning and PAPER; calibrated target chances can no longer invert.
+- 1,918 tests and the Plays, Paper, Learning and ops browser tests pass. Real-data counts come from `kestrel check`.
+
 ## 2026-11-13 — Accurate P/L floor, settled identified plays, chain-skew odds, real-price Plays replay
 
 - A bought option's mark never shows a loss beyond what was paid (no exit fee to sell a worthless contract); identified
