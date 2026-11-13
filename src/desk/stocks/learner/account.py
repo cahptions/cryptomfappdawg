@@ -271,8 +271,9 @@ def _has(conn: sqlite3.Connection, table: str) -> bool:
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
 
 
-def refresh(paths: DeskPaths, dbs: Any, now: datetime, *, force: bool = False) -> dict[str, Any]:
-    """Rewrite the saved Learner page when what it shows has changed; record promotion stages on the way."""
+def refresh(paths: DeskPaths, dbs: Any, now: datetime, *, force: bool = False, review: bool = False) -> dict[str, Any]:
+    """Rewrite the saved Learner page when what it shows has changed. With ``review`` (the PAPER step only), record
+    the promotion stages that have come due first."""
     from desk.stocks.repo import StocksMarket
 
     ledger, research = dbs.ledger, dbs.research
@@ -283,10 +284,10 @@ def refresh(paths: DeskPaths, dbs: Any, now: datetime, *, force: bool = False) -
              "days": ledger.execute("SELECT COUNT(*) FROM stk_learner_days").fetchone()[0],
              "models": research.execute("SELECT COUNT(*) FROM stk_learn_models").fetchone()[0],
              "findings": research.execute("SELECT COUNT(*) FROM stk_learn_finding_status").fetchone()[0]}
+    promoted = pr.review(ledger, research, now) if review else None
     previous = saved(paths.home) or {}
-    if not force and previous.get("stamp") == json.loads(json.dumps(stamp)):
+    if not force and not promoted and previous.get("stamp") == json.loads(json.dumps(stamp)):
         return {"refreshed": False}
-    promoted = pr.review(ledger, research, now)
     value = {**build(ledger, research, StocksMarket(dbs.market), now), "stamp": stamp, "promotion_review": promoted}
     _atomic_private(paths.home / SAVED, json.dumps(value, allow_nan=False, default=str))
     return {"refreshed": True}

@@ -38,21 +38,33 @@ def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
     return conn
 
 
-def decide(paths: DeskPaths, dbs: StocksDatabases, market: StocksMarket, research: StocksResearch, session: date,
-           now: datetime) -> dict[str, Any]:
-    """The Learner PAPER account's decisions for the recorded session (once; ``policy.decide``). A failure is
-    reported and never stops the labelling or the replay."""
-    from desk.stocks.learner import policy
+def paper_step(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
+    """Run by the PAPER step (``runner.process``), never by a research preview: decide the newest recorded closing
+    session for the Learner account and its random twin (once; ``policy.decide`` refuses a session whose next one has
+    opened), then record promotion stages and save the Learner page. A failure is reported and never raised."""
+    from desk.stocks.learner import account, policy
 
+    out: dict[str, Any] = {}
+    market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
     try:
-        return policy.decide(research.conn, dbs.ledger, market, paths.home, session, now,
-                             stop=paths.stop_file.exists())
-    except Exception as exc:  # recorded in the job's detail; the next pass retries an undecided session
-        return {"error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+        row = research.conn.execute("SELECT MAX(session) FROM stk_learn_days WHERE source='forward' AND "
+                                    "actions_version=?", (act.version_hash(),)).fetchone()
+        if row and row[0] is not None:
+            session = date.fromordinal(int(row[0]))
+            if not all(policy.decided(dbs.ledger, session, a) for a in policy.ACCOUNTS):
+                out["decided"] = policy.decide(research.conn, dbs.ledger, market, paths.home, session, now,
+                                               stop=paths.stop_file.exists())
+    except Exception as exc:  # recorded in the result; the next pass retries an undecided session
+        out["error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
+    try:
+        out["page"] = account.refresh(paths, dbs, now, review=True)
+    except Exception as exc:  # the page keeps its previous view
+        out["page_error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
+    return out
 
 
 def refresh_account(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
-    """The Learner page's saved view (``account.refresh``); a failure is reported, never raised."""
+    """The Learner page's saved view (``account.refresh``, read-only on the books); a failure is reported."""
     from desk.stocks.learner import account
 
     try:
@@ -76,8 +88,6 @@ def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], n
             finally:
                 if book is not None:
                     book.close()
-        if ex.recorded(research.conn, "forward", session):
-            out["account"] = decide(paths, dbs, market, research, session, now)
     out["account_view"] = refresh_account(paths, dbs, now)
     out["labels"] = lb.run(research.conn, market.conn, lb.ForwardPrices(market.conn, research.conn), now)
     from desk.stocks.learner import replay

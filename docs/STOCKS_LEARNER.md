@@ -306,9 +306,9 @@ other PAPER account and `kestrel check` covers it.
 
 ### When it decides
 
-At the closing build, right after the session's candidates are recorded (the `learner` job), and only before the next
-session opens; a session decided later is not decided at all. The STOP file stops new entries, as for every PAPER
-account.
+At the closing build's PAPER step (`runner.process` → `learner.job.paper_step`), once the session's candidates are
+recorded, and only before the next session opens; a session decided later is not decided at all. A research preview
+never writes to the PAPER ledger. The STOP file stops new entries, as for every PAPER account.
 
 ### The gate: it trades only once a model has beaten random
 

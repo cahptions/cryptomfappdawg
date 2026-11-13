@@ -237,6 +237,9 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
         return {"waiting": f"PAPER is running; downloading history ({len(history)}/{MIN_BARS} sessions minimum). "
                            "Eligible strategies will simulate trades automatically when data is ready.", "paper": None}
     if book.last_step() == target:
+        from desk.stocks.learner.job import paper_step
+
+        paper_step(paths, dbs, now)          # a session the Learner recorded after this step is still decided in time
         return {"asof": target.isoformat(), "waiting": "Session already processed; collection/backfill continues"}
     _memory_guard()
     panel = load_panel(market, target - timedelta(days=settings.history_days), target)
@@ -266,10 +269,11 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
                   caveats=["Synthetic/offline tests do not establish profitability.",
                            "Daily option snapshots and modeled marks are research approximations; see STOCKS_PAPER.md."])
     _atomic_private(saved_path(paths, "paper"), json.dumps(result, allow_nan=False))
-    from desk.stocks.learner.job import refresh_account
+    from desk.stocks.learner.job import paper_step
 
-    refresh_account(paths, dbs, now)            # the Learner page, from the same stepped books (never raises)
-    return {"refresh": refreshed.as_json(), "paper": stepped.as_json(), "missed_sessions_managed": len(missed)}
+    learner = paper_step(paths, dbs, now)       # the Learner account's decisions for the session, and its page
+    return {"refresh": refreshed.as_json(), "paper": stepped.as_json(), "missed_sessions_managed": len(missed),
+            "learner": learner}
 
 
 async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, company_limit: int = 20,
