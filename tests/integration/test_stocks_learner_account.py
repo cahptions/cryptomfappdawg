@@ -226,6 +226,29 @@ def test_the_learner_page_shows_each_trade_with_its_decision(run: Any) -> None:
     assert account.refresh(w.paths, w.dbs, closing(w.days[-1]))["refreshed"] is False      # unchanged: not rebuilt
 
 
+def test_kestrel_check_covers_the_learner_account_and_findings(run: Any) -> None:
+    from desk.stocks import accuracy as acc
+
+    w, *_ = run
+    src = acc.Sources(w.paths, closing(w.days[-1]), w.market.conn, w.research.conn, w.dbs.ledger)
+    account, found = acc.check_learner_account(src), acc.check_learner_findings(src)
+    assert account.skipped is None and account.checked > 0 and account.violations == 0, account.examples
+    assert found.skipped is None and found.violations == 0, found.examples
+    for name in ("check_book_cash", "check_book_positions", "check_book_fills"):
+        result = getattr(acc, name)(src)
+        assert result.violations == 0, (name, result.examples)
+    # A decision over the per-trade limit is caught.
+    row = next(r for r in w.dbs.ledger.execute("SELECT * FROM stk_learner_decisions")
+               if w.dbs.ledger.execute("SELECT 1 FROM stk_positions WHERE decision_id=?",
+                                       (r["paper_decision_id"],)).fetchone())
+    fake = dict(row)
+    fake["risk_usd"] = 0.01
+    pos = w.dbs.ledger.execute("SELECT * FROM stk_positions WHERE decision_id=?", (row["paper_decision_id"],)).fetchone()
+    if pos is not None:
+        assert any("more than" in x for x in acc.learner_position_problems(pos, fake))   # type: ignore[arg-type]
+        assert any("no recorded" in x for x in acc.learner_position_problems(pos, None))
+
+
 class _Fake:
     """A book of closed positions for the promotion arithmetic."""
 

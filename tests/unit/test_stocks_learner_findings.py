@@ -117,7 +117,9 @@ def test_later_days_that_contradict_a_confirmed_finding_retire_it(mined: Any) ->
     later.session = later.session + 400                            # every row after every window
     hit = fd.matches(target["rule"], later.X)
     later.y["exp"][hit] = -0.9                                      # now it loses
-    again = fd.mine(conn, later, {**held, "tested": np.ones(len(later), bool)}, "model-b", NOW)
+    later_held = {**held, "tested": np.ones(len(later), bool)}
+    fd.save_heldout(conn, "model-b", later, later_held, NOW)
+    again = fd.mine(conn, later, later_held, "model-b", NOW)
     assert again["retired"] >= 1
     status = {f["id"]: f for f in fd.current(conn)}[target["id"]]
     assert status["status"] == "retired" and [s["status"] for s in status["stages"]][-1] == "retired"
@@ -128,3 +130,18 @@ def test_benjamini_hochberg_keeps_only_what_survives_the_correction() -> None:
     kept, threshold = fd.benjamini_hochberg({"a": 0.001, "b": 0.02, "c": 0.04, "d": 0.5}, q=0.10)
     assert kept == {"a", "b", "c"} and threshold == 0.04
     assert fd.benjamini_hochberg({"a": 0.2, "b": 0.5}, q=0.10) == (set(), 0.0)
+
+
+def test_kestrel_check_accepts_the_findings_and_catches_a_bad_one(mined: Any) -> None:
+    from desk.stocks import accuracy as acc
+
+    conn, *_ = mined
+    conn.row_factory = sqlite3.Row
+    src = acc.Sources(None, NOW, None, conn, None)
+    result = acc.check_learner_findings(src)
+    assert result.checked > 0 and result.violations == 0, result.examples
+    conn.execute("INSERT INTO stk_learn_findings(id, kind, rule_json, words, rules_version, model_id, evidence_json, "
+                 "first_session, last_session, found_at) VALUES ('bad', 'do', '{\"structure\": 0, \"conditions\": []}', "
+                 "'x', 'v', 'nowhere', '{\"days\": 3, \"mean\": -0.1, \"low\": -0.2, \"p\": 0.5, "
+                 "\"fdr_threshold\": 0.01}', 1, 2, '2026-11-13T00:00:00+00:00')")
+    assert acc.check_learner_findings(src).violations == 1
