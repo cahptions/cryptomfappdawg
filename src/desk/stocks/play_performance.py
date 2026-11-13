@@ -124,11 +124,13 @@ def stats(values: Sequence[float | None]) -> dict[str, Any] | None:
 
 
 def by_horizon(rows: Sequence[PlayReturn]) -> list[dict[str, Any]]:
+    """Each holding period: the plays, their random twins, and the plays again over just the pairs where both have a
+    return (``paired``), which is what the twins are compared with."""
     out = []
     for label, h in HORIZONS:
-        paired = [(r.at(h), r.twin_at(h)) for r in rows]
-        out.append({"label": label, "sessions": h, "plays": stats([a for a, _ in paired]),
-                    "twins": stats([b for a, b in paired if a is not None])})
+        both = [(a, b) for a, b in ((r.at(h), r.twin_at(h)) for r in rows) if a is not None and b is not None]
+        out.append({"label": label, "sessions": h, "plays": stats([r.at(h) for r in rows]),
+                    "twins": stats([b for _, b in both]), "paired": stats([a for a, _ in both])})
     return out
 
 
@@ -214,12 +216,15 @@ def spy_closes(market: sqlite3.Connection) -> dict[int, float]:
 
 
 def cumulative(rows: Sequence[PlayReturn], spy: dict[int, float]) -> list[dict[str, Any]]:
-    """$100 into every play when picked, counted when it settles; the same into its twin and into SPY."""
+    """$100 into every play when picked, counted when it settles; the same into its twin and into SPY. A play without
+    a settled twin (or without SPY's closes) adds nothing to that baseline, so each baseline also says how many plays
+    it covers (``twinned``, ``spy_settled``) and, for the twins, what the picks made on just those plays
+    (``picks_twinned``)."""
     if not rows:
         return []
     days = cal.trading_days(min(r.session for r in rows), max(r.expiration for r in rows))
     position = {d: i for i, d in enumerate(days)}
-    by_day: dict[date, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0, 0.0])
+    by_day: dict[date, list[float]] = defaultdict(lambda: [0.0] * 7)
     for r in rows:
         ret, i = r.at(None), r.settled_index
         if ret is None or i is None or r.session not in position or position[r.session] + i >= len(days):
@@ -231,15 +236,18 @@ def cumulative(rows: Sequence[PlayReturn], spy: dict[int, float]) -> list[dict[s
         twin = r.twin_at(None)
         if twin is not None:
             acc[1] += 100 * twin
+            acc[5] += 1
+            acc[6] += 100 * ret
         s0, s1 = spy.get(r.session.toordinal()), spy.get(day.toordinal())
         if s0 and s1:
             acc[2] += 100 * (s1 / s0 - 1)
             acc[4] += 1
-    out, total = [], [0.0, 0.0, 0.0, 0.0, 0.0]
+    out, total = [], [0.0] * 7
     for day in sorted(by_day):
         total = [a + b for a, b in zip(total, by_day[day], strict=True)]
         out.append({"t": day.isoformat(), "picks": round(total[0], 2), "twins": round(total[1], 2),
-                    "spy": round(total[2], 2), "settled": int(total[3]), "invested": round(100 * total[3], 2)})
+                    "spy": round(total[2], 2), "settled": int(total[3]), "invested": round(100 * total[3], 2),
+                    "twinned": int(total[5]), "picks_twinned": round(total[6], 2), "spy_settled": int(total[4])})
     return out
 
 
@@ -270,7 +278,8 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
             groups[_bucket(float(getattr(r, key)), edges)].append(r)
         return [{"label": label, "plays": len(groups[label]), "week": stats([r.at(5) for r in groups[label]]),
                  "expiry": stats([r.at(None) for r in groups[label]]),
-                 "twins_expiry": stats([r.twin_at(None) for r in groups[label] if r.at(None) is not None])}
+                 "twins_expiry": stats([r.twin_at(None) for r in groups[label] if r.at(None) is not None]),
+                 "paired_expiry": stats([r.at(None) for r in groups[label] if r.twin_at(None) is not None])}
                 for _, _, label in edges if groups.get(label)]
 
     curves = {"all": cumulative(graded, spy)}

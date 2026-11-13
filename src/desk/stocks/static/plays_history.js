@@ -208,9 +208,15 @@ const KestrelPlaysHistory = (() => {
       `$${number(Math.round(s.hundred_each.value))} of $${number(s.hundred_each.invested)}`,
       tone(s.hundred_each.value - s.hundred_each.invested),
     );
+    // Twins are compared over the same plays: those whose twin has a value too.
+    const paired = s.twins_paired;
     stat(
-      "Random twins",
-      s.twins_average === null ? "—" : pct(s.twins_average),
+      paired && paired.plays < s.plays
+        ? `Random twins (${paired.plays} pairs; picks ${pct(paired.average)})`
+        : "Random twins",
+      s.twins_average === null || s.twins_average === undefined
+        ? "—"
+        : pct(s.twins_average),
       tone(s.twins_average),
     );
     box.append(stats);
@@ -424,7 +430,7 @@ const KestrelPlaysHistory = (() => {
         el(
           "p",
           s
-            ? `${s.plays} plays · average ${pct(s.average)} · median ${pct(s.median)} · ${Math.round(100 * s.hit_rate)}% in profit · random twins ${pct(s.twins_average)}`
+            ? `${s.plays} plays · average ${pct(s.average)} · median ${pct(s.median)} · ${Math.round(100 * s.hit_rate)}% in profit · random twins ${pct(s.twins_average)}${s.twins_paired && s.twins_paired.plays < s.plays ? ` (over ${s.twins_paired.plays} pairs; picks ${pct(s.twins_paired.average)})` : ""}`
             : "No marks yet",
           "muted",
         ),
@@ -1119,6 +1125,19 @@ const KestrelPlaysHistory = (() => {
     );
     return box;
   };
+  // A twins cell: the twins' result, and the picks' own over the same pairs when fewer plays have a twin.
+  const twinCell = (twins, plays, paired) => {
+    const box = cell(twins);
+    if (twins && paired && plays && paired.n < plays.n)
+      box.append(
+        el(
+          "small",
+          `picks ${pct(paired.mean)} on the same ${paired.n}`,
+          "muted",
+        ),
+      );
+    return box;
+  };
 
   function cumulativeChart(curves, categories) {
     const box = el("section", undefined, "pf-chart"),
@@ -1183,11 +1202,21 @@ const KestrelPlaysHistory = (() => {
           ["Settled plays", number(r.settled)],
           ["Capital invested", money(r.invested)],
           ["Picks", usd(r.picks)],
-          ["Random twins", usd(r.twins)],
-          ["SPY", usd(r.spy)],
+          [
+            "Random twins",
+            r.twinned !== undefined && r.twinned < r.settled
+              ? `${usd(r.twins)} over ${number(r.twinned)} plays (picks ${usd(r.picks_twinned)})`
+              : usd(r.twins),
+          ],
+          [
+            "SPY",
+            r.spy_settled !== undefined && r.spy_settled < r.settled
+              ? `${usd(r.spy)} over ${number(r.spy_settled)} plays`
+              : usd(r.spy),
+          ],
         ],
         coverage:
-          "Recorded settlement dates only. Picks and baselines use the same investment amounts and dates.",
+          "Recorded settlement dates only. Each baseline gets $100 on the same date as each pick it covers; a play without a settled twin, or without SPY's closes, adds nothing to that baseline.",
       });
       plot.append(chart);
       legend.hidden = true;
@@ -1466,7 +1495,7 @@ const KestrelPlaysHistory = (() => {
           h.label,
           cell(h.plays),
           h.plays ? pct(h.plays.median) : "—",
-          cell(h.twins),
+          twinCell(h.twins, h.plays, h.paired),
         ]),
       ),
     );
@@ -1503,7 +1532,10 @@ const KestrelPlaysHistory = (() => {
           at("1 week"),
           at("1 month"),
           at("At expiry"),
-          cell(v.horizons.find((h) => h.label === "At expiry")?.twins),
+          (() => {
+            const h = v.horizons.find((x) => x.label === "At expiry");
+            return twinCell(h?.twins, h?.plays, h?.paired);
+          })(),
         ]);
       }
     cats.append(
@@ -1564,7 +1596,7 @@ const KestrelPlaysHistory = (() => {
             b.plays,
             cell(b.week),
             cell(b.expiry),
-            cell(b.twins_expiry),
+            twinCell(b.twins_expiry, b.expiry, b.paired_expiry),
           ]),
         ),
       );

@@ -186,6 +186,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     result = ph._summary(rows)
     if result and any(row.get("archive_id") for row in rows):
         result["twins_average"] = None  # all discoveries cannot be compared with a closing-only twin subset
+        result["twins_paired"] = None
     return result
 
 

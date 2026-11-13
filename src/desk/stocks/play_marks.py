@@ -134,13 +134,19 @@ def profit(action: str, entry: float, max_loss: float, value: float, legs: int, 
 
     A bought position is never worth less than nothing: when selling it would bring less than the exit fees, it is
     simply left to expire, which costs nothing. So its loss stops at what was paid (the premium and the entry fees),
-    -100% of the money at risk, never below."""
+    -100% of the money at risk, never below.
+
+    A sold (credit) structure is the same: buying it back at the asks can cost more than its width when the quotes
+    are wide, but it can always be held to expiry instead, where it loses at most the width less the credit, its
+    maximum loss. So its loss stops at the maximum loss (-100%), never below."""
     if action == "BUY":
         proceeds = value * 100 if settled else max(value * 100 - FEE * legs, 0.0)
         pnl = proceeds - entry * 100 - FEE * legs
         return pnl, pnl / (entry * 100 + FEE * legs)
     fees = FEE * legs * (1 if settled else 2)
     pnl = (entry + value) * 100 - fees
+    if not settled and max_loss > 0:
+        pnl = max(pnl, -max_loss)
     return pnl, pnl / max_loss if max_loss > 0 else 0.0
 
 
