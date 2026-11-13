@@ -1022,11 +1022,77 @@ def check_learning_report(src: Sources) -> Finding:
     return f
 
 
+# ── the Learner's experience log ─────────────────────────────────────────────────────────────────
+LEARNER_GROUPS = 3000                # the newest candidate groups whose rows and labels are checked
+
+
+def _has_table(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+
+def check_learner_features(src: Sources) -> Finding:
+    f = Finding("learner.features", "Learner", "Learner candidates: every feature finite (or missing), entry and money "
+                "at risk positive, every leg's expiry after the decision")
+    if src.research is None or not _has_table(src.research, "stk_learn_candidates"):
+        f.skipped = "no Learner records"
+        return f
+    from desk.stocks.learner.experience import unpack
+
+    for r in src.research.execute("SELECT source, session, symbol, rows_zlib FROM stk_learn_candidates ORDER BY session "
+                                  "DESC LIMIT ?", (LEARNER_GROUPS,)):
+        g = unpack(r["rows_zlib"])
+        where = f"{r['source']} {r['symbol']} {date.fromordinal(r['session']).isoformat()}"
+        bad = [k for part in (g["stock"], g["market"]) for k, v in part.items()
+               if v is not None and (not isinstance(v, (int, float)) or not math.isfinite(v))]
+        f.expect(not bad, lambda where=where, bad=bad: f"{where}: stock or market feature not finite: {', '.join(bad[:3])}")
+        for row in g["rows"]:
+            problems = [k for k, v in row["x"].items()
+                        if v is not None and (not isinstance(v, (int, float)) or not math.isfinite(v))]
+            if not row["entry"] > 0 or not row["max_loss"] > 0:
+                problems.append(f"entry {row['entry']} / at risk {row['max_loss']}")
+            if row["expiration"] <= r["session"]:
+                problems.append("expires on or before its decision")
+            f.expect(not problems, lambda where=where, row=row, problems=problems:
+                     f"{where} {row['key'] or row['origin']}: {'; '.join(problems[:3])}")
+    return f
+
+
+def check_learner_labels(src: Sources) -> Finding:
+    f = Finding("learner.labels", "Learner", "Learner labels: returns ≥ -100% of the money at risk, finite, dated after "
+                "their candidate's decision and written after it")
+    if src.research is None or not _has_table(src.research, "stk_learn_labels"):
+        f.skipped = "no Learner records"
+        return f
+    from desk.stocks.learner.labels import unpack_labels
+
+    for r in src.research.execute(
+            "SELECT l.source, l.session, l.symbol, l.checkpoint, l.day, l.labelled_at, l.labels_zlib, c.decided_at FROM "
+            "stk_learn_labels l LEFT JOIN stk_learn_candidates c ON c.source=l.source AND c.session=l.session AND "
+            "c.symbol=l.symbol AND c.actions_version=l.actions_version ORDER BY l.session DESC LIMIT ?",
+            (LEARNER_GROUPS * 9,)):
+        where = f"{r['source']} {r['symbol']} {date.fromordinal(r['session']).isoformat()} {r['checkpoint']}"
+        problems = []
+        if r["decided_at"] is None:
+            problems.append("no candidate group")
+        elif r["day"] <= r["session"] or r["labelled_at"] < r["decided_at"]:
+            problems.append(f"label of {date.fromordinal(r['day']).isoformat()} written {r['labelled_at'][:16]} "
+                            f"for a decision at {r['decided_at'][:16]}")
+        for x in unpack_labels(r["labels_zlib"]):
+            values = [x[1], x[2], x[3], *x[6]] if r["checkpoint"].startswith("exp:") else [x[2], x[3]]
+            for v in values:
+                if v is not None and (not math.isfinite(v) or v < RETURN_FLOOR):
+                    problems.append(f"row {x[0]}: return {v}")
+                    break
+        f.expect(not problems, lambda where=where, problems=problems: f"{where}: {'; '.join(problems[:3])}")
+    return f
+
+
 CHECKS: tuple[Callable[[Sources], Finding], ...] = (
     check_play_probabilities, check_play_chance_order, check_play_risk, check_play_breakevens, check_play_expiration,
     check_budget_bands, check_horizon_bands, check_mark_floor, check_mark_dates, check_settlement_waits,
     check_outcomes, check_history, check_archive_settled, check_performance, check_book_cash, check_book_positions,
-    check_book_fills, check_learning_returns, check_prices, check_option_quotes, check_learning_report)
+    check_book_fills, check_learning_returns, check_prices, check_option_quotes, check_learning_report,
+    check_learner_features, check_learner_labels)
 
 
 def run(src: Sources, *, budget: float | None = None,

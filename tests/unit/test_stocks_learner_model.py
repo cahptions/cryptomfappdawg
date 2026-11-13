@@ -128,3 +128,19 @@ def test_the_shadow_views_change_nothing_the_rules_decide(learned: Any, quick: N
 def test_the_synthetic_benchmark_runs_end_to_end(quick: None) -> None:
     out = bench.run(rows=4000, sessions=40)
     assert out["synthetic"] is True and "expected" in out["models"] and out["seconds_total"] > 0
+
+
+def test_the_learning_report_has_a_learner_section(learned: Any, quick: None) -> None:
+    from desk.stocks import learning_report as lr
+    from desk.stocks.accuracy import report_problems
+
+    w, now = learned
+    if md.latest(w.research.conn) is None:
+        md.train(w.research.conn, w.paths.home, now)
+    report = lr.build(w.paths, now)
+    section = next(s for s in report["sections"] if s["id"] == "learner")
+    headlines = " ".join(i["headline"] for i in section["items"])
+    assert "recorded" in headlines and "trained" in headlines
+    assert all(i["strength"] in ("early", "suggestive") for i in section["items"])    # never "tested": shadow only
+    assert not report_problems(report)
+    assert "The Learner" in lr.render_markdown(report)

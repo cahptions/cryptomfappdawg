@@ -225,3 +225,28 @@ def test_replay_examples_are_built_and_labelled_apart(tmp_path: Path, monkeypatc
         assert not w.research.conn.execute("SELECT 1 FROM stk_learn_candidates WHERE source='forward'").fetchone()
     finally:
         w.close()
+
+
+def test_kestrel_check_covers_the_learner_tables(world: Any) -> None:
+    from desk.stocks import accuracy as acc
+
+    session = world.days[-30]
+    ex.record_forward(world.market, world.research, session, closing(session))
+    now = cal.session_close(world.days[-1]) + timedelta(hours=4)
+    lb.run(world.research.conn, world.market.conn, lb.ForwardPrices(world.market.conn, world.research.conn), now)
+    src = acc.Sources(world.paths, now, world.dbs.market, world.dbs.research, None, None, {})
+    features, labels = acc.check_learner_features(src), acc.check_learner_labels(src)
+    assert features.checked > 100 and features.violations == 0
+    assert labels.checked > 5 and labels.violations == 0
+    # A label below -100% of the money at risk, and one dated on its own decision day, are both found.
+    group = world.research.conn.execute("SELECT * FROM stk_learn_labels LIMIT 1").fetchone()
+    for name, day, value in (("s98", group["session"] + 1, -1.5), ("s99", group["session"], 0.1)):
+        try:
+            world.research.conn.execute(
+                "INSERT INTO stk_learn_labels(source, session, symbol, actions_version, labels_version, checkpoint, day,"
+                " rows, have, labels_zlib, labelled_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (group["source"], group["session"], group["symbol"], group["actions_version"], group["labels_version"],
+                 name, day, 1, 1, lb._pack([[0, "quoted", value, value]]), now.isoformat()))
+        except sqlite3.IntegrityError:          # the table itself refuses a label dated on its decision day
+            assert day == group["session"]
+    assert acc.check_learner_labels(src).violations == 1

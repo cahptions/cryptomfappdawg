@@ -44,7 +44,8 @@ TABLE = "stk_learning_reports"
 SECTIONS = (("learned", "What it has learned"), ("behaviour", "How it behaves"),
             ("wrong", "What it's getting wrong"), ("achievements", "Achievements"),
             ("surprises", "Surprises — worth a look"), ("coming", "Coming up"),
-            ("changed", "Changed since last week"), ("replay", "Replays on past data — not forward results"))
+            ("changed", "Changed since last week"), ("replay", "Replays on past data — not forward results"),
+            ("learner", "The Learner — a shadow model, not traded"))
 STRENGTHS = ("early", "suggestive", "tested")
 EVENTS = {  # event: (the chance of …, what happened)
     "itm": ("finishing in the money", "finished in the money"),
@@ -1303,9 +1304,101 @@ def headline(r: Report) -> list[str]:
     return out[:4]
 
 
+# ── 9. The Learner (shadow model) ────────────────────────────────────────────────────────────────
+def _range(b: dict[str, Any] | None, digits: int = 0) -> str:
+    return "" if not b else f" (90% range {signed(b['low'], digits)} to {signed(b['high'], digits)} over " \
+                            f"{count(int(b['days']), 'day')})"
+
+
+def learner(src: Sources, r: Report) -> None:
+    """The Learner: what it has recorded, its last training and its held-out results (shadow; never traded)."""
+    if not _has(src.research, "stk_learn_days"):
+        return
+    from desk.stocks.learner import view
+
+    assert src.research is not None
+    s = view.summary(src.research)
+    fwd, rep = s["volume"].get("forward") or {}, s["volume"].get("replay") or {}
+    link = PLAYS
+    if not fwd and not rep:
+        r.add("learner", "The Learner has not recorded a session yet.",
+              "From the next closing build it records every candidate trade it looks at, with what was known then, and "
+              "later what happened; replay examples are built from downloaded past prices.", items=0, days=0,
+              strength="early", link=link, key="learner:waiting", weight=0.3)
+        return
+    labelled = (s["labels"].get("forward") or {}).get("s5") or {}
+    r.add("learner", f"The Learner has recorded {fwd.get('candidates', 0):,} candidate trades over "
+                     f"{count(int(fwd.get('sessions', 0)), 'closing session')}"
+                     + (f", plus {rep['candidates']:,} replay examples from {count(int(rep['sessions']), 'past day')}."
+                        if rep else "."),
+          f"About {fwd.get('candidates_per_session', 0):,.0f} a session ({fwd.get('bytes_per_session', 0) / 1000:,.0f} KB "
+          f"compressed), {fwd.get('explore', 0):,} in the random exploration slice"
+          + (f"; {labelled.get('have', 0):,} of {labelled.get('rows', 0):,} have a value five sessions later"
+             if labelled else "; none labelled yet") + ". Replay examples are kept apart by their source.",
+          items=int(fwd.get("candidates", 0)), days=int(fwd.get("sessions", 0)), unit="candidates",
+          strength="early", link=link, key="learner:volume", weight=0.6)
+    r.metric("learner.candidates", "Learner candidates recorded", int(fwd.get("candidates", 0)),
+             items=int(fwd.get("candidates", 0)), days=int(fwd.get("sessions", 0)), unit="candidates")
+    m = s["model"]
+    if m is None:
+        r.add("learner", "The Learner has not trained a model yet.",
+              "It trains weekly once enough candidates have labels, walk-forward on later sessions it never saw; until "
+              "then it shows nothing beside the plays.", items=0, days=0, strength="early", link=link,
+              key="learner:untrained", weight=0.3)
+        return
+    data = m["data"]
+    rows = sum(int(v.get("rows", 0)) for v in data.values())
+    h = m["held_out"]
+    r.add("learner", f"Learner model trained {short(m['trained_at'])} on {rows:,} labelled candidates in "
+                     f"{m['seconds']:.0f} seconds.",
+          ", ".join(f"{name} {v['rows']:,} rows from {v['first']} to {v['last']}" for name, v in data.items())
+          + f". Frozen as {m['id']} ({m['bytes'] / 1e6:.1f} MB); shadow only, nothing trades on it.",
+          items=rows, days=sum(int(v.get("sessions", 0)) for v in data.values()), unit="candidates",
+          strength="early", link=link, key="learner:trained", weight=0.5)
+    days = int(h.get("test_days") or 0)
+    sources = h.get("test_sources") or {}
+    basis = ("on replayed past prices" if sources.get("forward", 0) == 0 else
+             "on forward sessions" if sources.get("replay", 0) == 0 else
+             f"on {sources.get('forward', 0):,} forward and {sources.get('replay', 0):,} replay rows")
+    rho = h.get("rank_correlation")
+    if rho is not None:
+        dec = h.get("deciles") or {}
+        top_r = dec.get("top_minus_random")
+        r.add("learner", f"Held out, its predicted returns ranked what happened at {rho:+.2f} (rank correlation).",
+              f"Tested walk-forward {basis}, on {count(days, 'later session')} it never trained on"
+              + (f" (day by day {d['mean']:+.2f}, 90% range {d['low']:+.2f} to {d['high']:+.2f})"
+                 if (d := h.get("daily_rank_correlation")) else "")
+              + (f". Its top tenth of candidates each day returned {signed((dec.get('top_decile') or {}).get('mean'))}"
+                 f" against {signed((dec.get('random_candidate') or {}).get('mean'))} for a random candidate"
+                 f"{_range(top_r)}" if top_r else "") + ". Not yet proven forward.",
+              items=int(h.get("test_rows") or 0), days=days, unit="candidates",
+              strength=strength(int(h.get("test_rows") or 0), days, need=500), link=link, key="learner:held-out",
+              weight=0.9)
+        vs = dec.get("top_minus_plays")
+        if vs:
+            r.add("learner", f"Its top tenth against the Plays picks on the same days: {signed(vs['mean'])} a candidate.",
+                  f"Realised returns held to expiry{_range(vs)}; {basis}. Shadow comparison only: Plays rankings are "
+                  "unchanged.", items=int(vs["days"]), days=int(vs["days"]), unit="days", day_unit="days",
+                  strength=strength(int(vs["days"]), int(vs["days"]), need=MIN_DAYS), link=link,
+                  key="learner:vs-plays", weight=0.7)
+    cal_exp = (h.get("calibration") or {}).get("exp")
+    if cal_exp and cal_exp.get("rows"):
+        r.add("learner", f"Its chance of a profit at expiry scored a Brier of {cal_exp['brier']:.3f} held out.",
+              f"Against a base rate of {pct(cal_exp['base_rate'])} profitable; reliability by tenths is on the Plays "
+              "page's Learner panel.", items=int(cal_exp["rows"]), days=int(cal_exp.get("days") or 0),
+              unit="candidates", strength=strength(int(cal_exp["rows"]), int(cal_exp.get("days") or 0), need=500),
+              link=link, key="learner:calibration", weight=0.5)
+    top = m.get("importance") or []
+    if top:
+        r.add("learner", "What the Learner relies on most: " + "; ".join(i["about"].lower() for i in top[:3]) + ".",
+              "Permutation importance on held-out rows: how much its ranking worsens when that input is shuffled.",
+              items=int(h.get("test_rows") or 0), days=days, unit="candidates", strength="early", link=link,
+              key="learner:importance", weight=0.4)
+
+
 # ── build ────────────────────────────────────────────────────────────────────────────────────────
 LOOPS = (plays_calibration, plays_learning, plays_records, plays_behaviour, workspace, paper_forward, evidence,
-         replays, marks_health, health)
+         replays, marks_health, health, learner)
 # The two loops that read every graded chance and every recent mark are remembered until those tables change (new
 # grades and marks arrive once a session): on a large desk they are most of the time a report takes.
 HEAVY = frozenset({"plays_calibration", "marks_health"})
