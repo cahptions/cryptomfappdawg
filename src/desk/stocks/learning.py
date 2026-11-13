@@ -429,9 +429,12 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
                                                      "capacity_estimated": not sized})
         elapsed = now - datetime.fromisoformat(position.opened_at)
         paid = position.entry_cost + position.entry_fees
+        # Selling for less than its exit fees would lose more than was paid; the contract is simply kept (worth
+        # nothing, no fee) instead, so a long position's value never falls below zero (-100% of what was paid).
+        abandon = closing.debit <= closing.fees
         for days in position.plan.get("checkpoints") or ():
             if elapsed >= timedelta(days=days):          # what selling now, at a real quote, would have returned
-                value = closing.debit - closing.fees
+                value = max(closing.debit - closing.fees, 0.0)
                 conn.execute("INSERT OR IGNORE INTO stk_learning_checkpoints VALUES (?,?,?,?,?,?)",
                              (position.id, days, to_iso(now), value, (value - paid) / paid if paid else 0.0,
                               position.plan.get("underlying_price")))
@@ -440,21 +443,23 @@ def manage(conn: sqlite3.Connection, quotes: dict[str, OptionQuote], now: dateti
         if elapsed < timedelta(minutes=position.plan["hold_minutes"]) and not expiring:
             continue
         # Exit capacity is shared too. An oversized position waits instead of receiving a fictional full fill.
-        if capacity(conn, position.account, actual, opening=False) < units:
+        if not abandon and capacity(conn, position.account, actual, opening=False) < units:
             continue
         pnl = book.close_position(
             position,
             at=now,
             day=cal.new_york(now).date(),
-            credit=closing.debit,
-            fees=closing.fees,
+            credit=0.0 if abandon else closing.debit,
+            fees=0.0 if abandon else closing.fees,
             reason=(f"Expiry approaching: sold with {left} days left; later executable quote" if expiring and
                     elapsed < timedelta(minutes=position.plan["hold_minutes"]) else
-                    "Registered holding horizon reached; later executable quote"),
+                    "Registered holding horizon reached; later executable quote")
+            + ("; the bid was below the exit fees, so it was written off at zero, not sold" if abandon else ""),
             evidence={"quote_times": [to_iso(q.quoted_at) for q in actual if q.quoted_at], "capacity_estimated": not sized,
                       "quoted_size": [q.bid_size for q in actual], "capacity_basis": capacity_basis(actual, False)},
         )
-        consume(conn, position.account, actual, units)
+        if not abandon:                           # nothing was sold, so no bid size was used
+            consume(conn, position.account, actual, units)
         book.decide(
             now,
             cal.new_york(now).date(),

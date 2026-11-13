@@ -1510,7 +1510,12 @@ def settle_value(legs: Sequence[dict[str, Any]], close: float) -> float:
 
 
 def grade(market: StocksMarket, research: StocksResearch, now: datetime) -> int:
-    """Resolve every recorded play whose expiration has a stored close. A split in between leaves it unresolved."""
+    """Resolve every recorded play whose settlement session has a stored official close: that session's own close
+    (the expiry, or the session before it when the expiry is a market holiday), from the daily bars or, as the marks
+    use it, the Schwab daily history kept by gap repair. Never an earlier session's close: a stock missing from the
+    expiry's bars waits. A split in between leaves it unresolved."""
+    from desk.stocks.play_marks import settle_day
+
     latest = market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0]
     if latest is None:
         return 0
@@ -1519,14 +1524,15 @@ def grade(market: StocksMarket, research: StocksResearch, now: datetime) -> int:
         "WHERE o.session IS NULL AND p.expiration <= ?", (latest,)).fetchall()
     resolved = 0
     for p in pending:
-        bar = market.conn.execute("SELECT day, close FROM stk_bars WHERE symbol = ? AND day <= ? AND day >= ? "
-                                  "ORDER BY day DESC LIMIT 1",
-                                  (p["symbol"], p["expiration"], p["expiration"] - 4)).fetchone()
+        settles = settle_day(date.fromordinal(p["expiration"])).toordinal()
+        bar = market.conn.execute("SELECT close FROM stk_bars WHERE symbol = ? AND day = ?",
+                                  (p["symbol"], settles)).fetchone() or research.conn.execute(
+            "SELECT close FROM stk_track_closes WHERE symbol = ? AND session = ?", (p["symbol"], settles)).fetchone()
         split = market.conn.execute("SELECT 1 FROM stk_splits WHERE symbol = ? AND execution_date > ? AND "
                                     "execution_date <= ?", (p["symbol"], p["session"], p["expiration"])).fetchone()
-        if bar is None or split is not None:
+        if bar is None or not bar[0] or split is not None:
             continue
-        close = float(bar["close"])
+        close = float(bar[0])
         legs = json.loads(p["legs_json"])
         value = settle_value(legs, close)
         n_legs = len(legs)

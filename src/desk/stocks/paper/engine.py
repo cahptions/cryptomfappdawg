@@ -389,12 +389,14 @@ class PaperEngine:
         for p in self.book.positions():
             if p.asset != "option" or p.expires is None or p.expires > asof or p.account not in self.strategies:
                 continue
-            if p.expires == asof:
+            # Settled on the official close of its last trading day (the session before an expiry that falls on a
+            # market holiday), never on an earlier session's close: a stock missing from that day's bars waits.
+            last = p.expires if cal.is_trading_day(p.expires) else cal.previous_trading_day(p.expires)
+            if last == asof:
                 bar = bars.get(p.symbol)
                 close = None if bar is None else bar.close
             else:
-                prior = [b for b in self.market.bars(p.symbol, p.expires - (asof - p.expires)) if b.day <= p.expires]
-                close = prior[-1].close if prior else None
+                close = next((b.close for b in self.market.bars(p.symbol, last) if b.day == last), None)
             if close is None:
                 continue
             value = fills.settle(p.legs, close)
