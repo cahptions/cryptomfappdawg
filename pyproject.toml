@@ -14,6 +14,7 @@ dependencies = [
     "cryptography==46.0.3",
     "fastapi==0.146.0",
     "uvicorn==0.54.0",
+    "scikit-learn==1.7.2",
 ]
 
 [project.scripts]
@@ -68,3 +69,8 @@ strict = true
 mypy_path = "src"
 packages = ["desk"]
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# scikit-learn and SciPy ship no type information; the Learner (desk.stocks.learner.model) treats their objects as Any.
+module = ["sklearn.*", "scipy.*"]
+ignore_missing_imports = true

@@ -132,6 +132,11 @@ def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None
                  "message": f"Plays could not be built this pass ({type(exc).__name__}); stored data is unchanged and the "
                             "next options pass retries. Evidence → Check data health shows source status."}
     _atomic_private(saved_path(paths, "plays"), json.dumps(value, allow_nan=False))
+    # The Learner's experience log (research only): the closed session's candidates once, then the labels that came
+    # due and a few replay days. Recorded as the "learner" job; never stops collection or changes the board.
+    from desk.stocks.learner import job as learner_job
+
+    learner_job.run(paths, dbs, value, now)
     if value.get("categories"):
         from desk.stocks.play_tracking import first_seen
 
