@@ -239,6 +239,7 @@ databases, that says what every learning loop knows (`src/desk/stocks/learning_r
 | Coming up | The nearest milestones with progress and, where there is a pace, an estimated date ("take-profit calibration for Bearish puts: 22 of 30 resolved, about a week"); a loop with no data says what it is waiting for |
 | Changed since last week | Counts, scores and grades against the previous weekly snapshot, and findings that are new |
 | Replays on past data | Historical replays, preregistered option research, lottos on real past prices and the Evidence page's rebuilt history and proposed weights, always labelled and never mixed with forward results |
+| The Learner — a shadow model, not traded | The Learner's experience log (candidates recorded, labels), its last training and its walk-forward held-out results with days and bootstrap ranges, calibration and what it relies on; never stronger than suggestive while it is shadow only ([STOCKS_LEARNER.md](STOCKS_LEARNER.md)) |
 
 **Honesty rules.** Every finding shows its evidence, the number of items **and** of separate sessions or days, and a
 strength: **early** (below that loop's own threshold, such as 30 resolved plays from 10 sessions for calibration or 60 settled plays
