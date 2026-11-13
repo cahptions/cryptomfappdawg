@@ -110,7 +110,9 @@ def idea(research: sqlite3.Connection, ident: str) -> dict[str, Any]:
     row = research.execute("SELECT * FROM stk_play_ideas WHERE id=?", (ident,)).fetchone()
     if row is None:
         raise DeskError("That play is not saved yet. Refresh Plays after the next collection pass.")
-    return {**dict(row), "play": json.loads(row["play_json"])}
+    from desk.stocks.plays import displayed
+
+    return {**dict(row), "play": displayed(json.loads(row["play_json"]))}
 
 
 def next_entry(now: datetime) -> datetime:

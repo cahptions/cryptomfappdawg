@@ -397,7 +397,9 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
                            (n, category, rank)).fetchone()
     if row is None:
         return {"version": VERSION, "found": False}
-    play = json.loads(row["play_json"])
+    from desk.stocks.plays import displayed
+
+    play = displayed(json.loads(row["play_json"]))
     legs = json.loads(row["legs_json"])
     action, entry = row["action"], row["entry"]
     seen = research.execute("SELECT seen_at, entry, legs_json FROM stk_play_first_seen WHERE session = ? AND "

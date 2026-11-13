@@ -9,6 +9,7 @@ import getpass
 import json
 import math
 import signal
+import sys
 import time
 import webbrowser
 from typing import Any
@@ -71,7 +72,8 @@ def add_parser(sub: Any) -> None:
     accuracy = commands.add_parser("check-accuracy", help="read-only: check every recorded and shown number for "
                                    "impossible or inconsistent values (losses beyond the money at risk, chances "
                                    "out of order, summaries that disagree with their rows ...); kestrel check")
-    accuracy.add_argument("--sessions", type=int, default=40, help="recent History sessions to rebuild and check")
+    accuracy.add_argument("--sessions", type=int, default=10,
+                          help="recent History sessions to rebuild and check (more takes longer on a large desk)")
     accuracy.add_argument("--json", action="store_true", help="the full report as JSON")
     accuracy.set_defaults(func=run)
     commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
@@ -136,7 +138,10 @@ def _run(args: argparse.Namespace) -> int:
     if args.stocks_command == "check-accuracy":
         from desk.stocks import accuracy
 
-        report = accuracy.check(paths, history_sessions=max(1, args.sessions))
+        print("Checking every recorded and shown number (read-only; a few minutes on a large desk)…",
+              file=sys.stderr, flush=True)
+        report = accuracy.check(paths, history_sessions=max(1, args.sessions),
+                                progress=lambda line: print("  " + line, file=sys.stderr, flush=True))
         print(json.dumps(report, indent=2) if args.json else accuracy.text(report))
         return 1 if report["violations"] else 0
     paths.ensure()

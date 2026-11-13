@@ -441,3 +441,50 @@ def test_calibrated_chances_keep_their_nesting() -> None:
     assert shown["target50"]["raw"] == 0.2 and shown["target50"]["shown"] <= shown["target25"]["shown"]
     assert shown["target100"]["shown"] <= shown["target50"]["shown"] <= shown["profit"]["shown"]
     assert acc.chance_order({**play, "calibrated": shown}) == []
+
+
+# ── the user's first real check, 2026-11-13 ───────────────────────────────────────────────────────
+def test_older_plays_are_displayed_with_their_chances_in_order() -> None:
+    from desk.stocks.plays import displayed
+
+    stored = {"calibrated": {"profit": {"raw": 0.36, "shown": 0.358}, "target25": {"raw": 0.30, "shown": 0.379}}}
+    shown = displayed(stored)
+    assert shown["calibrated"]["target25"]["shown"] == 0.358 and stored["calibrated"]["target25"]["shown"] == 0.379
+    assert not [p for p in acc.chance_order(shown) if p.startswith("shown")]
+    assert [p for p in acc.chance_order(stored) if p.startswith("shown")]      # a new record stored like it fails
+
+
+def test_a_lopsided_butterfly_shows_its_one_real_break_even() -> None:
+    """CSCO: sold 105 call and put, bought 93 put and 108 call, credit 6.24: above 108 it keeps +3.24, so 111.24 is
+    not a break-even."""
+    from desk.stocks.plays import breakeven_roots, displayed
+
+    legs = [{"kind": "call", "strike": 105.0, "side": "sell"}, {"kind": "put", "strike": 93.0, "side": "buy"},
+            {"kind": "put", "strike": 105.0, "side": "sell"}, {"kind": "call", "strike": 108.0, "side": "buy"}]
+    assert breakeven_roots("SELL", 6.24, legs) == [98.76]
+    play = {"action": "SELL", "entry": 6.24, "legs": legs, "breakevens": [98.76, 111.24], "breakeven": 111.24}
+    assert displayed(play)["breakevens"] == [98.76] and not acc.breakeven_problems(displayed(play))
+    assert acc.breakeven_problems(play)                                          # stored like it, a new one fails
+    symmetric = [dict(leg, strike=s) for leg, s in zip(legs, (105.0, 95.0, 105.0, 115.0), strict=True)]
+    assert breakeven_roots("SELL", 4.0, symmetric) == [101.0, 109.0]
+
+
+def test_iron_structures_need_a_credit_below_the_narrower_wing() -> None:
+    import inspect
+
+    from desk.stocks import plays
+
+    assert "credit < narrow" in inspect.getsource(plays._iron)
+
+
+def test_a_crossed_quote_is_not_qualified_for_activity() -> None:
+    from desk.stocks import activity
+
+    assert activity.VERSION >= 4
+    assert "q.ask < q.bid" in inspect_source(activity.qualified_quotes)
+
+
+def inspect_source(fn: object) -> str:
+    import inspect
+
+    return inspect.getsource(fn)  # type: ignore[arg-type]

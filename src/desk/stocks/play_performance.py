@@ -22,7 +22,7 @@ from desk.core.paths import DeskPaths
 from desk.stocks import calendar as cal
 from desk.stocks.plays import RECORDED, method
 
-VERSION = 1
+VERSION = 2                # 2 (2026-11-13): twins compared over the same pairs ("paired")
 HORIZONS: tuple[tuple[str, int | None], ...] = (("1 day", 1), ("1 week", 5), ("1 month", 21), ("At expiry", None))
 DTE_BUCKETS = ((0, 7, "≤ 7 days"), (8, 30, "8–30 days"), (31, 90, "31–90 days"), (91, 365, "91–365 days"),
                (366, 100_000, "over a year"))
@@ -323,7 +323,8 @@ def refresh(paths: DeskPaths, market: sqlite3.Connection, research: sqlite3.Conn
         previous = saved(paths, "plays-performance")
     except Exception:  # unreadable: rebuilt below
         previous = None
-    stale = previous is None or now - datetime.fromisoformat(previous["generated_at"]) >= REBUILD_AFTER
+    stale = (previous is None or previous.get("version") != VERSION   # built by older code: rebuilt now
+             or now - datetime.fromisoformat(previous["generated_at"]) >= REBUILD_AFTER)
     if not changed and not stale:
         return False
     learned = research.execute("SELECT report_json FROM stk_play_learning ORDER BY id DESC LIMIT 1").fetchone()

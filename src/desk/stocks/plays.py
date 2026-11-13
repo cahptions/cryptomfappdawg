@@ -28,6 +28,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 from typing import Any
 
 import numpy as np
@@ -149,17 +150,17 @@ CATEGORIES: tuple[Category, ...] = (
              "between. The risk is fixed on both sides.",
              "Rich premium (IV rank ≥ 50 or IV30 ≥ 1.2× realized) and no strong committee lean (42–58, or no view). "
              "Sold put and call each nearest 0.20 |delta|, bought wings about 5% of the price further out, same "
-             "expiry 21–60 days, every leg's spread ≤ 20% and open interest ≥ 50, credit ≥ 20% of the wider wing. "
-             "The chance shown is of finishing between the break-evens. Ranked by KESTREL's expected value per dollar "
-             "at risk.",
+             "expiry 21–60 days, every leg's spread ≤ 20% and open interest ≥ 50, credit ≥ 20% of the wider wing "
+             "and below the narrower one (so both sides can lose and there are two break-evens). The chance shown "
+             "is of finishing between the break-evens. Ranked by KESTREL's expected value per dollar at risk.",
              "No quiet stock has rich enough premium for a condor today."),
     Category("iron_butterflies", "Iron butterflies", "🦋",
              "Sell the at-the-money call and put and buy wings either side: the biggest credit of the range trades, "
              "with profit anywhere between the break-evens and the most at the strike itself.",
              "Rich premium and no strong committee lean, as for iron condors. Sold call and put at the strike nearest "
              "the price, bought wings about 5% of the price either side, same expiry 21–60 days, every leg's spread "
-             "≤ 20% and open interest ≥ 50, credit ≥ 40% of the wider wing. Ranked by KESTREL's expected value per "
-             "dollar at risk.",
+             "≤ 20% and open interest ≥ 50, credit ≥ 40% of the wider wing and below the narrower one. Ranked by "
+             "KESTREL's expected value per dollar at risk.",
              "No quiet stock has rich enough premium for a butterfly today."),
     Category("cash_secured_puts", "Cash-secured puts", "💵",
              "Sell a put on a stock you would be glad to own, with the cash to buy it set aside: paid now, and you "
@@ -974,8 +975,12 @@ def _iron(tb: Table, ctx: Context, category: str) -> list[Candidate]:
             lp = int(min(below, key=lambda i: abs(tb.k[i] - (tb.k[sp] - wing * u.price))))
             credit = float(tb.bid[sp] + tb.bid[sc] - tb.ask[lp] - tb.ask[lc])
             width = float(max(tb.k[sp] - tb.k[lp], tb.k[lc] - tb.k[sc]))
+            narrow = float(min(tb.k[sp] - tb.k[lp], tb.k[lc] - tb.k[sc]))
             risk = (width - credit) * 100 + 4 * FEE
-            if (credit >= (0.40 if butterfly else 0.20) * width and credit * 100 > 4 * FEE and risk > 0
+            # Both sides must be able to lose (credit below the narrower wing): otherwise one side can't, there is a
+            # single break-even, and "profit between the break-evens" and its chance would be wrong.
+            if (credit >= (0.40 if butterfly else 0.20) * width and credit < narrow and credit * 100 > 4 * FEE
+                    and risk > 0
                     and _in_budget(ctx, risk)):
                 found.append((sp, lp, sc, lc, credit, width, risk))
                 break
@@ -1298,12 +1303,54 @@ def calibrated(play: Mapping[str, Any], calibrations: Mapping[str, od.Calibratio
     for event, raw in raw_chances(play).items():
         found, level = calibrator(calibrations, event, category, days)
         out[event] = {"raw": round(raw, 4), "shown": round(found.apply(raw), 4), "level": level}
-    # Each event is calibrated on its own graded plays, which can invert chances that are nested: +50% at expiry is
-    # never likelier than +25%, nor the maximum gain than any profit. A shown chance is capped by the one it implies.
-    for smaller, larger in (("target25", "profit"), ("target50", "target25"), ("target100", "target50"),
-                            ("max_gain", "profit")):
-        if smaller in out and larger in out and float(out[smaller]["shown"]) > float(out[larger]["shown"]):
-            out[smaller]["shown"] = out[larger]["shown"]
+    return in_order(out)
+
+
+NESTED = (("target25", "profit"), ("target50", "target25"), ("target100", "target50"), ("max_gain", "profit"))
+
+
+def in_order(shown: dict[str, Any]) -> dict[str, Any]:
+    """Each event is calibrated on its own graded plays, which can invert chances that are nested: +50% at expiry is
+    never likelier than +25%, nor the maximum gain than any profit. A shown chance is capped by the one it implies.
+    Also applied when an older recorded play (saved before this rule, 2026-11-13) is displayed."""
+    out = {k: dict(v) if isinstance(v, Mapping) else v for k, v in shown.items()}
+    for smaller, larger in NESTED:
+        a, b = out.get(smaller), out.get(larger)
+        if isinstance(a, dict) and isinstance(b, dict) and a.get("shown") is not None and b.get("shown") is not None \
+                and float(a["shown"]) > float(b["shown"]):
+            a["shown"] = b["shown"]
+    return out
+
+
+def breakeven_roots(action: str, entry: float, legs: Sequence[dict[str, Any]]) -> list[float]:
+    """The stock prices where the position held to expiry neither gains nor loses its entry (before fees): the roots
+    of its piecewise-linear payoff, found segment by segment between the strikes."""
+    from desk.stocks.play_marks import settlement
+
+    sign = -1.0 if action == "BUY" else 1.0
+    kinks = sorted({float(leg["strike"]) for leg in legs})
+    points = [0.0, *kinks, kinks[-1] * 3 + 1.0] if kinks else []
+    roots: list[float] = []
+    for lo, hi in pairwise(points):
+        a = settlement(legs, lo) + sign * entry
+        b = settlement(legs, hi) + sign * entry
+        if a == 0 and (not roots or abs(roots[-1] - lo) > 1e-9):
+            roots.append(lo)
+        elif a * b < 0:
+            roots.append(lo + (hi - lo) * a / (a - b))
+    return [round(r, 2) for r in roots if r > 0]
+
+
+def displayed(play: dict[str, Any]) -> dict[str, Any]:
+    """A recorded play as it is displayed: its calibrated chances in their necessary order, and break-evens that are
+    the real ones (a sold condor or butterfly recorded before 2026-11-13 whose credit exceeded a narrow wing kept a
+    break-even on a side that cannot lose)."""
+    out = {**play, "calibrated": in_order(play["calibrated"])} if play.get("calibrated") else dict(play)
+    legs, entry = out.get("legs") or [], out.get("entry")
+    if out.get("breakevens") and legs and isinstance(entry, (int, float)):
+        real = breakeven_roots(str(out.get("action")), float(entry), legs)
+        if real and real != [round(float(b), 2) for b in out["breakevens"]]:
+            out["breakevens"], out["breakeven"] = real, real[-1]
     return out
 
 

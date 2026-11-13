@@ -14,7 +14,7 @@ from desk.stocks.contracts import OptionQuote
 if TYPE_CHECKING:
     from desk.stocks.analysis import Day
 
-VERSION = 3
+VERSION = 4                # 4 (2026-11-13): a crossed quote (bid above ask) is rejected
 WEIGHTS = {"option_premium": .25, "option_volume": .20, "volume_oi": .10, "quote_quality": .10,
            "relative_volume": .15, "standardized_move": .10, "relative_strength": .10}
 
@@ -40,7 +40,7 @@ def qualified_quotes(quotes: Sequence[OptionQuote], observed_at: datetime
                 or min(observed_at, cal.session_close(session)) - q.quoted_at > timedelta(minutes=30)):
             rejected["stale_or_unknown_time"] += 1
             continue
-        if (q.mid is None or q.bid is None or q.bid <= 0 or q.ask is None
+        if (q.mid is None or q.bid is None or q.bid <= 0 or q.ask is None or q.ask < q.bid     # crossed: unusable
                 or (q.ask - q.bid) / q.mid > .25 or q.volume < 0 or q.open_interest < 0):
             rejected["invalid_or_wide_quote"] += 1
             continue

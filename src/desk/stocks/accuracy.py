@@ -39,7 +39,7 @@ ORDER_SLACK = 0.0015                 # chances are stored to 3-4 decimals
 MONEY_SLACK = 0.011                  # dollars: two-decimal rounding of per-contract figures
 PRICE_SLACK = 0.011                  # per share: two-decimal rounding of break-evens
 IV_RANGE = (0.005, 5.0)              # 0.5% to 500% a year: anything outside is a bad solve or a bad quote
-HISTORY_SESSIONS = 40                # recent sessions whose History views are rebuilt and checked
+HISTORY_SESSIONS = 10                # recent sessions whose History views are rebuilt and checked
 
 
 @dataclass
@@ -52,6 +52,7 @@ class Finding:
     violations: int = 0
     examples: list[str] = field(default_factory=list)
     skipped: str | None = None
+    notes: list[str] = field(default_factory=list)          # facts worth knowing that are not violations
 
     def look(self, n: int = 1) -> None:
         self.checked += n
@@ -71,7 +72,7 @@ class Finding:
                 "violations": self.violations, "skipped": self.skipped}
 
     def as_json(self) -> dict[str, Any]:
-        return {**self.summary(), "examples": self.examples}
+        return {**self.summary(), "examples": self.examples, "notes": self.notes}
 
 
 @dataclass
@@ -251,11 +252,21 @@ def probabilities(play: Mapping[str, Any]) -> dict[str, float | None]:
     return out
 
 
+# Plays recorded before 2026-11-13 kept two stored errors (calibrated chances out of their necessary order, and a
+# break-even on the side of a lopsided condor or butterfly that cannot lose). Their stored numbers are kept as
+# recorded and corrected wherever they are displayed (plays.displayed), so they are checked as displayed. Anything
+# recorded since, and the live board, is checked exactly as stored.
+DISPLAY_CORRECTED_BEFORE = date(2026, 11, 13).toordinal()
+
+
 def _all_plays(src: Sources) -> Iterator[tuple[str, dict[str, Any]]]:
+    from desk.stocks.plays import displayed
+
     if src.research is not None:
         for r in recorded(src.research):
             if r.play:
-                yield r.name, {**r.play, "symbol": r.symbol}
+                play = {**r.play, "symbol": r.symbol}
+                yield r.name, displayed(play) if r.session < DISPLAY_CORRECTED_BEFORE else play
     for where, p in board_plays(src.views.get("plays")):
         yield f"{p.get('symbol')} · board {where} #{p.get('rank')}", p
 
@@ -924,6 +935,7 @@ def check_option_quotes(src: Sources) -> Finding:
         return f
     from desk.stocks.repo import _unpack
 
+    crossed = 0
     for r in src.market.execute("SELECT underlying, day, expiration, chain_zlib FROM stk_option_chains ORDER BY day DESC "
                                 "LIMIT 5000"):
         day = date.fromordinal(r["day"])
@@ -932,8 +944,16 @@ def check_option_quotes(src: Sources) -> Finding:
                  f"{date.fromordinal(r['expiration']).isoformat()} expiry")
         for q in _unpack(r["chain_zlib"]):
             bid, ask = q[3], q[4]
-            f.expect(bid is None or ask is None or (0 <= bid <= ask + 1e-9), lambda q=q, day=day:
+            # Stored chains keep Schwab's quotes exactly as received; a crossed one (bid above ask, usually a stale
+            # side) is rejected wherever quotes are used (plays.table, activity.qualified_quotes), so it is noted,
+            # not failed. A negative price is never valid.
+            f.expect(bid is None or ask is None or (bid >= 0 and ask >= 0), lambda q=q, day=day:
                      f"{q[0]} {day.isoformat()}: bid {q[3]} ask {q[4]}")
+            if bid is not None and ask is not None and bid > ask + 1e-9:
+                crossed += 1
+    if crossed:
+        f.notes.append(f"{crossed:,} stored chain quotes are crossed (bid above ask) as Schwab sent them; Plays and "
+                       "options activity skip them")
     if src.research is not None:
         for r in src.research.execute("SELECT occ, session, status, bid, ask, iv FROM stk_track_days"):
             problems = []
@@ -1009,13 +1029,17 @@ CHECKS: tuple[Callable[[Sources], Finding], ...] = (
     check_book_fills, check_learning_returns, check_prices, check_option_quotes, check_learning_report)
 
 
-def run(src: Sources, *, budget: float | None = None) -> dict[str, Any]:
+def run(src: Sources, *, budget: float | None = None,
+        progress: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Every check, in order; with a time ``budget`` (seconds) the checks left when it runs out are reported as not
-    run rather than slowing the caller."""
+    run rather than slowing the caller. ``progress`` hears each check's name as it starts (the CLI prints it, so a
+    long check on a large desk is visibly working)."""
     started = time.monotonic()
     findings = []
-    for check in CHECKS:
+    for i, check in enumerate(CHECKS, 1):
         name = check.__name__.removeprefix("check_")
+        if progress is not None:
+            progress(f"[{i}/{len(CHECKS)}] {name.replace('_', ' ')} ({time.monotonic() - started:.0f}s)")
         if budget is not None and time.monotonic() - started > budget:
             findings.append(Finding(name, "", check.__doc__ or name, skipped="time budget used up"))
             continue
@@ -1032,9 +1056,9 @@ def run(src: Sources, *, budget: float | None = None) -> dict[str, Any]:
 
 
 def check(paths: DeskPaths, now: datetime | None = None, *, budget: float | None = None,
-          history_sessions: int = HISTORY_SESSIONS) -> dict[str, Any]:
+          history_sessions: int = HISTORY_SESSIONS, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
     with open_sources(paths, now, history_sessions=history_sessions) as src:
-        return run(src, budget=budget)
+        return run(src, budget=budget, progress=progress)
 
 
 def summary(report: Mapping[str, Any]) -> dict[str, Any]:
@@ -1056,6 +1080,7 @@ def text(report: Mapping[str, Any]) -> str:
         if f["violations"] or f["skipped"]:
             lines.append(f"     {f['title']}")
         lines.extend(f"     · {e}" for e in f["examples"])
+        lines.extend(f"     note: {n}" for n in f.get("notes") or [])
     lines += ["", "Read-only: nothing was changed. Examples are at most five per check; counts are complete."]
     return "\n".join(lines)
 
