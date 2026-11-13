@@ -78,7 +78,7 @@ try {
     await section.waitFor();
     assert.match(
       await section.locator("summary").innerText(),
-      /The Learner — a shadow model, not traded/,
+      /The Learner — its model, its PAPER account and what it learned/,
     );
     await section.locator("summary").click();
     assert.match(await section.innerText(), /trained/);

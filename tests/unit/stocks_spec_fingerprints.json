@@ -8,11 +8,24 @@
  "stocks_learner_features": {
   "1": "1896184740aedee5596e47844a1e64fccca9e69414242fde967e13a1a409fba5"
  },
+ "stocks_learner_findings": {
+  "1": "739dc807e8b3b2bd5fe28903c83baf8d838758cb65f8c163432d9e2a0dd7889b"
+ },
  "stocks_learner_labels": {
   "1": "31e44eac64cd410ec95d1cb4e92939d8619338a0db6332988a8e28cbab691bab"
  },
  "stocks_learner_model": {
-  "1": "4715e60f545b8c7ae898d636f12ce8a5744c5fd649ae68109f0e58e07d8c788a"
+  "1": "4715e60f545b8c7ae898d636f12ce8a5744c5fd649ae68109f0e58e07d8c788a",
+  "2": "b056c79e3fadbcbdcb6b10e9a6ea740e026eecd5a737fa27cdb201ffd8c10e64"
+ },
+ "stocks_learner_policy": {
+  "1": "549bf94633ec5e8e073afa8db678b1327cd3d3544389713cbf4aa3766c873879"
+ },
+ "stocks_learner_promotion": {
+  "1": "4a97fda4d34cc14d7a227dc726f940078914ed951d5e74c379f13fde063c9cda"
+ },
+ "stocks_learner_regimes": {
+  "1": "8d65defe81b28cf5002fafe48f4ad6994f955d58dabfcfd6cbbcbe8db2a2bb16"
  },
  "stocks_list_big_moves": {
   "1": "c5b7f621c842898b7dbf4a7ecf5bf89391963785bba2648c37c3f44266373a8b"
@@ -109,6 +122,12 @@
  },
  "stocks_paper_insider_cluster": {
   "2": "9928f8993cab9a864716090a9f1799f734b3d2c7dd51300345dd7c08858e07f9"
+ },
+ "stocks_paper_learner": {
+  "1": "a69553461d865220ea05758f3df3358dba538f4bbe04851ebafc6bb9e49bd36c"
+ },
+ "stocks_paper_learner_random": {
+  "1": "5cf059ca077b8ef90419d0b709ef8a11180dc3472befd8addc0f6e5994733460"
  },
  "stocks_paper_lotto_picks": {
   "2": "b57792348f9b40006324010c278fe112e75e7daf7c8a1d3c013633a10db9c849"

@@ -21,12 +21,10 @@ JOB = "learner"
 
 def register_specs(market: StocksMarket, now: datetime) -> dict[str, str]:
     """Freeze the Learner's rule sets (a changed rule without a new version is refused, as every frozen rule set)."""
-    from desk.stocks.learner import model
+    from desk.stocks.learner import findings, model, policy, promotion, regimes
 
-    return {act.NAME: market.register_spec(act.NAME, act.VERSION, act.content(), now),
-            ft.NAME: market.register_spec(ft.NAME, ft.VERSION, ft.content(), now),
-            lb.NAME: market.register_spec(lb.NAME, lb.VERSION, lb.content(), now),
-            model.NAME: market.register_spec(model.NAME, model.VERSION, model.content(), now)}
+    return {m.NAME: market.register_spec(m.NAME, m.VERSION, m.content(), now)
+            for m in (act, ft, lb, model, regimes, findings, policy, promotion)}
 
 
 def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
@@ -38,6 +36,41 @@ def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
     conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
     conn.execute("PRAGMA query_only=ON")
     return conn
+
+
+def paper_step(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
+    """Run by the PAPER step (``runner.process``), never by a research preview: decide the newest recorded closing
+    session for the Learner account and its random twin (once; ``policy.decide`` refuses a session whose next one has
+    opened), then record promotion stages and save the Learner page. A failure is reported and never raised."""
+    from desk.stocks.learner import account, policy
+
+    out: dict[str, Any] = {}
+    market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
+    try:
+        row = research.conn.execute("SELECT MAX(session) FROM stk_learn_days WHERE source='forward' AND "
+                                    "actions_version=?", (act.version_hash(),)).fetchone()
+        if row and row[0] is not None:
+            session = date.fromordinal(int(row[0]))
+            if not all(policy.decided(dbs.ledger, session, a) for a in policy.ACCOUNTS):
+                out["decided"] = policy.decide(research.conn, dbs.ledger, market, paths.home, session, now,
+                                               stop=paths.stop_file.exists())
+    except Exception as exc:  # recorded in the result; the next pass retries an undecided session
+        out["error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
+    try:
+        out["page"] = account.refresh(paths, dbs, now, review=True)
+    except Exception as exc:  # the page keeps its previous view
+        out["page_error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
+    return out
+
+
+def refresh_account(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
+    """The Learner page's saved view (``account.refresh``, read-only on the books); a failure is reported."""
+    from desk.stocks.learner import account
+
+    try:
+        return account.refresh(paths, dbs, now)
+    except Exception as exc:  # the page keeps its previous view
+        return {"error": f"{type(exc).__name__}: {str(exc)[:240]}"}
 
 
 def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -55,6 +88,7 @@ def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], n
             finally:
                 if book is not None:
                     book.close()
+    out["account_view"] = refresh_account(paths, dbs, now)
     out["labels"] = lb.run(research.conn, market.conn, lb.ForwardPrices(market.conn, research.conn), now)
     from desk.stocks.learner import replay
 

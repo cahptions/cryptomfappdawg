@@ -12,16 +12,17 @@ It is built in phases:
 | --- | --- | --- |
 | 1 | The experience log: every candidate, its point-in-time features, its outcomes | built |
 | 2 | An outcome model trained walk-forward, shown in **shadow** beside the rules | built |
-| 3 | A Learner PAPER account that composes its own trades within risk limits, with directed exploration, against the rules and random | next |
-| 4 | Written "do / don't" findings with evidence, regime awareness, promotion only after forward confirmation | next |
+| 3 | A Learner PAPER account that composes its own trades within risk limits, with directed exploration, against the rules and random | built |
+| 4 | Written "do / don't" findings with evidence, regime awareness, promotion only after forward confirmation | built |
 
-**What it never does.** It places no order (research and PAPER only). It does not change a Plays ranking, a PAPER
-strategy, the Learning book or any calibration. No language model judges any trade: the model is ordinary
+**What it never does.** It places no order (research and PAPER only: its own account trades simulated money). It does
+not change a Plays ranking, another PAPER strategy, the Learning book or any calibration. No language model judges any trade: the model is ordinary
 gradient-boosted trees (scikit-learn). It uses no paid API. Its rule sets are frozen by version and fingerprint
 (tests/unit/stocks_spec_fingerprints.json), like every other rule set.
 
-Code: `src/desk/stocks/learner/`. Storage: `stocks-research.db`, migration `0019_learner.sql`, every table
-append-only.
+Code: `src/desk/stocks/learner/`. Storage: `stocks-research.db` (migrations `0019_learner.sql` and
+`0020_learner_findings.sql`) and, for the account's decisions, `stocks-ledger-paper.db` (`0009_learner_account.sql`).
+Every table is append-only.
 
 ## What it records
 
@@ -182,7 +183,9 @@ with the better held-out rank correlation is frozen.
 **Frozen and registered.** The final models are trained on every labelled row, then pickled, compressed and hashed
 (SHA-256). The file is kept under `<home>/learner-models/`. The registry (`stk_learn_models`, append-only) keeps the
 hash, the data's sources, rows, sessions and date range, the feature list, the code version and the held-out results.
-A model is loaded only when its file's hash matches the registry.
+A model is loaded only when its file's hash matches the registry. Since model version 2 the market regime codes are
+features, and each training also keeps its held-out rows, the labelled-row count per region of the action space (the
+account's evidence) and writes the do / don't findings (below).
 
 **Weekly.** The app's maintenance loop runs the training on the same cadence and under the same guards as the weekly
 evidence evaluation (never beside a running evaluation or replay). It starts a niced, two-thread subprocess when a week
@@ -230,9 +233,12 @@ shadow only.
 - **Plays → "Learner's own top ideas (shadow)".** The trades it would compose itself from the newest recorded close
   (at most two per stock), ranked by its expected return. Each shows its dials in words, its legs, entry and money at
   risk, and its predictions, with the model's held-out headline numbers.
-- **Learning → the Learning report's "The Learner — a shadow model, not traded" section.** What it has recorded, how
-  much is labelled, the last training, its held-out results with days and ranges, its calibration and what it relies
-  on.
+- **Learning → the Learning report's "The Learner — its model, its PAPER account and what it learned" section.**
+  What it has recorded, how much is labelled, the last training, its held-out results with days and ranges, its
+  calibration and what it relies on; then what it learned to do and not to do (each finding in its own words, with its
+  stage), its PAPER account against its random twin, the best and worst regime held out, and any version's forward
+  verdict.
+- **Learner (`#learner`, in the menu and the More sheet).** See "The Learner page" below.
 - **`kestrel learner`.** The same status as JSON.
 
 The worker writes the views to `stocks-learner-shadow.json`, at most every 30 minutes while the board changes. A page
@@ -253,7 +259,9 @@ It **cannot** claim that it would make money trading:
 - The synthetic numbers in tests and the bench check the pipeline and the budget only.
 
 Promotion of anything the Learner suggests needs a fresh forward confirmation, under its own preregistered test
-(Phase 4).
+("Promotion only after forward confirmation" below). Its PAPER account trades simulated money: its fills are at real
+quotes, but they are not real fills, and a model that ranks well can still lose once fees, spreads and the limits
+bite.
 
 ## Checks (`kestrel check`)
 
@@ -261,22 +269,219 @@ Promotion of anything the Learner suggests needs a fresh forward confirmation, u
   on or before its decision.
 - **learner.labels**: every label return finite and at or above −100% of the money at risk; dated after its candidate's
   decision and written after it. The table also refuses a label dated on or before its decision.
+- **learner.account**: every position of the Learner and its random twin has a bounded maximum loss, a defined-risk
+  structure, an exit rule from the grid and the recorded decision whose order it is; it never risks more than was
+  decided and never loses more than was at risk. Every decision is within 2% of equity, the session's 8% budget and
+  the exploration share, and names a model in the registry (the random twin names none). A session with decisions has
+  a "traded" record.
+- **learner.findings**: every finding was found on its model's held-out days, on at least 15 days, cleared the
+  correction and has the right sign; its stages are in order (confirmed, failed only after candidate; retired only
+  after confirmed) and every later stage was judged on at least 10 days after the discovery window.
+- The Learner's accounts are PAPER accounts, so **books.cash**, **books.positions** and **books.fills** cover them too
+  (cash never negative, equity = cash + marks, fills only at stored quotes of that day).
 
-## For Phase 3
+## Regimes (`learner/regimes.py`)
 
-What exists to build on:
+A market regime is three plain labels, read from the market features each candidate already carries, all as they
+stood at the previous session's close (SPY's term structure from the decision session's own chain):
 
-- **Tables**:
-  - `stk_learn_candidates`: per stock and session; `experience.unpack` gives the stock and market features and every
-    row's key, origin, `explore`, action, entry, money at risk, maximum gain, expiry, legs and contract features.
-  - `stk_learn_labels`: `labels.unpack_labels`; checkpoint rows are `[index, status, mid, liquidation]`; expiry rows are
-    `[index, settled, best, worst, path sessions, checked, [each exit rule]]`.
-  - `stk_learn_days`, `stk_learn_models` and `stk_learn_shadow`.
-- **Functions**:
-  - `actions.grid()`, `actions.legs_for(table, action)` and `experience.priced(...)` compose and price any action on a
-    live chain;
-  - `features.Reader` with `stock_features`, `market_features` and `contract_features` gives point-in-time features;
-  - `model.latest` with `model.load_models`, `model.row_vector` and `model.predict` give predictions for any candidate;
-  - `labels.exit_returns` gives the exit-rule arithmetic;
-  - `experience.stratified` gives the stratified sampler the exploration slice uses.
-- **The exploration slice** (`explore = 1`) is the unbiased sample a bandit account can trade and learn from.
+| Label | Rule |
+| --- | --- |
+| Trend | **uptrend** when SPY is above its 200-session average, **downtrend** at or below |
+| Volatility | **high** when the VIX is 30 or more, or 20 or more with SPY's term structure inverted (30-day IV above 90-day); **calm** under 20 with a normal term structure; **elevated** otherwise |
+| Credit | **widening** when the high-yield spread rose 0.30 points or more over 21 observations, **steady** otherwise |
+
+A missing input makes that label **unknown**, never a guess. The three codes are model features (model version 2), so
+the model can learn that a trade works in one regime and not in another. Every model reports its held-out results per
+regime (`by_regime`: rows, days, rank correlation, its top tenth against a random candidate), every finding carries
+its discovery results per regime, and the Learner account reports its closed trades by the regime of their decision
+session. Frozen as `stocks_learner_regimes` v1.
+
+## The Learner account (`learner/policy.py`)
+
+A PAPER account named **Learner**, with its own book in the PAPER ledger and **$50,000** of starting capital, like the
+other option PAPER accounts. It reuses the PAPER engine (`paper/engine.py`, `paper/fills.py`) for fills, fees, marks,
+expiries and equity rather than Learning's rules, so its marks, P/L and grade are computed by the same code as every
+other PAPER account and `kestrel check` covers it.
+
+### When it decides
+
+At the closing build's PAPER step (`runner.process` → `learner.job.paper_step`), once the session's candidates are
+recorded, and only before the next session opens; a session decided later is not decided at all. A research preview
+never writes to the PAPER ledger. The STOP file stops new entries, as for every PAPER account.
+
+### The gate: it trades only once a model has beaten random
+
+The newest model of the current code must have, on its walk-forward held-out data:
+
+- its top tenth of each day's candidates beating that day's average candidate (`deciles.top_minus_random`) on **at
+  least 20 held-out days**, with the **90% bootstrap range's lower end above zero**, and
+- a **positive held-out rank correlation**;
+
+and its frozen file must match its hash. Otherwise the account **waits** and records why, in plain words, for every
+session (`stk_learner_days`, shown on the page). Its random twin waits with it, so both are judged over the same
+sessions.
+
+### The decision rule: a contextual bandit
+
+The candidates are that session's recorded grid candidates (every structure × |delta| × expiry × width the chains
+supplied fairly), with their point-in-time features. For each the model gives the expected return held to expiry `mu`
+and its 10th and 90th percentiles.
+
+- **Uncertainty.** The outcome spread is `sigma = (q90 − q10) / 2.563` (at least 0.05). The evidence `n` is the number
+  of labelled rows the model was trained on in the same region of the action space: structure, |delta| and expiry
+  bucket (`model.evidence_cells`). The uncertainty of `mu` is `se = sigma / sqrt(n + 1)`.
+- **Exploit** (85% of each session's new-risk budget): trades whose lower confidence bound `mu − 1·se` is above zero,
+  best bound first: confident positive expectancy.
+- **Explore** (a fixed **15%** of each session's new-risk budget, at most 1% of equity a trade, at most two trades a
+  session): trades that are uncertain (lower bound at or below zero) but promising (upper bound `mu + 2·se` above
+  zero), ranked by a **Thompson draw** `mu + se·z` (`z` standard normal, seeded by the session, account and candidate)
+  and taken while the draw is above zero. Exploration is chosen first, so confident trades never crowd it out. When
+  few trades are confident, the explored share of the risk actually taken is higher than 15%; the page shows the
+  realised share.
+- **Exit.** The exit rule the model predicts best for that trade (its best-exit classifier); hold to expiry when it
+  has none.
+- **Filter.** A confirmed "don't" finding removes every candidate it describes, for both accounts.
+
+### Risk limits (fixed, of equity when decided)
+
+| Limit | Value |
+| --- | --- |
+| At risk in one trade (fees and the fill limit included) | 2% (explored trades 1%) |
+| New risk a session | 8% (of which 15% is exploration's) |
+| At risk in all open and pending positions | 30% |
+| On one stock / one sector | 6% / 12% |
+| Open positions / new positions a session | 20 / 6 (one a stock a session) |
+| Units an order | 10 |
+
+Money at risk is the most a position can lose: what a bought structure costs, or a sold structure's width less its
+credit, with the 10% fill limit (bought legs) or a 10% smaller credit (sold) allowed for. Only the ten defined-risk
+structures of the action space are traded; nothing uncovered is ever sold. A sold structure is **fully
+collateralised**: its maximum loss is held in cash while it is open, and pending orders reserve theirs. A cash-secured
+put's maximum loss is its strike, so at 2% of $50,000 only puts on stocks under about $10 fit; that is intended.
+
+### Execution
+
+- **Entries** are orders filled by the PAPER engine at the **next session's** stored quotes: bought legs at the ask,
+  sold legs at the bid, $0.65 a contract a leg, refused when a quote is stale (not from that session or not after the
+  decision), crossed or empty, wider than 35% of its mid, when a bought leg's ask ran more than 10% (or 5 cents) past
+  the decision's, or when a sold structure's credit fell below 90% of the decision's.
+- **Exits** follow the trade's exit rule on that session's **real closing quotes** at liquidation value (bought legs at
+  the bid, sold legs at the ask, after exit fees): a take-profit or a stop on the return on the money at risk, or the
+  session count since the decision (decided the session before, so it fills on that session's quotes). A rule never
+  reacts to a modelled price; an exit order fills only at real quotes (it waits up to three sessions, then the rule
+  decides again); a sold structure is never bought back for more than holding it to settle could lose.
+- **Expiry**: settled at intrinsic value on the official close, like every PAPER option position.
+
+The labels' exit-rule returns read the close of the triggering session; the account fills the session after (except
+time exits, decided a session early). The account's results are therefore a little different from the labels', by
+design: they are what an account could have done.
+
+### Its baselines and grade
+
+- **Random twin** (`learner_random`): the same candidates, sessions and limits; each trade a uniformly random
+  candidate and a uniformly random exit rule (seeded by the session), sized at 2%, until the session's budget is used.
+  It is the account's PAPER baseline: the Learner is graded against it (`paper.report`, Holm across every graded
+  strategy) and against SPY's total return, like every PAPER strategy (63 sessions and 20 closed trades before any
+  grade).
+- **The rule-based PAPER option strategies**: their average equity is drawn beside it, and realised returns by entry
+  day are compared.
+- **Realised comparisons** use realised returns on the money at risk at real fills only, averaged by entry day with a
+  90% bootstrap range; a position still open, or closed at a modelled price, is left out. Equity curves use the
+  PAPER engine's marks (mids; a contract missing from the day's chain is marked by Black-Scholes, as for every PAPER
+  account), so they are never used to promote anything.
+
+### What it records
+
+Every chosen trade (`stk_learner_decisions`, in the PAPER ledger, in the same transaction as its order): the model's
+hash, its expected return and range, `sigma`, the evidence count, `se`, both bounds, the Thompson draw, explore or
+exploit, the exit rule and the model's confidence in it, the units and money at risk, equity, the regime, the five
+best alternatives weighed, and the reason in words. Every session's outcome (`stk_learner_days`): traded, waited or
+found nothing, and why, with the budgets, the candidates eligible and what the limits skipped.
+
+## Do / don't findings (`learner/findings.py`)
+
+Written by the system, from **held-out data only**: each model's walk-forward held-out rows (predicted by models that
+never trained on them, with their realised returns held to expiry), grid candidates only. They are kept with the model
+(`stk_learn_heldout`, about 1.6 MB a model at the 150,000-row cap).
+
+1. **Discovery** uses the earlier two thirds of the held-out days. For each structure, two depth-2 regression trees
+   (leaves of at least 40 rows and 5%) on readable inputs (expiry, |delta|, days to expiry, moneyness, IV rank, IV
+   against realized volatility, momentum and committee scores, 1- and 3-month return, price against its 200-day
+   average, days to results, skew, spread, and the three regime labels): one on the realised returns, one on the
+   model's held-out predictions. Every leaf is a rule, thresholds rounded to readable steps. Each structure, and each
+   structure × expiry bucket, is a rule too.
+2. **Testing**, by day (each day's mean is one observation): a **do** needs a positive mean with its 90% bootstrap
+   range above zero; a **don't** needs a negative mean **and** a mean below the same day's average candidate, with that
+   range below zero (worse than random, not only a losing trade). At least 15 days and 60 rows. The one-sided t-test
+   p-values of every rule tried in the run are corrected by **Benjamini-Hochberg at 10%**. Overlapping rules (80% the
+   same rows) keep the stronger; at most 12 of each kind. Passing makes a **candidate**.
+3. **Confirmation** on the untouched later third (after a 5-session embargo): at least 10 days in the same direction,
+   one-sided p below 5%, range excluding zero → **confirmed**; otherwise **failed** (kept). A candidate without enough
+   later days is re-checked at the next training on the newer held-out days.
+4. **Retirement**: each training re-checks confirmed findings on the held-out days after their confirmation; a mean
+   that has turned the other way over at least 10 days **retires** it (kept).
+
+Each finding is written in plain words with its numbers, for example "Do: Long calls with IV rank at most 20 and price
+against its 200-day average at most −15%: +26% average held to expiry (90% range +17% to +35%), 75 candidates over 40
+days, held-out" (a synthetic example). Every stage is a new row (`stk_learn_findings`, `stk_learn_finding_status`). A
+confirmed **don't** is a hard filter for the Learner account; a **do** is information only. Frozen as
+`stocks_learner_findings` v1.
+
+## Promotion only after forward confirmation (`learner/promotion.py`)
+
+A **Learner version** is the model code (the features, targets and training procedure every weekly refit shares) with
+the policy. It is **provisional** from the session it first trades. Its forward test is fixed in advance: its first
+**20 entry days** (decision sessions on which the Learner opened at least one position under that version), judged once
+every position decided on them has closed:
+
+- **against Random**: each day's mean realised return of the Learner's trades minus its random twin's, paired by day,
+  90% bootstrap range over days;
+- **against the rule-based option strategies**: the Learner's daily mean minus theirs over the same calendar window,
+  90% range resampling each side's days; at least 5 rule entry days are needed, otherwise it stays provisional and says
+  so.
+
+Both lower ends above zero: **confirmed**. Otherwise **failed**, kept and shown; a new version starts its own test.
+Realised returns at real fills only. Stages are appended to `stk_learn_promotions`. Frozen as
+`stocks_learner_promotion` v1. Nothing is adopted anywhere by a confirmation: it is a label of evidence, in the style
+of the Learning promotions.
+
+## The Learner page (`#learner`; `learner/account.py`)
+
+- the account's status: trading or waiting, and the gate's reason with its numbers; the rule and the limits in words;
+- the Learner, its random twin, SPY (total return) and the rule-based option strategies' average on one chart, with a
+  named legend; its grade (the PAPER grade); the realised comparison by entry day with ranges; the exploration share;
+- open and closed trades, each with its dials, legs, entry, money at risk, result, and its decision: the model's
+  view, its uncertainty and evidence, explore or exploit, the chosen exit rule and the alternatives weighed;
+- what it learned to do and not to do, with each finding's stage, its regimes and whether it filters trades;
+- by market regime: the model's held-out results and the account's closed trades;
+- model versions: each model's held-out headline, whether it passed the gate, its forward trades, and each version's
+  promotion stage and forward test;
+- recent sessions: traded, waited or nothing, and why.
+
+One column on a phone. The worker saves it to `stocks-learner-account.json` after each Learner pass and PAPER step
+(when anything it shows changed); `GET /api/stocks/learner/account` serves it; a page load computes nothing.
+
+## Compute (measured, synthetic)
+
+On this development machine, two threads, synthetic data only:
+
+- **Training at the cap** (150,000 candidates, 250 sessions): the walk-forward evaluation took 82 seconds; storing the
+  75,100 held-out rows 0.6 seconds (1.6 MB); looking for findings 4.6 seconds (149 rules tested); peak memory about
+  550 MB. Training now also writes the findings, so a weekly training takes a few seconds longer than before.
+- **Deciding a session**: scoring 6,000 candidates (a full session at the cap) took 0.28 seconds; a whole decision on
+  the six-stock synthetic market (about 300 candidates) took 0.05–0.2 seconds.
+- **The Learner page's data**: well under a second on the synthetic month.
+
+## Building on it
+
+- **Tables**: `stk_learn_candidates`, `stk_learn_labels`, `stk_learn_days`, `stk_learn_models`, `stk_learn_shadow`
+  (phases 1–2); `stk_learn_heldout`, `stk_learn_findings`, `stk_learn_finding_status`, `stk_learn_promotions`
+  (research); `stk_learner_days`, `stk_learner_decisions` (PAPER ledger), with the account's positions, orders and
+  equity in the usual PAPER tables under the accounts `learner` and `learner_random`.
+- **Functions**: `policy.gate`, `policy.score`, `policy.choose`, `policy.decide`; `findings.mine`, `findings.matches`,
+  `findings.current`; `promotion.review`, `promotion.judge`; `account.build`; `regimes.of`.
+- **Frozen rule sets**: `stocks_learner_regimes`, `stocks_learner_findings`, `stocks_learner_policy`,
+  `stocks_learner_promotion`, `stocks_learner_model` v2, and the two PAPER strategies `stocks_paper_learner` and
+  `stocks_paper_learner_random` (their parameters include the policy's fingerprint, so a policy change needs new
+  versions of both).

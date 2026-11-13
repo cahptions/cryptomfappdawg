@@ -1087,12 +1087,128 @@ def check_learner_labels(src: Sources) -> Finding:
     return f
 
 
+def learner_position_problems(p: sqlite3.Row, decision: sqlite3.Row | None) -> list[str]:
+    """What a Learner account's position must hold: a bounded maximum loss, a recorded decision whose order it is, no
+    more at risk than decided, a defined-risk structure, and a P/L never beyond what was at risk."""
+    from desk.stocks.learner.actions import BY_EXIT, BY_STRUCTURE
+
+    problems = []
+    plan = json.loads(p["plan_json"])
+    if p["max_loss_micros"] is None or p["max_loss_micros"] <= 0:
+        problems.append("no bounded maximum loss")
+    if p["structure"] not in BY_STRUCTURE:
+        problems.append(f"structure {p['structure']} is not a defined-risk Learner structure")
+    if plan.get("exit_rule") not in BY_EXIT:
+        problems.append(f"exit rule {plan.get('exit_rule')} is not on the grid")
+    if decision is None:
+        problems.append("no recorded Learner decision")
+    else:
+        if decision["paper_decision_id"] != p["decision_id"] or decision["account"] != p["account"]:
+            problems.append("its decision record belongs to another order")
+        if p["max_loss_micros"] is not None and p["max_loss_micros"] / 1e6 > decision["risk_usd"] + 0.01:
+            problems.append(f"at risk ${p['max_loss_micros'] / 1e6:,.2f}, more than the ${decision['risk_usd']:,.2f} "
+                            "decided")
+    if p["state"] == "CLOSED" and p["max_loss_micros"] is not None:
+        pnl = (p["exit_credit_micros"] or 0) - (p["exit_fees_micros"] or 0) - p["entry_cost_micros"] \
+            - p["entry_fees_micros"]
+        if pnl < -p["max_loss_micros"] - 10_000:
+            problems.append(f"lost ${-pnl / 1e6:,.2f}, more than the ${p['max_loss_micros'] / 1e6:,.2f} at risk")
+    return problems
+
+
+def check_learner_account(src: Sources) -> Finding:
+    from desk.stocks.learner import policy
+
+    f = Finding("learner.account", "Learner", "Learner PAPER accounts: every position bounded, decided and never "
+                "losing more than was at risk; every decision within the fixed limits, scored by a registered model")
+    if src.ledger is None or not _has_table(src.ledger, "stk_learner_decisions"):
+        f.skipped = "no Learner account"
+        return f
+    decisions = {r["id"]: r for r in src.ledger.execute("SELECT * FROM stk_learner_decisions")}
+    for p in src.ledger.execute("SELECT * FROM stk_positions WHERE account IN (?, ?)", policy.ACCOUNTS):
+        plan = json.loads(p["plan_json"])
+        problems = learner_position_problems(p, decisions.get(int(plan.get("learner_decision") or 0)))
+        f.expect(not problems, lambda p=p, problems=problems:
+                 f"{p['account']} {p['symbol']} {p['structure']} ({p['id']}): {'; '.join(problems)}")
+    models = set()
+    if src.research is not None and _has_table(src.research, "stk_learn_models"):
+        models = {r[0] for r in src.research.execute("SELECT id FROM stk_learn_models")}
+    sessions: dict[tuple[int, str], list[sqlite3.Row]] = {}
+    for d in decisions.values():
+        sessions.setdefault((d["session"], d["account"]), []).append(d)
+        where = f"{d['account']} {date.fromordinal(d['session']).isoformat()} {d['symbol']} #{d['id']}"
+        problems = []
+        if d["risk_usd"] > policy.TRADE_RISK * d["equity_usd"] + 0.01:
+            problems.append(f"risk ${d['risk_usd']:,.2f} over {policy.TRADE_RISK:.0%} of ${d['equity_usd']:,.2f}")
+        if d["mode"] == "random":
+            if d["model_id"] is not None:
+                problems.append("the random twin recorded a model")
+        elif d["model_id"] is None or (models and d["model_id"] not in models):
+            problems.append(f"model {d['model_id']} is not in the registry")
+        f.expect(not problems, lambda where=where, problems=problems: f"{where}: {'; '.join(problems)}")
+    days = {(r["session"], r["account"]): r["status"] for r in src.ledger.execute("SELECT * FROM stk_learner_days")}
+    for (session, account), rows in sessions.items():
+        equity = rows[0]["equity_usd"]
+        total = sum(r["risk_usd"] for r in rows)
+        explore = sum(r["risk_usd"] for r in rows if r["mode"] == "explore")
+        where = f"{account} {date.fromordinal(session).isoformat()}"
+        f.expect(total <= policy.SESSION_RISK * equity + 0.01 and len(rows) <= policy.MAX_NEW,
+                 lambda where=where, total=total: f"{where}: ${total:,.2f} of new risk, over the session's limit")
+        f.expect(explore <= policy.SESSION_RISK * policy.EXPLORE_SHARE * equity + 0.01,
+                 lambda where=where, explore=explore: f"{where}: ${explore:,.2f} explored, over the exploration share")
+        f.expect(days.get((session, account)) == "traded",
+                 lambda where=where: f"{where}: decisions without a 'traded' session record")
+    return f
+
+
+def check_learner_findings(src: Sources) -> Finding:
+    from desk.stocks.learner import findings as fd
+
+    f = Finding("learner.findings", "Learner", "Learner findings: found on held-out days with enough days, corrected "
+                "for every rule tested, the right sign, and stages in order (confirmed only on later days)")
+    if src.research is None or not _has_table(src.research, "stk_learn_findings"):
+        f.skipped = "no Learner findings"
+        return f
+    heldout = {r[0]: (r[1], r[2]) for r in src.research.execute(
+        "SELECT model_id, first_session, last_session FROM stk_learn_heldout")}
+    allowed = {"candidate": set(), "confirmed": {"candidate"}, "failed": {"candidate"}, "retired": {"confirmed"}}
+    for item in fd.current(src.research):
+        ev = item["evidence"]
+        problems = []
+        if (ev.get("days") or 0) < fd.MIN_DAYS:
+            problems.append(f"{ev.get('days')} days, fewer than {fd.MIN_DAYS}")
+        if ev.get("p") is None or ev.get("fdr_threshold") is None or ev["p"] > ev["fdr_threshold"] + 1e-12:
+            problems.append("did not clear the correction")
+        if item["kind"] == "do" and not (ev.get("mean", 0) > 0 and ev.get("low", 0) > 0):
+            problems.append("a 'do' without a positive range")
+        if item["kind"] == "dont" and not (ev.get("mean", 0) < 0 and ev.get("excess_high", 0) < 0):
+            problems.append("a 'don't' without a negative range against the day's average")
+        window = heldout.get(item["model_id"])
+        if window is None:
+            problems.append("its model kept no held-out rows")
+        elif not (window[0] <= item["first_session"] and item["last_session"] <= window[1]):
+            problems.append("found outside its model's held-out days")
+        seen: set[str] = set()
+        for stage in item["stages"]:
+            if not allowed[stage["status"]] <= seen and stage["status"] != "candidate":
+                problems.append(f"{stage['status']} before {', '.join(sorted(allowed[stage['status']]))}")
+            if stage["status"] in ("confirmed", "failed", "retired"):
+                if (stage["evidence"].get("days") or 0) < fd.CONFIRM_DAYS:
+                    problems.append(f"{stage['status']} on {stage['evidence'].get('days')} days")
+                if (stage["first_session"] or 0) <= item["last_session"]:
+                    problems.append(f"{stage['status']} on days inside its discovery window")
+            seen.add(stage["status"])
+        f.expect(not problems, lambda item=item, problems=problems:
+                 f"{item['kind']} {item['id']} ({item['status']}): {'; '.join(problems[:3])}")
+    return f
+
+
 CHECKS: tuple[Callable[[Sources], Finding], ...] = (
     check_play_probabilities, check_play_chance_order, check_play_risk, check_play_breakevens, check_play_expiration,
     check_budget_bands, check_horizon_bands, check_mark_floor, check_mark_dates, check_settlement_waits,
     check_outcomes, check_history, check_archive_settled, check_performance, check_book_cash, check_book_positions,
     check_book_fills, check_learning_returns, check_prices, check_option_quotes, check_learning_report,
-    check_learner_features, check_learner_labels)
+    check_learner_features, check_learner_labels, check_learner_account, check_learner_findings)
 
 
 def run(src: Sources, *, budget: float | None = None,
