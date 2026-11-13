@@ -524,6 +524,8 @@ def settle_expired(conn: sqlite3.Connection, market: StocksMarket, now: datetime
         value = fills.settle(position.legs, close)
         exercised = sum(abs(int(leg["quantity"])) for leg in position.legs if fills.intrinsic(leg, close) > 0)
         fee = round(exercised * fills.OPTION_FEE_PER_CONTRACT, 2) if value > 0 else 0.0
+        if value <= fee:                   # not worth exercising for less than its fee: it lapses, at no cost
+            value, fee = 0.0, 0.0
         reason = (f"Expired {expiry.isoformat()}: settled at intrinsic on the ${close:,.2f} official close"
                   + ("" if value > 0 else " (worthless)"))
         evidence = {"settlement": SETTLED, "underlying_close": close, "close_day": last.isoformat(),

@@ -120,3 +120,20 @@ def test_a_split_during_the_hold_is_not_settled_on_the_unadjusted_strike(tmp_pat
     finally:
         conn.close()
         world.close()
+
+
+def test_a_contract_in_the_money_by_less_than_its_fee_lapses_at_no_cost(tmp_path):
+    """A synthetic edge case for the accuracy checks: a call a fraction of a cent in the money was exercised for less
+    than its fee, a return below -100%. It lapses instead: worth nothing, no fee, exactly -100%."""
+    world = make_world(tmp_path, n=12)
+    conn = learning.open_book(world.paths)
+    try:
+        bought(world, conn)
+        close(world, 100.004)
+        learning.tick(conn, world.market, SATURDAY)
+        rows = conn.execute("SELECT o.net_return, p.structure FROM stk_learning_outcomes o JOIN stk_positions p "
+                            "ON p.id = o.position_id WHERE o.basis=?", (learning.SETTLED,)).fetchall()
+        assert rows and all(r["net_return"] == pytest.approx(-1.0) for r in rows)
+    finally:
+        conn.close()
+        world.close()

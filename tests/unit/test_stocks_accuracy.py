@@ -385,3 +385,41 @@ def test_check_accuracy_prints_a_plain_report_and_fails_on_a_violation(world: An
     assert run(Namespace(stocks_command="check-accuracy", sessions=5, json=True)) == 1
     report = json.loads(capsys.readouterr().out)
     assert next(f for f in report["findings"] if f["id"] == "data.prices")["examples"][0].startswith("BAD")
+
+
+def test_a_paper_option_of_bought_contracts_is_never_sold_for_less_than_its_exit_fees(world: Any,
+                                                                                      tmp_path: Path) -> None:
+    """A synthetic edge case: PAPER sold a long call at a $0.00 bid, or settled one a fraction of a cent in the
+    money, and paid the $0.65 exit fee, a loss beyond what it cost (below -100% in the trade statistics). It is
+    written off at zero instead; a position with a sold leg closes as quoted."""
+    from dataclasses import replace
+
+    from desk.stocks.paper.engine import written_off
+    from desk.stocks.paper.report import trade_stats
+
+    expiry, later = world.days[-2], world.days[-1]
+    conn = connect(tmp_path / "ledger.db", DbKind.STOCKS_LEDGER)
+    migrate(conn, DbKind.STOCKS_LEDGER)
+    book = PaperBook(conn)
+    strategy = BY_STRATEGY["random_calls"]
+    at = datetime.combine(world.days[-6], time(20), UTC)
+    book.open_account(strategy.id, 10_000, at, world.days[-6])
+    decision = book.decide(at, world.days[-6], strategy.id, strategy.spec_sha256, "S10", "ENTER", [], {})
+    close = world.dbs.market.execute("SELECT close FROM stk_bars WHERE symbol = 'S10' AND day = ?",
+                                     (expiry.toordinal(),)).fetchone()[0]
+    leg = {**_leg("S10", "call", round(close - 0.004, 4), expiry), "quantity": 1, "entry_price": 0.5}
+    book.open_position(account=strategy.id, spec_sha256=strategy.spec_sha256, asset="option", symbol="S10",
+                       structure="long_call", legs=[leg], decision_id=decision, at=at, day=world.days[-6], cost=50,
+                       fees=FEE, max_loss=50 + FEE, stop_price=None, expires=expiry, plan={})
+    position = book.positions(strategy.id)[0]
+    assert written_off(position, 0.0, FEE)[:2] == (0.0, 0.0)
+    assert written_off(position, 5.0, FEE)[:2] == (5.0, FEE)
+    spread = replace(position, legs=[leg, {**leg, "quantity": -1}])
+    assert written_off(spread, 0.0, 2 * FEE)[:2] == (0.0, 2 * FEE)
+    engine = PaperEngine(world.market, book, SETTINGS, (strategy,))
+    report = StepReport(later)
+    engine._expiries(later, datetime.combine(later, time(22), UTC), {}, report)
+    closed = book.positions(strategy.id, state="CLOSED")
+    assert report.closed == 1 and closed[0].pnl == pytest.approx(-50 - FEE)
+    assert trade_stats(closed)["avg_return"] == pytest.approx(-1.0)
+    conn.close()
