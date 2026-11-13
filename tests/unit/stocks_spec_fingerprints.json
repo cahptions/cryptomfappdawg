@@ -8,11 +8,18 @@
  "stocks_learner_features": {
   "1": "1896184740aedee5596e47844a1e64fccca9e69414242fde967e13a1a409fba5"
  },
+ "stocks_learner_findings": {
+  "1": "739dc807e8b3b2bd5fe28903c83baf8d838758cb65f8c163432d9e2a0dd7889b"
+ },
  "stocks_learner_labels": {
   "1": "31e44eac64cd410ec95d1cb4e92939d8619338a0db6332988a8e28cbab691bab"
  },
  "stocks_learner_model": {
-  "1": "4715e60f545b8c7ae898d636f12ce8a5744c5fd649ae68109f0e58e07d8c788a"
+  "1": "4715e60f545b8c7ae898d636f12ce8a5744c5fd649ae68109f0e58e07d8c788a",
+  "2": "b056c79e3fadbcbdcb6b10e9a6ea740e026eecd5a737fa27cdb201ffd8c10e64"
+ },
+ "stocks_learner_regimes": {
+  "1": "8d65defe81b28cf5002fafe48f4ad6994f955d58dabfcfd6cbbcbe8db2a2bb16"
  },
  "stocks_list_big_moves": {
   "1": "c5b7f621c842898b7dbf4a7ecf5bf89391963785bba2648c37c3f44266373a8b"

@@ -49,12 +49,13 @@ from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks.learner import actions as act
 from desk.stocks.learner import features as ft
 from desk.stocks.learner import labels as lb
+from desk.stocks.learner import regimes as rg
 from desk.stocks.learner.experience import unpack
 
 NAME = "stocks_learner_model"
-VERSION = 1
+VERSION = 2                         # v2 (2026-11-13): the regime codes are features; held-out rows are kept
 CHECKPOINT_TARGETS = ("s1", "s5", "s10", "s21", "exp")
-FEATURES = (*ft.STOCK_NAMES, *ft.MARKET_NAMES, *ft.CONTRACT_NAMES, "source_replay")
+FEATURES = (*ft.STOCK_NAMES, *ft.MARKET_NAMES, *rg.FEATURES, *ft.CONTRACT_NAMES, "source_replay")
 CATEGORICAL = ("structure", "bucket", "sector")
 PARAMS = {"max_iter": 80, "learning_rate": 0.1, "max_leaf_nodes": 31, "min_samples_leaf": 40,
           "l2_regularization": 1.0, "early_stopping": False, "random_state": 7}
@@ -76,7 +77,8 @@ def content() -> dict[str, Any]:
     return {"version": VERSION, "features": list(FEATURES), "categorical": list(CATEGORICAL), "params": PARAMS,
             "exit_params": EXIT_PARAMS, "max_rows": MAX_ROWS, "folds": FOLDS, "test_share": TEST_SHARE,
             "embargo": EMBARGO, "clip_high": CLIP_HIGH, "min_rows": MIN_ROWS, "quantiles": list(QUANTILES),
-            "actions": act.version_hash(), "features_version": ft.version_hash(), "labels": lb.version_hash()}
+            "actions": act.version_hash(), "features_version": ft.version_hash(), "labels": lb.version_hash(),
+            "regimes": rg.version_hash()}
 
 
 def version_hash() -> str:
@@ -95,6 +97,7 @@ class Dataset:
     symbol: list[str]
     y: dict[str, np.ndarray] = field(default_factory=dict)        # target -> return (NaN = not known)
     day: dict[str, np.ndarray] = field(default_factory=dict)      # target -> the session its label became known
+    index: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int32))   # the row's place in its stored group
 
     def __len__(self) -> int:
         return int(self.X.shape[0])
@@ -102,7 +105,12 @@ class Dataset:
     def subset(self, rows: np.ndarray) -> Dataset:
         return Dataset(self.X[rows], self.session[rows], self.source[rows], [self.origin[i] for i in rows],
                        self.explore[rows], [self.key[i] for i in rows], [self.symbol[i] for i in rows],
-                       {k: v[rows] for k, v in self.y.items()}, {k: v[rows] for k, v in self.day.items()})
+                       {k: v[rows] for k, v in self.y.items()}, {k: v[rows] for k, v in self.day.items()},
+                       self.index[rows] if len(self.index) else self.index)
+
+    def column(self, name: str) -> np.ndarray:
+        out: np.ndarray = self.X[:, FEATURES.index(name)]
+        return out
 
 
 def targets() -> tuple[str, ...]:
@@ -113,8 +121,10 @@ def row_vector(stock: Mapping[str, Any], market: Mapping[str, Any], x: Mapping[s
     def num(v: Any) -> float:
         return float("nan") if v is None else float(v)
 
+    regime = rg.codes(market)
     return ([num(stock.get(k)) for k in ft.STOCK_NAMES] + [num(market.get(k)) for k in ft.MARKET_NAMES]
-            + [num(x.get(k)) for k in ft.CONTRACT_NAMES] + [1.0 if replay else 0.0])
+            + [num(regime[k]) for k in rg.FEATURES] + [num(x.get(k)) for k in ft.CONTRACT_NAMES]
+            + [1.0 if replay else 0.0])
 
 
 def _groups(conn: sqlite3.Connection, sources: Sequence[str], max_rows: int, seed: int
@@ -145,7 +155,7 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
     """Every labelled candidate (at most ``max_rows``: whole stock-sessions, a seeded sample) with its targets."""
     av, lv = act.version_hash(), lb.version_hash()
     X: list[list[float]] = []
-    session, source, explore = [], [], []
+    session, source, explore, index = [], [], [], []
     origin, key, symbol = [], [], []
     names = targets()
     y: dict[str, list[float]] = {t: [] for t in names}
@@ -176,6 +186,7 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
             session.append(sess)
             source.append(1 if src == "replay" else 0)
             explore.append(int(row["explore"]))
+            index.append(idx)
             origin.append(row["origin"])
             key.append(row["key"])
             symbol.append(sym)
@@ -187,7 +198,7 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
     return Dataset(np.asarray(X, dtype=np.float32).reshape(n, len(FEATURES)), np.asarray(session, dtype=np.int32),
                    np.asarray(source, dtype=np.int8), origin, np.asarray(explore, dtype=np.int8), key, symbol,
                    {t: np.asarray(v, dtype=np.float32) for t, v in y.items()},
-                   {t: np.asarray(v, dtype=np.int32) for t, v in day.items()})
+                   {t: np.asarray(v, dtype=np.int32) for t, v in day.items()}, np.asarray(index, dtype=np.int32))
 
 
 # ── fitting ──────────────────────────────────────────────────────────────────────────────────────
@@ -365,6 +376,34 @@ def deciles(ds: Dataset, pred: np.ndarray, realised: np.ndarray, ok: np.ndarray)
                                      if (r := _daily(ds.session, realised, ok & plays).get(s)) is not None})}
 
 
+def regime_labels(ds: Dataset) -> list[str]:
+    """Each row's regime in words (``regimes.label``), from its regime-code features."""
+    cols = np.stack([ds.column(f) for f in rg.FEATURES], axis=1) if len(ds) else np.zeros((0, len(rg.FEATURES)))
+    cache: dict[tuple[float, ...], str] = {}
+    out = []
+    for row in cols.tolist():
+        k = tuple(-1.0 if v != v else v for v in row)
+        if k not in cache:
+            cache[k] = rg.label({f: (None if v == -1.0 else v) for f, v in zip(rg.FEATURES, k, strict=True)})
+        out.append(cache[k])
+    return out
+
+
+def by_regime(ds: Dataset, pred: np.ndarray, realised: np.ndarray, ok: np.ndarray) -> list[dict[str, Any]]:
+    """Held-out results per market regime: rows, days, rank correlation, the top tenth and a random candidate."""
+    labels = np.array(regime_labels(ds), dtype=object)
+    out = []
+    for name in sorted(set(labels[ok].tolist())):
+        rows = ok & (labels == name)
+        d = deciles(ds, pred, realised, rows)
+        out.append({"regime": name, "rows": int(rows.sum()), "days": len(np.unique(ds.session[rows])),
+                    "rank_correlation": spearman(pred[rows], realised[rows]),
+                    "mean_realised": round(float(np.mean(realised[rows])), 4) if rows.any() else None,
+                    "top_decile": d["top_decile"], "random_candidate": d["random_candidate"],
+                    "top_minus_random": d["top_minus_random"]})
+    return out
+
+
 def folds(ds: Dataset) -> list[tuple[int, int, int]]:
     """(train cut-off session, test first session, test last session) of each walk-forward block."""
     sessions = np.unique(ds.session)
@@ -444,6 +483,9 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
                 daily_ic[int(s)] = c
     out["daily_rank_correlation"] = boot(daily_ic)
     out["deciles"] = deciles(ds, exp, realised, ok)
+    out["by_regime"] = by_regime(ds, exp, realised, ok)
+    out["_heldout"] = {"tested": tested, "expected": exp, **{k: p[k] for k in ("q10", "q50", "q90", "p_exp", "best_exit")
+                                                             if k in p}}
     out["calibration"] = {}
     for t in CHECKPOINT_TARGETS:
         name = f"p_{t}"
@@ -525,6 +567,7 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     metrics = evaluate(ds, progress)
     variant = metrics.get("chosen_variant", "source")
     last = metrics.pop("_last", None)
+    held = metrics.pop("_heldout", None)
     say("fitting the final models")
     fitted = fit(ds, variant=variant)
     if not fitted.models:
@@ -533,6 +576,7 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     if blocks and last is not None:
         metrics["importance"] = importance(last, ds, np.where(ds.session >= blocks[-1][1])[0])
     metrics["targets_rows"] = fitted.rows
+    metrics["evidence_cells"] = evidence_cells(ds)
     blob = zlib.compress(pickle.dumps({"models": fitted.models, "variant": variant, "features": list(FEATURES),
                                        "code": version_hash()}, protocol=5), 6)
     digest = hashlib.sha256(blob).hexdigest()
@@ -543,6 +587,17 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     if not path.exists():
         path.write_bytes(blob)
         path.chmod(0o600)
+    if held is not None:
+        from desk.stocks.learner import findings
+
+        say("writing the do / don't findings from the held-out rows")
+        mined = time.monotonic()
+        metrics["heldout_stored"] = findings.save_heldout(conn, ident, ds, held, now)
+        try:
+            metrics["findings"] = {**findings.mine(conn, ds, held, ident, now),
+                                   "seconds": round(time.monotonic() - mined, 1)}
+        except (ValueError, FloatingPointError, MemoryError) as exc:          # recorded; the model still registers
+            metrics["findings"] = {"looked": False, "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
     seconds = round(time.monotonic() - started, 1)
     conn.execute("INSERT OR IGNORE INTO stk_learn_models(id, trained_at, code_version, data_json, features_json, "
                  "metrics_json, artifact, artifact_sha256, bytes, seconds, peak_mb, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -550,6 +605,25 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
                   json.dumps(metrics, allow_nan=False), path.name, digest, len(blob), seconds, _peak_mb(), note))
     return {"trained": True, "id": ident, "rows": len(ds), "seconds": seconds, "peak_mb": _peak_mb(),
             "bytes": len(blob), "variant": variant}
+
+
+def cell(key: str) -> str | None:
+    """The region of the action space an evidence count is kept for: structure, |delta| and expiry bucket."""
+    if not key:
+        return None
+    structure, d, _w, bucket = key.split("|")
+    return f"{structure}|{d}|{bucket}"
+
+
+def evidence_cells(ds: Dataset) -> dict[str, int]:
+    """Labelled rows (held to expiry) the final models saw, per region of the action space (``cell``)."""
+    out: dict[str, int] = defaultdict(int)
+    known = ~np.isnan(ds.y["exp"])
+    for k, ok in zip(ds.key, known.tolist(), strict=True):
+        c = cell(k)
+        if ok and c is not None:
+            out[c] += 1
+    return dict(sorted(out.items()))
 
 
 def latest(conn: sqlite3.Connection) -> sqlite3.Row | None:
@@ -594,5 +668,6 @@ def describe(p: Mapping[str, np.ndarray], i: int) -> dict[str, Any]:
 
 
 __all__ = ["CHECKPOINT_TARGETS", "FEATURES", "MAX_ROWS", "NAME", "VERSION", "Dataset", "Fitted", "best_exit", "boot",
-           "content", "data_summary", "describe", "evaluate", "fit", "folds", "importance", "latest", "load",
-           "load_models", "predict", "reliability", "row_vector", "spearman", "train", "version_hash"]
+           "by_regime", "cell", "content", "data_summary", "describe", "evaluate", "evidence_cells", "fit", "folds",
+           "importance", "latest", "load", "load_models", "predict", "regime_labels", "reliability", "row_vector",
+           "spearman", "train", "version_hash"]

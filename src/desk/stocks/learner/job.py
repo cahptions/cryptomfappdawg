@@ -21,12 +21,10 @@ JOB = "learner"
 
 def register_specs(market: StocksMarket, now: datetime) -> dict[str, str]:
     """Freeze the Learner's rule sets (a changed rule without a new version is refused, as every frozen rule set)."""
-    from desk.stocks.learner import model
+    from desk.stocks.learner import findings, model, regimes
 
-    return {act.NAME: market.register_spec(act.NAME, act.VERSION, act.content(), now),
-            ft.NAME: market.register_spec(ft.NAME, ft.VERSION, ft.content(), now),
-            lb.NAME: market.register_spec(lb.NAME, lb.VERSION, lb.content(), now),
-            model.NAME: market.register_spec(model.NAME, model.VERSION, model.content(), now)}
+    return {m.NAME: market.register_spec(m.NAME, m.VERSION, m.content(), now)
+            for m in (act, ft, lb, model, regimes, findings)}
 
 
 def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
