@@ -521,8 +521,12 @@ verified state and storage used.
 
 Code: `src/desk/stocks/play_marks.py`. Every play and twin gets one append-only mark per session: **liquidation
 value** (long legs at the bid, short legs bought back at the ask — the honest "if I closed now"), mid value, and P/L
-per contract after fees (opening fees always; closing fees unless it settled) as a share of the money at risk. Its
-status is one of:
+per contract after fees (opening fees always; closing fees unless it settled) as a share of the money at risk. A
+loss never goes beyond the money at risk (-100%): a bought position whose bid is below its exit fees is left to
+expire, which costs nothing, and a sold structure whose buy-back at the asks would cost more than its width is held to
+expiry instead, where it loses at most its maximum loss (both from 2026-11-13; research migration
+`0018_mark_floor.sql` corrected the marks recorded before, which read -101% to -120%, to exactly -100%, leaving their
+value, status and day as recorded). Its status is one of:
 
 | Status | Meaning | Graded and learned from? |
 |---|---|---|
@@ -535,7 +539,11 @@ status is one of:
 **Gap repair runs whenever the dashboard is open** (every pass after the close, hourly while trading): stock closes
 come from the stored daily bars, else Schwab's daily price history (the smallest documented period that reaches the
 gap; kept only if it agrees with stored closes and postdates the last known split), else the underlying Schwab
-reported with the closing quotes. Expirations inside a gap are settled exactly on the official close. For gap sessions
+reported with the closing quotes. Expirations inside a gap are settled exactly on the official close. The expiry
+grade (`plays.grade`) reads the same close: the settlement session's own (the session before an expiry that falls on
+a market holiday), from the bars or that Schwab history, and waits while it is missing; until 2026-11-13 it took the
+latest close within four days of the expiry, so a stock missing from the expiry's bars was graded on an earlier
+session's close (outcomes graded that way are kept; the accuracy check lists them). For gap sessions
 Schwab still has minute bars for (its price history serves ten days of them, and gap repair asks for all ten), or
 older ones whose minutes were archived when the app fetched them ([intraday](STOCKS_INTRADAY.md)), a five-minute path
 is estimated too. Estimates across a results filing,
@@ -562,6 +570,43 @@ history as three lines; the take-profit chance with how many plays hit take-prof
 profit, the return targets, the maximum gain and touch); the Expiry filter's own cohorts by band; and a cumulative
 "$100 into every play" curve, counted at settlement, against the same $100 into each twin and into SPY over the
 same dates.
+
+Twins are compared over the same plays: a play whose twin has no return yet (or had no twin) is in the picks' own
+figures but not in the comparison. Each holding period and bucket therefore also carries the picks' figures over just
+those pairs (`paired`, `paired_expiry`), History's summaries the picks' average over the pairs (`twins_paired`), and
+the curve how many plays each baseline covers (`twinned`, `picks_twinned`, `spy_settled`); the page shows them
+whenever fewer plays have a twin than were counted.
+
+## Accuracy checks
+
+`desk stocks check-accuracy` (on the laptop: `kestrel check`; `--json` for the whole report, `--sessions N` for how
+many recent History sessions to rebuild) runs `src/desk/stocks/accuracy.py`: the rules every number the app records
+or shows must keep, read-only over the four databases and the saved views. Evidence → **Check data health** shows the
+same counts per check (bounded to 15 seconds and the last ten sessions) and the downloaded health report lists up to
+five examples of each broken rule (ids, symbols and dates; never a key or a setting). The command exits 1 when a rule
+is broken.
+
+| Area | Rules |
+|---|---|
+| Plays | every chance in [0, 1]; P(+100%) ≤ P(+50%) ≤ P(+25%) ≤ P(profit at expiry) and the maximum gain no likelier than any profit, as modelled and as shown; take-profit plus stop chance ≤ 1; entry > 0; maximum loss > 0 and at least the real worst case; break-evens where the position neither makes nor loses its entry at expiry; expiry on or after the pick; budget plays inside their band; Expiry filter plays inside their band's days |
+| Marks and outcomes | no mark below -100% of the money at risk; settled marks only on the settlement session, none after it; a play settled within one trading day of its settlement session once that close is stored (and no identified play still "awaiting expiry close"); graded outcomes on the settlement session's own close, payoff and net return consistent with it |
+| History and Performance | summaries are the arithmetic of their rows (average, median, in profit, "$100 in each" = the sum of each row's return on $100, best ≥ worst); rows' peaks above their lows, days held ≥ 0; twins compared over the same pairs; Performance counts and rates possible, returns ≥ -100%, the curves' invested = $100 × settled |
+| PAPER and Learning | cash never negative; equity = cash + positions; legs with a quantity; never closed before opened; a bought option never loses more than its cost and fees; fills inside the day's range (stocks, after slippage) or the day's stored quote (options); Learning outcomes and checkpoints ≥ -100% |
+| Data | daily bars: close > 0, low ≤ open/close ≤ high, volume ≥ 0; option quotes: 0 ≤ bid ≤ ask, implied volatility 0.5%–500%, no contract stored after its expiry |
+| Learning report | counts ≥ 0, returns on money at risk ≥ -100%, every number finite |
+
+What the checks found and fixed (2026-11-13), each at the code that produced it:
+
+- **Credit structures below -100%** (an iron butterfly's quoted marks at -111% to -120%): the buy-back at the asks
+  cost more than the width. Marks now stop at the maximum loss (above); stored marks corrected by `0018_mark_floor`.
+- **Twins compared with every play** while only some had a twin: now compared over the same pairs (above).
+- **Expiry grades on an earlier close** when the settlement session's bar was missing: now the settlement session's
+  own close only (above). PAPER options expiring while no pass ran did the same and now wait for that close too.
+- **Calibrated chances out of order**: each expiry chance is calibrated on its own graded plays, so a small group could
+  show P(+50%) above P(+25%). A shown chance is now capped by the chance it implies (profit ≥ +25% ≥ +50% ≥ +100%,
+  profit ≥ maximum gain); this changes the shown, and so graded, chance only where calibration inverted them.
+- **Bought contracts sold for less than their exit fees** (PAPER, Learning; below -100%): written off at zero instead
+  ([STOCKS_PAPER.md](STOCKS_PAPER.md), [STOCKS_LEARNING.md](STOCKS_LEARNING.md)).
 
 ## Learning
 

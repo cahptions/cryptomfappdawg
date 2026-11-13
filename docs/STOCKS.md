@@ -147,6 +147,10 @@ research account is doing: every book's P/L on the money put in, the research ac
 on the very same orders (split into trades both made, trades the reference could only partly afford, and trades it
 could not afford at all), the research account's results by recipe (structure, size, holding time), how much of its
 profit came from its best five trades, and whether its per-day average is distinguishable from luck.
+**`kestrel check`** checks, read-only, every number the app records or shows for values that are impossible or
+disagree with each other (a loss beyond the money at risk, chances out of order, a summary that is not the sum of its
+rows, a book whose cash goes negative ...) and prints each broken rule with up to five examples
+([STOCKS_PLAYS.md](STOCKS_PLAYS.md#accuracy-checks)).
 
 ### Always on
 
