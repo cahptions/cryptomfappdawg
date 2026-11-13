@@ -76,6 +76,12 @@ def add_parser(sub: Any) -> None:
                           help="recent History sessions to rebuild and check (more takes longer on a large desk)")
     accuracy.add_argument("--json", action="store_true", help="the full report as JSON")
     accuracy.set_defaults(func=run)
+    commands.add_parser("learner", help="read-only: the Learner's experience log, labels, last model and its held-out "
+                        "results (shadow only; docs/STOCKS_LEARNER.md)").set_defaults(func=run)
+    commands.add_parser("learner-train", help="train, freeze and register the Learner's shadow model now (a few "
+                        "minutes; never adopted by any trading)").set_defaults(func=run)
+    commands.add_parser("learner-bench", help="time and memory of a Learner training on a synthetic year (no data is "
+                        "read or written)").set_defaults(func=run)
     commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
     commands.add_parser("options-history", help="read-only: can the Massive key read historical option prices? "
                         "(two requests)").set_defaults(func=run)
@@ -144,6 +150,35 @@ def _run(args: argparse.Namespace) -> int:
                                 progress=lambda line: print("  " + line, file=sys.stderr, flush=True))
         print(json.dumps(report, indent=2) if args.json else accuracy.text(report))
         return 1 if report["violations"] else 0
+    if args.stocks_command == "learner-bench":
+        from desk.stocks.learner import bench
+
+        print("Training on a synthetic year (synthetic numbers; a few minutes)…", file=sys.stderr, flush=True)
+        print(json.dumps(bench.run(), indent=2))
+        return 0
+    if args.stocks_command == "learner":
+        import sqlite3
+
+        from desk.stocks.learner import view
+        from desk.stocks.repo import RESEARCH_FILE
+
+        path = paths.db_dir / RESEARCH_FILE
+        if not path.exists():
+            print("No research database yet.")
+            return 0
+        conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            print(json.dumps(view.summary(conn), indent=2, default=str))
+        finally:
+            conn.close()
+        return 0
+    if args.stocks_command == "learner-train":
+        from desk.stocks.learner import train
+
+        paths.ensure()
+        print(json.dumps(train.main(paths), indent=2, default=str))
+        return 0
     paths.ensure()
     loaded = load_config(paths.config_dir)
     settings = loaded.settings.stocks

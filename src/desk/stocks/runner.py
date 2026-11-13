@@ -171,7 +171,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
     # analysis (they change every few minutes while downloading and would otherwise redo the whole analysis each pass).
     jobs = {k: v.get("last_ok_at") for k, v in market.jobs().items()
             if k not in ("prices", "option_bars", "massive_options", "lotto_history", "iv_history", "earnings_history",
-                         "replay_listings", "world", "news", "policy")}
+                         "replay_listings", "world", "news", "policy", "learner")}
     signature = sha256_hex(canonical_json({"target": target.isoformat(), "expected": expected.isoformat(),
                                          "receipts": receipts, "jobs": jobs,
                                          "config": loaded.snapshot_hash, "preview_version": 5,

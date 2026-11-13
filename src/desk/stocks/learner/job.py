@@ -60,6 +60,9 @@ def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], n
 
     out["replay"] = replay.step(market, research, now)
     out["replay_labels"] = lb.run(research.conn, market.conn, lb.ReplayPrices(market.conn), now)
+    from desk.stocks.learner import view
+
+    out["shadow"] = view.refresh(paths, dbs, now)
     return out
 
 

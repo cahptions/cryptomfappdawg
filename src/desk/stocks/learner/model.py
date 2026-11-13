@@ -561,7 +561,7 @@ def latest(conn: sqlite3.Connection) -> sqlite3.Row | None:
         return None
 
 
-def load_models(home: Path, row: Mapping[str, Any]) -> Fitted | None:
+def load_models(home: Path, row: sqlite3.Row | Mapping[str, Any]) -> Fitted | None:
     """The frozen models of a registry row, only when the file's hash matches the registry."""
     path = home / MODELS_DIR / str(row["artifact"])
     try:
