@@ -45,7 +45,7 @@ SECTIONS = (("learned", "What it has learned"), ("behaviour", "How it behaves"),
             ("wrong", "What it's getting wrong"), ("achievements", "Achievements"),
             ("surprises", "Surprises — worth a look"), ("coming", "Coming up"),
             ("changed", "Changed since last week"), ("replay", "Replays on past data — not forward results"),
-            ("learner", "The Learner — a shadow model, not traded"))
+            ("learner", "The Learner — its model, its PAPER account and what it learned"))
 STRENGTHS = ("early", "suggestive", "tested")
 EVENTS = {  # event: (the chance of …, what happened)
     "itm": ("finishing in the money", "finished in the money"),
@@ -1396,9 +1396,95 @@ def learner(src: Sources, r: Report) -> None:
               key="learner:importance", weight=0.4)
 
 
+def _dollars(x: float | None) -> str:
+    return "—" if x is None else f"${x:,.0f}"
+
+
+def learner_findings(src: Sources, r: Report) -> None:
+    """What the Learner learned to do and not to do: its findings from held-out data, with their stage."""
+    if not _has(src.research, "stk_learn_findings"):
+        return
+    from desk.stocks.learner import findings as fd
+
+    assert src.research is not None
+    link = "#learner"
+    items = fd.current(src.research)
+    live = [f for f in items if f["status"] in ("confirmed", "candidate")]
+    for f in sorted(live, key=lambda f: (f["status"] != "confirmed", f["kind"], f["id"]))[:8]:
+        ev = f["evidence"]
+        confirmed = f["status"] == "confirmed"
+        later = next((st["evidence"] for st in f["stages"] if st["status"] == "confirmed"), None)
+        lead = "What it learned to do: " if f["kind"] == "do" else "What it learned not to do: "
+        detail = ("Confirmed on later held-out days it was not found on"
+                  + (f" ({count(int(later['days']), 'day')}, {signed(later['mean'])} average)" if later else "")
+                  if confirmed else
+                  "A candidate: it cleared the correction on its discovery days and waits for later days to confirm it")
+        detail += f"; Benjamini-Hochberg across {ev.get('rules_tested', 0)} rules."
+        if confirmed and f["kind"] == "dont":
+            detail += " Used by the Learner's PAPER account as a hard filter."
+        r.add("learner", lead + f["words"].split(": ", 1)[-1], detail, items=int(ev.get("rows") or 0),
+              days=int(ev.get("days") or 0), unit="candidates", day_unit="days",
+              strength="suggestive" if confirmed else "early", link=link, key=f"learner:finding:{f['id']}",
+              weight=0.8 if confirmed else 0.4)
+    gone = [f for f in items if f["status"] in ("failed", "retired")]
+    if gone:
+        r.add("learner", f"{count(len(gone), 'finding')} did not hold on later data and "
+                         f"{'were' if len(gone) != 1 else 'was'} set aside.",
+              "Kept in the record with their evidence: " + "; ".join(f["words"][:90] for f in gone[:3]) + ".",
+              items=len(gone), days=0, unit="findings", strength="early", link=link, key="learner:findings-gone",
+              weight=0.3)
+    r.metric("learner.findings_confirmed", "Learner findings confirmed",
+             sum(f["status"] == "confirmed" for f in items), unit="findings")
+
+
+def learner_account(src: Sources, r: Report) -> None:
+    """The Learner PAPER account against its random twin, its results by regime and its versions' promotion."""
+    view = src.views.get("learner_account")
+    if not view:
+        return
+    link = "#learner"
+    gate = view.get("gate") or {}
+    me = (view.get("accounts") or {}).get("learner") or {}
+    twin = (view.get("accounts") or {}).get("learner_random") or {}
+    vs = view.get("vs_rules") or {}
+    if not me.get("decisions"):
+        r.add("learner", "The Learner's PAPER account has not traded yet.", gate.get("why") or "", items=0, days=0,
+              strength="early", link=link, key="learner:account-waiting", weight=0.5)
+    else:
+        rv = vs.get("vs_random")
+        r.add("learner", f"The Learner's PAPER account is at {_dollars(me.get('equity'))} ({signed(me.get('return'))}) "
+                         f"against {_dollars(twin.get('equity'))} for its random twin at the same risk.",
+              f"{count(int(me.get('trades') or 0), 'closed trade')}, {me.get('open_positions', 0)} open; "
+              f"{pct(me.get('explore_share'))} of its new risk explored. "
+              + (f"By entry day, realised, it was {signed(rv['mean'])} a day against Random{_range(rv)}. " if rv else "")
+              + f"Grade: {(me.get('grade') or {}).get('text', 'too early')}. PAPER only; not yet confirmed forward.",
+              items=int(me.get("trades") or 0), days=int(me.get("sessions") or 0), unit="trades",
+              strength="early" if not rv or rv["days"] < MIN_DAYS else "suggestive", link=link,
+              key="learner:account", weight=0.9)
+    regimes = [g for g in (view.get("regimes") or {}).get("held_out") or [] if g.get("top_minus_random")]
+    if len(regimes) > 1:
+        best = max(regimes, key=lambda g: g["top_minus_random"]["mean"])
+        worst = min(regimes, key=lambda g: g["top_minus_random"]["mean"])
+        r.add("learner", f"By market regime, held out: its top tenth did best against random in a {best['regime']} "
+                         f"market ({signed(best['top_minus_random']['mean'])}) and worst in a {worst['regime']} one "
+                         f"({signed(worst['top_minus_random']['mean'])}).",
+              "Regimes from SPY against its 200-day average, the VIX and its term structure, and the high-yield "
+              "spread, as of the previous close.", items=sum(int(g["rows"]) for g in regimes),
+              days=sum(int(g["days"]) for g in regimes), unit="candidates", strength="early", link=link,
+              key="learner:regimes", weight=0.5)
+    for v in view.get("promotion") or []:
+        if v.get("stage") in ("confirmed", "failed"):
+            f = (v.get("stages") or {}).get(v["stage"]) or {}
+            verdict = "was confirmed in" if v["stage"] == "confirmed" else "failed"
+            r.add("learner", f"Learner version {v['model_code']} {verdict} its forward test.", f.get("why") or "",
+                  items=int(f.get("trades") or 0), days=int(f.get("entry_days") or 0), unit="trades",
+                  day_unit="days", strength="tested" if v["stage"] == "confirmed" else "suggestive", link=link,
+                  key=f"learner:promotion:{v['model_code']}:{v['policy_version']}", weight=0.8)
+
+
 # ── build ────────────────────────────────────────────────────────────────────────────────────────
 LOOPS = (plays_calibration, plays_learning, plays_records, plays_behaviour, workspace, paper_forward, evidence,
-         replays, marks_health, health, learner)
+         replays, marks_health, health, learner, learner_findings, learner_account)
 # The two loops that read every graded chance and every recent mark are remembered until those tables change (new
 # grades and marks arrive once a session): on a large desk they are most of the time a report takes.
 HEAVY = frozenset({"plays_calibration", "marks_health"})
@@ -1487,6 +1573,9 @@ def sources(paths: DeskPaths) -> Iterator[Sources]:
             src.views["paper"] = saved(paths, "paper")
         except Exception:  # an unreadable saved view: that loop says it is waiting
             src.views["paper"] = None
+        from desk.stocks.learner import account as learner_page
+
+        src.views["learner_account"] = learner_page.saved(paths.home)
         src.views["evidence"] = document(paths, "report")
         src.views["backtest"] = document(paths, "report", kind="backtest")
         src.views["option_research"] = option_research.load(paths.home)

@@ -249,6 +249,21 @@ def test_kestrel_check_covers_the_learner_account_and_findings(run: Any) -> None
         assert any("no recorded" in x for x in acc.learner_position_problems(pos, None))
 
 
+def test_the_learning_report_has_the_learner_account(run: Any) -> None:
+    from desk.stocks import learning_report as lr
+    from desk.stocks.accuracy import report_problems
+    from desk.stocks.learner import account
+
+    w, *_ = run
+    account.refresh(w.paths, w.dbs, closing(w.days[-1]), force=True)
+    report = lr.build(w.paths, closing(w.days[-1]))
+    section = next(s for s in report["sections"] if s["id"] == "learner")
+    headlines = " ".join(i["headline"] for i in section["items"])
+    assert "PAPER account" in headlines
+    assert not report_problems(report)
+    assert "The Learner" in lr.render_markdown(report)
+
+
 class _Fake:
     """A book of closed positions for the promotion arithmetic."""
 
