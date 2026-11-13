@@ -632,6 +632,58 @@ profit, the return targets, the maximum gain and touch); the Expiry filter's own
 "$100 into every play" curve, counted at settlement, against the same $100 into each twin and into SPY over the
 same dates.
 
+### Replay on real past prices
+
+Forward plays take months to grade, so Performance also shows every section that can be rebuilt **replayed on real
+past option prices** (`src/desk/stocks/play_replay.py`). It is labelled "Replay on real past prices — not forward
+results" everywhere, stored in its own append-only tables (market migration `0013_plays_replay.sql`:
+`stk_replay_plays`, `stk_replay_days`, `stk_replay_outcomes`, each row with its source `massive_daily_bars` and the
+replay's rule fingerprint), and **never** grades, calibrates, labels, sizes or unlocks anything forward.
+
+- **Data.** Massive's free Options Basic archive (the last two years): for the 20 most traded optioned names (the
+  first of the IV history's names, SPY, QQQ and IWM first) and every standard monthly expiry already past, the
+  contracts Massive listed nine weeks before expiry (`as_of`; one request), then a ladder of strikes' daily bars (one
+  request each): the at-the-money call and put (the very pair the IV history downloads, so it is reused) and six
+  out-of-the-money calls and puts at 0.25–1.75 standard deviations of the move to expiry. Lottos reuse the lotto
+  replay's weekly contracts (`lotto_history`).
+- **Requests and time.** 13 requests a name-month: 20 names × 21 monthly expiries = **5,460 requests**, about 18 hours
+  at Massive's full 5 a minute. The replay shares the one Massive queue (`massive_options`) and takes a modest share,
+  at most **6 requests a pass while the market is closed and 1 while it is open**, last in the queue, so the replay of
+  contracts, the IV history, the earnings straddles, the listings and the lottos come first. At about 100
+  closed-market passes a day that is **about 9 days** to download everything; the replay of each week starts as soon as
+  its own inputs are complete. The page shows the requests left, hours at full speed and days at this share.
+- **Each replayed day.** The first session of every week whose inputs are all downloaded (its monthly expiries 7–60
+  days out for every name, and the IV history behind its IV rank). Each name's chain that day is every downloaded
+  contract that traded, priced at its **real closing trade** with an **assumed spread of 6% of the price (at least 3
+  cents)**; its volume that day stands in for open interest, which daily bars do not carry (a stricter gate: volume
+  is usually far below open interest). `plays.table` prices it exactly as a live chain (the chain's own smile where it
+  fits, else the lognormal), each section's own selector runs on it, one pick per stock, the top 12, `plays.finish`
+  turns each into a play and `plays.twin` draws its random twin from the same day's chains. Only that day's and
+  earlier data are read: the stock's closes to that day, the IV30 of that day's chain, IV rank from the IV history's
+  closing-trade series before it; no committee tilt (no committee view is rebuilt).
+- **Grading**, at expiry, exactly as forward plays (`plays.grade`): settled at intrinsic value on the stock's close on
+  expiry day (none within four days, or a split in between, leaves it unresolved), net of $0.65 a contract at entry;
+  the entry was the real close plus half the assumed spread for a bought leg and minus it for a sold one.
+- **Replayed sections.** Biggest model edge, Cheap volatility and Strangles on every name; Lottos on the lotto names'
+  weekly expiries; Sell premium, Iron condors, Iron butterflies and Cash-secured puts on **ETFs only** — their live
+  rule reads the committee's view, which ETFs never have (the research universe leaves them out), so on ETFs the live
+  rule is reproduced exactly, and on stocks it cannot be.
+- **Skipped, with the reason shown:** Most likely to finish ITM and Debit spreads (the committee's lean as it stood
+  that day needs the full desk analysis of every stock), Unusual activity (open interest and each contract's earlier
+  volumes and quote positions), Earnings plays (results dates as announced then are not stored point in time; the
+  historical replay trades earnings straddles on real prices separately), Trend calls (the momentum desk ranks every
+  stock), Bear puts (valuation, momentum and red flags), Squeeze (short interest as published) and Watchlist (your
+  watchlist then is not recorded).
+- **Shown** on Plays → Performance under the forward record: per section the plays, sessions, return at expiry, the
+  share in the money (or past the break-evens) and in profit, the random twins' return and the gap to them by a
+  bootstrap over sessions; then a **replay calibration** chart and table (KESTREL's raw chance, the market's, profit,
+  +25/50/100% and the maximum gain, in tenths with Brier scores), beside and never inside the forward calibration. The
+  Learning report lists each graded section in its "Replays on past data" section.
+- **Limits.** A closing trade is a last trade, not a quote: a quiet contract's last trade can be hours older than the
+  stock's close, and the real spread may be wider or narrower than assumed. Weekly decision days (not every session)
+  keep consecutive picks of the same contract from dominating. The ladder is placed nine weeks before expiry, so a
+  stock that moves far afterwards has fewer strikes near the money on the replayed day.
+
 ## Learning
 
 Code: `src/desk/stocks/play_learning.py`; one report per closed session (`stk_play_learning`), shown under
@@ -675,7 +727,8 @@ Measured on synthetic data (Ryzen-class cloud CPU): folding a session of 2,000 c
 a marks pass over 3,000 open plays with 20 sessions to mark takes about 1.7 s and 0.1 s when nothing is new. Storage:
 about 0.7 KB per contract per session of five-minute marks (kept 35 days), 136 bytes per daily close and 112 bytes per
 play mark. With ~100 picks a day plus twins (LEAPS living about a year), expect roughly 0.5–0.7 GB a year plus about
-0.2 GB of rolling intraday detail; System → Plays tracking shows the real figure. Requests: at most 40 per five-minute
+0.2 GB of rolling intraday detail; System → Plays tracking shows the real figure. Reading each expiry's smile (probability model 2)
+costs about 1.4 ms an expiry, roughly 1.5 s for a full build of 150 names × 7 expiries. Requests: at most 40 per five-minute
 pass by construction, typically 4–6 a minute.
 
 ## Limits
@@ -718,6 +771,7 @@ uv run desk open --desk stocks --restart
 
 Restart after updating: the Stocks page and server move between UI protocols together (protocol 9 now; a page
 from an older build asks for a reload). Saved research, PAPER records and connections are kept; new research tables
-arrive by numbered migration (the latest for Plays is `0014_play_grades.sql`, the graded chances). Plays appear after
+arrive by numbered migration (the latest for Plays is `0014_play_grades.sql`, the graded chances; the market
+database's `0013_plays_replay.sql` holds the section replay on real past prices). Plays appear after
 the next options collection pass (within 15 minutes in market hours); grades and calibrations build up as recorded
 plays resolve.
