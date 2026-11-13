@@ -1152,6 +1152,21 @@ def replays(src: Sources, r: Report) -> None:
               items=picks, days=int(run.get("days") or lotto.get("sessions") or 0),
               strength=strength(picks, int(run.get("days") or 0), need=20, tested=tested), link=PAPER,
               key="lotto-replay", weight=1)
+    for x in (src.views.get("plays_replay") or {}).get("sections") or []:
+        if not x.get("resolved"):
+            continue
+        found = True
+        vs = x.get("versus_twins") or {}
+        tested = bool(vs) and (vs.get("p_not_better") or 1) < 0.05 and (vs.get("mean_gap") or 0) > 0
+        r.add("replay", f"Replay on real past prices: {x['emoji']} {x['title']} returned "
+                        f"{signed(x.get('mean_return'), 0)} a play at expiry"
+                        + (f", {signed(vs['mean_gap'], 0)} against random twins." if vs else "."),
+              f"{count(int(x['resolved']), 'play')} graded over {count(int(x.get('sessions') or 0), 'session')} "
+              f"({x.get('where')}), {pct(x.get('hit_rate'))} finished in the money or past the break-evens; "
+              "replayed, not a forward result or calibration.",
+              items=int(x["resolved"]), days=int(x.get("sessions") or 0),
+              strength=strength(int(x["resolved"]), int(x.get("sessions") or 0), need=20, tested=tested),
+              link=PERFORMANCE, key=f"plays-replay:{x['id']}", weight=1)
     if not found:
         r.add("replay", "No replay results yet.", "Replays run on downloaded past prices (Massive) and are shown here "
                                                   "apart from the forward record.", items=0, days=0, strength="early",
@@ -1383,6 +1398,10 @@ def sources(paths: DeskPaths) -> Iterator[Sources]:
         src.views["backtest"] = document(paths, "report", kind="backtest")
         src.views["option_research"] = option_research.load(paths.home)
         src.views["lotto_history"] = lotto_history.load(paths.home / lotto_history.REPORT)
+        if src.market is not None:
+            from desk.stocks import play_replay
+
+            src.views["plays_replay"] = play_replay.view(src.market)
         yield src
     finally:
         for conn in (src.research, src.market, src.learning):

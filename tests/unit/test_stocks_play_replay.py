@@ -188,3 +188,21 @@ def test_the_queue_gives_the_replay_a_modest_share_and_reports_what_is_left(worl
     opened = datetime(2026, 10, 22, 15, 0, tzinfo=UTC)                     # a weekday, market open
     assert cal.market_session(opened)["state"] == "open"
     assert asyncio.run(pr.task(fake, w.market, w.paths.home, opened, 8))["requests"] <= pr.PER_PASS_OPEN
+
+
+def test_performance_and_the_learning_report_show_the_replay_apart(world: Any) -> None:
+    from desk.stocks import learning_report as lr
+    from desk.stocks import play_performance as pp
+
+    w, fake, _ = world
+    assert pp.build(w.market.conn, w.research.conn, NOW)["replay"] is None      # nothing replayed: nothing shown
+    download_all(w, fake)
+    pr.record(w.market, NOW)
+    pr.grade(w.market, NOW)
+    perf = pp.build(w.market.conn, w.research.conn, NOW)
+    assert perf["replay"]["resolved"] > 0 and perf["replay"]["label"].startswith("Replay")
+    assert perf["plays"] == 0 and perf["calibration"]["itm_kestrel"]["resolved"] == 0      # forward: untouched
+    report = lr.Report(NOW)
+    lr.replays(lr.Sources(views={"plays_replay": pr.view(w.market.conn)}), report)
+    items = [i for i in report.items if i["key"].startswith("plays-replay:")]
+    assert items and all(i["section"] == "replay" and "replayed" in i["detail"] for i in items)

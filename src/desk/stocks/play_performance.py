@@ -243,6 +243,14 @@ def cumulative(rows: Sequence[PlayReturn], spy: dict[int, float]) -> list[dict[s
     return out
 
 
+def replay_view(market: sqlite3.Connection, now: datetime) -> dict[str, Any] | None:
+    """The section replay on real past prices (``play_replay.view``), or None before it has replayed anything."""
+    from desk.stocks import play_replay
+
+    out = play_replay.view(market, now)
+    return out if out.get("plays") else None
+
+
 def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetime,
           labels: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     rows = returns_table(research)
@@ -286,6 +294,8 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, now: datetim
             "dte": buckets("dte", DTE_BUCKETS), "price": buckets("entry", PRICE_BUCKETS),
             "horizons": horizon_records(research),
             "calibration": {**calibration(rows), "events": event_calibration(research)}, "cumulative": curves,
+            # every section replayed on real past prices: its own record and calibration, never mixed with the above
+            "replay": replay_view(market, now),
             "titles": {c.id: {"title": c.title, "emoji": c.emoji} for c in RECORDED},
             "note": "Returns are on the money at risk after fees, from quoted closing marks and exact settlements only. "
                     "Holding periods count sessions after the pick; a play that expired sooner counts its settlement."}
