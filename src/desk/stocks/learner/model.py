@@ -584,6 +584,9 @@ def describe(p: Mapping[str, np.ndarray], i: int) -> dict[str, Any]:
 
     out: dict[str, Any] = {"p_profit": {t: val(f"p_{t}") for t in CHECKPOINT_TARGETS if f"p_{t}" in p},
                            "expected": val("expected"), "q10": val("q10"), "q50": val("q50"), "q90": val("q90")}
+    quantiles = [out[k] for k in ("q10", "q50", "q90")]
+    if None not in quantiles:          # three separately fitted models can cross; shown in order (rearrangement)
+        out["q10"], out["q50"], out["q90"] = sorted(q for q in quantiles if q is not None)
     if "best_exit" in p:
         rule = act.EXIT_RULES[int(p["best_exit"][i])]
         out["best_exit"] = {"id": rule.id, "title": rule.title, "p": val("best_exit_p")}
