@@ -1165,3 +1165,110 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+/* #learner: the Learner PAPER account; one column on a phone */
+.learner-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.learner-grid > * {
+  min-width: 0;
+}
+.learner-status-box {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.learner-status-box p {
+  margin: 0;
+}
+.learner-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+.learner-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.learner-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+.learner-trade-list,
+.learner-finding-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.learner-trade,
+.learner-finding {
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-1);
+  overflow-wrap: anywhere;
+}
+.learner-trade p,
+.learner-finding p {
+  margin: 4px 0 0;
+}
+.learner-trade-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+}
+.learner-mode,
+.learner-status {
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.learner-mode-explore,
+.learner-status-candidate {
+  color: var(--warning);
+}
+.learner-status-confirmed {
+  color: var(--good);
+}
+.learner-status-retired,
+.learner-status-failed {
+  color: var(--text-3);
+}
+.learner-finding-dont {
+  border-left: 3px solid var(--critical);
+}
+.learner-finding-do {
+  border-left: 3px solid var(--good);
+}
+.learner-why {
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+@media (max-width: 650px) {
+  .learner-grid {
+    grid-template-columns: 1fr;
+  }
+}

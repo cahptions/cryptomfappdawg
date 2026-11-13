@@ -11,6 +11,7 @@ import tempfile
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 
@@ -180,6 +181,56 @@ def learner_fixture(root: Path) -> None:
     world.close()
 
 
+def learner_account_fixture(root: Path) -> None:
+    """The Learner PAPER account over thirty synthetic sessions: candidates recorded, labelled, a small model trained,
+    then each session decided by the policy and stepped by the PAPER engine. The synthetic model would not pass the
+    real gate (too few held-out days), so the gate is let through while the fixture is built, and the saved page
+    still shows the real gate's verdict. Synthetic data, never real prices."""
+    from desk.stocks import plays
+    from desk.stocks.learner import account, experience, labels, model, policy
+    from desk.stocks.paper.book import PaperBook
+    from desk.stocks.paper.engine import PaperEngine
+
+    world = make_world(root, n=14)
+    add_chains(world, ["SPY", "CHEAP", "SQZ", "S10", "S11", "S12"], world.days[-75:], max_days=120)
+    train_days, trade_days = world.days[-75:-30], world.days[-30:]
+
+    def closing(d: Any) -> datetime:
+        return cal.session_close(d) + timedelta(minutes=30)
+
+    for d in train_days:
+        plays.build(world.market, world.research, closing(d))
+        experience.record_forward(world.market, world.research, d, closing(d))
+    labels.run(world.research.conn, world.market.conn, labels.ForwardPrices(world.market.conn, world.research.conn),
+               closing(train_days[-1]) + timedelta(hours=4), limit=10_000)
+    model.PARAMS = {**model.PARAMS, "max_iter": 10}
+    model.EXIT_PARAMS = {**model.EXIT_PARAMS, "max_iter": 4}
+    model.train(world.research.conn, world.paths.home, closing(train_days[-1]) + timedelta(hours=5),
+                note="synthetic browser fixture")
+    real = policy.gate
+
+    def let_through(row: Any, home: Any = None, *, load: bool = True) -> policy.Gate:
+        g = real(row, home, load=load)
+        fitted = model.load_models(home, row) if row is not None and home is not None else None
+        return policy.Gate(fitted is not None, "synthetic fixture", g.model_id, g.model_code, g.detail, fitted,
+                           g.metrics)
+
+    policy.gate = let_through  # type: ignore[assignment]
+    try:
+        book = PaperBook(world.dbs.ledger)
+        engine = PaperEngine(world.market, book, load_config(REPO / "config").settings.stocks, policy.STRATEGIES)
+        for d in trade_days:
+            engine.step(d, datetime.combine(d, datetime.min.time().replace(hour=22, minute=30), UTC), None)
+            if d != trade_days[-1]:
+                plays.build(world.market, world.research, closing(d))
+                experience.record_forward(world.market, world.research, d, closing(d))
+                policy.decide(world.research.conn, world.dbs.ledger, world.market, world.paths.home, d, closing(d))
+    finally:
+        policy.gate = real  # type: ignore[assignment]
+    account.refresh(world.paths, world.dbs, closing(trade_days[-1]), force=True)
+    world.close()
+
+
 def prepare(root: Path, scenario: str) -> DeskPaths:
     """Build one scenario's synthetic data directory under ``root`` (no server): the browser fixture's data, also
     used by the accuracy checks (desk.stocks.accuracy) to test every scenario's numbers."""
@@ -201,6 +252,8 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
         watchdog.record(paths, RISK_NOW, worker_running=True)
     elif args.scenario == "learner":
         learner_fixture(root)
+    elif args.scenario == "learner-account":
+        learner_account_fixture(root)
     elif args.scenario == "archive-history":
         from desk.stocks import play_selections, play_tracking, web
         from desk.stocks.repo import StocksDatabases
@@ -420,7 +473,8 @@ def main() -> None:
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
-                                               "stock-page", "learning-report", "ops", "account", "learner"],
+                                               "stock-page", "learning-report", "ops", "account", "learner",
+                                               "learner-account"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()
