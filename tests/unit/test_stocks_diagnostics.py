@@ -38,6 +38,11 @@ def test_diagnostics_omit_secrets_and_retained_errors_without_mutating_data(tmp_
         assert result['worker']['last_logged_exception_type'] == 'ValueError'
         assert result['history']['sessions'] > 60 and result['configured_inputs']['MASSIVE_API_KEY']
         assert list(world.dbs.ledger.iterdump()) == ledger
+        from desk.stocks.accuracy import CHECKS
+
+        assert len(result['accuracy']['checks']) == len(CHECKS)            # counts only; examples in the report
+        assert all('examples' not in c for c in result['accuracy']['checks'])
+        assert result['accuracy_violations'] == [] and result['accuracy']['violations'] == 0
     finally:
         world.close()
 

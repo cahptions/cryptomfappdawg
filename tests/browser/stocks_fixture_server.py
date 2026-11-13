@@ -156,6 +156,239 @@ def replay_fixture(world: StocksWorld) -> None:
                           -0.2, at))
 
 
+def prepare(root: Path, scenario: str) -> DeskPaths:
+    """Build one scenario's synthetic data directory under ``root`` (no server): the browser fixture's data, also
+    used by the accuracy checks (desk.stocks.accuracy) to test every scenario's numbers."""
+    paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
+    args = argparse.Namespace(scenario=scenario)
+    if args.scenario == "ops":
+        # Portfolio risk, phone alerts and the watchdog. Alert delivery is a recorder: nothing leaves this computer.
+        import os
+
+        from desk.stocks import alerts, watchdog, web
+        from tests.unit.test_stocks_risk import NOW as RISK_NOW
+        from tests.unit.test_stocks_risk import world as risk_world
+
+        risk_world(root)
+        web.utc_now = lambda: RISK_NOW
+        paths.secrets_file.write_text("NTFY_TOPIC_URL=https://ntfy.example.test/kestrel-browser-fixture-topic\n")
+        os.chmod(paths.secrets_file, 0o600)
+        alerts.deliver = lambda text, secrets, client=None: ["ntfy"]
+        watchdog.record(paths, RISK_NOW, worker_running=True)
+    elif args.scenario == "archive-history":
+        from desk.stocks import play_selections, play_tracking, web
+        from desk.stocks.repo import StocksDatabases
+        from tests.integration.test_stocks_play_archive import IDENTIFIED, LATER, board, initial_two, pick
+
+        web.utc_now = lambda: LATER
+        dbs = StocksDatabases.open(paths)
+        initial_two(dbs)
+        for category,names in [("likely_itm",["AAPL","MSFT"]),("unusual",["NVDA"])]:
+            play_selections.register(dbs.research,board(IDENTIFIED,category,[pick(s) for s in names]),IDENTIFIED)
+        # Original older installation saved this sighting without putting it in the closing cohort.
+        play_tracking.first_seen(dbs.research,board(IDENTIFIED,"bear_puts",[pick("AMZN","put")]),IDENTIFIED)
+        for symbol in ["SPY","QQQ","AAPL","MSFT","NVDA","AMZN"]:
+            p=pick(symbol,"put" if symbol == "AMZN" else "call")
+            dbs.research.execute("INSERT INTO stk_track_ticks(occ,at,session,bid,ask,underlying,quoted_at,source) "
+                "VALUES (?,?,?,?,?,?,?,?)",(p["legs"][0]["occ"],LATER.isoformat(),LATER.date().toordinal(),
+                                           4.,4.1,102.,LATER.isoformat(),"synthetic_archive_fixture"))
+        dbs.close()
+    elif args.scenario in {"plays-history", "learning-report"}:
+        from desk.stocks import play_learning, play_performance
+        from tests.integration.test_stocks_play_history import simulate
+
+        # Six synthetic sessions of picks, tracked, marked, one laptop-off session repaired (no provider).
+        world = make_world(root, n=60)
+        simulate(world)
+        replay_fixture(world)
+        evening = cal.session_close(world.days[-1]) + timedelta(hours=2)
+        if args.scenario == "learning-report":
+            # The Learning report's richest fixture: last week's snapshot is taken before the Plays learning
+            # report and the Learning book exist, so "Changed since last week" has something to say.
+            from desk.stocks import learning_report
+
+            earlier = learning_report.build(paths, evening)
+            world.research.conn.execute(
+                "INSERT INTO stk_learning_reports(week, created_at, report_json) VALUES (?, ?, ?)",
+                (learning_report.week_of(evening), evening.isoformat(), json.dumps(earlier)))
+        play_learning.learn(world.market.conn, world.research.conn, evening)
+        play_performance.refresh(world.paths, world.market.conn, world.research.conn, evening, changed=True)
+        if args.scenario == "learning-report":
+            from desk.stocks import learning
+            from tests.unit.test_stocks_learning import AT
+            from tests.unit.test_stocks_learning_lifecycle import ladder
+
+            lab = learning.open_book(paths)
+            try:     # lifecycle recipes on every bucket: fills, a 1-day checkpoint and the weeklies' sale
+                for at, bid, ask in [(AT, 4.8, 5.0), (AT + timedelta(minutes=1), 4.8, 5.0),
+                                     (AT + timedelta(days=1), 5.4, 5.6),
+                                     (datetime(2026, 10, 28, 16, tzinfo=UTC), 5.8, 6.0)]:
+                    ladder(world, at, bid, ask, source="synthetic_browser_fixture")
+                    learning.tick(lab, world.market, at)
+            finally:
+                lab.close()
+        world.close()
+    elif args.scenario != "empty":
+        through = NOW.date() - timedelta(days=7) if args.scenario == "paper-workflows" else NOW.date()
+        world = make_world(root, n=60, through=through)
+        # Synthetic chart coverage for visual checks; never market observations or forward evidence.
+        benchmarks = list(dict.fromkeys([*INDEX_NAMES, *SECTOR_NAMES]))
+        for bar in world.market.bars("SPY"):
+            extras = []
+            for index, symbol in enumerate(benchmarks):
+                if symbol == "SPY":
+                    continue
+                scale = 0.18 + (index + 1) * 0.095
+                extras.append(replace(bar, symbol=symbol, open=bar.open * scale, high=bar.high * scale,
+                                      low=bar.low * scale, close=bar.close * scale))
+            world.market.save_bars(bar.day, extras, "synthetic_browser_fixture", NOW)
+        add_chains(world, ["SPY", "QQQ", "CHEAP", "SQZ", "S10", "S11"], world.days[-3:])
+        world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
+        initial_now = cal.session_close(world.days[-1])+timedelta(minutes=76) if args.scenario == "paper-workflows" else NOW
+        process(paths, load_config(paths.config_dir), world.dbs, initial_now)
+        process(paths, load_config(paths.config_dir), world.dbs, initial_now, research_only=True)
+        if args.scenario == "paper-workflows":
+            # Three further genuinely processed synthetic sessions give filled positions and stop exits.
+            for index in range(3):
+                previous = world.market.bar_days()[-1]
+                day = cal.next_trading_day(previous)
+                prior_bars = [Bar(r[0],previous,r[2],r[3],r[4],r[5],r[6]) for r in world.market.bar_rows(previous,previous)]
+                bars = [replace(b, day=day, open=b.close, high=b.close*1.03,
+                                low=b.close*(.70 if index == 1 and b.symbol != "SPY" else .98),
+                                close=b.close*1.01) for b in prior_bars]
+                world.market.save_bars(day, bars, "synthetic_browser_fixture", NOW)
+                process(paths, load_config(paths.config_dir), world.dbs,
+                        cal.session_close(day)+timedelta(minutes=76))
+        if args.scenario in {"stale-prices", "ui-workflows"}:
+            import asyncio
+            from types import SimpleNamespace
+
+            from desk.stocks.collect import option_chains
+            from tests.unit.test_stocks_options_population import CAPTURE, StandardSchwab
+
+            # Exact user failure scenario: newest options are independent of the denied newer close.
+            asyncio.run(option_chains(SimpleNamespace(tradier=StandardSchwab(), option_source="synthetic_schwab_shape"),
+                                       world.market, CAPTURE, ["SPY", "QQQ", "CHEAP"], rate=.04,
+                                       last_prices={}, clock=lambda: CAPTURE))
+            world.market.job("prices", CAPTURE, error="Synthetic Massive grouped_daily HTTP 403")
+            process(paths, load_config(paths.config_dir), world.dbs, CAPTURE, research_only=True)
+            if args.scenario == "ui-workflows":
+                from datetime import date
+
+                from desk.stocks.stock_views import request, save_history
+
+                # Synthetic long history exercises actual API storage/ranges, never provider access.
+                bars = [Bar("SPY", day, 100 + i * .002, 101 + i * .002, 99 + i * .002,
+                            100.5 + i * .002, 1000000) for i, day in enumerate(
+                                cal.trading_days(date(2006, 10, 23), CAPTURE.date()))]
+                request(world.dbs.market, "SPY", CAPTURE)
+                save_history(world.dbs.market, "SPY", bars, CAPTURE)
+        if args.scenario == "intraday-workflows":
+            import math
+
+            from desk.stocks.contracts import IntradayBar
+            from desk.stocks.stock_views import request, save_history, save_intraday
+
+            for symbol in ("SPY", "QQQ"):
+                session = world.days[-1]
+                opening = cal.session_close(session) - timedelta(hours=6, minutes=30)
+                minutes = []
+                for minute in range(390):
+                    op = 100 + minute * .005
+                    close = op + .02 * math.cos(minute)
+                    minutes.append(IntradayBar(symbol, opening + timedelta(minutes=minute), op,
+                                   max(op, close) + .04, min(op, close) - .04, close, 1000 + minute))
+                request(world.dbs.market, symbol, NOW)
+                save_intraday(world.dbs.market, symbol, minutes, NOW)
+                save_history(world.dbs.market, symbol, [
+                    Bar(symbol, world.days[-2], 99, 100, 98, 99.5, 100000),
+                    Bar(symbol, session, 100, 103, 99, minutes[-1].close, 100000),
+                ], NOW)
+        if args.scenario in {"learning-workflows","learning-retail"}:
+            from desk.stocks import learning
+            from tests.unit.test_stocks_learning import AT
+
+            lab = learning.open_book(paths)
+            try:
+                if args.scenario == "learning-workflows":
+                    # A book from before the cap (2026-10-30): the research account had a virtual deposit.
+                    from desk.stocks.paper.book import PaperBook
+
+                    legacy, book = AT - timedelta(days=1), PaperBook(lab)
+                    with book.atomic():
+                        book.open_account(learning.RESEARCH, learning.CAPITAL, legacy, legacy.date())
+                        book.add_cash(learning.RESEARCH, legacy, legacy.date(), 1_500_000 * 1_000_000, "DEPOSIT")
+                        book.event(legacy, learning.RESEARCH, "VIRTUAL_FUNDING", None,
+                                   {"amount": 1_500_000.0,
+                                    "reason": "Additional experiment capital; excluded from trading P/L"})
+                if args.scenario == "learning-retail":
+                    from tests.unit.test_stocks_learning_retail import outcome
+
+                    learning.initialize(lab,AT-timedelta(days=30))
+                    for structure in learning.STRUCTURES:     # prior minute-hold research, registered after
+                        learning.add_experiment(lab,AT-timedelta(days=30),structure,50_000,30,30)
+                    outcome(lab,"long_call",-.1,AT-timedelta(days=2))
+                    outcome(lab,"long_put",.2,AT-timedelta(days=2))
+                # Lifecycle recipes on every bucket's expiry: fills, a 1-day checkpoint, then the weekly recipes
+                # sell at their 7-day horizon (Oct 28), so finished results exist before today.
+                from tests.unit.test_stocks_learning_lifecycle import ladder
+                for at, bid, ask in [(AT,4.8,5.0),(AT+timedelta(minutes=1),4.8,5.0),
+                                     (AT+timedelta(days=1),5.4,5.6),
+                                     (datetime(2026,10,28,16,tzinfo=UTC),5.8,6.0)]:
+                    ladder(world,at,bid,ask,source="synthetic_browser_fixture")
+                    learning.tick(lab,world.market,at)
+            finally:
+                lab.close()
+        if args.scenario == "personal-workflows":
+            from copy import deepcopy
+
+            from desk.stocks import play_selections
+            from desk.stocks.company_profiles import request
+            from desk.stocks.runner import saved, saved_path
+
+            # Explicit synthetic put counterexample for exact-side navigation (this world's natural picks are calls).
+            board = saved(paths,"plays")
+            sample = deepcopy(board["categories"][0]["plays"][0])
+            _, chains = world.market.option_chain(sample["symbol"],world.days[-1])
+            expiration = next(e for e in chains if e.isoformat() == sample["expiration"])
+            quote = min((q for q in chains[expiration] if q.kind == "put"),key=lambda q:abs(q.strike-sample["strike"]))
+            sample.update(type="PUT",structure="long_put",strike=quote.strike,entry=quote.ask,
+                          rank=3,source="synthetic_browser_fixture",delta=-.5,
+                          cost=quote.ask*100+.65,max_loss=quote.ask*100+.65,
+                          max_gain=quote.strike*100-quote.ask*100-.65,
+                          breakeven=round(quote.strike-quote.ask,2),breakevens=None,
+                          reasons=["Synthetic exact-put navigation counterexample"],
+                          legs=[{"occ":quote.occ,"kind":"put","side":"buy","strike":quote.strike,
+                                 "expiration":expiration.isoformat(),"bid":quote.bid,"ask":quote.ask}])
+            sample.pop("probability_targets",None)
+            board["categories"][0]["plays"].append(sample)
+            from desk.stocks.plays import BUDGET_BANDS
+            band = next([lo,hi] for lo,hi in BUDGET_BANDS if lo < sample["cost"] <= hi)   # consistent with its cost
+            board["categories"][0]["budget_plays"].append({**deepcopy(sample),
+                "discovery":"budget","budget_band":band})
+            play_selections.register(world.dbs.research,board,NOW)
+            saved_path(paths,"plays").write_text(json.dumps(board))
+
+            for symbol in ("CHEAP", "SQZ", "S10", "S11"):
+                request(world.dbs.market, symbol, NOW)
+                world.dbs.market.execute("UPDATE stk_company_profiles SET about=?,metadata_json=?,source_url=?,"
+                    "filing_date='2026-02-20',updated_at=? WHERE cik=(SELECT cik FROM stk_listings WHERE symbol=?)",
+                    ("Synthetic company: designs and sells consumer products. This is a browser fixture, not issuer data.",
+                     json.dumps({"headquarters":"Pittsburgh, PA", "website":"https://example.test", "phone":"555-0100"}),
+                     "https://www.sec.gov/", NOW.isoformat(),symbol))
+        if args.scenario == "stock-page":
+            stock_page_fixture(world)
+        if args.scenario in {"populated", "stock-page"}:
+            events_fixture(world)
+        if args.scenario == "account":
+            from tests.browser.account_fixture import populate
+
+            populate(world, NOW)
+        world.close()
+    paths.ensure()
+    return paths
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
@@ -167,230 +400,8 @@ def main() -> None:
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="stocks-browser-") as directory:
         root = Path(directory)
-        paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
-        if args.scenario == "ops":
-            # Portfolio risk, phone alerts and the watchdog. Alert delivery is a recorder: nothing leaves this computer.
-            import os
-
-            from desk.stocks import alerts, watchdog, web
-            from tests.unit.test_stocks_risk import NOW as RISK_NOW
-            from tests.unit.test_stocks_risk import world as risk_world
-
-            risk_world(root)
-            web.utc_now = lambda: RISK_NOW
-            paths.secrets_file.write_text("NTFY_TOPIC_URL=https://ntfy.example.test/kestrel-browser-fixture-topic\n")
-            os.chmod(paths.secrets_file, 0o600)
-            alerts.deliver = lambda text, secrets, client=None: ["ntfy"]
-            watchdog.record(paths, RISK_NOW, worker_running=True)
-        elif args.scenario == "archive-history":
-            from desk.stocks import play_selections, play_tracking, web
-            from desk.stocks.repo import StocksDatabases
-            from tests.integration.test_stocks_play_archive import IDENTIFIED, LATER, board, initial_two, pick
-
-            web.utc_now = lambda: LATER
-            dbs = StocksDatabases.open(paths)
-            initial_two(dbs)
-            for category,names in [("likely_itm",["AAPL","MSFT"]),("unusual",["NVDA"])]:
-                play_selections.register(dbs.research,board(IDENTIFIED,category,[pick(s) for s in names]),IDENTIFIED)
-            # Original older installation saved this sighting without putting it in the closing cohort.
-            play_tracking.first_seen(dbs.research,board(IDENTIFIED,"bear_puts",[pick("AMZN","put")]),IDENTIFIED)
-            for symbol in ["SPY","QQQ","AAPL","MSFT","NVDA","AMZN"]:
-                p=pick(symbol,"put" if symbol == "AMZN" else "call")
-                dbs.research.execute("INSERT INTO stk_track_ticks(occ,at,session,bid,ask,underlying,quoted_at,source) "
-                    "VALUES (?,?,?,?,?,?,?,?)",(p["legs"][0]["occ"],LATER.isoformat(),LATER.date().toordinal(),
-                                               4.,4.1,102.,LATER.isoformat(),"synthetic_archive_fixture"))
-            dbs.close()
-        elif args.scenario in {"plays-history", "learning-report"}:
-            from desk.stocks import play_learning, play_performance
-            from tests.integration.test_stocks_play_history import simulate
-
-            # Six synthetic sessions of picks, tracked, marked, one laptop-off session repaired (no provider).
-            world = make_world(root, n=60)
-            simulate(world)
-            replay_fixture(world)
-            evening = cal.session_close(world.days[-1]) + timedelta(hours=2)
-            if args.scenario == "learning-report":
-                # The Learning report's richest fixture: last week's snapshot is taken before the Plays learning
-                # report and the Learning book exist, so "Changed since last week" has something to say.
-                from desk.stocks import learning_report
-
-                earlier = learning_report.build(paths, evening)
-                world.research.conn.execute(
-                    "INSERT INTO stk_learning_reports(week, created_at, report_json) VALUES (?, ?, ?)",
-                    (learning_report.week_of(evening), evening.isoformat(), json.dumps(earlier)))
-            play_learning.learn(world.market.conn, world.research.conn, evening)
-            play_performance.refresh(world.paths, world.market.conn, world.research.conn, evening, changed=True)
-            if args.scenario == "learning-report":
-                from desk.stocks import learning
-                from tests.unit.test_stocks_learning import AT
-                from tests.unit.test_stocks_learning_lifecycle import ladder
-
-                lab = learning.open_book(paths)
-                try:     # lifecycle recipes on every bucket: fills, a 1-day checkpoint and the weeklies' sale
-                    for at, bid, ask in [(AT, 4.8, 5.0), (AT + timedelta(minutes=1), 4.8, 5.0),
-                                         (AT + timedelta(days=1), 5.4, 5.6),
-                                         (datetime(2026, 10, 28, 16, tzinfo=UTC), 5.8, 6.0)]:
-                        ladder(world, at, bid, ask, source="synthetic_browser_fixture")
-                        learning.tick(lab, world.market, at)
-                finally:
-                    lab.close()
-            world.close()
-        elif args.scenario != "empty":
-            through = NOW.date() - timedelta(days=7) if args.scenario == "paper-workflows" else NOW.date()
-            world = make_world(root, n=60, through=through)
-            # Synthetic chart coverage for visual checks; never market observations or forward evidence.
-            benchmarks = list(dict.fromkeys([*INDEX_NAMES, *SECTOR_NAMES]))
-            for bar in world.market.bars("SPY"):
-                extras = []
-                for index, symbol in enumerate(benchmarks):
-                    if symbol == "SPY":
-                        continue
-                    scale = 0.18 + (index + 1) * 0.095
-                    extras.append(replace(bar, symbol=symbol, open=bar.open * scale, high=bar.high * scale,
-                                          low=bar.low * scale, close=bar.close * scale))
-                world.market.save_bars(bar.day, extras, "synthetic_browser_fixture", NOW)
-            add_chains(world, ["SPY", "QQQ", "CHEAP", "SQZ", "S10", "S11"], world.days[-3:])
-            world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
-            initial_now = cal.session_close(world.days[-1])+timedelta(minutes=76) if args.scenario == "paper-workflows" else NOW
-            process(paths, load_config(paths.config_dir), world.dbs, initial_now)
-            process(paths, load_config(paths.config_dir), world.dbs, initial_now, research_only=True)
-            if args.scenario == "paper-workflows":
-                # Three further genuinely processed synthetic sessions give filled positions and stop exits.
-                for index in range(3):
-                    previous = world.market.bar_days()[-1]
-                    day = cal.next_trading_day(previous)
-                    prior_bars = [Bar(r[0],previous,r[2],r[3],r[4],r[5],r[6]) for r in world.market.bar_rows(previous,previous)]
-                    bars = [replace(b, day=day, open=b.close, high=b.close*1.03,
-                                    low=b.close*(.70 if index == 1 and b.symbol != "SPY" else .98),
-                                    close=b.close*1.01) for b in prior_bars]
-                    world.market.save_bars(day, bars, "synthetic_browser_fixture", NOW)
-                    process(paths, load_config(paths.config_dir), world.dbs,
-                            cal.session_close(day)+timedelta(minutes=76))
-            if args.scenario in {"stale-prices", "ui-workflows"}:
-                import asyncio
-                from types import SimpleNamespace
-
-                from desk.stocks.collect import option_chains
-                from tests.unit.test_stocks_options_population import CAPTURE, StandardSchwab
-
-                # Exact user failure scenario: newest options are independent of the denied newer close.
-                asyncio.run(option_chains(SimpleNamespace(tradier=StandardSchwab(), option_source="synthetic_schwab_shape"),
-                                           world.market, CAPTURE, ["SPY", "QQQ", "CHEAP"], rate=.04,
-                                           last_prices={}, clock=lambda: CAPTURE))
-                world.market.job("prices", CAPTURE, error="Synthetic Massive grouped_daily HTTP 403")
-                process(paths, load_config(paths.config_dir), world.dbs, CAPTURE, research_only=True)
-                if args.scenario == "ui-workflows":
-                    from datetime import date
-
-                    from desk.stocks.stock_views import request, save_history
-
-                    # Synthetic long history exercises actual API storage/ranges, never provider access.
-                    bars = [Bar("SPY", day, 100 + i * .002, 101 + i * .002, 99 + i * .002,
-                                100.5 + i * .002, 1000000) for i, day in enumerate(
-                                    cal.trading_days(date(2006, 10, 23), CAPTURE.date()))]
-                    request(world.dbs.market, "SPY", CAPTURE)
-                    save_history(world.dbs.market, "SPY", bars, CAPTURE)
-            if args.scenario == "intraday-workflows":
-                import math
-
-                from desk.stocks.contracts import IntradayBar
-                from desk.stocks.stock_views import request, save_history, save_intraday
-
-                for symbol in ("SPY", "QQQ"):
-                    session = world.days[-1]
-                    opening = cal.session_close(session) - timedelta(hours=6, minutes=30)
-                    minutes = []
-                    for minute in range(390):
-                        op = 100 + minute * .005
-                        close = op + .02 * math.cos(minute)
-                        minutes.append(IntradayBar(symbol, opening + timedelta(minutes=minute), op,
-                                       max(op, close) + .04, min(op, close) - .04, close, 1000 + minute))
-                    request(world.dbs.market, symbol, NOW)
-                    save_intraday(world.dbs.market, symbol, minutes, NOW)
-                    save_history(world.dbs.market, symbol, [
-                        Bar(symbol, world.days[-2], 99, 100, 98, 99.5, 100000),
-                        Bar(symbol, session, 100, 103, 99, minutes[-1].close, 100000),
-                    ], NOW)
-            if args.scenario in {"learning-workflows","learning-retail"}:
-                from desk.stocks import learning
-                from tests.unit.test_stocks_learning import AT
-
-                lab = learning.open_book(paths)
-                try:
-                    if args.scenario == "learning-workflows":
-                        # A book from before the cap (2026-10-30): the research account had a virtual deposit.
-                        from desk.stocks.paper.book import PaperBook
-
-                        legacy, book = AT - timedelta(days=1), PaperBook(lab)
-                        with book.atomic():
-                            book.open_account(learning.RESEARCH, learning.CAPITAL, legacy, legacy.date())
-                            book.add_cash(learning.RESEARCH, legacy, legacy.date(), 1_500_000 * 1_000_000, "DEPOSIT")
-                            book.event(legacy, learning.RESEARCH, "VIRTUAL_FUNDING", None,
-                                       {"amount": 1_500_000.0,
-                                        "reason": "Additional experiment capital; excluded from trading P/L"})
-                    if args.scenario == "learning-retail":
-                        from tests.unit.test_stocks_learning_retail import outcome
-
-                        learning.initialize(lab,AT-timedelta(days=30))
-                        for structure in learning.STRUCTURES:     # prior minute-hold research, registered after
-                            learning.add_experiment(lab,AT-timedelta(days=30),structure,50_000,30,30)
-                        outcome(lab,"long_call",-.1,AT-timedelta(days=2))
-                        outcome(lab,"long_put",.2,AT-timedelta(days=2))
-                    # Lifecycle recipes on every bucket's expiry: fills, a 1-day checkpoint, then the weekly recipes
-                    # sell at their 7-day horizon (Oct 28), so finished results exist before today.
-                    from tests.unit.test_stocks_learning_lifecycle import ladder
-                    for at, bid, ask in [(AT,4.8,5.0),(AT+timedelta(minutes=1),4.8,5.0),
-                                         (AT+timedelta(days=1),5.4,5.6),
-                                         (datetime(2026,10,28,16,tzinfo=UTC),5.8,6.0)]:
-                        ladder(world,at,bid,ask,source="synthetic_browser_fixture")
-                        learning.tick(lab,world.market,at)
-                finally:
-                    lab.close()
-            if args.scenario == "personal-workflows":
-                from copy import deepcopy
-
-                from desk.stocks import play_selections
-                from desk.stocks.company_profiles import request
-                from desk.stocks.runner import saved, saved_path
-
-                # Explicit synthetic put counterexample for exact-side navigation (this world's natural picks are calls).
-                board = saved(paths,"plays")
-                sample = deepcopy(board["categories"][0]["plays"][0])
-                _, chains = world.market.option_chain(sample["symbol"],world.days[-1])
-                expiration = next(e for e in chains if e.isoformat() == sample["expiration"])
-                quote = min((q for q in chains[expiration] if q.kind == "put"),key=lambda q:abs(q.strike-sample["strike"]))
-                sample.update(type="PUT",structure="long_put",strike=quote.strike,entry=quote.ask,
-                              rank=3,source="synthetic_browser_fixture",delta=-.5,
-                              cost=quote.ask*100+.65,max_loss=quote.ask*100+.65,
-                              max_gain=quote.strike*100-quote.ask*100-.65,
-                              reasons=["Synthetic exact-put navigation counterexample"],
-                              legs=[{"occ":quote.occ,"kind":"put","side":"buy","strike":quote.strike,
-                                     "expiration":expiration.isoformat(),"bid":quote.bid,"ask":quote.ask}])
-                sample.pop("probability_targets",None)
-                board["categories"][0]["plays"].append(sample)
-                board["categories"][0]["budget_plays"].append({**deepcopy(sample),
-                    "discovery":"budget","budget_band":[250.,500.]})
-                play_selections.register(world.dbs.research,board,NOW)
-                saved_path(paths,"plays").write_text(json.dumps(board))
-
-                for symbol in ("CHEAP", "SQZ", "S10", "S11"):
-                    request(world.dbs.market, symbol, NOW)
-                    world.dbs.market.execute("UPDATE stk_company_profiles SET about=?,metadata_json=?,source_url=?,"
-                        "filing_date='2026-02-20',updated_at=? WHERE cik=(SELECT cik FROM stk_listings WHERE symbol=?)",
-                        ("Synthetic company: designs and sells consumer products. This is a browser fixture, not issuer data.",
-                         json.dumps({"headquarters":"Pittsburgh, PA", "website":"https://example.test", "phone":"555-0100"}),
-                         "https://www.sec.gov/", NOW.isoformat(),symbol))
-            if args.scenario == "stock-page":
-                stock_page_fixture(world)
-            if args.scenario in {"populated", "stock-page"}:
-                events_fixture(world)
-            if args.scenario == "account":
-                from tests.browser.account_fixture import populate
-
-                populate(world, NOW)
-            world.close()
+        paths = prepare(root, args.scenario)
         # Workflows assert explanatory text, so fixtures show it; the desk's own default is numbers first.
-        paths.ensure()
         (paths.home / "stocks-ui.json").write_text('{"explain": true}')
         app = create_app(paths, auto_start=False)
         if args.scenario == "personal-workflows":

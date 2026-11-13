@@ -39,6 +39,31 @@ const KestrelEvidence = (() => {
           ]),
         ),
       );
+      // Accuracy of numbers (desk.stocks.accuracy): counts only here; the examples are in the downloaded report.
+      const accuracy = healthData.accuracy;
+      if (accuracy) {
+        const box = el("div", undefined, "accuracy-check");
+        box.id = "evidence-accuracy";
+        box.append(
+          el("h3", "Accuracy of numbers"),
+          el(
+            "p",
+            accuracy.violations
+              ? `${number(accuracy.violations)} recorded or shown number${accuracy.violations === 1 ? "" : "s"} broke a rule. Download the health report for examples, or run kestrel check.`
+              : "Every number checked follows its rules: losses within the money at risk, chances in order, summaries that match their rows, books that balance.",
+            accuracy.violations ? "error" : "muted",
+          ),
+          table(
+            ["Check", "Checked", "Problems"],
+            accuracy.checks.map((c) => [
+              c.title,
+              c.skipped ? "Not run" : number(c.checked),
+              c.skipped ? c.skipped : number(c.violations),
+            ]),
+          ),
+        );
+        target.append(box);
+      }
       // The watchdog (desk.stocks.watchdog): research late, a job failing for hours, the worker stopped or stuck.
       const watch = healthData.watchdog,
         watchBox = el("div", undefined, "watchdog");

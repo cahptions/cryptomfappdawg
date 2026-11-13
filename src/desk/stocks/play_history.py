@@ -108,13 +108,17 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     pcts = [r["latest"]["pct"] for r in scored]
     best = max(scored, key=lambda r: r["latest"]["pct"])
     worst = min(scored, key=lambda r: r["latest"]["pct"])
-    twins = [r["twin"]["pct"] for r in scored if r.get("twin") and r["twin"].get("pct") is not None]
+    pairs = [(r["latest"]["pct"], r["twin"]["pct"]) for r in scored if r.get("twin") and r["twin"].get("pct") is not None]
+    twins = [t for _, t in pairs]
     return {"plays": len(scored), "average": round(statistics.fmean(pcts), 5), "median": round(statistics.median(pcts), 5),
             "hit_rate": round(sum(p > 0 for p in pcts) / len(pcts), 4),
             "best": {"symbol": best["symbol"], "label": best["label"], "pct": best["latest"]["pct"]},
             "worst": {"symbol": worst["symbol"], "label": worst["label"], "pct": worst["latest"]["pct"]},
             "hundred_each": {"invested": 100 * len(pcts), "value": round(sum(100 * (1 + p) for p in pcts), 2)},
             "twins_average": round(statistics.fmean(twins), 5) if twins else None,
+            # the comparison with the twins is over the same plays: those whose twin has a value too
+            "twins_paired": {"plays": len(pairs), "average": round(statistics.fmean(p for p, _ in pairs), 5)}
+            if pairs else None,
             "estimated": sum(r["latest"]["status"] in ("estimated", "modelled") or r["latest"].get("provisional", False)
                              for r in scored)}
 

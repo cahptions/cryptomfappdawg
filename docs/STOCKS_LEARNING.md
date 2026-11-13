@@ -88,8 +88,11 @@ holding longer does. So the registry trades **every expiry** and values each pos
 - **15 recipes:** long calls, long puts and long straddles at the 0.5-delta strike in each bucket, $5,000 an entry
   (at least one contract), at the expiry nearest the middle of the bucket's window.
 - **One purchase, many answers:** a position is bought once, and at each checkpoint the first later fresh quote records
-  what selling it then would have returned (bid less impact and exit fees), in `stk_learning_checkpoints` (append-only).
-  The position itself is sold at its horizon, or earlier when expiry gets close, so no LEAPS result waits for expiry.
+  what selling it then would have returned (bid less impact and exit fees, never below zero), in
+  `stk_learning_checkpoints` (append-only). The position itself is sold at its horizon, or earlier when expiry gets
+  close, so no LEAPS result waits for expiry. A contract whose bid would bring no more than its exit fees is not sold
+  (that would lose more than was paid): it is written off at zero, no fee, exactly -100% (from 2026-11-13; earlier
+  outcomes are kept as recorded).
   **Does holding longer pay?** is then read from the same entries: Learning shows each recipe's average return, win rate
   and count at every checkpoint, and names a best holding time once a checkpoint has 10 positions. The small accounts
   sell at that holding time (below).
@@ -137,7 +140,7 @@ sell before then) settles at **intrinsic value on the official close** of its ex
 market database's daily bars, exactly as the ordinary PAPER books settle expiring options. This is a real outcome, not
 a stand-in: an expiring contract's value is fixed by that close. Learning holds only long calls, puts and straddles, so
 nothing is ever assigned. An in-the-money leg pays the $0.65 exit fee (it is exercised and sold at the close); a
-worthless leg pays nothing. Settlement runs on every Learning cycle, including evenings and weekends, as soon as the
+worthless leg pays nothing, and so does a position in the money by less than its fee (it lapses: -100%, never below). Settlement runs on every Learning cycle, including evenings and weekends, as soon as the
 close is stored; the cash entry is `EXPIRE`, the trade's exit reason names the close, and the research outcome is
 recorded with basis `settled at intrinsic` (sold trades: `sold at a quote`). It matures when it is settled, never
 back-dated to the expiry, so no earlier decision can see it. Until the close arrives the position is shown as waiting

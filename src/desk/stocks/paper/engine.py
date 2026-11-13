@@ -66,6 +66,15 @@ def sessions_between(a: date, b: date) -> int:
     return 0 if b <= a else len(cal.trading_days(a, b)) - (1 if cal.is_trading_day(a) else 0)
 
 
+def written_off(p: Position, credit: float, fees: float) -> tuple[float, float, str]:
+    """(credit, fees, note) for closing an option position. A position of bought contracts only is never sold for no
+    more than its exit fees: it is written off at zero instead (no sale, no fee; left to expire), so it never loses
+    more than it cost. Any other position closes as quoted."""
+    if p.asset == "option" and p.legs and all(leg["quantity"] > 0 for leg in p.legs) and fees > 0 and credit <= fees:
+        return 0.0, 0.0, " (written off at zero: the bid was below the exit fees)"
+    return credit, fees, ""
+
+
 class PaperEngine:
     def __init__(self, market: StocksMarket, book: PaperBook, settings: StocksSection,
                  strategies: tuple[Strategy, ...] = STRATEGIES, retired: set[str] | frozenset[str] = frozenset()) -> None:
@@ -294,7 +303,8 @@ class PaperEngine:
                 if not stale:
                     return False
                 raise _Cancel(f.problem)
-            self.book.close_position(p, at=now, day=asof, credit=-f.debit, fees=f.fees, reason=spec["reason"],
+            credit, fees, note = written_off(p, -f.debit, f.fees)
+            self.book.close_position(p, at=now, day=asof, credit=credit, fees=fees, reason=spec["reason"] + note,
                                      evidence={"legs": f.legs, "order": o.id, "quoted": not f.modeled,
                                                "modeled_exit": f.modeled})
             rep.closed += 1
@@ -362,8 +372,9 @@ class PaperEngine:
         for p in held:                       # an option whose underlying splits: close at its last mark
             if p.asset == "option" and any(p.entry_day < d <= asof for d, _ in self._splits.get(p.symbol, [])):
                 fee = fills.OPTION_FEE_PER_CONTRACT * sum(abs(leg["quantity"]) for leg in p.legs)
-                self.book.close_position(p, at=now, day=asof, credit=p.last_value or 0.0, fees=fee,
-                                         reason="underlying split: closed at the last mark", evidence={})
+                credit, fee, note = written_off(p, p.last_value or 0.0, fee)
+                self.book.close_position(p, at=now, day=asof, credit=credit, fees=fee,
+                                         reason="underlying split: closed at the last mark" + note, evidence={})
                 rep.closed += 1
 
     # 3. stops ─────────────────────────────────────────────────────────────────────────────────────
@@ -389,16 +400,19 @@ class PaperEngine:
         for p in self.book.positions():
             if p.asset != "option" or p.expires is None or p.expires > asof or p.account not in self.strategies:
                 continue
-            if p.expires == asof:
+            # Settled on the official close of its last trading day (the session before an expiry that falls on a
+            # market holiday), never on an earlier session's close: a stock missing from that day's bars waits.
+            last = p.expires if cal.is_trading_day(p.expires) else cal.previous_trading_day(p.expires)
+            if last == asof:
                 bar = bars.get(p.symbol)
                 close = None if bar is None else bar.close
             else:
-                prior = [b for b in self.market.bars(p.symbol, p.expires - (asof - p.expires)) if b.day <= p.expires]
-                close = prior[-1].close if prior else None
+                close = next((b.close for b in self.market.bars(p.symbol, last) if b.day == last), None)
             if close is None:
                 continue
             value = fills.settle(p.legs, close)
             fee = fills.OPTION_FEE_PER_CONTRACT * sum(abs(leg["quantity"]) for leg in p.legs) if value > 0 else 0.0
+            value, fee, _ = written_off(p, value, fee)
             self.book.close_position(p, at=now, day=asof, credit=value, fees=fee,
                                      reason="expired in the money" if value > 0 else "expired worthless",
                                      evidence={"underlying_close": close}, cash_reason="EXPIRE")

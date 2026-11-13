@@ -408,3 +408,22 @@ def test_a_bought_option_never_loses_more_than_was_paid() -> None:
     for value in (0.0, 0.001, 0.003, 0.01, 0.2):
         for legs in (1, 2):
             assert pm.profit("BUY", 0.49, 49 + FEE * legs, value, legs, settled=False)[1] >= -1.0 - 1e-12
+
+
+def test_a_credit_structure_never_loses_more_than_its_maximum_loss() -> None:
+    """Buying back a wide iron butterfly at the asks can cost more than its width; it can be held to expiry instead,
+    where it loses at most its maximum loss. Found by the accuracy check (desk.stocks.accuracy) at -111% to -120% on
+    the plays-history fixture's S11 iron butterfly."""
+    legs = [leg("S11", "put", 72.5), leg("S11", "put", 75, "sell"), leg("S11", "call", 75, "sell"),
+            leg("S11", "call", 77.5)]
+    entry, width = 1.80, 2.5
+    max_loss = (width - entry) * 100 + FEE * 4
+    quotes_ = {legs[0]["occ"]: (0.05, 0.30), legs[1]["occ"]: (0.90, 1.60), legs[2]["occ"]: (0.95, 1.70),
+               legs[3]["occ"]: (0.05, 0.30)}
+    value, _ = pm.liquidation(legs, quotes(**quotes_))
+    assert -value > width                                     # closing now would cost more than the width
+    pnl, pct = pm.profit("SELL", entry, max_loss, value, 4, settled=False)
+    assert pnl == pytest.approx(-max_loss) and pct == pytest.approx(-1.0)
+    assert pm.profit("SELL", entry, max_loss, -1.0, 4, settled=False)[0] == pytest.approx((entry - 1.0) * 100
+                                                                                           - 8 * FEE)
+    assert pm.profit("SELL", entry, max_loss, -width, 4, settled=True)[1] == pytest.approx(-1.0)

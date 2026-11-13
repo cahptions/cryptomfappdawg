@@ -552,6 +552,7 @@ COMMAND = """#!/bin/sh
 #                     browser, log in, then paste the final address (it may fail to load) at the hidden prompt
 #   kestrel restart   restart the app in the background
 #   kestrel learning  what the Learning research account is doing, and why it reads better or worse
+#   kestrel check     read-only accuracy check: impossible or inconsistent numbers in plays, history and books
 #   kestrel options-history   can this computer's Massive key read historical option prices?
 #   kestrel arbitrage open KESTREL Arbitrage (restarted on the latest code)
 #   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
@@ -568,11 +569,12 @@ case "${{1:-status}}" in
   signin) exec {uv} run desk stocks connect --manual ;;
   restart) exec {uv} run desk stocks restart ;;
   learning) exec {uv} run desk stocks learning-report ;;
+  check) shift; exec {uv} run desk stocks check-accuracy "$@" ;;
   options-history) exec {uv} run desk stocks options-history ;;
   phone) shift; exec {uv} run desk phone "$@" ;;
   move-from) shift; exec {uv} run desk stocks move-from "$@" ;;
   *) echo "kestrel: '$1' is not a command in this version (kestrel update brings newer ones)"
-     echo "usage: kestrel [status | update | open | signin | restart | learning | options-history | arbitrage |"
+     echo "usage: kestrel [status | update | open | signin | restart | learning | check | options-history | arbitrage |"
      echo "                ebay-check | phone | move-from user@address]"; exit 2 ;;
 esac
 """
@@ -583,6 +585,7 @@ REMOTE_COMMAND = """#!/bin/sh
 #   kestrel update    update it there and restart it, then update this computer's copy and this command
 #   kestrel signin    its weekly Schwab sign-in, from this terminal
 #   kestrel learning  what its Learning research account is doing
+#   kestrel check     its read-only accuracy check
 #   kestrel open      open it in a window here
 #   kestrel arbitrage   KESTREL Arbitrage, which runs on this computer (restarted on the latest code)
 #   kestrel ebay-check [words]   can this computer read eBay's sold prices? (one request)
@@ -606,7 +609,7 @@ case "$action" in
     cd {repo} && git pull -q --ff-only origin "${{KESTREL_BRANCH:-{branch}}}" && {uv} sync -q \
       && {uv} run desk stocks command >/dev/null && {uv} run desk arbitrage stop >/dev/null 2>&1
     exit $result ;;
-  *[!a-z-]*) echo "usage: kestrel [status | update | signin | learning | restart | open]  (runs on {host})"; exit 2 ;;
+  *[!a-z-]*) echo "usage: kestrel [status | update | signin | learning | check | restart | open]  (runs on {host})"; exit 2 ;;
   *) exec ssh -t {host} "~/.local/bin/kestrel $action" ;;
 esac
 """

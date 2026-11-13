@@ -142,10 +142,16 @@ the engine steps every account through that session (`desk.stocks.paper.engine`)
    after the decision; a captured snapshot from before the decision cannot fill that order.
 2. **Corporate actions.** A split changes the share count from its execution date; cash dividends are paid on the
    ex-date to positions held before it. An option whose underlying splits is closed at its last mark.
+   A position of bought contracts only is never sold for no more than its exit fees, here or at an exit order: it is
+   written off at zero instead (no sale, no fee), so it never loses more than it cost (from 2026-11-13; it lost the
+   exit fee besides, up to $0.65 a contract, before; earlier exits are kept as recorded).
 3. **Stops.** A resting stop sells at the stop price if the day's low reached it, or at the open if the stock gapped
    through it.
-4. **Expiry.** An option position still open at expiration settles at intrinsic value on that day's close (an
-   in-the-money close pays the closing fee).
+4. **Expiry.** An option position still open at expiration settles at intrinsic value on the close of its last
+   trading day (the session before an expiry that falls on a market holiday); a close in the money by more than the
+   closing fee pays it, and a position of bought contracts in the money by less lapses at no cost. When a pass missed
+   the expiry, it settles on that day's own close as soon as it is stored, never on an earlier one (until 2026-11-13
+   it took the last close stored before the expiry when the expiry's bar was missing).
 5. **Marks.** Stocks at the close; options at the mid (a contract missing from the chain is priced with Black-Scholes
    at its last implied volatility and flagged as modelled). Trailing stops ratchet up.
 6. **Decisions.** Exits (time, take-profit, stop, days to expiry, results passed, monthly rebalance) and entries from

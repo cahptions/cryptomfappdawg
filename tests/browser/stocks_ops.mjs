@@ -76,6 +76,10 @@ try {
     await page.getByRole("button", { name: "Check data health" }).click();
     const watch = page.locator("#evidence-watchdog");
     await watch.getByText(/at the last check/).waitFor();
+    // ... and the accuracy checks' counts (this fixture's hand-made PAPER book breaks two rules on purpose).
+    const accuracy = page.locator("#evidence-accuracy");
+    await accuracy.getByText(/broke a rule/).waitFor();
+    assert.match(await accuracy.innerText(), /Cash never goes negative/);
     assert.deepEqual(errors, []);
     await page.close();
   }

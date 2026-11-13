@@ -172,3 +172,34 @@ def test_a_long_dated_position_is_valued_at_each_checkpoint_and_sold_at_its_hori
     finally:
         conn.close()
         world.close()
+
+
+def test_a_contract_bid_below_its_exit_fees_is_written_off_at_zero_never_below(tmp_path):
+    """A synthetic edge case for the accuracy checks (desk.stocks.accuracy): a weekly whose bid fell to half a cent
+    (a fair, two-sided quote) was valued, and sold, for less than its exit fees, a return below -100%. Selling it
+    would lose more than was paid, so it is written off at zero (no sale, no fee): its checkpoint and its outcome
+    read exactly -100%."""
+    world = make_world(tmp_path, n=12)
+    conn = learning.open_book(world.paths)
+    try:
+        ladder(world, AT)
+        learning.tick(conn, world.market, AT)
+        ladder(world, AT + timedelta(minutes=1))
+        learning.tick(conn, world.market, AT + timedelta(minutes=1))
+        weekly = [p for p in PaperBook(conn).positions(learning.RESEARCH) if p.plan.get("bucket") == "weekly"]
+        assert weekly
+        at = datetime(2026, 10, 28, 16, tzinfo=UTC)                   # the weekly recipes' 7-day horizon
+        ladder(world, at, bid=0.005, ask=0.006)
+        learning.tick(conn, world.market, at)
+        for p in weekly:
+            row = conn.execute("SELECT state, exit_credit_micros, exit_fees_micros, exit_reason FROM stk_positions "
+                               "WHERE id=?", (p.id,)).fetchone()
+            assert row["state"] == "CLOSED" and row["exit_credit_micros"] == 0 and row["exit_fees_micros"] == 0
+            assert "written off at zero" in row["exit_reason"]
+        outcomes = [r[0] for r in conn.execute("SELECT net_return FROM stk_learning_outcomes")]
+        checkpoints = [tuple(r) for r in conn.execute("SELECT value, net_return FROM stk_learning_checkpoints")]
+        assert outcomes and all(r == pytest.approx(-1.0) for r in outcomes)
+        assert checkpoints and all(v >= 0 and r >= -1.0 - 1e-9 for v, r in checkpoints)
+    finally:
+        conn.close()
+        world.close()
