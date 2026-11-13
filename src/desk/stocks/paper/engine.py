@@ -75,6 +75,55 @@ def written_off(p: Position, credit: float, fees: float) -> tuple[float, float, 
     return credit, fees, ""
 
 
+def sold_max_loss(legs: list[dict[str, Any]], total: float) -> float | None:
+    """The most a position that was paid a credit can lose: what it received back at its worst settlement (fees
+    included in ``total``, the debit of the fill: negative for a credit). None when the loss has no bound (an
+    uncovered short call), which no Learner structure is."""
+    strikes = sorted({float(leg["strike"]) for leg in legs})
+    if not strikes:
+        return None
+    far = strikes[-1] * 10
+    if fills.settle(legs, far * 2) < fills.settle(legs, far) - 1e-6:
+        return None
+    worst = min(fills.settle(legs, s) for s in (0.0, *strikes, far))
+    return max(total - worst, 0.0)
+
+
+def liquidation_return(p: Position, quotes: dict[str, OptionQuote]) -> float | None:
+    """The return on the money at risk if the position were left at these real quotes: bought legs sold at the bid,
+    sold legs bought back at the ask, after exit fees. A bought position never counts below −100% (it can be left to
+    expire), a sold one never below its maximum loss (it can be held to settle). None when a leg has no real quote."""
+    credit = 0.0
+    for leg in p.legs:
+        q = quotes.get(leg["occ"])
+        if q is None or q.bid is None or q.ask is None or q.mid is None:
+            return None
+        credit += leg["quantity"] * float(q.bid if leg["quantity"] > 0 else q.ask) * fills.CONTRACT
+    fees = fills.OPTION_FEE_PER_CONTRACT * sum(abs(leg["quantity"]) for leg in p.legs)
+    risk = p.max_loss if p.max_loss else p.entry_cost + p.entry_fees
+    if not risk or risk <= 0:
+        return None
+    pnl = max(credit - fees, 0.0 if p.entry_cost > 0 and all(leg["quantity"] > 0 for leg in p.legs) else -math.inf) \
+        - p.entry_cost - p.entry_fees
+    return float(max(pnl / risk, -1.0))
+
+
+def strict_exit_problem(p: Position, quotes: dict[str, OptionQuote]) -> str | None:
+    """Why a Learner position cannot be left at these quotes: a leg without a real quote (it waits; never a modelled
+    price), or a buy-back of a sold structure that would lose more than holding it to settle can (it is held)."""
+    for leg in p.legs:
+        q = quotes.get(leg["occ"])
+        if q is None or q.bid is None or q.ask is None or q.mid is None:
+            return f"{leg['occ']} has no real quote today"
+    if p.entry_cost <= 0 and p.max_loss is not None:
+        credit = sum(leg["quantity"] * float((quotes[leg["occ"]].bid if leg["quantity"] > 0
+                                              else quotes[leg["occ"]].ask) or 0) for leg in p.legs) * fills.CONTRACT
+        fees = fills.OPTION_FEE_PER_CONTRACT * sum(abs(leg["quantity"]) for leg in p.legs)
+        if credit - fees - p.entry_cost - p.entry_fees < -p.max_loss:
+            return "buying it back would lose more than its maximum loss; it is held to settle instead"
+    return None
+
+
 class PaperEngine:
     def __init__(self, market: StocksMarket, book: PaperBook, settings: StocksSection,
                  strategies: tuple[Strategy, ...] = STRATEGIES, retired: set[str] | frozenset[str] = frozenset()) -> None:
@@ -157,7 +206,8 @@ class PaperEngine:
         self._dividends = fills.Dividends(self.market.dividends(asof - timedelta(days=400)), splits)
         for st in self.strategies.values():
             self.market.register_spec(f"stocks_paper_{st.id}", st.version, st.content(), now)
-            capital = self.settings.paper_option_capital_usd if st.asset == "option" else self.settings.paper_starting_capital_usd
+            capital = st.p.get("capital") or (self.settings.paper_option_capital_usd if st.asset == "option"
+                                              else self.settings.paper_starting_capital_usd)
             self.book.open_account(st.id, float(capital), now, asof)
         if not allow_entries:
             for order in self.book.pending():
@@ -298,6 +348,12 @@ class PaperEngine:
             if quotes is None and not stale:
                 return False
             s = None if bar is None else bar.close
+            if spec.get("strict_quotes"):
+                problem = strict_exit_problem(p, quotes or {})
+                if problem:
+                    if not stale:
+                        return False
+                    raise _Cancel(problem)
             f = fills.close_legs(self._with_marks(p), quotes or {}, s, asof, self.rate, self._q(symbol, asof, s))
             if f.problem:
                 if not stale:
@@ -317,6 +373,11 @@ class PaperEngine:
             if (quote is None or quote.quoted_at is None or quote.quoted_at <= created
                     or cal.new_york(quote.quoted_at).date() != asof or quote.quoted_at > now):
                 return False
+        if spec.get("strict_quotes"):
+            for leg in spec["legs"]:
+                q = quotes[leg["occ"]]
+                if q.bid is None or q.ask is None or q.bid <= 0 or q.ask < q.bid:
+                    raise _Cancel(f"{leg['occ']} is quoted {q.bid}/{q.ask}: no fill on a crossed or empty quote")
         legs = [{**leg, "quantity": leg["quantity"] * spec["units"]} for leg in spec["legs"]]
         f = fills.open_legs(legs, quotes)
         if f.problem:
@@ -335,7 +396,8 @@ class PaperEngine:
         st = self.strategies[o.account]
         self.book.open_position(account=o.account, spec_sha256=st.spec_sha256, asset="option", symbol=symbol,
                                 structure=spec["structure"], legs=f.legs, decision_id=o.decision_id, at=now, day=asof,
-                                cost=f.debit, fees=f.fees, max_loss=total if f.debit > 0 else None, stop_price=None,
+                                cost=f.debit, fees=f.fees, max_loss=total if f.debit > 0 else sold_max_loss(f.legs, total),
+                                stop_price=None,
                                 expires=expires, plan=spec["plan"])
         rep.opened += 1
         return True
@@ -448,13 +510,18 @@ class PaperEngine:
               evidence: dict[str, Any] | None = None) -> None:
         did = self.book.decide(now, asof, st.id, st.spec_sha256, p.symbol, "EXIT", [reason],
                                {"position_id": p.id, "value": p.last_value, **(evidence or {})})
-        self.book.place(did, st.id, now, asof, {"asset": p.asset, "action": "EXIT", "symbol": p.symbol,
-                                                "position_id": p.id, "reason": reason})
+        order: dict[str, Any] = {"asset": p.asset, "action": "EXIT", "symbol": p.symbol, "position_id": p.id, "reason": reason}
+        if st.style == "learner":
+            order["strict_quotes"] = True
+        self.book.place(did, st.id, now, asof, order)
         rep.orders += 1
 
     def _exits(self, st: Strategy, asof: date, now: datetime, day: Day | None, pending: list[Order],
                rep: StepReport) -> None:
         exiting = {o.order.get("position_id") for o in pending if o.account == st.id and o.order["action"] == "EXIT"}
+        if st.style == "learner":
+            self._learner_exits(st, asof, now, exiting, rep)
+            return
         params = st.p
         for p in self.book.positions(st.id):
             if p.id in exiting:
@@ -489,6 +556,8 @@ class PaperEngine:
         available = self.book.cash(st.id) - committed
         cap = min(float(self.settings.paper_max_position_fraction), 1.0)
         p = st.p
+        if st.style == "learner":           # its entries are decided by desk.stocks.learner.policy, not here
+            return
         if st.style == "hold":
             if not open_positions and not entering:
                 for c in candidates(st, day):
@@ -591,6 +660,33 @@ class PaperEngine:
             available -= max_debit
             room -= 1
 
+    def _learner_exits(self, st: Strategy, asof: date, now: datetime, exiting: set[Any], rep: StepReport) -> None:
+        """A Learner account's positions leave by the exit rule chosen at entry (``learner.actions.EXIT_RULES``),
+        read on that session's real closing quotes at liquidation value: a take-profit or a stop on the return on
+        the money at risk, or the session count since the decision (decided the session before, so the order fills
+        on that session's quotes). A rule never reacts to a modelled price; a position no rule closes settles at
+        expiry."""
+        from desk.stocks.learner.actions import BY_EXIT
+
+        for p in self.book.positions(st.id):
+            if p.id in exiting or p.asset != "option":
+                continue
+            rule = BY_EXIT.get(str(p.plan.get("exit_rule")))
+            if rule is None:
+                continue
+            decided = date.fromisoformat(p.plan.get("decided") or p.entry_day.isoformat())
+            n = sessions_between(decided, asof)
+            r = liquidation_return(p, self._chain_today(p.symbol, asof) or {})
+            if rule.sessions is not None and n + 1 >= rule.sessions:
+                self._exit(st, p, asof, now, f"{rule.title.lower()} (session {n + 1} after the decision)", rep,
+                           {"exit_rule": rule.id, "return": r, "strict_quotes": True})
+            elif r is not None and rule.take_profit is not None and r >= rule.take_profit:
+                self._exit(st, p, asof, now, f"take profit ({r:+.0%} on the money at risk)", rep,
+                           {"exit_rule": rule.id, "return": r})
+            elif r is not None and rule.stop is not None and r <= rule.stop:
+                self._exit(st, p, asof, now, f"stop ({r:+.0%} on the money at risk)", rep,
+                           {"exit_rule": rule.id, "return": r})
+
     def _structure(self, structure: str, symbol: str, asof: date, s: float, p: dict[str, Any],
                    evidence: dict[str, Any]) -> list[dict[str, Any]] | None:
         chains = self._chain_full(symbol, asof)
@@ -621,4 +717,5 @@ class _Cancel(Exception):
     pass
 
 
-__all__ = ["PaperEngine", "StepReport", "sessions_between"]
+__all__ = ["PaperEngine", "StepReport", "liquidation_return", "sessions_between", "sold_max_loss",
+           "strict_exit_problem"]

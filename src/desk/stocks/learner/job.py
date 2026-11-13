@@ -21,10 +21,10 @@ JOB = "learner"
 
 def register_specs(market: StocksMarket, now: datetime) -> dict[str, str]:
     """Freeze the Learner's rule sets (a changed rule without a new version is refused, as every frozen rule set)."""
-    from desk.stocks.learner import findings, model, regimes
+    from desk.stocks.learner import findings, model, policy, regimes
 
     return {m.NAME: market.register_spec(m.NAME, m.VERSION, m.content(), now)
-            for m in (act, ft, lb, model, regimes, findings)}
+            for m in (act, ft, lb, model, regimes, findings, policy)}
 
 
 def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
@@ -36,6 +36,19 @@ def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
     conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
     conn.execute("PRAGMA query_only=ON")
     return conn
+
+
+def decide(paths: DeskPaths, dbs: StocksDatabases, market: StocksMarket, research: StocksResearch, session: date,
+           now: datetime) -> dict[str, Any]:
+    """The Learner PAPER account's decisions for the recorded session (once; ``policy.decide``). A failure is
+    reported and never stops the labelling or the replay."""
+    from desk.stocks.learner import policy
+
+    try:
+        return policy.decide(research.conn, dbs.ledger, market, paths.home, session, now,
+                             stop=paths.stop_file.exists())
+    except Exception as exc:  # recorded in the job's detail; the next pass retries an undecided session
+        return {"error": f"{type(exc).__name__}: {str(exc)[:240]}"}
 
 
 def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -53,6 +66,8 @@ def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], n
             finally:
                 if book is not None:
                     book.close()
+        if ex.recorded(research.conn, "forward", session):
+            out["account"] = decide(paths, dbs, market, research, session, now)
     out["labels"] = lb.run(research.conn, market.conn, lb.ForwardPrices(market.conn, research.conn), now)
     from desk.stocks.learner import replay
 

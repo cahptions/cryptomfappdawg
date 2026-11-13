@@ -242,7 +242,9 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
     panel = load_panel(market, target - timedelta(days=settings.history_days), target)
     analyzer = Analyzer(market, research, settings)
     learned, retired = lab.strategies(research)
-    strategies = (*STRATEGIES, *learned)
+    from desk.stocks.learner.policy import STRATEGIES as LEARNER_ACCOUNTS
+
+    strategies = (*STRATEGIES, *learned, *LEARNER_ACCOUNTS)   # the Learner's accounts: entries from learner.policy
     engine = PaperEngine(market, book, settings, strategies, retired)
     # Missed sessions manage existing exposure only; no retrospectively discovered entries or fabricated bars.
     last = book.last_step()

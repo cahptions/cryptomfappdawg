@@ -146,7 +146,7 @@ def grade(acct: dict[str, Any]) -> dict[str, Any]:
     need = MIN_SESSIONS_PORTFOLIO if acct["style"] in ("rebalance", "hold") else MIN_SESSIONS
     if acct["sessions"] < need:
         return {"grade": "early", "text": f"Too early: {acct['sessions']} of {need} sessions"}
-    if acct["style"] == "event" and acct["trades"] < MIN_TRADES:
+    if acct["style"] in ("event", "learner") and acct["trades"] < MIN_TRADES:
         return {"grade": "early", "text": f"Too early: {acct['trades']} of {MIN_TRADES} closed trades"}
     stat = acct.get("vs_baseline") or acct.get("vs_spy") or {}
     p, ph = stat.get("p"), stat.get("p_holm")
