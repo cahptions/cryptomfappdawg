@@ -128,6 +128,34 @@ def events_fixture(world: StocksWorld) -> None:
          "source": "Fixture Wire", "published": NOW.isoformat()}], NOW)
 
 
+def replay_fixture(world: StocksWorld) -> None:
+    """A few synthetic section-replay picks and outcomes (source ``synthetic_replay_fixture``), so Performance shows
+    the replay section and its own calibration; never real prices."""
+    from desk.core.hashing import canonical_json
+    from desk.stocks import play_replay
+
+    m, conn = play_replay.method(), world.market.conn
+    at = NOW.isoformat()
+    for k, day in enumerate(world.days[-140:-20:20]):
+        expiry = day + timedelta(days=30)
+        for category, structure, action in (("edge", "long_call", "BUY"), ("iron_condors", "iron_condor", "SELL")):
+            legs = [{"occ": f"SPY{k}{category}", "kind": "call", "side": "buy", "strike": 100.0,
+                     "expiration": expiry.isoformat(), "bid": 1.9, "ask": 2.1, "delta": 0.4, "iv": 0.3}]
+            chances = {"chances": {"itm_kestrel_raw": 0.35 + 0.05 * k, "itm_market": 0.33, "profit": 0.3},
+                       "max_gain_return": None}
+            twin = {"symbol": "QQQ", "action": action, "structure": structure, "expiration": expiry.isoformat(),
+                    "legs": legs, "entry": 2.1, "max_loss": 210.65}
+            conn.execute("INSERT INTO stk_replay_plays VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (m, day.toordinal(), category, 1, "SPY", structure, action, expiry.toordinal(), "itm", "call",
+                          100.0, 0.0, 2.1, 210.65, 30, canonical_json(legs), canonical_json(chances), "chain",
+                          canonical_json(twin), "synthetic_replay_fixture", at))
+            conn.execute("INSERT INTO stk_replay_days VALUES (?,?,?,?,?,?)", (m, day.toordinal(), category, 1, 3, at))
+            net = 0.6 if k % 2 else -0.8
+            conn.execute("INSERT INTO stk_replay_outcomes VALUES (?,?,?,?,?,?,?,?,?,?)",
+                         (m, day.toordinal(), category, 1, 104.0 if k % 2 else 97.0, k % 2, 3.4 if k % 2 else 0.0, net,
+                          -0.2, at))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=["empty", "populated", "stale-prices", "ui-workflows",
@@ -179,6 +207,7 @@ def main() -> None:
             # Six synthetic sessions of picks, tracked, marked, one laptop-off session repaired (no provider).
             world = make_world(root, n=60)
             simulate(world)
+            replay_fixture(world)
             evening = cal.session_close(world.days[-1]) + timedelta(hours=2)
             if args.scenario == "learning-report":
                 # The Learning report's richest fixture: last week's snapshot is taken before the Plays learning

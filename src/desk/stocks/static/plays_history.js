@@ -1519,7 +1519,7 @@ const KestrelPlaysHistory = (() => {
           calibrationChart(data.replay.calibration, {
             id: "replay-calibration",
             title:
-              "Replay calibration: predicted chance vs what happened on past prices",
+              "Replay calibration on past prices: each chance against the outcome",
             text: "The same chances, computed by the replayed sections on past chains and graded at expiry. A separate table from the forward calibration above: replay results never calibrate, grade or unlock anything forward.",
           }),
         );
