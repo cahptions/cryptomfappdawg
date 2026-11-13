@@ -1,5 +1,15 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-13 — Accurate P/L floor, settled identified plays, chain-skew odds, real-price Plays replay
+
+- A bought option's mark never shows a loss beyond what was paid (no exit fee to sell a worthless contract); identified
+  plays settle at intrinsic on the official close instead of "Expired; awaiting expiry close".
+- KESTREL's and the market's odds use each chain's own volatility smile (`chain_odds`, local-quadratic smile, closed-form
+  digital), with a lognormal fallback that each play states; odds MODEL_VERSION 2 (calibration restarts for it).
+- Every replayable Plays section is replayed on Massive's real past option prices (market migration 0013), shown on
+  Performance and in the Learning report as replay only; about 5,460 Massive requests, roughly 9 days at its share.
+- A play's chart redraws only when its data changed. 1,886 tests pass. An output-accuracy audit is in progress.
+
 ## 2026-11-13 — Wave 4: History filter, review improvements, read-only Schwab account
 
 - Plays: a full day's board over 4 MB showed "No plays yet" (limit raised to 64 MB, responses gzip). History has a
