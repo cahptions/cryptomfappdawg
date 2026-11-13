@@ -368,3 +368,20 @@ def test_the_report_runs_on_an_empty_installation_and_on_a_world(tmp_path: Path,
     report = acc.check(world.paths, NOW)
     assert report["checks"] == len(acc.CHECKS) and "accuracy check" in acc.text(report)
     assert set(acc.summary(report)["checks"][0]) == {"id", "area", "title", "checked", "violations", "skipped"}
+
+
+def test_check_accuracy_prints_a_plain_report_and_fails_on_a_violation(world: Any, monkeypatch: Any,
+                                                                        capsys: Any) -> None:
+    from argparse import Namespace
+
+    from desk.stocks.cli import run
+
+    monkeypatch.setattr(DeskPaths, "from_env", lambda: world.paths)
+    assert run(Namespace(stocks_command="check-accuracy", sessions=5, json=False)) == 0
+    out = capsys.readouterr().out
+    assert "KESTREL accuracy check" in out and "0 violations" in out and "Read-only" in out
+    world.dbs.market.execute("INSERT INTO stk_bars(symbol, day, open, high, low, close, volume) VALUES "
+                             "('BAD', 1, 10, 11, 10.5, 10.2, 5)")
+    assert run(Namespace(stocks_command="check-accuracy", sessions=5, json=True)) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert next(f for f in report["findings"] if f["id"] == "data.prices")["examples"][0].startswith("BAD")

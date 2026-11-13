@@ -68,6 +68,12 @@ def add_parser(sub: Any) -> None:
                         ).set_defaults(func=run)
     commands.add_parser("learning-report", help="read-only: what the Learning research account is doing and why it "
                         "reads better or worse than the reference").set_defaults(func=run)
+    accuracy = commands.add_parser("check-accuracy", help="read-only: check every recorded and shown number for "
+                                   "impossible or inconsistent values (losses beyond the money at risk, chances "
+                                   "out of order, summaries that disagree with their rows ...); kestrel check")
+    accuracy.add_argument("--sessions", type=int, default=40, help="recent History sessions to rebuild and check")
+    accuracy.add_argument("--json", action="store_true", help="the full report as JSON")
+    accuracy.set_defaults(func=run)
     commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
     commands.add_parser("options-history", help="read-only: can the Massive key read historical option prices? "
                         "(two requests)").set_defaults(func=run)
@@ -127,6 +133,12 @@ def _run(args: argparse.Namespace) -> int:
 
         print(json.dumps(diagnose(paths), indent=2))
         return 0
+    if args.stocks_command == "check-accuracy":
+        from desk.stocks import accuracy
+
+        report = accuracy.check(paths, history_sessions=max(1, args.sessions))
+        print(json.dumps(report, indent=2) if args.json else accuracy.text(report))
+        return 1 if report["violations"] else 0
     paths.ensure()
     loaded = load_config(paths.config_dir)
     settings = loaded.settings.stocks

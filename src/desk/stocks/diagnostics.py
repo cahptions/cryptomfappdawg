@@ -19,6 +19,8 @@ from desk.stocks.repo import LEDGER_FILE, MARKET_FILE, RESEARCH_FILE
 from desk.stocks.worker_failure import TYPES
 from desk.stocks.worker_failure import read as read_failure
 
+ACCURACY_SECONDS = 15.0          # the accuracy checks left when this runs out are listed as not run
+ACCURACY_SESSIONS = 10          # recent History sessions rebuilt and checked
 KEYS = ("MASSIVE_API_KEY", "SEC_CONTACT_EMAIL", "TRADIER_TOKEN", "FINNHUB_API_KEY", "SCHWAB_APP_KEY", "SCHWAB_APP_SECRET")
 
 
@@ -177,4 +179,16 @@ def diagnose(paths: DeskPaths) -> dict[str, Any]:
         finally:
             if conn is not None:
                 conn.close()
+    # Accuracy of output (desk.stocks.accuracy): counts per check for the card; the examples (ids, symbols and
+    # dates, never a setting) only in the downloadable report. Bounded so the health check stays quick.
+    try:
+        from desk.stocks import accuracy
+
+        report = accuracy.check(paths, budget=ACCURACY_SECONDS, history_sessions=ACCURACY_SESSIONS)
+        result['accuracy'] = accuracy.summary(report)
+        result['accuracy_violations'] = [{'id': f['id'], 'title': f['title'], 'violations': f['violations'],
+                                          'examples': f['examples']} for f in report['findings'] if f['violations']]
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        result['accuracy'] = None
+        result['warnings'].append(f'Accuracy check could not run ({error_category(str(exc))})')
     return result

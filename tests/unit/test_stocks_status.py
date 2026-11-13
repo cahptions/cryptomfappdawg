@@ -24,6 +24,7 @@ def test_kestrel_command_is_a_private_valid_script_with_status_update_and_open(t
     assert "signin) exec /home/neo/.local/bin/uv run desk stocks connect --manual" in text
     assert "learning) exec /home/neo/.local/bin/uv run desk stocks learning-report" in text
     assert "options-history) exec /home/neo/.local/bin/uv run desk stocks options-history" in text
+    assert 'check) shift; exec /home/neo/.local/bin/uv run desk stocks check-accuracy "$@"' in text
     assert not (tmp_path / "bin" / ".kestrel.new").exists()
     assert install_command(Path("/home/neo/kestrel"), tmp_path / "bin", uv="uv") == path     # rewritten in place
     assert subprocess.run(["sh", "-n", str(path)], check=False).returncode == 0       # parses as POSIX sh
