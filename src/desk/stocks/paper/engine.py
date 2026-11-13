@@ -70,7 +70,7 @@ def written_off(p: Position, credit: float, fees: float) -> tuple[float, float, 
     """(credit, fees, note) for closing an option position. A position of bought contracts only is never sold for no
     more than its exit fees: it is written off at zero instead (no sale, no fee; left to expire), so it never loses
     more than it cost. Any other position closes as quoted."""
-    if p.asset == "option" and p.legs and all(leg["quantity"] > 0 for leg in p.legs) and 0 < fees and credit <= fees:
+    if p.asset == "option" and p.legs and all(leg["quantity"] > 0 for leg in p.legs) and fees > 0 and credit <= fees:
         return 0.0, 0.0, " (written off at zero: the bid was below the exit fees)"
     return credit, fees, ""
 
