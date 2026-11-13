@@ -21,6 +21,9 @@
  "stocks_learner_policy": {
   "1": "549bf94633ec5e8e073afa8db678b1327cd3d3544389713cbf4aa3766c873879"
  },
+ "stocks_learner_promotion": {
+  "1": "4a97fda4d34cc14d7a227dc726f940078914ed951d5e74c379f13fde063c9cda"
+ },
  "stocks_learner_regimes": {
   "1": "8d65defe81b28cf5002fafe48f4ad6994f955d58dabfcfd6cbbcbe8db2a2bb16"
  },

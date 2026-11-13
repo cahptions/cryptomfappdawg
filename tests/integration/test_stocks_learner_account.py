@@ -198,3 +198,76 @@ def test_the_return_a_rule_reads_is_floored_like_the_labels() -> None:
     q0 = {"X1": OptionQuote("X1", "X", "call", 10.0, date(2026, 12, 18), 0.0, 0.01, 0.005, 10, 10, 0, when)}
     assert liquidation_return(p, q0) == -1.0
     assert liquidation_return(p, {}) is None
+
+
+def test_the_learner_page_shows_each_trade_with_its_decision(run: Any) -> None:
+    from desk.stocks.learner import account
+
+    w, *_ = run
+    view = account.build(w.dbs.ledger, w.research.conn, w.market, closing(w.days[-1]))
+    assert set(view["accounts"]) == {"learner", "learner_random"}
+    me = view["accounts"]["learner"]
+    assert me["curve"] and me["grade"]["grade"] in ("early", "working", "promising", "not_working", "backwards")
+    assert view["accounts"]["learner_random"]["grade"]["grade"] == "info"
+    assert me["explore_share"] is None or 0 <= me["explore_share"] <= 1
+    assert view["trades"] and all(t["decision"] for t in view["trades"])
+    for t in view["trades"]:
+        assert t["decision"]["reason"] and t["decision"]["exit_title"]
+        if t["state"] == "CLOSED" and t["return"] is not None:
+            assert t["return"] >= -1.0 - 1e-6
+    assert view["baselines"]["spy"] and view["days"] and view["models"]
+    assert view["gate"]["why"] and view["promotion"]
+    current = next(v for v in view["promotion"] if v["current"])
+    assert current["stage"] in ("provisional", "not traded yet")
+    json.dumps(view, allow_nan=False)
+    out = account.refresh(w.paths, w.dbs, closing(w.days[-1]))
+    saved = account.saved(w.paths.home)
+    assert out["refreshed"] and saved is not None and saved["accounts"]
+    assert account.refresh(w.paths, w.dbs, closing(w.days[-1]))["refreshed"] is False      # unchanged: not rebuilt
+
+
+class _Fake:
+    """A book of closed positions for the promotion arithmetic."""
+
+    def __init__(self, positions: list[Any]) -> None:
+        self.items = positions
+        self.conn = self
+
+    def execute(self, *_: Any) -> Any:
+        return self
+
+    def fetchone(self) -> None:
+        return None
+
+    def positions(self, account: str, state: Any = "OPEN") -> list[Any]:
+        return [p for p in self.items if p.account == account and (state is None or p.state == state)]
+
+
+def _closed(account: str, day: date, ret: float, decision: int | None = None) -> Any:
+    from types import SimpleNamespace
+
+    plan = {"decided": day.isoformat(), "learner_decision": decision} if decision is not None else {}
+    return SimpleNamespace(id=f"{account}{day}{decision}", account=account, plan=plan, entry_day=day, state="CLOSED",
+                           pnl=100 * ret, max_loss=100.0, entry_cost=100.0, entry_fees=0.0, exit_reason="expired")
+
+
+def test_a_version_is_confirmed_only_after_beating_random_and_the_rules_forward() -> None:
+    from desk.stocks.learner import promotion as pr
+
+    days = [date(2026, 6, 1) + timedelta(days=i) for i in range(25)]
+    decisions = {i: d.toordinal() for i, d in enumerate(days)}
+    few = _Fake([_closed("learner", d, 0.2, i) for i, d in enumerate(days[:5])])
+    assert pr.judge(few, decisions)["verdict"] is None and "5 of 20" in pr.judge(few, decisions)["why"]
+    rule = pr.rule_strategies()[0]
+    good = _Fake([*(_closed("learner", d, 0.3 + 0.01 * (i % 3), i) for i, d in enumerate(days)),
+                  *(_closed("learner_random", d, -0.2 + 0.01 * (i % 4)) for i, d in enumerate(days)),
+                  *(_closed(rule, d, -0.1 + 0.02 * (i % 2)) for i, d in enumerate(days[:10]))])
+    verdict = pr.judge(good, decisions)
+    assert verdict["verdict"] == "confirmed" and verdict["vs_random"]["low"] > 0 and verdict["vs_rules"]["low"] > 0
+    assert verdict["paired_days"] == pr.FORWARD_DAYS
+    bad = _Fake([*(_closed("learner", d, -0.3 + 0.01 * (i % 3), i) for i, d in enumerate(days)),
+                 *(_closed("learner_random", d, -0.2 + 0.01 * (i % 4)) for i, d in enumerate(days)),
+                 *(_closed(rule, d, -0.1 + 0.02 * (i % 2)) for i, d in enumerate(days[:10]))])
+    assert pr.judge(bad, decisions)["verdict"] == "failed"
+    no_rules = _Fake([p for p in good.items if p.account != rule])
+    assert pr.judge(no_rules, decisions)["verdict"] is None                  # can't compare with the rules: waits

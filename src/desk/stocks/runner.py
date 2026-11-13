@@ -266,6 +266,9 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
                   caveats=["Synthetic/offline tests do not establish profitability.",
                            "Daily option snapshots and modeled marks are research approximations; see STOCKS_PAPER.md."])
     _atomic_private(saved_path(paths, "paper"), json.dumps(result, allow_nan=False))
+    from desk.stocks.learner.job import refresh_account
+
+    refresh_account(paths, dbs, now)            # the Learner page, from the same stepped books (never raises)
     return {"refresh": refreshed.as_json(), "paper": stepped.as_json(), "missed_sessions_managed": len(missed)}
 
 

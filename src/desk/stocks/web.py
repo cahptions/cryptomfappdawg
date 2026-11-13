@@ -557,6 +557,20 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                     value.update(view.summary(conn))
         return {**value, "training": train.state(paths)}
 
+    @app.get("/api/stocks/learner/account")
+    def learner_account() -> dict[str, Any]:
+        """The Learner PAPER account's page, as the worker last saved it (nothing is computed here)."""
+        from desk.stocks.learner import account, train
+
+        value = account.saved(paths.home)
+        if value is None:
+            value = {"label": account.LABEL, "generated_at": None, "policy": account.policy_summary(),
+                     "accounts": {}, "trades": [], "days": [], "findings": {"items": []}, "models": [],
+                     "regimes": {"held_out": []}, "promotion": [], "by_regime": [], "baselines": {"spy": [], "rules": []},
+                     "gate": {"ok": False, "why": "The Learner's account has not been built yet: it appears after the "
+                                                  "next closing session is recorded."}}
+        return {**value, "training": train.state(paths)}
+
     @app.get("/api/stocks/plays/bankroll")
     def plays_bankroll(amount: float = Query(gt=0, le=10_000_000, allow_inf_nan=False),
                        level: Literal["careful", "balanced", "bold"] = "balanced") -> dict[str, Any]:

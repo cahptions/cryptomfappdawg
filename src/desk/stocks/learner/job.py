@@ -21,10 +21,10 @@ JOB = "learner"
 
 def register_specs(market: StocksMarket, now: datetime) -> dict[str, str]:
     """Freeze the Learner's rule sets (a changed rule without a new version is refused, as every frozen rule set)."""
-    from desk.stocks.learner import findings, model, policy, regimes
+    from desk.stocks.learner import findings, model, policy, promotion, regimes
 
     return {m.NAME: market.register_spec(m.NAME, m.VERSION, m.content(), now)
-            for m in (act, ft, lb, model, regimes, findings, policy)}
+            for m in (act, ft, lb, model, regimes, findings, policy, promotion)}
 
 
 def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
@@ -51,6 +51,16 @@ def decide(paths: DeskPaths, dbs: StocksDatabases, market: StocksMarket, researc
         return {"error": f"{type(exc).__name__}: {str(exc)[:240]}"}
 
 
+def refresh_account(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
+    """The Learner page's saved view (``account.refresh``); a failure is reported, never raised."""
+    from desk.stocks.learner import account
+
+    try:
+        return account.refresh(paths, dbs, now)
+    except Exception as exc:  # the page keeps its previous view
+        return {"error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+
+
 def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], now: datetime) -> dict[str, Any]:
     """Record the closed session Plays just built (once), then label and replay within this pass's budgets."""
     market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
@@ -68,6 +78,7 @@ def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], n
                     book.close()
         if ex.recorded(research.conn, "forward", session):
             out["account"] = decide(paths, dbs, market, research, session, now)
+    out["account_view"] = refresh_account(paths, dbs, now)
     out["labels"] = lb.run(research.conn, market.conn, lb.ForwardPrices(market.conn, research.conn), now)
     from desk.stocks.learner import replay
 
