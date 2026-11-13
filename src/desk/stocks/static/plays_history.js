@@ -141,6 +141,14 @@ const KestrelPlaysHistory = (() => {
     return bar;
   }
 
+  // What a play's chart shows, without the time it was checked (that changes on every fetch).
+  function sameData(data) {
+    return JSON.stringify({
+      ...data,
+      freshness: { ...(data.freshness || {}), checked_at: null },
+    });
+  }
+
   // Section and order pickers. A choice is saved with the app's display preferences so it survives a reload.
   function historyFilters(data, rerender) {
     const bar = el("div", undefined, "pl-history-filters");
@@ -1076,7 +1084,8 @@ const KestrelPlaysHistory = (() => {
         "caption muted",
       ),
     );
-    let polling = false;
+    let polling = false,
+      shown = sameData(data);
     const poll = async () => {
       clearTimeout(historyTimer);
       if (ticket !== generation || serial !== historySerial) return;
@@ -1090,10 +1099,15 @@ const KestrelPlaysHistory = (() => {
       try {
         const updated = await api(path);
         if (ticket !== generation || serial !== historySerial) return;
-        chart.updateData(updated);
-        paintGreeks(updated);
-        paintHappened(updated);
-        paintMarks(updated);
+        // Redraw only when something changed: an unchanged chart keeps its hover readout and its place on screen.
+        const signature = sameData(updated);
+        if (signature !== shown) {
+          shown = signature;
+          chart.updateData(updated);
+          paintGreeks(updated);
+          paintHappened(updated);
+          paintMarks(updated);
+        }
         refreshState.textContent = `Saved values checked ${clock(new Date().toISOString())} ET. New quotes update this chart automatically; quote time is shown separately.`;
       } catch (e) {
         if (ticket === generation && serial === historySerial)

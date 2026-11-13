@@ -209,6 +209,17 @@ try {
     );
     // the crosshair readout follows the pointer
     const chart = page.locator(".pl-plot svg");
+    // the gaps toggle redraws the chart (and a new scrollbar can resize it once): act on the settled chart
+    await page.waitForFunction(
+      () =>
+        new Promise((done) => {
+          const svg = document.querySelector(".pl-plot svg");
+          setTimeout(
+            () => done(svg && svg === document.querySelector(".pl-plot svg")),
+            1500,
+          );
+        }),
+    );
     await chart.scrollIntoViewIfNeeded();
     const box = await chart.boundingBox();
     const before = await page.locator(".pl-readout").innerText();
