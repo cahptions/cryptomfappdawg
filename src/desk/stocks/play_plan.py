@@ -218,7 +218,13 @@ def status(play: Mapping[str, Any], plan: Mapping[str, Any] | None, price: float
         return chance({**play, "entry": price, "underlying_price": float(stock)}, 0.0, sigma, drift, days / 365)
 
     from_here = odds(latest.get("underlying") or play["underlying_price"], left)
-    at_entry = odds(entered[0], (expiry - entered[1]).days) if entered else play.get("profit_kestrel")
+    if entered:
+        at_entry = odds(entered[0], (expiry - entered[1]).days)
+    elif forecast.get("basis") == "chain" and play.get("profit_kestrel") is not None:
+        # its shown chance used the chain's shape and "from here" is lognormal: compare like with like
+        at_entry = odds(play["underlying_price"], int(play.get("dte") or (expiry - today).days))
+    else:
+        at_entry = play.get("profit_kestrel")
     tp, sl = plan.get("take_profit"), plan.get("stop")
     if tp and pct >= tp["return"]:
         state, text = "take_profit", f"Take-profit reached: {pct:+.0%} against a {tp['return']:+.0%} target"
@@ -372,12 +378,30 @@ def _leg_values(call: bool, s: Any, k: float, t: Any, vol: float, r: float) -> A
     return value if call else value - s + disc
 
 
+def _bridged(quantiles: Sequence[float], sigma: float, days: Any, dte: int, shocks: Any, rng: Any) -> Any:
+    """Log-return paths whose value at expiry follows the play's stored forecast distribution exactly (the chain's
+    shape, ``chain_odds``): the expiry value is drawn from its quantiles, and the path to it is a Brownian bridge at
+    KESTREL's volatility, so each check day's spread is σ·√t when the forecast's own spread is σ·√T."""
+    from desk.stocks.chain_odds import sample
+
+    total = dte / 365
+    times = days / 365
+    walk = np.cumsum(sigma * np.sqrt(np.diff(np.concatenate(([0.0], times)))) * shocks, axis=1)
+    rest = max(total - float(times[-1]), 0.0)
+    end = walk[:, -1] + sigma * math.sqrt(rest) * rng.standard_normal(len(walk))
+    terminal = sample(quantiles, rng.uniform(size=len(walk)))
+    return walk + (times / total)[None, :] * (terminal - end)[:, None]
+
+
 def plan_odds(play: Mapping[str, Any], plan: Mapping[str, Any], rate: float, session: date, *,
               calibrations: Mapping[str, Any] | None = None, category: str | None = None) -> dict[str, Any] | None:
     """The chance the exit plan's take-profit is reached before its stop or its leave-by date (or expiry), and the
     chances of the stop and of neither: stock paths from KESTREL's own forecast (the drift and volatility behind its
     chance in the money), every leg repriced along each path at its quoted volatility. Like tastytrade's "P50", it is
-    a path probability, so it fits a trade managed to a target better than finishing in the money does.
+    a path probability, so it fits a trade managed to a target better than finishing in the money does. A play priced
+    on the chain's own distribution (``forecast["quantiles"]``) draws each path's expiry value from that distribution
+    and bridges to it (``_bridged``), so the paths finish where its other chances say; otherwise the paths are
+    geometric Brownian motion at the forecast's volatility and drift.
 
     Every recorded play's own plan is graded on its quoted closing marks (``plays.grade_events``); once 30 have
     resolved, the share is calibrated against how often they really reached the take-profit (``take_profit`` in
@@ -396,9 +420,13 @@ def plan_odds(play: Mapping[str, Any], plan: Mapping[str, Any], rate: float, ses
     step = np.diff(np.concatenate(([0.0], days))) / 365
     sigma, drift = float(forecast["sigma"]), float(forecast["drift"])
     seed = int(hashlib.sha256("|".join(leg["occ"] for leg in play["legs"]).encode()).hexdigest()[:8], 16)
-    shocks = np.random.default_rng(seed).standard_normal((PLAN_PATHS, checks))
-    stock = float(play["underlying_price"]) * np.exp(np.cumsum((drift - 0.5 * sigma ** 2) * step
-                                                               + sigma * np.sqrt(step) * shocks, axis=1))
+    rng = np.random.default_rng(seed)
+    shocks = rng.standard_normal((PLAN_PATHS, checks))
+    if forecast.get("quantiles"):
+        stock = float(play["underlying_price"]) * np.exp(_bridged(forecast["quantiles"], sigma, days, dte, shocks, rng))
+    else:
+        stock = float(play["underlying_price"]) * np.exp(np.cumsum((drift - 0.5 * sigma ** 2) * step
+                                                                   + sigma * np.sqrt(step) * shocks, axis=1))
     left = np.maximum((dte - days) / 365, 1e-6)          # broadcast across paths: no per-path copies
     held = np.zeros_like(stock)
     for leg in play["legs"]:

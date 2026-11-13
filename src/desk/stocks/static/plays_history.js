@@ -1201,7 +1201,7 @@ const KestrelPlaysHistory = (() => {
   // Each graded chance against what happened. The expiry event has three lines (KESTREL, the market's own price, the
   // stock's history); every other chance a play shows (take-profit first, profit and the return targets at expiry,
   // touch) is KESTREL's own, graded on recorded plays once it was decidable.
-  function calibrationChart(cal) {
+  function calibrationChart(cal, opts = {}) {
     const box = el("section", undefined, "pf-chart"),
       controls = el("div", undefined, "pl-controls"),
       summary = el("p", "", "caption muted"),
@@ -1212,7 +1212,7 @@ const KestrelPlaysHistory = (() => {
       {
         id: "expiry",
         label: "In the money (or past the break-evens) at expiry",
-        groups: ["itm_kestrel", "itm_market", "itm_history"]
+        groups: ["itm_kestrel", "itm_kestrel_raw", "itm_market", "itm_history"]
           .filter((key) => cal[key])
           .map((key) => [key, cal[key]]),
       },
@@ -1228,10 +1228,11 @@ const KestrelPlaysHistory = (() => {
     for (const v of views) pick.append(new Option(v.label, v.id));
     controls.append(pick);
     box.append(
-      el("h2", "Predicted chance vs what happened"),
+      el("h2", opts.title || "Predicted chance vs what happened"),
       el(
         "p",
-        "Each dot is a tenth of predicted chances: across (what was predicted) against up (how often it actually happened). Dots on the diagonal are well calibrated. Every chance is the one the page showed when the play was picked; only quoted closing marks, exact settlements and the stock's own daily highs and lows grade them.",
+        opts.text ||
+          "Each dot is a tenth of predicted chances: across (what was predicted) against up (how often it actually happened). Dots on the diagonal are well calibrated. Every chance is the one the page showed when the play was picked; only quoted closing marks, exact settlements and the stock's own daily highs and lows grade them.",
         "muted",
       ),
       controls,
@@ -1269,7 +1270,7 @@ const KestrelPlaysHistory = (() => {
         }));
       plot.replaceChildren(
         KestrelCharts.create({
-          id: "calibration",
+          id: opts.id || "calibration",
           label: "Observed event frequency",
           points,
           xKind: "number",
@@ -1429,6 +1430,70 @@ const KestrelPlaysHistory = (() => {
     return box;
   }
 
+  // Every replayable section on real past option prices: its own record and calibration, labelled replay and never
+  // mixed with the forward record above.
+  function replaySection(r) {
+    const box = el("section", undefined, "pf-section pf-replay");
+    box.setAttribute("data-replay", "true");
+    box.append(
+      el("h2", r.label),
+      el("p", `${r.note} ${r.about} ${r.spread}`, "muted"),
+    );
+    const rows = r.sections.map((s) => {
+      const vs = s.versus_twins;
+      return [
+        `${s.emoji} ${s.title}`,
+        s.where,
+        `${number(s.plays)} (${number(s.resolved)} graded, ${s.sessions} sessions)`,
+        s.mean_return === null ? "—" : signedPct(s.mean_return),
+        chance(s.hit_rate),
+        chance(s.win_rate),
+        s.twins.mean_return === null ? "—" : signedPct(s.twins.mean_return),
+        vs
+          ? `${signedPct(vs.mean_gap)} a session (90%: ${signedPct(vs.low)} to ${signedPct(vs.high)}, ${vs.sessions} sessions)`
+          : "fewer than 5 sessions with twins",
+      ];
+    });
+    box.append(
+      table(
+        [
+          "Section",
+          "Replayed on",
+          "Plays",
+          "Return at expiry",
+          "In the money",
+          "In profit",
+          "Random twins",
+          "Versus twins",
+        ],
+        rows,
+      ),
+    );
+    if (r.skipped?.length) {
+      const skipped = el("details", undefined, "pl-marks");
+      skipped.append(
+        el("summary", `Not replayed (${r.skipped.length} sections)`),
+        table(
+          ["Section", "Why"],
+          r.skipped.map((s) => [`${s.emoji} ${s.title}`, s.reason]),
+        ),
+      );
+      box.append(skipped);
+    }
+    const c = r.coverage;
+    if (c)
+      box.append(
+        el(
+          "p",
+          `Downloads: ${number(c.name_months_listed)} of ${number(c.name_months)} name-months listed, ${number(c.contracts_fetched)} of ${number(c.contracts_wanted)} contracts priced; ${number(c.requests_left)} of about ${number(c.requests_planned)} Massive requests left (${c.hours_left_at_full_speed} hours at full speed, about ${c.days_left_at_share} days at the replay's share of ${c.share.closed} a closed-market pass).`,
+          "muted caption",
+        ),
+      );
+    return box;
+  }
+  const signedPct = (v) =>
+    `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(100 * v).toFixed(0)}%`;
+
   async function performance(ticket) {
     const data = await api("plays/performance");
     if (ticket !== generation) return;
@@ -1446,8 +1511,22 @@ const KestrelPlaysHistory = (() => {
     );
     hero.append(titles);
     app.append(hero, views("performance"));
+    const replay = () => {
+      if (!data.replay) return;
+      app.append(replaySection(data.replay));
+      if (data.replay.calibration)
+        app.append(
+          calibrationChart(data.replay.calibration, {
+            id: "replay-calibration",
+            title:
+              "Replay calibration on past prices: each chance against the outcome",
+            text: "The same chances, computed by the replayed sections on past chains and graded at expiry. A separate table from the forward calibration above: replay results never calibrate, grade or unlock anything forward.",
+          }),
+        );
+    };
     if (!data.categories?.length) {
       app.append(panel("Nothing graded yet", data.message || ""));
+      replay();
       return;
     }
     app.append(
@@ -1521,6 +1600,7 @@ const KestrelPlaysHistory = (() => {
       ),
     );
     app.append(cats, calibrationChart(data.calibration));
+    replay();
     if (data.learning)
       app.append(learningSection(data.learning, data.titles || {}));
     if (data.horizons?.length) {

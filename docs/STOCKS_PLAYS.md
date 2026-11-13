@@ -264,9 +264,9 @@ group first: this category at this expiry, then the category, then every play); 
 
 | View | What it is |
 |---|---|
-| **Market** | What the option's own price implies: lognormal at its implied volatility, drifting at the risk-free rate. A price, not a forecast. |
+| **Market** | What the option chain prices: the expiry's own distribution, read from its whole smile (skew and fat tails included; see "The chain's own skew"), or, where the smile cannot be fitted, the lognormal at the option's implied volatility drifting at the risk-free rate. A price, not a forecast. |
 | **History** | How often this stock actually moved that far in that many trading sessions, from up to three years of its own closes, rescaled to today's realized volatility. Keeps the stock's fat tails and skew; drops its old trend. |
-| **KESTREL** | A forecast. Volatility blends 70% implied and 30% realized variance (implied volatility usually overstates the move that follows). The drift is tilted by the committee's view only as far as the committee's measured information coefficient allows — expected move = IC × z-score × volatility (Grinold), with the IC shrunk by its evidence n / (n + 24 months) and never extrapolated past the one-month horizon it was measured on. With no positive measured IC there is no tilt. |
+| **KESTREL** | A forecast: the chain's own distribution reshaped, or the lognormal where the chain falls back. Volatility blends 70% implied and 30% realized variance (implied volatility usually overstates the move that follows). The drift is tilted by the committee's view only as far as the committee's measured information coefficient allows — expected move = IC × z-score × volatility (Grinold), with the IC shrunk by its evidence n / (n + 24 months) and never extrapolated past the one-month horizon it was measured on. With no positive measured IC there is no tilt. |
 
 KESTREL's chance is then **calibrated against how past plays actually finished**. Every recorded play is graded at
 expiration; once a group has 30 resolved plays **from at least 10 separate sessions**, predicted chances are grouped in
@@ -275,7 +275,7 @@ In-the-money events and straddle moves are calibrated separately, and each categ
 own calibration once it meets the same two minimums (see Learning). Until then the page says "not yet calibrated"
 and how many plays and sessions it has.
 
-**Evidence is counted in independent days, not plays** (probability model version 2, 2026-11-12). Plays picked the
+**Evidence is counted in independent days, not plays** (2026-11-12). Plays picked the
 same session share that session's market: one rally finishes most of a day's calls in the money together, so 30 plays
 from 2 sessions are closer to two observations than to thirty. Two rules follow:
 
@@ -290,8 +290,77 @@ from 2 sessions are closer to two observations than to thirty. Two rules follow:
 
 The Learning report uses the same rule (it rebuilds each group's calibration from per-session sums), and its strength
 labels call calibration evidence "early" until it has both 30 plays and 10 sessions. The rule changes how evidence is
-counted, not what the model predicts, so `odds.MODEL_VERSION` stays 1 and every play recorded before the rule still
-counts: calibration learns from the model's own raw chances, which are the same under either rule.
+counted, not what the model predicts, so it did not change `odds.MODEL_VERSION`: calibration learns from the model's
+own raw chances, which are the same under either rule.
+
+### The chain's own skew (probability model version 2)
+
+A lognormal at one implied volatility treats the stock as equally likely to jump up or down, with thin tails. The
+chain disagrees: out-of-the-money puts usually cost more volatility than calls (skew) and both wings more than the
+money (smile), because the market expects sharper falls and bigger moves than a lognormal. Since probability model
+version 2 (`odds.MODEL_VERSION = 2`, 2026-11-12) both the **Market** and the **KESTREL** chances read the expiry's whole
+chain (`src/desk/stocks/chain_odds.py`):
+
+1. **Fit the smile.** For each stock and expiry: the out-of-the-money quotes (puts below the forward, calls above;
+   an in-the-money option's price is mostly intrinsic value, so its spread swamps its volatility), each quoted within
+   30% of its mid and within four standard deviations, one per strike. Implied volatility is smoothed against
+   log-moneyness with a kernel-weighted local quadratic (Gaussian kernel, half a standard deviation of the move wide
+   and at least 1.5 strike spacings), each quote weighted by how precisely it pins its volatility (its vega over half
+   its spread).
+2. **Read the chances off it.** Breeden–Litzenberger: the chance of finishing above K is minus the forward value of
+   the call price's slope in strike. Differentiating the fitted smile analytically gives
+   P(S_T > K) = N(d₂) − φ(d₂)·√T·dσ/d ln K: the Black-Scholes digital plus its skew correction. Outside the quoted
+   strikes the smile continues along its edge tangent (kept within 0.3–3× the money's volatility). The chance is
+   tabulated on 1,201 points and checked: it must fall as the strike rises; a rise of more than 2 points anywhere
+   (a negative probability) rejects the fit.
+3. **KESTREL's forecast.** The same shape, its spread rescaled by KESTREL's volatility blend (70% of the money's implied
+   variance, 30% realized), and shifted so the expected price grows at KESTREL's drift: the risk-free rate plus the
+   committee tilt, exactly as before. On a flat smile this is the old lognormal.
+
+Why this method: differencing quoted prices directly (raw Breeden–Litzenberger) needs dense, tight strikes and turns
+every bid/ask error into a negative density on a retail chain; SVI or splines need a non-linear fit and many clean
+strikes, and can fail silently. A smoothed smile differentiated in closed form is linear algebra only, stable from
+five strikes, and degrades toward a straight skew where strikes are few.
+
+**Fallback.** An expiry with fewer than five usable strikes (or fewer than two either side of the money), a fit whose
+residual exceeds 15% of the money's volatility, or a fit implying a negative probability keeps today's lognormal at
+each contract's own implied volatility. Every play stores its basis (`odds_basis`: "chain" with the strikes used and
+the money's volatility, or "lognormal" with the reason) and the card's chances say which.
+
+**What uses it.** The Market and KESTREL chances in the money, the chance of profit beyond break-even, KESTREL's
+expected value per contract (and so every section that ranks on it), the expiry targets (+25/50/100%, maximum gain)
+and the take-profit chance's Monte Carlo: each path's value at expiry is drawn from the stored KESTREL distribution
+(35 quantiles kept with the play, `forecast.quantiles`) and the path to it is a Brownian bridge at KESTREL's
+volatility, so the paths finish where the other chances say. Still lognormal, and labelled so: the **touch** chance
+(a path quantity the terminal distribution does not give; the reflection formula at KESTREL's volatility and drift),
+the History view (unchanged), a tracked play's "chance from here" (a new price and horizon; compared with the same
+lognormal at the pick, so "worth adding" stays like for like) and the Calculator's market view.
+
+**Measured** on synthetic chains with known skew (risk-neutral mixtures of two lognormals: a 20% "crash" regime, and
+a 50/50 calm-and-wild mixture for fat tails), calls and puts from 70% to 135% of the price, mids jittered inside the
+quoted spread, 20 seeds each, scored on the chance of finishing above 45 levels from 75% to 130% of the price against
+the true chance (expected Brier score and log-loss; `tests/unit/test_stocks_chain_odds.py`):
+
+| Synthetic chain (2.5% strikes, 4% spreads) | Brier: chain / lognormal own IV / lognormal ATM | Log-loss: chain / own / ATM | Worst error: chain / own |
+|---|---|---|---|
+| Crash skew, 30 days | 0.08075 / 0.08161 / 0.08165 (truth 0.08074) | 0.2653 / 0.2784 / 0.2764 | 0.3 / 6.7 points |
+| Crash skew, 7 days | 0.04739 / 0.04785 / 0.04790 (truth 0.04739) | 0.1591 / 0.1729 / 0.1702 | 0.8 / 6.1 points |
+| Crash skew, 90 days | 0.13321 / 0.13380 / 0.13381 (truth 0.13321) | 0.4191 / 0.4219 / 0.4218 | 0.2 / 4.5 points |
+| Fat tails, 30 days | 0.08264 / 0.08299 / 0.08300 (truth 0.08264) | 0.2753 / 0.2806 / 0.2805 | 0.6 / 3.9 points |
+| Flat (true lognormal), 30 days | 0.08644 / 0.08644 / 0.08644 | 0.2767 / 0.2766 / 0.2766 | 0.2 / 0.1 points |
+
+With sparser, wider chains (5% strikes, 12% spreads) the chain stays within 2 points of the truth at 30 and 90 days
+(Brier 0.08076 against 0.08159 for the lognormal at the crash skew's 30 days); the 7-day chain then has only a few
+out-of-the-money strikes on one side and falls back to the lognormal on every seed, as designed. The lognormal's
+errors are concentrated exactly where lottos and far targets live: it misses the crash skew's far-put chance by 6–7
+points.
+
+**Calibration restarts for version 2.** Calibration learns from the model's own raw chances, and version 2 predicts
+different ones, so only plays recorded under version 2 calibrate later plays (every chance and every group starts again
+from 30 resolved plays from 10 sessions; the page says "not yet calibrated" until then). Plays recorded under version 1
+are not lost: they stay in History and Performance, graded as before, and their grades keep their own model version
+(`stk_play_grades.model_version`), so Learning can compare the two models on the same kind of plays. The rule-set
+fingerprint (`plays.method`) includes the model version, so version-2 plays are a new rule version in Performance.
 
 Also shown: the chance of **profit** at expiry (beyond break-even), the chance the price **touches** the strike
 before expiry (reflection formula for geometric Brownian motion; "already in the money" when it has), and the
@@ -563,6 +632,58 @@ profit, the return targets, the maximum gain and touch); the Expiry filter's own
 "$100 into every play" curve, counted at settlement, against the same $100 into each twin and into SPY over the
 same dates.
 
+### Replay on real past prices
+
+Forward plays take months to grade, so Performance also shows every section that can be rebuilt **replayed on real
+past option prices** (`src/desk/stocks/play_replay.py`). It is labelled "Replay on real past prices — not forward
+results" everywhere, stored in its own append-only tables (market migration `0013_plays_replay.sql`:
+`stk_replay_plays`, `stk_replay_days`, `stk_replay_outcomes`, each row with its source `massive_daily_bars` and the
+replay's rule fingerprint), and **never** grades, calibrates, labels, sizes or unlocks anything forward.
+
+- **Data.** Massive's free Options Basic archive (the last two years): for the 20 most traded optioned names (the
+  first of the IV history's names, SPY, QQQ and IWM first) and every standard monthly expiry already past, the
+  contracts Massive listed nine weeks before expiry (`as_of`; one request), then a ladder of strikes' daily bars (one
+  request each): the at-the-money call and put (the very pair the IV history downloads, so it is reused) and six
+  out-of-the-money calls and puts at 0.25–1.75 standard deviations of the move to expiry. Lottos reuse the lotto
+  replay's weekly contracts (`lotto_history`).
+- **Requests and time.** 13 requests a name-month: 20 names × 21 monthly expiries = **5,460 requests**, about 18 hours
+  at Massive's full 5 a minute. The replay shares the one Massive queue (`massive_options`) and takes a modest share,
+  at most **6 requests a pass while the market is closed and 1 while it is open**, last in the queue, so the replay of
+  contracts, the IV history, the earnings straddles, the listings and the lottos come first. At about 100
+  closed-market passes a day that is **about 9 days** to download everything; the replay of each week starts as soon as
+  its own inputs are complete. The page shows the requests left, hours at full speed and days at this share.
+- **Each replayed day.** The first session of every week whose inputs are all downloaded (its monthly expiries 7–60
+  days out for every name, and the IV history behind its IV rank). Each name's chain that day is every downloaded
+  contract that traded, priced at its **real closing trade** with an **assumed spread of 6% of the price (at least 3
+  cents)**; its volume that day stands in for open interest, which daily bars do not carry (a stricter gate: volume
+  is usually far below open interest). `plays.table` prices it exactly as a live chain (the chain's own smile where it
+  fits, else the lognormal), each section's own selector runs on it, one pick per stock, the top 12, `plays.finish`
+  turns each into a play and `plays.twin` draws its random twin from the same day's chains. Only that day's and
+  earlier data are read: the stock's closes to that day, the IV30 of that day's chain, IV rank from the IV history's
+  closing-trade series before it; no committee tilt (no committee view is rebuilt).
+- **Grading**, at expiry, exactly as forward plays (`plays.grade`): settled at intrinsic value on the stock's close on
+  expiry day (none within four days, or a split in between, leaves it unresolved), net of $0.65 a contract at entry;
+  the entry was the real close plus half the assumed spread for a bought leg and minus it for a sold one.
+- **Replayed sections.** Biggest model edge, Cheap volatility and Strangles on every name; Lottos on the lotto names'
+  weekly expiries; Sell premium, Iron condors, Iron butterflies and Cash-secured puts on **ETFs only** — their live
+  rule reads the committee's view, which ETFs never have (the research universe leaves them out), so on ETFs the live
+  rule is reproduced exactly, and on stocks it cannot be.
+- **Skipped, with the reason shown:** Most likely to finish ITM and Debit spreads (the committee's lean as it stood
+  that day needs the full desk analysis of every stock), Unusual activity (open interest and each contract's earlier
+  volumes and quote positions), Earnings plays (results dates as announced then are not stored point in time; the
+  historical replay trades earnings straddles on real prices separately), Trend calls (the momentum desk ranks every
+  stock), Bear puts (valuation, momentum and red flags), Squeeze (short interest as published) and Watchlist (your
+  watchlist then is not recorded).
+- **Shown** on Plays → Performance under the forward record: per section the plays, sessions, return at expiry, the
+  share in the money (or past the break-evens) and in profit, the random twins' return and the gap to them by a
+  bootstrap over sessions; then a **replay calibration** chart and table (KESTREL's raw chance, the market's, profit,
+  +25/50/100% and the maximum gain, in tenths with Brier scores), beside and never inside the forward calibration. The
+  Learning report lists each graded section in its "Replays on past data" section.
+- **Limits.** A closing trade is a last trade, not a quote: a quiet contract's last trade can be hours older than the
+  stock's close, and the real spread may be wider or narrower than assumed. Weekly decision days (not every session)
+  keep consecutive picks of the same contract from dominating. The ladder is placed nine weeks before expiry, so a
+  stock that moves far afterwards has fewer strikes near the money on the replayed day.
+
 ## Learning
 
 Code: `src/desk/stocks/play_learning.py`; one report per closed session (`stk_play_learning`), shown under
@@ -606,7 +727,8 @@ Measured on synthetic data (Ryzen-class cloud CPU): folding a session of 2,000 c
 a marks pass over 3,000 open plays with 20 sessions to mark takes about 1.7 s and 0.1 s when nothing is new. Storage:
 about 0.7 KB per contract per session of five-minute marks (kept 35 days), 136 bytes per daily close and 112 bytes per
 play mark. With ~100 picks a day plus twins (LEAPS living about a year), expect roughly 0.5–0.7 GB a year plus about
-0.2 GB of rolling intraday detail; System → Plays tracking shows the real figure. Requests: at most 40 per five-minute
+0.2 GB of rolling intraday detail; System → Plays tracking shows the real figure. Reading each expiry's smile (probability model 2)
+costs about 1.4 ms an expiry, roughly 1.5 s for a full build of 150 names × 7 expiries. Requests: at most 40 per five-minute
 pass by construction, typically 4–6 a minute.
 
 ## Limits
@@ -622,6 +744,10 @@ pass by construction, typically 4–6 a minute.
   differ.
 - Probabilities are model estimates. Until plays have resolved, KESTREL's chance is uncalibrated, and until the
   committee has a positive measured information coefficient it carries no directional tilt. The page states both.
+- The chain's own distribution is read from the latest snapshot's out-of-the-money quotes, solved as European options
+  without dividends (American early exercise and dividends shift deep in-the-money prices, which is one reason only
+  out-of-the-money quotes are used). It is as good as the strikes collected: up to 50 either side of the money, so a
+  lotto far beyond the quoted strikes reads the smile's edge tangent, not a quote.
 - History values are closing marks at the bid/ask; a real order could fill nearer the mid. Estimated and modelled
   values are Black-Scholes, not quotes, and are never graded.
 - Whether Schwab's quotes endpoint serves option symbols to the operator's app is recorded by the first tracking
@@ -645,6 +771,7 @@ uv run desk open --desk stocks --restart
 
 Restart after updating: the Stocks page and server move between UI protocols together (protocol 9 now; a page
 from an older build asks for a reload). Saved research, PAPER records and connections are kept; new research tables
-arrive by numbered migration (the latest for Plays is `0014_play_grades.sql`, the graded chances). Plays appear after
+arrive by numbered migration (the latest for Plays is `0014_play_grades.sql`, the graded chances; the market
+database's `0013_plays_replay.sql` holds the section replay on real past prices). Plays appear after
 the next options collection pass (within 15 minutes in market hours); grades and calibrations build up as recorded
 plays resolve.

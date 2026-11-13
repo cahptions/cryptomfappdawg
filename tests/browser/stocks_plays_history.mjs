@@ -283,6 +283,29 @@ try {
         .count()) > 0,
       "calibration dots are drawn",
     );
+    // the section replay on real past prices: its own section and calibration, labelled replay
+    await page
+      .getByRole("heading", {
+        name: "Replay on real past prices — not forward results",
+      })
+      .waitFor();
+    assert.match(
+      await page.locator(".pf-replay table").first().innerText(),
+      /Biggest model edge[\s\S]*Iron condors/,
+    );
+    assert.match(
+      await page.locator(".pf-replay").innerText(),
+      /Not replayed \(8 sections\)/,
+    );
+    await page
+      .getByRole("heading", { name: /^Replay calibration on past prices/ })
+      .waitFor();
+    assert.ok(
+      (await page
+        .locator('[data-chart="replay-calibration"] .kc-observation')
+        .count()) > 0,
+      "replay calibration dots are drawn",
+    );
     await page
       .getByRole("heading", { name: "By days to expiry when picked" })
       .waitFor();

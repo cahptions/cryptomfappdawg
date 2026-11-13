@@ -1,7 +1,8 @@
 """The odds of an option, three ways (docs/STOCKS_PLAYS.md).
 
-* **Market**: what the option's own price implies (lognormal at its implied volatility, drift = the risk-free rate).
-  This is a price, not a forecast.
+* **Market**: what the option's own price implies (lognormal at its implied volatility, drift = the risk-free rate;
+  where the expiry's smile can be fitted, the chain's own distribution instead: ``desk.stocks.chain_odds``). This is a
+  price, not a forecast.
 * **History**: how often this stock really moved that far over that many sessions, from its own daily closes,
   rescaled to today's realized volatility (keeps its fat tails and skew, drops its old trend).
 * **KESTREL**: a forecast. Volatility blends implied and realized variance (implied volatility usually overstates the
@@ -27,7 +28,9 @@ from desk.stocks.options import norm_cdf
 # Bump when the probability model itself changes (what it predicts before calibration): calibration restarts for it.
 # How calibration counts evidence (``MIN_CALIBRATION_SESSIONS``, the clustering-adjusted effective sample size, added
 # 2026-11-12) is not the model: the raw predictions it learns from are unchanged, so earlier plays still count.
-MODEL_VERSION = 1
+# 2 (2026-11-12): the market and KESTREL chances use the option chain's own distribution where an expiry's smile can be
+# fitted (``desk.stocks.chain_odds``), the lognormal elsewhere; plays of version 1 stay graded but no longer calibrate.
+MODEL_VERSION = 2
 TRADING_YEAR = 252
 IV_WEIGHT = 0.7                  # forecast variance = 0.7 × implied² + 0.3 × realized²
 IC_HORIZON_YEARS = 21 / 252      # the committee's information coefficient is measured over one month

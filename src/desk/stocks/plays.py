@@ -35,6 +35,7 @@ import numpy as np
 from desk.core.clock import to_iso
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks import calendar as cal
+from desk.stocks import chain_odds as co
 from desk.stocks import odds as od
 from desk.stocks import options as opt
 from desk.stocks.activity import quote_session
@@ -423,6 +424,8 @@ class Table:
     itm_market: Array
     itm_kestrel: Array
     payoff: Array        # KESTREL expected payoff per share at expiration
+    # each expiry's basis for the chances: the chain's own smile, or the lognormal fallback and why (``chain_odds``)
+    fits: dict[date, co.Expiry] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(self.quotes)
@@ -468,11 +471,35 @@ def table(u: Underlying, ctx: Context) -> Table | None:
     above_k = _above(s, k, t, sigma, mu)
     keep = np.where(good)[0]
     pick = [quotes[i] for i in keep]
-    return Table(u, pick, call[keep], k[keep], dte[keep], t[keep], bid[keep], ask[keep], mid[keep],
-                 ((ask - bid) / mid)[keep], np.array([q.volume for q in pick], dtype=float),
-                 np.array([q.open_interest for q in pick], dtype=float), iv[keep], delta[keep], sigma[keep], mu[keep],
-                 np.where(call, above_m, 1 - above_m)[keep], np.where(call, above_k, 1 - above_k)[keep],
-                 _payoff(call, s, k, t, sigma, mu)[keep])
+    tb = Table(u, pick, call[keep], k[keep], dte[keep], t[keep], bid[keep], ask[keep], mid[keep],
+               ((ask - bid) / mid)[keep], np.array([q.volume for q in pick], dtype=float),
+               np.array([q.open_interest for q in pick], dtype=float), iv[keep], delta[keep], sigma[keep], mu[keep],
+               np.where(call, above_m, 1 - above_m)[keep], np.where(call, above_k, 1 - above_k)[keep],
+               _payoff(call, s, k, t, sigma, mu)[keep])
+    _chain_basis(tb, ctx)
+    return tb
+
+
+def _chain_basis(tb: Table, ctx: Context) -> None:
+    """Re-price each expiry on the chain's own distribution where its smile can be fitted (``chain_odds``): the
+    market's and KESTREL's chances, KESTREL's expected payoff, volatility and drift. Expiries that cannot be fitted
+    keep the lognormal at each contract's own implied volatility, and ``tb.fits`` says why."""
+    u = tb.u
+    expiries = np.array([q.expiration.toordinal() for q in tb.quotes])
+    for ordinal in sorted(set(expiries.tolist())):
+        rows = np.where(expiries == ordinal)[0]
+        fit = co.expiry(tb.k[rows], tb.iv[rows], tb.spread[rows], tb.call[rows], tb.mid[rows], s=u.price,
+                        t=float(tb.t[rows[0]]), r=ctx.rate, rv=u.rv, ic=ctx.ic, ic_months=ctx.ic_months, z=u.z)
+        tb.fits[date.fromordinal(ordinal)] = fit
+        if fit.market is None or fit.kestrel is None or fit.sigma is None or fit.drift is None:
+            continue
+        calls, strikes = tb.call[rows], tb.k[rows]
+        market, kestrel = fit.market.above(u.price, strikes), fit.kestrel.above(u.price, strikes)
+        tb.itm_market[rows] = np.where(calls, market, 1 - market)
+        tb.itm_kestrel[rows] = np.where(calls, kestrel, 1 - kestrel)
+        tb.payoff[rows] = fit.kestrel.expected_payoff(calls, u.price, strikes)
+        tb.sigma[rows] = fit.sigma
+        tb.mu[rows] = fit.drift
 
 
 # ── candidates ───────────────────────────────────────────────────────────────────────────────────
@@ -1130,8 +1157,13 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
     days = int(tb.dte[i0])
     itm_cal, itm_level = calibrator(ctx.calibration, "itm", c.category, days)
     move_cal, move_level = calibrator(ctx.calibration, "move", c.category, days)
+    fit = tb.fits.get(expiration) or co.Expiry("lognormal", "no chain fit for this expiry")
+    chain = fit.basis == "chain" and fit.kestrel is not None
 
     def view(kind: str, buyer: bool, k: float, iv: float, premium: float, cal: od.Calibration | None = None) -> od.Odds:
+        if chain:
+            return co.chance_odds(fit, kind=kind, action="buy" if buyer else "sell", s=u.price, k=k, t=t,
+                                  premium=premium, history=history, rv=u.rv, iv=iv, calibration=cal)
         return od.odds(kind=kind, action="buy" if buyer else "sell", s=u.price, k=k, t=t, iv=iv, rv=u.rv, r=ctx.rate,
                        premium=premium, history=history, ic=ctx.ic, ic_months=ctx.ic_months, z=u.z, calibration=cal)
     breakevens: list[float] | None = None
@@ -1177,8 +1209,12 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
             max_gain = (abs(tb.quotes[c.legs[1][0]].strike - q.strike) - entry) * 100 - fees
         else:
             max_gain = None if q.kind == "call" else (q.strike - entry) * 100 - fees
-    payoff = sum((1 if side == "buy" else -1) * od.expected_payoff(tb.quotes[i].kind, u.price, tb.quotes[i].strike, t,
-                                                                     sigma, drift) for i, side in c.legs)
+    if chain and fit.kestrel is not None:
+        payoff = sum((1 if side == "buy" else -1) * float(fit.kestrel.expected_payoff(
+            tb.quotes[i].kind == "call", u.price, tb.quotes[i].strike)) for i, side in c.legs)
+    else:
+        payoff = sum((1 if side == "buy" else -1) * od.expected_payoff(
+            tb.quotes[i].kind, u.price, tb.quotes[i].strike, t, sigma, drift) for i, side in c.legs)
     width = spread_width(legs)
     if action == "BUY":
         cost = entry * 100 + fees
@@ -1223,11 +1259,17 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         "committee": None if u.committee is None else round(float(u.committee), 1),
         "iv30": None if not u.iv30 else round(float(u.iv30), 4), "rv": None if not u.rv else round(float(u.rv), 4),
         "unusual": c.unusual, "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source,
-        "calibration": move_level if event == "move" else itm_level, "odds_version": od.MODEL_VERSION}
+        "calibration": move_level if event == "move" else itm_level, "odds_version": od.MODEL_VERSION,
+        "odds_basis": fit.describe()}
     from desk.stocks.play_targets import build as target_probabilities
 
-    play["probability_targets"] = target_probabilities(play, sigma, drift, t)
-    play["forecast"] = {"sigma": round(float(sigma), 4), "drift": round(float(drift), 4)}   # for the plan's odds
+    kestrel = fit.kestrel if chain else None
+    play["probability_targets"] = target_probabilities(play, sigma, drift, t, kestrel)
+    # for the plan's odds: KESTREL's volatility and drift, and on the chain's basis its distribution at expiry
+    play["forecast"] = {"sigma": round(float(sigma), 4), "drift": round(float(drift), 4),
+                        "basis": "chain" if kestrel is not None else "lognormal"}
+    if kestrel is not None:
+        play["forecast"]["quantiles"] = kestrel.quantiles()
     play["calibrated"] = calibrated(play, ctx.calibration, c.category, days)
     return play
 
