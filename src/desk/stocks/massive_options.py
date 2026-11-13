@@ -7,8 +7,9 @@ left and hands back what it does not need, so a finished task never holds up the
 
 Tasks, in order: the contracts the latest historical replay traded (``options_history``), the implied-volatility
 history (``iv_history``), the straddles before past reports the replay wanted (``real_options``), the real monthly
-listings of the stocks the replay trades (``options_history.listings_task``) and the lottos on real prices
-(``lotto_history``).
+listings of the stocks the replay trades (``options_history.listings_task``), the lottos on real prices
+(``lotto_history``) and every Plays section on real past prices (``play_replay``, which takes at most 6 requests a pass
+while the market is closed and 1 while it is open).
 """
 
 from __future__ import annotations
@@ -52,11 +53,11 @@ async def ask(call: Awaitable[list[dict[str, Any]]]) -> tuple[list[dict[str, Any
 
 
 def tasks() -> list[tuple[str, Task]]:
-    from desk.stocks import iv_history, lotto_history, options_history, real_options
+    from desk.stocks import iv_history, lotto_history, options_history, play_replay, real_options
 
     return [("replay_contracts", options_history.task), ("iv_history", iv_history.task),
             ("earnings_history", real_options.task), ("replay_listings", options_history.listings_task),
-            ("lotto_history", lotto_history.task)]
+            ("lotto_history", lotto_history.task), ("plays_replay", play_replay.task)]
 
 
 async def job(massive: Any, market: StocksMarket, home: Path, now: datetime) -> dict[str, Any]:
