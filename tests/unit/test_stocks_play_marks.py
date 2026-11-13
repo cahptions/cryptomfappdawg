@@ -393,3 +393,18 @@ def test_twins_match_structure_expiry_and_delta_on_another_stock_reproducibly() 
     lonely = {**play, "expiration": date(2028, 1, 21).isoformat()}
     assert pl.twin(lonely, tables, D0) is None                                     # nothing within a week: no twin
     assert math.isfinite(t["entry"])
+
+
+def test_a_bought_option_never_loses_more_than_was_paid() -> None:
+    """A long contract whose bid is below the exit fee is left to expire (no fee), so its mark stops at -100% of the
+    money at risk; reported at -101% to -106% on 2026-11-13 for lottos marked at a zero bid."""
+    paid = 0.13 * 100 + FEE
+    pnl, pct = pm.profit("BUY", 0.13, paid, 0.0, 1, settled=False)
+    assert pnl == pytest.approx(-paid) and pct == pytest.approx(-1.0)
+    assert pm.profit("BUY", 0.13, paid, 0.004, 1, settled=False)[1] == pytest.approx(-1.0)      # bid below the fee
+    pnl, _ = pm.profit("BUY", 0.13, paid, 0.05, 1, settled=False)                                # worth selling
+    assert pnl == pytest.approx(5 - FEE - paid)
+    assert pm.profit("BUY", 0.13, paid, 0.0, 1, settled=True)[1] == pytest.approx(-1.0)
+    for value in (0.0, 0.001, 0.003, 0.01, 0.2):
+        for legs in (1, 2):
+            assert pm.profit("BUY", 0.49, 49 + FEE * legs, value, legs, settled=False)[1] >= -1.0 - 1e-12

@@ -618,7 +618,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             raise HTTPException(400, "Choose a valid section")
         now = utc_now()
         try:
-            with reader(paths, RESEARCH_FILE) as conn:
+            with reader(paths, RESEARCH_FILE) as conn, reader(paths, MARKET_FILE) as market:
                 session = (play_archive.resolve(conn, when, now) if scope == "all"
                            else play_history.resolve(conn, when, now))
                 if session is None:
@@ -627,7 +627,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                          "scope": scope, "message": "No saved plays yet. Every automatically identified play is "
                                                     "archived; manual confirmations are not required."},
                         section, sort)
-                view = (play_archive.session_view(conn, session, now) if scope == "all" else
+                view = (play_archive.session_view(conn, session, now, market) if scope == "all" else
                         {**play_history.session_view(conn, session, now), "scope": "closing"})
         except ValueError as exc:
             raise HTTPException(400, "Choose a valid date") from exc

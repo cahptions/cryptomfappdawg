@@ -130,11 +130,16 @@ def settlement(legs: Sequence[dict[str, Any]], close: float) -> float:
 
 
 def profit(action: str, entry: float, max_loss: float, value: float, legs: int, *, settled: bool) -> tuple[float, float]:
-    """(P/L per contract after fees, P/L as a fraction of the money at risk)."""
-    fees = FEE * legs * (1 if settled else 2)
+    """(P/L per contract after fees, P/L as a fraction of the money at risk).
+
+    A bought position is never worth less than nothing: when selling it would bring less than the exit fees, it is
+    simply left to expire, which costs nothing. So its loss stops at what was paid (the premium and the entry fees),
+    -100% of the money at risk, never below."""
     if action == "BUY":
-        pnl = (value - entry) * 100 - fees
+        proceeds = value * 100 if settled else max(value * 100 - FEE * legs, 0.0)
+        pnl = proceeds - entry * 100 - FEE * legs
         return pnl, pnl / (entry * 100 + FEE * legs)
+    fees = FEE * legs * (1 if settled else 2)
     pnl = (entry + value) * 100 - fees
     return pnl, pnl / max_loss if max_loss > 0 else 0.0
 

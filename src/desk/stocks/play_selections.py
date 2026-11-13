@@ -410,6 +410,19 @@ def view(research: sqlite3.Connection, ident: str, now: datetime, *, personal: b
                       for leg, q in zip(legs, entry["quotes"], strict=True))
         intraday.insert(0, {"t": entry["at"], "at": entry["at"], "value": initial, "status": "quoted",
                             "underlying": entry["quotes"][0]["underlying"], "note": "PAPER entry quote"})
+    if (not personal and market is not None and cal.session_close(expiry) <= now
+            and not any(p["status"] == "settled" for p in daily)):
+        # An identified play that expired is settled like any recorded play: intrinsic value on the stock's official
+        # close of its settlement session, as soon as that close is stored (never a quote taken after expiry).
+        bar = market.execute("SELECT close FROM stk_bars WHERE symbol = ? AND day = ?",
+                             (play["symbol"], day_of(expiry))).fetchone()
+        if bar is not None and bar[0]:
+            settled_at = to_iso(cal.session_close(expiry))
+            daily = [p for p in daily if p["at"] < settled_at]
+            intraday = [p for p in intraday if p["at"] < settled_at]
+            daily.append({"t": expiry.isoformat(), "at": settled_at, "value": settlement(legs, float(bar[0])),
+                          "status": "settled", "underlying": float(bar[0]),
+                          "note": "settled at expiration on the stock's official close"})
     if closed:
         daily.append({"t": closed["at"], "at": closed["at"], "value": closed["value"],
                       "status": "settled" if closed["kind"] == "expiry_comparison" else "quoted",

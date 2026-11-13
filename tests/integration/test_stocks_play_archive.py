@@ -150,3 +150,24 @@ def test_unreadable_legacy_sighting_is_reported_once_and_cannot_block_recovery(w
     assert archive.recover(dbs.research,LATER) == {"recovered":0,"skipped":1}
     assert archive.recover(dbs.research,LATER) == {"recovered":0,"skipped":0}
     assert archive.recovery_pending(dbs.research) == 0
+
+
+def test_an_identified_play_that_expired_settles_on_the_official_close(world):
+    """Identified (archived) plays were left at "Expired; awaiting expiry close" with a stale quote after expiry."""
+    _,dbs = world
+    put = pick("SOFI","put",17.)
+    put["expiration"] = put["legs"][0]["expiration"] = "2026-11-06"
+    put["legs"][0]["occ"] = "SOFI261106P00017000"
+    put["entry"], put["legs"][0]["bid"], put["legs"][0]["ask"] = .16, .15, .16
+    personal.register(dbs.research,board(IDENTIFIED,"lottos",[put]),IDENTIFIED)
+    expiry = date(2026,11,6)
+    StocksMarket(dbs.market).save_bars(expiry,[Bar("SOFI",expiry,16.,16.5,15.5,16.,1e6)],"synthetic",LATER)
+    now = datetime(2026,11,13,12,tzinfo=UTC)
+    row = next(r for c in archive.session_view(dbs.research,DAY,now,dbs.market)["categories"] for r in c["plays"]
+               if r["symbol"] == "SOFI")
+    assert row["state_label"] != "Expired; awaiting expiry close"
+    assert row["latest"]["status"] == "settled" and row["latest"]["value"] == pytest.approx(1.0)   # $17 put, $16 close
+    assert row["latest"]["pct"] > -1.0
+    without = next(r for c in archive.session_view(dbs.research,DAY,now)["categories"] for r in c["plays"]
+                   if r["symbol"] == "SOFI")
+    assert without["latest"]["pct"] >= -1.0                                        # never below what was paid

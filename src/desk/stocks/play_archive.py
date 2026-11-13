@@ -156,8 +156,9 @@ def resolve(research: sqlite3.Connection, when: str, now: datetime) -> date | No
     return next((day for day in available if day <= wanted), min(available) if available else None)
 
 
-def _idea_row(research: sqlite3.Connection, record: sqlite3.Row, now: datetime) -> dict[str, Any]:
-    data = ps.view(research, record["id"], now)
+def _idea_row(research: sqlite3.Connection, record: sqlite3.Row, now: datetime,
+             market: sqlite3.Connection | None = None) -> dict[str, Any]:
+    data = ps.view(research, record["id"], now, market=market)
     play, chart = data["idea"]["play"], data["chart"]
     points = sorted([*chart["daily"], *chart["intraday"]], key=ph.point_time)
     last = points[-1] if points else None
@@ -188,7 +189,8 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return result
 
 
-def session_view(research: sqlite3.Connection, session: date, now: datetime) -> dict[str, Any]:
+def session_view(research: sqlite3.Connection, session: date, now: datetime,
+                 market: sqlite3.Connection | None = None) -> dict[str, Any]:
     closing = ph.session_view(research, session, now)
     keys = {(r["category"],r["rank"]):legs_key(json.loads(r["legs_json"])) for r in research.execute(
         "SELECT category,rank,legs_json FROM stk_plays WHERE session=? AND instr(category,'@')=0",
@@ -209,7 +211,7 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime) -> 
         # A record first built after the close adds no earlier sighting for an existing closing pick.
         if key in closed_keys and datetime.fromisoformat(record["identified_at"]) >= cal.session_close(session):
             continue
-        rows[key] = _idea_row(research,record,now)
+        rows[key] = _idea_row(research,record,now,market)
     categories: list[dict[str, Any]] = []
     for category in RECORDED:
         plays = sorted((r for r in rows.values() if r["category"] == category.id),
