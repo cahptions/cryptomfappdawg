@@ -1252,7 +1252,7 @@ def calibrated(play: Mapping[str, Any], calibrations: Mapping[str, od.Calibratio
                days: int) -> dict[str, dict[str, Any]]:
     """Each expiry chance (profit, the +25/50/100% targets, the maximum gain, touch) as shown: calibrated on graded
     recorded plays once a group has 30 (most specific group first), otherwise the model's own number."""
-    out = {}
+    out: dict[str, dict[str, Any]] = {}
     for event, raw in raw_chances(play).items():
         found, level = calibrator(calibrations, event, category, days)
         out[event] = {"raw": round(raw, 4), "shown": round(found.apply(raw), 4), "level": level}
@@ -1260,7 +1260,7 @@ def calibrated(play: Mapping[str, Any], calibrations: Mapping[str, od.Calibratio
     # never likelier than +25%, nor the maximum gain than any profit. A shown chance is capped by the one it implies.
     for smaller, larger in (("target25", "profit"), ("target50", "target25"), ("target100", "target50"),
                             ("max_gain", "profit")):
-        if smaller in out and larger in out and out[smaller]["shown"] > out[larger]["shown"]:
+        if smaller in out and larger in out and float(out[smaller]["shown"]) > float(out[larger]["shown"]):
             out[smaller]["shown"] = out[larger]["shown"]
     return out
 
