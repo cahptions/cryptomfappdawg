@@ -177,9 +177,25 @@ def initialize(conn: sqlite3.Connection, now: datetime) -> None:
             set_state(conn, LIFECYCLE_SWITCH, {"at": to_iso(now), "retired": [
                 r[0] for r in conn.execute("SELECT id FROM stk_learning_experiments ORDER BY id")]})
         promo.backfill(conn, now)           # recipes registered before the 2026-11-13 rules, marked as such
+        refill(conn, now)
         for structure in STRUCTURES:
             for bucket in BUCKETS:
                 add_lifecycle(conn, now, structure, bucket)
+
+
+def refill(conn: sqlite3.Connection, now: datetime) -> None:
+    """At the user's request (2026-11-16) the two small accounts' cash is filled back up to their starting amounts,
+    once, recorded as deposits so their trading P/L is not changed by it."""
+    if state(conn, "refilled_2026_11_16") is not None:
+        return
+    book = PaperBook(conn)
+    day = cal.new_york(now).date()
+    for account, _title, capital in ACCOUNTS:
+        if account in SMALL_ACCOUNTS:
+            short = to_micros(capital, cost=False) - to_micros(book.cash(account), cost=False)
+            if short > 0:
+                book.add_cash(account, now, day, short, "DEPOSIT")
+    set_state(conn, "refilled_2026_11_16", {"at": to_iso(now)})
 
 
 def fund(book: PaperBook, account: str, required: float, now: datetime) -> bool:

@@ -373,3 +373,24 @@ async def test_independent_collection_rotates_requests_and_never_overrides_globa
     finally:
         conn.close()
         world.close()
+
+
+def test_the_small_accounts_are_filled_back_up_once(tmp_path):
+    """Requested 2026-11-16: both small accounts nearly out of cash; fill them back to $1,000 and $5,000, once."""
+    world = make_world(tmp_path)
+    conn = learning.open_book(world.paths)
+    try:
+        learning.initialize(conn, AT)
+        book = PaperBook(conn)
+        research = (book.cash("research"), book.deposits("research"))
+        for account in ("reference_1k", "reference_5k"):          # spent down, as on the user's computer
+            book.add_cash(account, AT, AT.date(), -int(book.cash(account) * 0.9 * 1_000_000), "OPEN")
+        conn.execute("DELETE FROM stk_learning_state WHERE key = 'refilled_2026_11_16'")
+        learning.initialize(conn, AT + timedelta(days=1))
+        assert book.cash("reference_1k") == pytest.approx(1000) and book.cash("reference_5k") == pytest.approx(5000)
+        assert (book.cash("research"), book.deposits("research")) == research
+        learning.initialize(conn, AT + timedelta(days=2))                   # only once
+        assert book.cash("reference_1k") == pytest.approx(1000)
+    finally:
+        conn.close()
+        world.close()
