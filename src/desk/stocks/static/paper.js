@@ -1095,6 +1095,7 @@ const KestrelPaper = (() => {
           if (ticket !== generation) return;
           // never rebuild under the reader: an open dialog, a field being edited, or a chart being inspected
           if (
+            userBusy() ||
             document.querySelector("dialog[open]") ||
             app.querySelector(".kc-plot:hover") ||
             ["INPUT", "SELECT"].includes(
@@ -1125,7 +1126,7 @@ const KestrelPaper = (() => {
               signature(live, backtest) !== signature(nextLive, next);
             live = nextLive;
             backtest = next;
-            if (changed) redraw();
+            if (changed) keepPlace(async () => redraw());
             else {
               const phase = app.querySelector(
                   ".paper-backtest-controls [role='status']",

@@ -292,17 +292,23 @@ const KestrelPlaysHistory = (() => {
     return a;
   }
 
-  async function history(ticket, when) {
-    clearTimeout(historyTimer);
-    const serial = ++historySerial;
-    when = when || "latest";
+  function historyQuery(when) {
     const chosen = historyPrefs
       ? `&scope=${historyPrefs.scope}&section=${historyPrefs.section}&sort=${historyPrefs.sort}`
       : "";
-    const [list, data] = await Promise.all([
+    return Promise.all([
       api("plays/sessions"),
-      api(`plays/history?when=${encodeURIComponent(when)}${chosen}`),
+      api(
+        `plays/history?when=${encodeURIComponent(when || "latest")}${chosen}`,
+      ),
     ]);
+  }
+  async function history(ticket, when, fetched) {
+    clearTimeout(historyTimer);
+    const serial = ++historySerial;
+    when = when || "latest";
+    const [list, data] = fetched || (await historyQuery(when));
+    const shownSignature = JSON.stringify([list, data]);
     if (ticket !== generation || serial !== historySerial) return;
     historyPrefs = data.filters || {
       scope: "all",
@@ -360,24 +366,24 @@ const KestrelPlaysHistory = (() => {
         ),
       );
     }
-    const poll = () => {
+    // Rebuilt only when the saved values changed and the page is not being used; it keeps your place.
+    const poll = async () => {
       if (ticket !== generation || serial !== historySerial) return;
-      if (
-        document.hidden ||
-        document.querySelector("dialog[open]") ||
-        ["INPUT", "SELECT"].includes(document.activeElement?.tagName)
-      ) {
+      if (document.hidden || userBusy()) {
         historyTimer = setTimeout(poll, 20000);
         return;
       }
-      const y = scrollY;
-      history(ticket, when)
-        .then(() => {
-          if (ticket === generation) scrollTo({ top: y, behavior: "instant" });
-        })
-        .catch(() => {
+      try {
+        const fetched = await historyQuery(when);
+        if (ticket !== generation || serial !== historySerial) return;
+        if (JSON.stringify(fetched) === shownSignature || userBusy()) {
           historyTimer = setTimeout(poll, 20000);
-        });
+          return;
+        }
+        await keepPlace(() => history(ticket, when, fetched));
+      } catch {
+        historyTimer = setTimeout(poll, 20000);
+      }
     };
     historyTimer = setTimeout(poll, 20000);
     if (data.repair?.pending || data.repair?.fetching)

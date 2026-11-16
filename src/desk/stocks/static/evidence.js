@@ -426,7 +426,7 @@ const KestrelEvidence = (() => {
           if (ticket !== generation) return;
           try {
             data = await api("proof");
-            draw();
+            await keepPlace(async () => draw());
           } catch (error) {
             progress.append(el("p", error.message, "error"));
           }

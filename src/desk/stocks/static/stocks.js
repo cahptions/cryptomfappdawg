@@ -1174,7 +1174,61 @@ async function settingsPage() {
   health.append(test, result);
   updateConnectionControls();
 }
+// ── smooth background updates ────────────────────────────────────────────────────────────────
+// Background refreshes never rebuild the page while it is being used: a page is rebuilt only when its data changed,
+// nobody has scrolled, typed, pointed or clicked for a while, and then it keeps the scroll position, the open
+// sections and the focused control. New research results appear behind a "Show" button instead of a sudden reload.
+let lastInteraction = Date.now();
+for (const type of [
+  "pointermove",
+  "pointerdown",
+  "keydown",
+  "wheel",
+  "touchstart",
+  "scroll",
+])
+  window.addEventListener(type, () => (lastInteraction = Date.now()), {
+    passive: true,
+    capture: true,
+  });
+function userBusy(quietMs = 20000) {
+  const active = document.activeElement?.tagName?.toUpperCase();
+  return (
+    Date.now() - lastInteraction < quietMs ||
+    !!document.querySelector("dialog[open]") ||
+    ["INPUT", "SELECT", "TEXTAREA"].includes(active) ||
+    String(window.getSelection?.() || "").length > 0
+  );
+}
+async function keepPlace(rebuild) {
+  const top = scrollY,
+    focusedId = document.activeElement?.id,
+    open = new Set(
+      [...app.querySelectorAll("details[open] > summary")].map((s) =>
+        s.textContent.trim(),
+      ),
+    );
+  await rebuild();
+  for (const s of app.querySelectorAll("details > summary"))
+    if (open.has(s.textContent.trim())) s.parentElement.open = true;
+  if (focusedId)
+    document.getElementById(focusedId)?.focus({ preventScroll: true });
+  scrollTo({ top, behavior: "instant" });
+}
+const freshButton = (() => {
+  const b = el("button", "New results ready · Show", "fresh-results");
+  b.type = "button";
+  b.hidden = true;
+  b.onclick = () => {
+    b.hidden = true;
+    keepPlace(render);
+  };
+  document.body.append(b);
+  return b;
+})();
+
 async function render() {
+  freshButton.hidden = true;
   const ticket = ++generation,
     route = location.hash.replace(/^#/, "") || "dashboard";
   app.replaceChildren();
@@ -1277,23 +1331,21 @@ async function refresh(initial = false) {
           : "status-warn";
       }
     }
-    const changed =
+    // New research results (a new session analysed, a finished worker pass, new code) are offered, never forced:
+    // collection progress and the running/paused state only update the header pill (workerState above).
+    const results =
       previous?.asof !== snapshot.asof ||
       previous?.worker?.finished_at !== snapshot.worker?.finished_at ||
-      previous?.worker_running !== snapshot.worker_running ||
-      JSON.stringify(previous?.collection) !==
-        JSON.stringify(snapshot.collection) ||
       JSON.stringify(previous?.revision) !== JSON.stringify(snapshot.revision);
-    if (
-      initial ||
-      (changed &&
-        location.hash !== "#settings" &&
-        location.hash !== "#learning" &&
-        location.hash !== "#paper" &&
-        !location.hash.startsWith("#plays/") &&
-        !document.querySelector("dialog[open]"))
+    if (initial) render();
+    else if (
+      results &&
+      location.hash !== "#settings" &&
+      location.hash !== "#learning" &&
+      location.hash !== "#paper" &&
+      !location.hash.startsWith("#plays/")
     )
-      render();
+      freshButton.hidden = false;
     else if (location.hash === "#settings") {
       // Keep unsaved credentials intact while updating start/pause state during a long collection pass.
       for (const node of document.querySelectorAll(".collection-controls"))

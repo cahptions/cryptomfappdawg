@@ -1271,6 +1271,7 @@ const KestrelLearning = (() => {
       timer = setTimeout(async () => {
         if (ticket !== generation) return;
         if (
+          userBusy() ||
           document.querySelector("dialog[open]") ||
           ["INPUT", "SELECT", "SVG"].includes(
             document.activeElement?.tagName?.toUpperCase(),
@@ -1317,7 +1318,7 @@ const KestrelLearning = (() => {
               ]);
           const changed = signature(data) !== signature(next);
           data = next;
-          if (changed) draw();
+          if (changed) await keepPlace(draw);
           else poll();
         } catch (e) {
           statusLine.textContent = e.message;
