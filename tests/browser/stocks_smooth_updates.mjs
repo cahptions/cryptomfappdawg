@@ -1,5 +1,6 @@
-// Background updates never rebuild the page being read (--scenario populated): when new research results arrive the
-// page stays exactly as it is and a "New results ready · Show" button appears; showing them keeps the scroll position.
+// Live updates without a visible reload (--scenario populated): when new research results arrive the page is
+// rebuilt off screen and swapped in within one frame. It never goes blank, the scroll position stays, and a chart
+// readout under the pointer stays open.
 //   uv run python -m tests.browser.stocks_fixture_server --scenario populated --port 8877
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
@@ -19,44 +20,48 @@ try {
     await page.route(/\/api\/stocks\/snapshot(\?|$)/, async (route) => {
       const response = await route.fetch(),
         json = await response.json();
-      if (bump) {
-        json.asof = "2099-01-0" + Math.min(bump, 9);
-        json.collection = { ...(json.collection || {}), progress: bump };
-      }
+      if (bump) json.asof = "2099-01-0" + Math.min(bump, 9);
       await route.fulfill({ response, json });
     });
     await page.goto(`${base}/#plays`);
     await page.locator(".play-strip").waitFor();
-    const marker = await page.evaluateHandle(() =>
+    await page.evaluate(() => {
+      window.__blank = 0;
+      window.__swaps = 0;
+      const app = document.getElementById("app");
+      new MutationObserver(() => {
+        if (!app.childElementCount) window.__blank += 1;
+        else window.__swaps += 1;
+      }).observe(app, { childList: true });
+      scrollTo(0, 400);
+    });
+    const y = await page.evaluate(() => scrollY);
+    const before = await page.evaluateHandle(() =>
       document.querySelector("#app > *"),
     );
-    await page.evaluate(() => scrollTo(0, 400));
-    const y = await page.evaluate(() => scrollY);
-    bump = 1; // the next background refresh reports a newly analysed session
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await page.waitForFunction(
-      () => !document.querySelector(".fresh-results")?.hidden,
-      undefined,
-      { timeout: 45000 },
+    bump = 1; // the next background check reports a newly analysed session
+    await page.waitForFunction(() => window.__swaps > 0, undefined, {
+      timeout: 45000,
+    });
+    assert.equal(
+      await before.evaluate((n) => n.isConnected),
+      false,
+      "the page was updated by itself",
     );
     assert.equal(
-      await marker.evaluate((node) => node.isConnected),
-      true,
-      "the page was not rebuilt by the background refresh",
+      await page.evaluate(() => window.__blank),
+      0,
+      "the page never went blank",
     );
-    assert.equal(
-      await page.evaluate(() => scrollY),
-      y,
-      "the scroll position did not move",
-    );
-    await page.locator(".fresh-results").click();
-    await page.waitForFunction(
-      () => document.querySelector(".fresh-results").hidden,
-    );
-    await page.locator(".play-strip").waitFor();
     assert.ok(
       Math.abs((await page.evaluate(() => scrollY)) - y) < 5,
-      "showing the new results kept the place",
+      "the scroll position stayed",
+    );
+    assert.equal(await page.locator(".play-strip").count(), 1);
+    assert.equal(
+      await page.evaluate(() => document.querySelectorAll("main").length),
+      1,
+      "the off-screen copy is gone",
     );
     assert.equal(
       await page.evaluate(
@@ -68,7 +73,7 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    "Smooth updates desktop/phone: background results offered, not forced; showing them keeps the place.",
+    "Live updates desktop/phone: new results swapped in place, never blank, scroll kept, no leftover copy.",
   );
 } finally {
   await browser.close();

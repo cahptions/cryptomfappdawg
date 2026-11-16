@@ -1,7 +1,9 @@
 "use strict";
-const app = document.getElementById("app"),
-  statusLine = document.getElementById("status");
-let snapshot = null,
+// `app` is reassigned only while a background update builds the next version of the page off screen (seamless).
+let app = document.getElementById("app");
+const statusLine = document.getElementById("status");
+let pendingResults = false,
+  snapshot = null,
   csrf = "",
   serverCompatible = true,
   generation = 0,
@@ -1174,61 +1176,95 @@ async function settingsPage() {
   health.append(test, result);
   updateConnectionControls();
 }
-// ── smooth background updates ────────────────────────────────────────────────────────────────
-// Background refreshes never rebuild the page while it is being used: a page is rebuilt only when its data changed,
-// nobody has scrolled, typed, pointed or clicked for a while, and then it keeps the scroll position, the open
-// sections and the focused control. New research results appear behind a "Show" button instead of a sudden reload.
-let lastInteraction = Date.now();
-for (const type of [
-  "pointermove",
-  "pointerdown",
-  "keydown",
-  "wheel",
-  "touchstart",
-  "scroll",
-])
-  window.addEventListener(type, () => (lastInteraction = Date.now()), {
-    passive: true,
-    capture: true,
-  });
-function userBusy(quietMs = 20000) {
+// ── live updates without a visible reload ──────────────────────────────────────────────────────
+// A background update builds the next version of the page off screen, while the current one stays in use, and then
+// swaps it in within one frame: same layout, scroll position, open sections, focused control and chart readout, so
+// only the values that changed look different (as in a brokerage app). It waits only while you are typing, dragging,
+// selecting text or have a dialog open.
+let pointer = null,
+  pressed = false;
+window.addEventListener("pointermove", (e) => (pointer = e), {
+  passive: true,
+  capture: true,
+});
+window.addEventListener("pointerdown", () => (pressed = true), {
+  passive: true,
+  capture: true,
+});
+window.addEventListener("pointerup", () => (pressed = false), {
+  passive: true,
+  capture: true,
+});
+window.addEventListener("pointercancel", () => (pressed = false), {
+  passive: true,
+  capture: true,
+});
+function userBusy() {
   const active = document.activeElement?.tagName?.toUpperCase();
   return (
-    Date.now() - lastInteraction < quietMs ||
+    pressed ||
     !!document.querySelector("dialog[open]") ||
     ["INPUT", "SELECT", "TEXTAREA"].includes(active) ||
     String(window.getSelection?.() || "").length > 0
   );
 }
-async function keepPlace(rebuild) {
-  const top = scrollY,
-    focusedId = document.activeElement?.id,
-    open = new Set(
-      [...app.querySelectorAll("details[open] > summary")].map((s) =>
-        s.textContent.trim(),
-      ),
-    );
-  await rebuild();
-  for (const s of app.querySelectorAll("details > summary"))
-    if (open.has(s.textContent.trim())) s.parentElement.open = true;
-  if (focusedId)
-    document.getElementById(focusedId)?.focus({ preventScroll: true });
-  scrollTo({ top, behavior: "instant" });
+let swapping = false;
+async function seamless(build) {
+  if (swapping) return false;
+  swapping = true;
+  const live = app,
+    shadow = document.createElement("main");
+  shadow.className = live.className;
+  shadow.setAttribute("aria-hidden", "true");
+  shadow.inert = true;
+  // Laid out at the page's own width so charts measure themselves correctly, but never seen or reachable.
+  shadow.style.cssText = `position:absolute;left:-100000px;top:0;width:${live.clientWidth}px;visibility:hidden;pointer-events:none`;
+  document.body.append(shadow);
+  app = shadow;
+  let built = false;
+  try {
+    await build();
+    built = true;
+  } finally {
+    app = live;
+  }
+  try {
+    if (!built) return false;
+    const top = scrollY,
+      focused = document.activeElement,
+      focusId = live.contains(focused) ? focused.id : null,
+      open = new Set(
+        [...live.querySelectorAll("details[open] > summary")].map((s) =>
+          s.textContent.trim(),
+        ),
+      );
+    live.className = shadow.className;
+    live.replaceChildren(...shadow.childNodes); // moved, not copied: every handler stays with its node
+    for (const s of live.querySelectorAll("details > summary"))
+      if (open.has(s.textContent.trim())) s.parentElement.open = true;
+    if (focusId)
+      document.getElementById(focusId)?.focus({ preventScroll: true });
+    scrollTo({ top, behavior: "instant" });
+    if (pointer) {
+      // the element under the pointer is new: tell it where the pointer is so a chart readout stays open
+      const under = document.elementFromPoint(pointer.clientX, pointer.clientY);
+      under?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: pointer.clientX,
+          clientY: pointer.clientY,
+          pointerType: pointer.pointerType,
+        }),
+      );
+    }
+    return true;
+  } finally {
+    shadow.remove();
+    swapping = false;
+  }
 }
-const freshButton = (() => {
-  const b = el("button", "New results ready · Show", "fresh-results");
-  b.type = "button";
-  b.hidden = true;
-  b.onclick = () => {
-    b.hidden = true;
-    keepPlace(render);
-  };
-  document.body.append(b);
-  return b;
-})();
 
 async function render() {
-  freshButton.hidden = true;
   const ticket = ++generation,
     route = location.hash.replace(/^#/, "") || "dashboard";
   app.replaceChildren();
@@ -1339,14 +1375,16 @@ async function refresh(initial = false) {
       JSON.stringify(previous?.revision) !== JSON.stringify(snapshot.revision);
     if (initial) render();
     else if (
-      results &&
+      (results || pendingResults) &&
       location.hash !== "#settings" &&
       location.hash !== "#learning" &&
       location.hash !== "#paper" &&
       !location.hash.startsWith("#plays/")
-    )
-      freshButton.hidden = false;
-    else if (location.hash === "#settings") {
+    ) {
+      // new research results replace the page in place; while you are typing or dragging they wait a turn
+      pendingResults = userBusy();
+      if (!pendingResults) seamless(render);
+    } else if (location.hash === "#settings") {
       // Keep unsaved credentials intact while updating start/pause state during a long collection pass.
       for (const node of document.querySelectorAll(".collection-controls"))
         node.replaceWith(collectionControls());

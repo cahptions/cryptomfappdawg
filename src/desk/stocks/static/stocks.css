@@ -1272,31 +1272,3 @@ footer {
     grid-template-columns: 1fr;
   }
 }
-
-/* New research results are offered, never forced on the page being read (stocks.js → freshButton). */
-.fresh-results {
-  position: fixed;
-  left: 50%;
-  bottom: calc(24px + env(safe-area-inset-bottom));
-  z-index: 70;
-  transform: translateX(-50%);
-  padding: 9px 16px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-1, inherit);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
-}
-.fresh-results:hover,
-.fresh-results:focus-visible {
-  background: var(--surface-3);
-}
-@media (max-width: 650px) {
-  .fresh-results {
-    bottom: calc(76px + env(safe-area-inset-bottom));
-  }
-}

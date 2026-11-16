@@ -1126,7 +1126,7 @@ const KestrelPaper = (() => {
               signature(live, backtest) !== signature(nextLive, next);
             live = nextLive;
             backtest = next;
-            if (changed) keepPlace(async () => redraw());
+            if (changed) seamless(async () => draw());
             else {
               const phase = app.querySelector(
                   ".paper-backtest-controls [role='status']",

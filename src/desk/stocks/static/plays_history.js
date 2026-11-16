@@ -380,7 +380,7 @@ const KestrelPlaysHistory = (() => {
           historyTimer = setTimeout(poll, 20000);
           return;
         }
-        await keepPlace(() => history(ticket, when, fetched));
+        await seamless(() => history(ticket, when, fetched));
       } catch {
         historyTimer = setTimeout(poll, 20000);
       }

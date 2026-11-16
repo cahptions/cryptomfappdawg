@@ -1318,7 +1318,7 @@ const KestrelLearning = (() => {
               ]);
           const changed = signature(data) !== signature(next);
           data = next;
-          if (changed) await keepPlace(draw);
+          if (changed) await seamless(async () => draw());
           else poll();
         } catch (e) {
           statusLine.textContent = e.message;
