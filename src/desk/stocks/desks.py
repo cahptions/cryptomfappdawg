@@ -16,12 +16,13 @@ from datetime import date
 from typing import Any
 
 from desk.core.hashing import canonical_json, sha256_hex
+from desk.stocks import option_signals as osg
 from desk.stocks.fundamentals import dcf_value, implied_growth
 from desk.stocks.iv_history import basis_text
-from desk.stocks.options import iv_rank
+from desk.stocks.options import iv_rank, norm_cdf
 from desk.stocks.sectors import LABELS
 
-METHOD_VERSION = 3          # v3 (2026-11-12): the News and world desk (added 2026-11-03) and its zero default weight
+METHOD_VERSION = 4          # v4 (2026-11-18): the Options desk scores the research-proven option signals (option_signals)
 DESKS = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "crowd", "risk", "macro", "options",
          "news")
 DESK_LABELS = {"valuation": "Valuation", "quality": "Quality", "growth": "Growth", "momentum": "Momentum",
@@ -50,6 +51,7 @@ class Context:
     crowd: dict[str, dict[str, Any]] = field(default_factory=dict)
     options: dict[str, dict[str, Any]] = field(default_factory=dict)
     news: dict[str, dict[str, Any]] = field(default_factory=dict)      # company news, world shocks, trade actions
+    option_signals: dict[str, dict[str, Any]] = field(default_factory=dict)   # desk.stocks.option_signals.read
     plays: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # the session's recorded Plays, by section
     macro: dict[str, Any] = field(default_factory=dict)
     sector_rs: dict[str, float] = field(default_factory=dict)
@@ -691,54 +693,63 @@ def macro(ctx: Context, symbols: Sequence[str]) -> dict[str, DeskResult]:
 
 
 # ── 11. options ──────────────────────────────────────────────────────────────────────────────────
+OPTION_Z_CAP = 3.0               # each signal's cross-sectional z-score is capped at ±3
+OPTION_MIN_STOCKS = 10           # stocks with a signal that day before it is z-scored at all
+
+
+def option_value(signals: dict[str, Any], key: str) -> float | None:
+    """A desk component's raw value: option-to-stock volume enters as its log (Johnson & So rank the level)."""
+    v = signals.get(key)
+    if v is None:
+        return None
+    if key == "os_ratio":
+        return math.log(v) if v > 0 else None
+    return float(v)
+
+
+def zscores(values: dict[str, float | None]) -> dict[str, float]:
+    """Cross-sectional z-scores capped at ±``OPTION_Z_CAP``; none below ``OPTION_MIN_STOCKS`` stocks."""
+    known = {s: v for s, v in values.items() if v is not None and math.isfinite(v)}
+    if len(known) < OPTION_MIN_STOCKS:
+        return {}
+    mean, sd = statistics.fmean(known.values()), statistics.pstdev(known.values())
+    if sd == 0:
+        return dict.fromkeys(known, 0.0)
+    return {s: max(-OPTION_Z_CAP, min(OPTION_Z_CAP, (v - mean) / sd)) for s, v in known.items()}
+
+
 def options(ctx: Context, symbols: Sequence[str]) -> dict[str, DeskResult]:
-    def iv_vs_rv(c: Context, s: str) -> float | None:
-        o, rv = c.options.get(s), c.p(s, "vol_20d")
-        return None if not o or not o.get("iv30") or not rv else o["iv30"] / rv
-
-    def rank_of(c: Context, s: str) -> float | None:
-        o = c.options.get(s)
-        if not o or not o.get("iv30"):
-            return None
-        r, _ = iv_rank(o.get("iv_history", []), o["iv30"])
-        return r
-
-    with_chain = [s for s in symbols if ctx.options.get(s, {}).get("iv30")]
-    comps = [
-        Component("iv_vs_rv", 1.0, False, False, iv_vs_rv,
-                  lambda c, s, v, m: f"Implied volatility {v:.2f}× what the stock actually moved over 20 days"),
-        Component("iv_rank", 0.8, False, False, rank_of,
-                  lambda c, s, v, m: f"IV rank {v:.0f} (0 = cheapest of its year; "
-                                     f"{basis_text(c.options.get(s, {}).get('iv_basis'))})"),
-        Component("term", 0.3, True, False, lambda c, s: c.options.get(s, {}).get("term_slope"),
-                  lambda c, s, v, m: ("Term structure upward" if v > 0 else
-                                      "Term structure inverted: the market expects the near term to be rougher")),
-        Component("put_call", 0.3, False, False, lambda c, s: c.options.get(s, {}).get("put_call_volume"),
-                  lambda c, s, v, m: f"Put/call volume {v:.2f}"),
-    ]
+    """What option prices say about the stock (desk.stocks.option_signals): each research-signed signal z-scored
+    across the day's stocks with option signals, averaged, and turned into 0-100 by the normal curve
+    (50 = the day's average). The IV rank and the old cheap-or-expensive measures stay as facts for the page."""
+    with_signals = [s for s in symbols if s in ctx.option_signals]
+    z = {k: zscores({s: option_value(ctx.option_signals[s], k) for s in with_signals}) for k in osg.DESK_SIGNS}
     out: dict[str, DeskResult] = {}
-    scored = score_components(ctx, with_chain, comps)
     for s in symbols:
-        o = ctx.options.get(s)
-        if s not in scored or not o:
-            out[s] = DeskResult(None, 0.0, "No chain collected", ["Option chains are collected for the most-watched names"],
-                                {}, [])
-            continue
-        score, conf, parts = scored[s]
-        unusual = o.get("unusual", [])
-        if unusual:
-            u = unusual[0]
-            parts.append((0.3 if u["kind"] == "call" else -0.3,
-                          f"Unusual: {u['volume']:,} {u['expiration'][5:]} ${u['strike']:g} {u['kind']}s, "
-                          f"{u['ratio']:.1f}× normal"))
+        o, sig = ctx.options.get(s) or {}, ctx.option_signals.get(s) or {}
         rank, pctile = iv_rank(o.get("iv_history", []), o["iv30"]) if o.get("iv30") else (None, None)
-        labels = ("Cheap options", "Cheaper than usual", "Priced fairly", "Pricier than usual", "Expensive options")
-        out[s] = DeskResult(score, conf, verdict(score, labels),
-                            _top_reasons(parts), {"iv30": o.get("iv30"), "iv_rank": rank, "iv_percentile": pctile,
-                                                  "iv_days": len(o.get("iv_history", [])), "iv_basis": o.get("iv_basis"),
-                                                  "term_slope": o.get("term_slope"),
-                                                  "put_call_volume": o.get("put_call_volume"), "unusual": unusual[:5],
-                                                  "expiries": o.get("expiries", [])}, parts)
+        facts = {"iv30": o.get("iv30") or sig.get("iv30"), "iv_rank": rank, "iv_percentile": pctile,
+                 "iv_days": len(o.get("iv_history", [])), "iv_basis": o.get("iv_basis"),
+                 "term_slope": o.get("term_slope"), "put_call_volume": o.get("put_call_volume"),
+                 "unusual": o.get("unusual", [])[:5], "expiries": o.get("expiries", []),
+                 "signals": {k: sig.get(k) for k in osg.SIGNALS} if sig else None,
+                 "signals_day": sig.get("day"), "signals_source": sig.get("source")}
+        parts: list[tuple[float, str]] = []
+        signed = {k: sign * z[k][s] for k, sign in osg.DESK_SIGNS.items() if s in z[k]}
+        for k, v in signed.items():
+            parts.append((max(-1.0, min(1.0, v / 2)), osg.sentence(k, sig[k])))
+        if rank is not None:
+            parts.append((0.0, f"IV rank {rank:.0f} (0 = cheapest of its year; {basis_text(o.get('iv_basis'))})"))
+        facts["z"] = {k: round(v, 3) for k, v in signed.items()}
+        if not signed:
+            why = ("Option signals need a liquid chain and at least ten stocks measured the same day" if s not in
+                   ctx.option_signals else "Not enough stocks measured the same day to compare its option signals")
+            out[s] = DeskResult(None, 0.0, "No option signals yet", [why, *(t for _, t in parts)], facts, parts)
+            continue
+        score = 100 * norm_cdf(statistics.fmean(signed.values()))
+        labels = ("Bullish option signals", "Leaning bullish", "Mixed", "Leaning bearish", "Bearish option signals")
+        out[s] = DeskResult(score, len(signed) / len(osg.DESK_SIGNS), verdict(score, labels), _top_reasons(parts, 4),
+                            facts, parts)
     return out
 
 
@@ -867,7 +878,10 @@ def method_content() -> dict[str, Any]:
             "desks": list(DESKS), "default_weights": DEFAULT_WEIGHTS,
             "equity_risk_premium": EQUITY_RISK_PREMIUM, "terminal_growth": TERMINAL_GROWTH,
             "verdict_bands": [75, 60, 40, 25], "valuation_in_sector": True, "min_sector_group": 10,
-            "insider_window_days": 90, "short_publication_lag_days": 12, "earnings_recent_days": 75}
+            "insider_window_days": 90, "short_publication_lag_days": 12, "earnings_recent_days": 75,
+            "options": {"signals": osg.NAME, "signals_version": osg.VERSION, "signs": osg.DESK_SIGNS,
+                        "os_ratio": "log", "z_cap": OPTION_Z_CAP, "min_stocks": OPTION_MIN_STOCKS,
+                        "score": "100 x normal cdf of the mean signed z-score", "confidence": "share of signals"}}
 
 
 def method_sha256() -> str:

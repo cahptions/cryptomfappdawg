@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from desk.stocks.plays import Table, Underlying
 
 NAME = "stocks_learner_features"
-VERSION = 1
+VERSION = 2                         # v2 (2026-11-18): the option-implied stock signals (option_signals), as of S − 1
 SHORT_INTEREST_LAG = 14             # days after settlement before short interest counts as published
 INSIDER_DAYS = 90
 DESKS = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "crowd", "risk", "macro",
@@ -90,6 +90,16 @@ STOCK: tuple[Feature, ...] = (
        f"Open-market insider purchases minus sales, last {INSIDER_DAYS} days, count"),
     _f("price", "stock", "the decision chain", QUOTE, "Stock price quoted with the chain (log10)"),
     _f("etf", "stock", "stk_listings", "a listing attribute", "1 for an ETF"),
+    *(_f(f"opt_{key}", "stock", "stk_option_signals (option_signals.read)", PREVIOUS, about) for key, about in (
+        ("iv_spread", "Call minus put implied volatility, matched pairs (Cremers & Weinbaum)"),
+        ("skew", "Out-of-the-money put IV minus at-the-money call IV (Xing, Zhang & Zhao)"),
+        ("os_log", "Log of option volume × 100 / share volume (Johnson & So)"),
+        ("os_abnormal", "That ratio's log against the stock's own 60-session median"),
+        ("d_call_iv", "Change in 30-day at-the-money call IV over about 5 sessions (An, Ang, Bali & Cakici)"),
+        ("d_put_iv", "Change in 30-day at-the-money put IV over about 5 sessions"),
+        ("term_slope", "90-day minus 30-day at-the-money IV (Vasquez)"),
+        ("iv_rv", "30-day IV over 22-session realized volatility (vol_forecast)"),
+        ("borrow", "Schwab borrow rate, percent a year (0 = easy to borrow; missing before it was recorded)"))),
 )
 MARKET: tuple[Feature, ...] = (
     _f("spy_vs_200d", "market", "stk_bars SPY", PREVIOUS, "SPY against its 200-session average"),
@@ -244,6 +254,14 @@ class Reader:
             days += 91
         return days, 0
 
+    def option_signals(self, symbol: str) -> dict[str, Any]:
+        """The stock's option signals from its newest stored session before S (option_signals.read, rows dated
+        before S only)."""
+        from desk.stocks import calendar as cal
+        from desk.stocks import option_signals as osg
+
+        return osg.read(self.market, cal.previous_trading_day(self.session), [symbol]).get(symbol, {})
+
     def sector(self, symbol: str) -> int | None:
         from desk.stocks.sectors import sector
 
@@ -333,6 +351,10 @@ def stock_features(reader: Reader, u: Underlying, rate: float) -> dict[str, floa
     out["insider_net"] = reader.insider_net(symbol)
     out["price"] = _log10(u.price)
     out["etf"] = reader.etf(symbol)
+    sig = reader.option_signals(symbol)
+    for key in ("iv_spread", "skew", "os_abnormal", "d_call_iv", "d_put_iv", "term_slope", "iv_rv", "borrow"):
+        out[f"opt_{key}"] = sig.get(key)
+    out["opt_os_log"] = math.log(sig["os_ratio"]) if sig.get("os_ratio") else None
     return {k: clean(out.get(k)) for k in STOCK_NAMES}
 
 

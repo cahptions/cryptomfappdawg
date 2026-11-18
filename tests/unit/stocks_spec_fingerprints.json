@@ -1,12 +1,14 @@
 {
  "stocks_desks": {
-  "3": "149baf97f1fb8798d2bac1d3592272128a2f0c48b7451dcdcf873b30f1962dad"
+  "3": "149baf97f1fb8798d2bac1d3592272128a2f0c48b7451dcdcf873b30f1962dad",
+  "4": "d8d368d2ea2d4109d970b93e7dc212f5a250ffb55fecf931f6a3f3e51d712176"
  },
  "stocks_learner_actions": {
   "1": "6e901a5177fd13692d83b627d08fe44510b468915b71c0493d7488a1757356ff"
  },
  "stocks_learner_features": {
-  "1": "1896184740aedee5596e47844a1e64fccca9e69414242fde967e13a1a409fba5"
+  "1": "1896184740aedee5596e47844a1e64fccca9e69414242fde967e13a1a409fba5",
+  "2": "d04fe99aa9364200a154038a0d18c4a276d5ae43cfd8f5eb6b268788061a45bc"
  },
  "stocks_learner_findings": {
   "1": "739dc807e8b3b2bd5fe28903c83baf8d838758cb65f8c163432d9e2a0dd7889b"
@@ -16,7 +18,8 @@
  },
  "stocks_learner_model": {
   "1": "4715e60f545b8c7ae898d636f12ce8a5744c5fd649ae68109f0e58e07d8c788a",
-  "2": "b056c79e3fadbcbdcb6b10e9a6ea740e026eecd5a737fa27cdb201ffd8c10e64"
+  "2": "b056c79e3fadbcbdcb6b10e9a6ea740e026eecd5a737fa27cdb201ffd8c10e64",
+  "3": "9ab93536590eb41b0c240a82210dbadce1d18f56d068e283695ea1744791b7af"
  },
  "stocks_learner_policy": {
   "1": "549bf94633ec5e8e073afa8db678b1327cd3d3544389713cbf4aa3766c873879"
@@ -178,7 +181,8 @@
   "1": "8af6d42066d277f142049a3752244440b93cad01a3bffb964cc5d9b17f4dae59"
  },
  "stocks_validation": {
-  "2": "052ae64f4c3ecca0fd361ce6a1053c49b0da12f13717b21e8c50c828108f7f14"
+  "2": "052ae64f4c3ecca0fd361ce6a1053c49b0da12f13717b21e8c50c828108f7f14",
+  "3": "8cfa46c3dae8ef0d355df43cd09b033b70bf822ef3cbf60663c7feadd40cf584"
  },
  "stocks_vol_forecast": {
   "1": "30c540cc2acc9c56f76f4c4aed89acc6d9ba7f9665f952606f7dfd26ae77602b"

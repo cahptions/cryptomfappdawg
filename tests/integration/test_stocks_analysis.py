@@ -33,13 +33,31 @@ def analyse(world: StocksWorld, asof: date = ASOF):
     return analyzer.build(panel, asof, now=NOW)
 
 
+def seed_option_signals(world: StocksWorld, n: int = 12) -> list[str]:
+    """Option signals for ``n`` listed stocks on ASOF, calls priced ever richer than puts down the list."""
+    from desk.stocks import option_signals as osg
+
+    symbols = [r[0] for r in world.market.conn.execute(
+        "SELECT symbol FROM stk_listings WHERE etf=0 AND test=0 AND symbol<>'SPY' ORDER BY symbol LIMIT ?", (n,))]
+    for i, s in enumerate(symbols):
+        m = {"iv_spread": 0.005 * i, "pairs": 9, "skew": 0.05, "call_iv30": 0.3, "put_iv30": 0.3, "iv30": 0.3,
+             "iv90": 0.32, "option_volume": 1000, "contracts": 40, "liquid": 40, "detail": {"missing": {}}}
+        osg.save(world.market.conn, s, ASOF, "scan", m, price=50.0, stock_volume=1e6, borrow=(None, 0), rv22=0.3,
+                 observed_at=NOW - timedelta(hours=1), now=NOW - timedelta(hours=1))
+    return symbols
+
+
 def test_every_desk_scores_the_universe_and_finds_the_planted_traits(world: StocksWorld) -> None:
+    seeded = seed_option_signals(world)
     day = analyse(world)
     assert day.universe_size == 60 and "SPY" not in day.ctx.symbols
     for desk in dk.DESKS:
         scored = [s for s, r in day.results[desk].items() if r.score is not None]
-        assert len(scored) >= (3 if desk == "options" else 0), desk
+        assert len(scored) >= (10 if desk == "options" else 0), desk
         assert all(0 <= (r.score or 0) <= 100 for r in day.results[desk].values()), desk
+    options = day.results["options"]
+    assert options[seeded[-1]].score > 50 > options[seeded[0]].score
+    assert options[seeded[-1]].facts["signals_source"] == "scan"
     val = day.results["valuation"]
     assert val["CHEAP"].score > 70 and val["PRICEY"].score < 30
     assert day.results["insiders"]["INSDR"].verdict == "Cluster buying"

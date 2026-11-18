@@ -369,10 +369,13 @@ def read(conn: sqlite3.Connection, asof: date, symbols: Iterable[str] | None = N
     first = asof - timedelta(days=OS_SESSIONS * 7 // 5 + 30)
     sessions = cal.trading_days(asof - timedelta(days=fresh * 2 + 7), asof)
     oldest = sessions[-min(len(sessions), fresh + 1)] if sessions else asof
+    sql = "SELECT * FROM stk_option_signals WHERE day>=? AND day<=? AND computed_at<=?"
+    args: list[Any] = [first.toordinal(), asof.toordinal(), to_iso(computed_by) if computed_by else "9999"]
+    if wanted is not None and len(wanted) <= 200:
+        sql += f" AND symbol IN ({','.join('?' * len(wanted))})"
+        args += sorted(wanted)
     try:
-        rows = conn.execute("SELECT * FROM stk_option_signals WHERE day>=? AND day<=? AND computed_at<=? "
-                            "ORDER BY symbol, day", (first.toordinal(), asof.toordinal(),
-                                                     to_iso(computed_by) if computed_by else "9999")).fetchall()
+        rows = conn.execute(sql + " ORDER BY symbol, day", args).fetchall()
     except sqlite3.OperationalError:          # a database from before the option signals
         return {}
     by: dict[str, list[Mapping[str, Any]]] = defaultdict(list)

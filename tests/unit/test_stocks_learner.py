@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from desk.stocks import calendar as cal
+from desk.stocks import option_signals as osg
 from desk.stocks import plays as pl
 from desk.stocks.contracts import Bar, RatePoint, ShortInterest
 from desk.stocks.learner import actions as act
@@ -118,6 +119,15 @@ def test_no_feature_reads_anything_after_the_decision(world: Any) -> None:
     ctx = pl.Context(session, closing(session), 0.04, None, 0.0, None, {}, [])
     us = {u.symbol: u for u in pl.load(world.market, world.research, session)}
 
+    def signals(d: date, v: float) -> None:
+        m = {"iv_spread": v, "pairs": 9, "skew": v, "call_iv30": v, "put_iv30": v, "iv30": v, "iv90": v,
+             "option_volume": int(1000 * v), "contracts": 40, "liquid": 40, "detail": {"missing": {}}}
+        osg.save(world.market.conn, "CHEAP", d, "scan", m, price=10.0, stock_volume=1e6, borrow=(v, 1), rv22=0.3,
+                 observed_at=closing(d), now=closing(d))
+
+    for d in [d for d in world.days if d < session][-10:]:
+        signals(d, 0.3)
+
     def everything() -> tuple[dict[str, Any], dict[str, Any]]:
         reader = ft.Reader(world.market.conn, world.research.conn, session)
         return ({s: ft.stock_features(reader, u, ctx.rate) for s, u in us.items()},
@@ -131,6 +141,7 @@ def test_no_feature_reads_anything_after_the_decision(world: Any) -> None:
         world.research.conn.execute("INSERT OR REPLACE INTO stk_score_history(asof, symbol, scores_json) VALUES (?,?,?)",
                                     (d.toordinal(), "CHEAP", json.dumps({"c": 99.0, "momentum": 99.0})))
         world.market.save_option_daily("CHEAP", d, closing(d), {"iv30": 9.0, "expiries": []})
+        signals(d, 9.0)
     world.market.save_rates([RatePoint(series, d, 99.0) for d in later for series in
                              ("VIXCLS", "BAMLH0A0HYM2", "UST10Y", "UST3M")])
     world.market.save_short_interest([ShortInterest("CHEAP", session - timedelta(days=3), 9e9, 1.0, 1.0, 999.0)],
@@ -142,6 +153,10 @@ def test_no_feature_reads_anything_after_the_decision(world: Any) -> None:
     after = everything()
     assert after == before
     assert before[0]["CHEAP"]["ret_5d"] is not None and before[1]["ust10y"] == pytest.approx(4.3)
+    cheap = before[0]["CHEAP"]
+    assert cheap["opt_iv_spread"] == pytest.approx(0.3) and cheap["opt_borrow"] == pytest.approx(0.3)
+    assert cheap["opt_d_call_iv"] == 0 and cheap["opt_iv_rv"] == pytest.approx(1.0)
+    assert before[0]["S10"]["opt_iv_spread"] is None              # no option signals stored: missing, never zero
 
 
 def test_labels_come_from_stored_closing_quotes_only_and_are_written_once(world: Any) -> None:
@@ -250,3 +265,21 @@ def test_kestrel_check_covers_the_learner_tables(world: Any) -> None:
         except sqlite3.IntegrityError:          # the table itself refuses a label dated on its decision day
             assert day == group["session"]
     assert acc.check_learner_labels(src).violations == 1
+
+
+def test_experience_recorded_before_the_option_signals_reads_them_as_missing() -> None:
+    import math
+    import zlib
+
+    from desk.core.hashing import canonical_json
+    from desk.stocks.learner import model as md
+
+    old = [n for n in ft.STOCK_NAMES if not n.startswith("opt_")]          # the features v1 recorded
+    assert len(old) < len(ft.STOCK_NAMES) and "opt_iv_spread" in ft.STOCK_NAMES and "opt_borrow" in md.FEATURES
+    blob = zlib.compress(canonical_json({"v": 1, "features": "v1", "actions": "a", "price": 10.0, "stock_names": old,
+                                         "stock": [1.0] * len(old), "market_names": [], "market": [], "fields": [],
+                                         "contract_names": [], "rows": []}).encode())
+    group = ex.unpack(blob)
+    vector = md.row_vector(group["stock"], group["market"], {}, False)
+    for name in ft.STOCK_NAMES:
+        assert math.isnan(vector[md.FEATURES.index(name)]) == name.startswith("opt_")

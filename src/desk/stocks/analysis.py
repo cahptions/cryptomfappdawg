@@ -22,6 +22,7 @@ from desk.stocks import calendar as cal
 from desk.stocks import desks as dk
 from desk.stocks import features as feat
 from desk.stocks import news_flow
+from desk.stocks import option_signals as osg
 from desk.stocks import signals as sig
 from desk.stocks.fundamentals import Fundamentals, base, with_price
 from desk.stocks.prices import Panel
@@ -127,6 +128,7 @@ class Analyzer:
                               {s: (price[s]["dollar_volume_20d"] or 0) / (price[s]["close"] or 1) for s in symbols}),
             crowd={} if historical else sig.crowd(self.market, end_of_day),
             options={} if historical else sig.options(self.market, asof),
+            option_signals={} if historical else osg.read(self.market.conn, asof, computed_by=now),
             news=self._news(asof, min(now or end_of_day, end_of_day), symbols, sic, historical),
             macro=sig.macro(self.market, asof, spy_above),
             sector_rs=sector_rs, valuation_history=history)

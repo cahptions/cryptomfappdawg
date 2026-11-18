@@ -62,7 +62,7 @@ noted (sectors with fewer than 10 names use the whole universe), and blends them
 | **The crowd** | Reddit mention rank and velocity (ApeWisdom); the degen meter (0–5: volatility, short interest, a WSB surge, a call frenzy, a sub-$5 price); hype vs fundamentals. No crowd data for a day means no score |
 | **Risk** | volatility 1.0, beta 0.5, the 1-year maximum drawdown 0.6, liquidity 0.4, dilution 0.4 (higher score = lower risk) |
 | **Macro and sectors** | the sector's 3-month strength vs SPY; in a risk-off regime (SPY below its 200-day average, high-yield spreads up more than 0.75 points in three months, or VIX above 30) names with beta above 1.3 lose 15 points and below 0.8 gain 10 |
-| **Options** | IV30 / 20-day realized volatility 1.0, IV rank 0.8, term structure 0.3, put/call volume 0.3 (for the most-traded names whose chains are collected). IV rank's year: the collected IV30 where it exists, else the IV solved from Massive's real closing trades (`desk.stocks.iv_history`); the reason says how many days came from each |
+| **Options** | (v4, 2026-11-18) what option prices say about the stock: the call-put IV spread +, put skew −, option-to-stock volume (log) −, the week's change in call IV + and in put IV −, the borrow rate −, each z-scored across the day's stocks with option signals (section 11); score = 100 × the normal curve of the mean signed z; an observer with no vote until its own live record is graded. IV rank and the cheap-or-expensive measures stay on the page as facts. IV rank's year: the collected IV30 where it exists, else the IV solved from Massive's real closing trades (`desk.stocks.iv_history`) |
 | **News and world** | the week's company-news tone (Massive's sentiment, positive minus negative), attention (articles in three days against the usual daily count), supply shocks from world events and trade actions that touch the company; an observer with no vote until graded ([STOCKS_NEWS.md](STOCKS_NEWS.md)) |
 
 ## 5. The committee
@@ -295,7 +295,7 @@ trailing dividend yield); a stock-session counts only with at least 10 such cont
 | Call / put IV, past week (`d_call_iv`, `d_put_iv`) | change in the 30-day at-the-money call (put) IV against the row 4–8 sessions earlier nearest 5 | An, Ang, Bali & Cakici 2014 | call IV up → higher; put IV up → lower |
 | 3-month vs 1-month IV (`term_slope`) | 90-day minus 30-day at-the-money IV (constant maturity, total-variance interpolation; nearest expiry within 12 / 30 days otherwise) | Vasquez 2017 | predicts option (straddle) returns, not the stock: Learner and stock page only |
 | Options vs actual moves (`iv_rv`) | 30-day IV over realized volatility of the last 22 sessions (`vol_forecast`'s realized variance) | Vasquez 2017 | as above |
-| Cost to borrow (`borrow`) | Schwab's `htbRate` (percent a year) when a quote sends it; 0 when Schwab says the stock is easy to borrow (`isHardToBorrow` false, no rate); otherwise missing. Recorded from the chain scan's quotes going forward only | borrow-fee studies (much of the skew and IV-spread signal is short-sale cost) | dearer → lower returns |
+| Cost to borrow (`borrow`) | Schwab's `htbRate` as sent (its unit is unverified; the desk uses only its rank across stocks) when a quote sends it; 0 when Schwab says the stock is easy to borrow (`isHardToBorrow` false, no rate); otherwise missing. Recorded from the chain scan's quotes going forward only | borrow-fee studies (much of the skew and IV-spread signal is short-sale cost) | dearer → lower returns |
 
 **Point in time.** A row is computed from one session's chain and that session's share volume. Measures that need
 other sessions (the volume ratio's median, the IV changes) are derived when read, from that row and earlier rows only;
@@ -303,3 +303,20 @@ a test writes wild values after a day and proves the day's signals do not change
 scan (`desk.stocks.chain_scan`, [STOCKS_SOURCES.md](STOCKS_SOURCES.md)) or, for stocks and days the scan did not
 cover, the chain collected during the session; each row says which. Collected chains already stored are back-filled
 newest first, a minute a collection pass (job `option_signals`), each finished session once.
+
+**The Options desk (desks v4).** Each day, each of the six desk signals (call-put IV spread +, skew −, the log of
+option-to-stock volume −, the change in call IV +, the change in put IV −, the borrow rate −) is turned into a
+z-score across the stocks in the day's universe that have it (at least 10; capped at ±3), multiplied by its research
+sign, and the stock's score is 100 × Φ(mean of its signed z-scores): 50 is the day's average, about 84 one standard
+deviation better on every signal. Confidence is the share of the six signals the stock has; reasons name each signal
+and its study. Rows older than three sessions or with fewer than 10 liquid contracts do not count.
+
+**It earns its vote.** The desk starts at weight 0 (an observer) like the other live-only desks. Its live record
+(`desk.stocks.validation`, v3) is its daily score's rank correlation with the next month's return, sampled weekly,
+counting only sessions recorded after desks v4 was first registered (the earlier "Options" scores measured how cheap
+options were, not this). Only when that record has 12 independent months and survives the Holm correction with the
+other claims (graded *working*) does the committee give it 0.4, the same rule as Crowd and News. Until then Evidence
+shows its record and, separately, each signal's own forward record from the stored signals (`option_signal_record`:
+the research-signed signal ranked against the next month's return on every fifth session; the term slope and IV over
+realized volatility are shown too but are not in the desk). Those per-signal records are shown, not tested with the
+claims: they guide, they never vote.

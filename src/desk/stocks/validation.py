@@ -28,6 +28,7 @@ before it, and they replace the defaults only if, on months they never saw, they
 from __future__ import annotations
 
 import math
+import sqlite3
 import warnings
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -53,7 +54,7 @@ from desk.stocks.universe import RESEARCH_KINDS, SECTOR_FUNDS
 
 Array = np.ndarray
 
-VERSION = 2                 # v2 (2026-11-12): the News desk's claim (added 2026-11-03)
+VERSION = 3                 # v3 (2026-11-18): the Options desk's live record restarts with its signals (desks v4)
 HORIZONS = {"1w": 5, "1m": 21, "3m": 63, "12m": 252}
 PRIMARY = "1m"
 DRAWDOWN_HORIZON = "3m"
@@ -73,6 +74,9 @@ PARTLY_REBUILT = {"news": "Rebuilt from what was published by each month's end: 
                           "day where counted, world shocks once a full 32-day window of GDELT files is stored, trade "
                           "actions throughout; the full desk is graded live."}
 PROVEN_LIVE_WEIGHT = 0.4
+# Desks whose measure changed meaning at a desks version: their live record counts only sessions recorded after the
+# day that version was first registered (an earlier score measured something else).
+REDEFINED = {"options": 4}
 DESK_CLAIMS = {d: ("drawdown" if d == "risk" else "return") for d in dk.DESKS}
 TESTED_CLAIMS = ("outperform", "underperform")
 EVALUATION_BYTES_PER_BAR = 300   # a stored bar while a panel loads (measured ~100 B at peak; twice that for gaps)
@@ -84,7 +88,9 @@ def content() -> dict[str, Any]:
             "cost_round_trip": COST_ROUND_TRIP, "min_independent": MIN_INDEPENDENT, "resamples": RESAMPLES, "seed": SEED,
             "rebuild_min_history": REBUILD_MIN_HISTORY, "min_train_months": MIN_TRAIN_MONTHS,
             "shrink_months": SHRINK_MONTHS, "live_desk_step": LIVE_DESK_STEP, "desk_claims": DESK_CLAIMS,
-            "proven_live_weight": PROVEN_LIVE_WEIGHT, "entry": "next session open",
+            "proven_live_weight": PROVEN_LIVE_WEIGHT, "entry": "next session open", "redefined": REDEFINED,
+            "option_signal_ic": "each option signal, signed by its research, ranked against the next month's return "
+                                "on every fifth session with signals; shown, not tested with the claims",
             "exit": "close of the horizon's last session", "returns": "price only"}
 
 
@@ -600,6 +606,47 @@ def options_truth(market: StocksMarket, fw: Forward, cheap_iv: Sequence[tuple[da
             "cheap_iv": cheap, "by_symbol": by_symbol}
 
 
+def promote_live(desks: dict[str, Any], weights: dict[str, float]) -> list[str]:
+    """Live-only desks (crowd, options, news) keep no vote until their live record is graded *working*; then they get
+    ``PROVEN_LIVE_WEIGHT``. Returns the desks promoted."""
+    proven = [d for d in LIVE_ONLY_DESKS if (desks.get(d) or {}).get("grade", {}).get("grade") == "working"]
+    for d in proven:
+        weights[d] = PROVEN_LIVE_WEIGHT
+    return proven
+
+
+def redefined_from(market: StocksMarket, desk: str) -> date | None:
+    """The New York day the desks version that redefined ``desk`` was first registered (None: not yet)."""
+    row = market.conn.execute("SELECT MIN(registered_at) FROM stk_specs WHERE name='stocks_desks' AND version>=?",
+                              (REDEFINED[desk],)).fetchone()
+    return cal.new_york(datetime.fromisoformat(row[0])).date() if row and row[0] else None
+
+
+def option_signal_record(market: StocksMarket, fw: Forward, *, step: int = LIVE_DESK_STEP) -> dict[str, Any]:
+    """Each option signal's own forward record: on every ``step``-th session with stored signals, the rank correlation
+    of the research-signed signal with the next month's return (desk_record), across the stocks measured that day."""
+    from desk.stocks import option_signals as osg
+
+    try:
+        days = [date_of(r[0]) for r in market.conn.execute("SELECT DISTINCT day FROM stk_option_signals ORDER BY day")]
+    except sqlite3.OperationalError:          # a database from before the option signals
+        days = []
+    sample = days[::-1][::step][::-1]
+    signs = {**osg.DESK_SIGNS, "os_abnormal": -1, "term_slope": 1, "iv_rv": -1}
+    observations: dict[str, list[tuple[date, dict[str, float]]]] = {k: [] for k in signs}
+    for d in sample:
+        signals = osg.read(market.conn, d, fresh=0)
+        for key, sign in signs.items():
+            values = {s: dk.option_value(v, key) for s, v in signals.items()}
+            observations[key].append((d, {s: sign * v for s, v in values.items() if v is not None}))
+    out: dict[str, Any] = {"sessions": len(days), "sampled": len(sample), "first": days[0].isoformat() if days else None}
+    for key, sign in signs.items():
+        rec = desk_record(fw, observations[key], "return", step=step)
+        out[key] = {"label": osg.LABELS[key], "research": osg.RESEARCH[key], "sign": sign,
+                    "in_desk": key in osg.DESK_SIGNS, "ic": rec["ic"], "spread": rec["spread"]}
+    return out
+
+
 # ── grades ───────────────────────────────────────────────────────────────────────────────────────
 def grade(stat: dict[str, Any] | None, claim: str, source: str) -> dict[str, Any]:
     """A plain verdict on one record at the primary horizon."""
@@ -695,7 +742,9 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
     for d in (*dk.DESKS, "committee"):
         key = "c" if d == "committee" else d
         claim = "return" if d == "committee" else DESK_CLAIMS[d]
-        live_obs_d = [(day, {s: v[key] for s, v in rows.items() if v.get(key) is not None}) for day, rows in live_scores]
+        since = redefined_from(market, d) if d in REDEFINED else None
+        live_obs_d = [(day, {s: v[key] for s, v in rows.items() if v.get(key) is not None}) for day, rows in live_scores
+                      if d not in REDEFINED or (since is not None and day > since)]
         rebuilt_obs_d = ([(m.asof, committee_scores(m, dict(dk.DEFAULT_WEIGHTS))) for m in history] if d == "committee"
                          else [(m.asof, {s: v[0] for s, v in m.scores.get(d, {}).items()}) for m in history])
         def ic_period(part: Sequence[tuple[date, Any]], claim: str = claim) -> dict[str, Any]:
@@ -708,6 +757,8 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
                     "rebuilt": None if d in NOT_REBUILT or not history else
                     desk_record(fw, rebuilt_obs_d, claim, step=MONTH_SESSIONS), "rebuilt_note": PARTLY_REBUILT.get(d)}
     options = options_truth(market, fw, live_lists.get("cheap_iv", []))
+    options["desk_from"] = None if (since := redefined_from(market, "options")) is None else since.isoformat()
+    options["signals"] = option_signal_record(market, fw)
     for source in ("live", "rebuilt"):
         family = [v[source][PRIMARY] for v in lists.values() if v["claim"] in TESTED_CLAIMS and v[source]]
         family += [v[source] for v in desks.values() if v[source]]
@@ -723,9 +774,7 @@ def report(market: StocksMarket, research: StocksResearch, panel: Panel, *, toda
     options["cheap_iv"]["grade"] = grade(options["cheap_iv"], "iv_cheap", "live")
     learning = learn(fw, history)
     weights = dict(learning["candidate"]) if learning["adopted"] and learning["candidate"] else dict(dk.DEFAULT_WEIGHTS)
-    proven = [d for d in LIVE_ONLY_DESKS if desks[d]["grade"]["grade"] == "working"]
-    for d in proven:
-        weights[d] = PROVEN_LIVE_WEIGHT
+    proven = promote_live(desks, weights)
     changed = learning["adopted"] or bool(proven)
     return {
         "version": VERSION, "method_sha256": method_sha256(), "rebuild_sha256": rebuild_sha256(),
@@ -838,7 +887,8 @@ def run(market: StocksMarket, research: StocksResearch, panel: Panel, *, today: 
     return out
 
 
-__all__ = ["COST_ROUND_TRIP", "HORIZONS", "MIN_INDEPENDENT", "PRIMARY", "REBUILD_CAVEATS", "Forward", "Month",
-           "average_ranks", "committee_scores", "content", "desk_record", "fit", "grade", "growth_curve", "learn",
-           "list_record", "method_sha256", "month_sample", "months", "one_sided_p", "options_truth", "rebuild",
-           "rebuild_days", "rebuild_sha256", "render", "report", "run", "spearman", "summarize"]
+__all__ = ["COST_ROUND_TRIP", "HORIZONS", "MIN_INDEPENDENT", "PRIMARY", "REBUILD_CAVEATS", "REDEFINED", "Forward",
+           "Month", "average_ranks", "committee_scores", "content", "desk_record", "fit", "grade", "growth_curve",
+           "learn", "list_record", "method_sha256", "month_sample", "months", "one_sided_p", "option_signal_record",
+           "options_truth", "promote_live", "rebuild", "rebuild_days", "rebuild_sha256", "redefined_from", "render",
+           "report", "run", "spearman", "summarize"]

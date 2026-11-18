@@ -96,7 +96,15 @@ previous session's close**:
   came from Massive's closing trades; IV against realized volatility; days to the next results, announced (Finnhub
   dates first seen before S) or estimated (the last SEC 8-K results filing + 91 days), labelled; sector; the change in
   short interest and days to cover (only settlements at least 14 days old, FINRA's publication delay); open-market
-  insider purchases minus sales over 90 days by filing date; price; whether it is an ETF.
+  insider purchases minus sales over 90 days by filing date; price; whether it is an ETF; and (features v2,
+  2026-11-18) the option-implied stock signals of the newest stored session before S (`stk_option_signals` through
+  `option_signals.read`, [STOCKS_METHOD.md](STOCKS_METHOD.md) section 11): `opt_iv_spread` (call minus put IV),
+  `opt_skew` (out-of-the-money put minus at-the-money call IV), `opt_os_log` and `opt_os_abnormal` (option-to-stock
+  volume and its log against the stock's own median), `opt_d_call_iv` and `opt_d_put_iv` (changes in at-the-money IV
+  over about five sessions), `opt_term_slope`, `opt_iv_rv` (30-day IV over 22-session realized volatility) and
+  `opt_borrow` (Schwab's borrow rate, recorded from the chain scan onwards). Experience recorded before features v2
+  has no such columns: the model reads them as missing (`model` v3), and so does any stock-day without a stored
+  liquid chain.
 - **Market**: SPY against its 200-session average, its 21-session return and realized volatility; VIX and its 5-day
   change; SPY's own term structure (the VIX term structure's stand-in); the high-yield spread and its change; the 10-year
   and 3-month Treasury yields.
