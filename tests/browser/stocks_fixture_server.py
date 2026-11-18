@@ -217,7 +217,8 @@ def learner_fixture(root: Path) -> None:
                evening, limit=10_000)
     model.PARAMS = {**model.PARAMS, "max_iter": 12}
     model.EXIT_PARAMS = {**model.EXIT_PARAMS, "max_iter": 6}
-    model.train(world.research.conn, world.paths.home, evening, note="synthetic browser fixture")
+    model.train(world.research.conn, world.paths.home, evening, note="synthetic browser fixture",
+                market=world.market.conn)
     publish_plays(world.paths, world.dbs, evening)
     view.refresh(world.paths, world.dbs, evening, force=True)
     world.close()
@@ -248,7 +249,7 @@ def learner_account_fixture(root: Path) -> None:
     model.PARAMS = {**model.PARAMS, "max_iter": 10}
     model.EXIT_PARAMS = {**model.EXIT_PARAMS, "max_iter": 4}
     model.train(world.research.conn, world.paths.home, closing(train_days[-1]) + timedelta(hours=5),
-                note="synthetic browser fixture")
+                note="synthetic browser fixture", market=world.market.conn)
     real = policy.gate
 
     def let_through(row: Any, home: Any = None, *, load: bool = True) -> policy.Gate:

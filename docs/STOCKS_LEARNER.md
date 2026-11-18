@@ -14,14 +14,15 @@ It is built in phases:
 | 2 | An outcome model trained walk-forward, shown in **shadow** beside the rules | built |
 | 3 | A Learner PAPER account that composes its own trades within risk limits, with directed exploration, against the rules and random | built |
 | 4 | Written "do / don't" findings with evidence, regime awareness, promotion only after forward confirmation | built |
+| 5 | Cost-aware predictions (the expected fill of a limit order) and much stricter evaluation: many purged held-out splits, the deflated Sharpe ratio and the probability of overfitting, market-neutral skill, an ensemble only when it beats a single model | built |
 
 **What it never does.** It places no order (research and PAPER only: its own account trades simulated money). It does
 not change a Plays ranking, another PAPER strategy, the Learning book or any calibration. No language model judges any trade: the model is ordinary
 gradient-boosted trees (scikit-learn). It uses no paid API. Its rule sets are frozen by version and fingerprint
 (tests/unit/stocks_spec_fingerprints.json), like every other rule set.
 
-Code: `src/desk/stocks/learner/`. Storage: `stocks-research.db` (migrations `0019_learner.sql` and
-`0020_learner_findings.sql`) and, for the account's decisions, `stocks-ledger-paper.db` (`0009_learner_account.sql`).
+Code: `src/desk/stocks/learner/`. Storage: `stocks-research.db` (migrations `0019_learner.sql`,
+`0020_learner_findings.sql`, `0021_learner_fills.sql` and `0022_learner_trials.sql`) and, for the account's decisions, `stocks-ledger-paper.db` (`0009_learner_account.sql`).
 Every table is append-only.
 
 ## What it records
@@ -154,6 +155,50 @@ for the official close, then is written missing. Replay checkpoints are written 
 stored. Each label is written once, keyed by stock, session and checkpoint (`INSERT OR IGNORE`), so the daily job is
 idempotent. Each label records the label rules' version.
 
+## Costs: the expected fill (`learner/fills.py`)
+
+Paying the ask on every entry overstates the cost when a limit inside the spread would have filled, and a limit that
+never fills is no trade at all. The fill model estimates both from KESTREL's own saved quotes.
+
+- **The question.** An order placed against a quote (bid, ask) with its limit a fraction *f* of the way from the mid to
+  the far side, *f* = 0, 0.25, 0.5, 0.75 or 1 (1 = paying the ask, or taking the bid). How likely is it to fill within
+  the session, and at what price? A limit at *f* fills at mid ± *f* × half the spread; at *f* = 1 it always fills.
+- **Observed fills only.** The quote history is the Schwab quotes of every tracked contract, saved through the session
+  (`stk_track_intraday`, every five to sixty minutes). For each contract and session the first saved quote is the
+  anchor. A limit counts as filled only when a **later** saved quote of the same session crossed it: for a buy, an ask
+  at or below the limit; for a sell, a bid at or above it. A contract with no later quote gives no observation. Each
+  session is turned into observations once (`stk_learn_fill_obs`) and kept after the quote history is compacted. PAPER
+  and Learning fills are not used: they pay the far side, so they say nothing about a limit inside the spread. The
+  daily chains are one snapshot a day, so they cannot show a crossing either.
+- **Cells, shrunk, monotone.** Each observation falls in a cell by the anchor's spread (as a share of the mid), the
+  previous session's open interest and volume (known before the order), days to expiry and moneyness. An unknown open
+  interest or volume counts as the lowest bin. A cell's fill rate is shrunk toward its spread bin's, that toward all
+  observations', and that toward **no fill**, each by 20 pseudo-observations. The rates are then made non-decreasing in
+  *f* (isotonic). With no observations every limit inside the spread has fill chance 0: pay the ask.
+- **No look-ahead.** A decision on session S is costed only with observations of sessions up to S. A test proves later
+  observations change nothing.
+- **A structure** fills only when every leg would. Its chance is the product of its legs' chances, which is cautious,
+  since legs tend to fill together. The price saved is (1 − *f*) × the sum of its legs' half spreads. The chosen *f*
+  maximises chance × (10% + saving ÷ money at risk). In words, a limit is tried only when the expected saving is worth
+  the risk of missing a trade assumed to earn 10% at the ask. Ties go to the higher *f*.
+- **Decision legs.** Each forward candidate's legs at its decision quotes (mid, half spread, open interest, volume, days
+  to expiry, moneyness) are recorded from the stored chain of its session (`stk_learn_entry`) before that chain can be
+  pruned. A candidate whose recomputed entry differs from its recorded one by more than a cent a share has no legs and
+  pays the ask. Replay rows always pay the replay's stated ask: their spread is assumed, not observed.
+
+Frozen as `stocks_learner_fills` v1. `fills.summary` reports the observations it rests on, with example fill chances
+for a liquid and a wide contract.
+
+**The net target** (model v5). The expected return and its range are trained on, and judged by, the **net return at
+the expected fill**. That is the settlement return after fees, restated at the chosen limit's entry (the same
+settlement and fees, the −100% floor kept), times its chance of filling. A missed fill is no trade: zero. With no fill
+observations it equals the return paying the ask. The return at the ask and the mid and liquidation checkpoints are
+still loaded and reported beside it.
+
+**Not done:** the Learner PAPER account still enters by paying the ask, within its 10% fill limit. Using the chosen
+limit for its own orders would need a new policy version and new versions of both PAPER strategies. Until there are
+fill observations, both are the same.
+
 ## Replay examples (`learner/replay.py`)
 
 Forward labels take weeks to months to arrive. To give the model years-scale examples now, the same candidates and
@@ -219,6 +264,74 @@ Training on the capped 150,000 rows took **125 seconds** with a **peak of about 
 development machine). That covers the walk-forward evaluation, the final models and the importance. The real
 training's time and peak memory are stored with each model.
 
+## Stricter evaluation (phase 5)
+
+### Many held-out splits (`learner/validation.py`)
+
+Walk-forward gives one held-out history, and a lucky or unlucky stretch decides it. **Purged combinatorial
+cross-validation** (López de Prado 2018, chapter 12) works like this:
+
+- The labelled decision sessions are cut into six consecutive groups.
+- Every pair of groups is held out in turn: 15 splits, each predicted by a model trained on the other four groups.
+- **Purge**: a training row whose decision-to-label period reaches into a held-out group is dropped.
+- **Embargo**: training rows decided in the sessions just after a held-out group are dropped too. That is 1% of the
+  sessions, at least one.
+- The splits assemble into five complete held-out histories (**paths**), each covering every session once.
+
+Each training reports how many splits were profitable (the day's top tenth made money) and how many beat the day's
+average candidate. It also reports the spread of rank correlations, and each path's daily top-minus-average mean and
+Sharpe ratio. CPCV runs on at most 60,000 rows, the expected-return model only, in the walk-forward-chosen variant and
+target, and it is judged in money (the net return). It is for model selection and reporting only. Promotion stays on
+untouched forward data. Frozen as `stocks_learner_validation` v1.
+
+### After accounting for what it tried (`learner/overfit.py`)
+
+- **The trial counter** (`stk_learn_trials`, append-only) records every model variant, ensemble member and do / don't
+  rule ever evaluated, with its held-out daily Sharpe ratio. The count only grows, across trainings.
+- **Deflated Sharpe ratio** (Bailey & López de Prado 2014). This is the probability that a Sharpe ratio is above zero
+  once the best of *N* unskilled trials is allowed for: *N* is every trial recorded, and the trials' Sharpe ratios'
+  variance sets how lucky the best could be by chance. It adjusts for skew and fat tails. A test reproduces the paper's
+  worked example (DSR 0.9004). **0.95 is required** for:
+  - a new do / don't finding (findings v2, with *N* = every rule ever tried);
+  - a version's forward confirmation (promotion v2), on the paired daily differences against Random, with *N* = every
+    model trial.
+
+  Each model's DSR (its daily top-tenth-minus-average series after every model trial) is shown, and so is the Learner
+  account's realised edge over its random twin.
+- **Probability of backtest overfitting** (CSCV; Bailey, Borwein, López de Prado & Zhu 2017). The trials' daily
+  results are cut into up to 16 blocks. For every way of choosing half the blocks, the trial that was best on that half
+  is ranked on the other half. PBO is the share of splits where it lands at or below the median: about 0.5 means
+  choosing the best was no better than chance. It is reported for each training's model choice and for each findings
+  run. Tests: about 0.5 on noise, under 0.1 with a planted edge.
+
+Frozen as `stocks_learner_overfit` v1.
+
+### Raw and market-neutral skill (`learner/neutral.py`, model v6)
+
+An option held to expiry moves with its stock, and the stock with the market: a call bought before a rally makes
+money whoever picked it. So each labelled row carries SPY's and its sector fund's return from its decision close to
+its label's close (stored closes only, otherwise missing). Within each structure, the net return is regressed on the
+market return and the sector's excess over it, on training rows only. The **market-neutral** return is what is left
+(the intercept is kept). A test shows this removes a pure market-beta effect completely.
+
+Walk-forward, a second model is trained on the neutral return. Both models are scored against the neutral realised
+return. The neutral target is frozen when its model is at least as good there. The rank correlation against the raw
+and the neutral realised return are both reported.
+
+### One model or several (`learner/ensemble.py`, model v7)
+
+The expected return is predicted by three members, each walk-forward on the chosen variant and target:
+
+- gradient-boosted trees;
+- a ridge (L2 linear) model on standardised inputs, with missing inputs filled by the median plus a missing flag, and
+  the structure, bucket and sector one-hot;
+- extra trees, on at most 50,000 rows.
+
+The **ensemble** averages them. In each test block its weights come from the members' rank correlations on earlier
+blocks only (equal on the first). It is used only when its held-out rank correlation beats the best member's;
+otherwise the best member alone is frozen. Each member's held-out score is recorded, and each counts as a trial. The
+quantiles, chances and best-exit models stay gradient-boosted.
+
 ## How it is evaluated (shown plainly)
 
 Each model's held-out results, on later sessions it never trained on:
@@ -233,6 +346,14 @@ Each model's held-out results, on later sessions it never trained on:
   exploration slice is shown too.
 - The 10–90% range's actual coverage (it should hold about 80%).
 - The best-exit choice's realised return against simply holding.
+- **How strictly it is tested** (phase 5, in plain words on the Learner page and in the Learning report):
+  - the expected fill against paying the ask;
+  - the net-of-cost edge;
+  - the spread over the 15 held-out splits ("in 15 held-out splits, 11 were profitable");
+  - the deflated Sharpe ratio ("after accounting for the 240 things it tried");
+  - the probability of overfitting;
+  - raw against market-neutral skill;
+  - the ensemble against each single model.
 - **What it relies on**: permutation importance on held-out rows, in plain words. This is how much its ranking worsens
   when that input is shuffled.
 
@@ -290,8 +411,9 @@ bite.
   the exploration share, and names a model in the registry (the random twin names none). A session with decisions has
   a "traded" record.
 - **learner.findings**: every finding was found on its model's held-out days, on at least 15 days, cleared the
-  correction and has the right sign; its stages are in order (confirmed, failed only after candidate; retired only
-  after confirmed) and every later stage was judged on at least 10 days after the discovery window.
+  correction (and, for findings v2, reached a deflated Sharpe ratio of at least 0.95 after every rule tried) and has
+  the right sign; its stages are in order (confirmed, failed only after candidate; retired only after confirmed) and
+  every later stage was judged on at least 10 days after the discovery window.
 - The Learner's accounts are PAPER accounts, so **books.cash**, **books.positions** and **books.fills** cover them too
   (cash never negative, equity = cash + marks, fills only at stored quotes of that day).
 
@@ -428,7 +550,9 @@ never trained on them, with their realised returns held to expiry), grid candida
    structure × expiry bucket, is a rule too.
 2. **Testing**, by day (each day's mean is one observation): a **do** needs a positive mean with its 90% bootstrap
    range above zero; a **don't** needs a negative mean **and** a mean below the same day's average candidate, with that
-   range below zero (worse than random, not only a losing trade). At least 15 days and 60 rows. The one-sided t-test
+   range below zero (worse than random, not only a losing trade). At least 15 days and 60 rows. Since v2, every rule
+   is judged on the net return at the expected fill, each structure in each regime label is a rule too, and a rule
+   also needs a **deflated Sharpe ratio of at least 0.95** after every rule ever tried. The one-sided t-test
    p-values of every rule tried in the run are corrected by **Benjamini-Hochberg at 10%**. Overlapping rules (80% the
    same rows) keep the stronger; at most 12 of each kind. Passing makes a **candidate**.
 3. **Confirmation** on the untouched later third (after a 5-session embargo): at least 10 days in the same direction,
@@ -456,7 +580,8 @@ every position decided on them has closed:
   90% range resampling each side's days; at least 5 rule entry days are needed, otherwise it stays provisional and says
   so.
 
-Both lower ends above zero: **confirmed**. Otherwise **failed**, kept and shown; a new version starts its own test.
+Both lower ends above zero and (v2) a deflated Sharpe ratio of at least 0.95 for the paired daily differences against
+Random, counting every model trial ever recorded: **confirmed**. Otherwise **failed**, kept and shown; a new version starts its own test.
 Realised returns at real fills only. Stages are appended to `stk_learn_promotions`. Frozen as
 `stocks_learner_promotion` v1. Nothing is adopted anywhere by a confirmation: it is a label of evidence, in the style
 of the Learning promotions.
@@ -468,6 +593,9 @@ of the Learning promotions.
   named legend; its grade (the PAPER grade); the realised comparison by entry day with ranges; the exploration share;
 - open and closed trades, each with its dials, legs, entry, money at risk, result, and its decision: the model's
   view, its uncertainty and evidence, explore or exploit, the chosen exit rule and the alternatives weighed;
+- how strictly it is tested, one plain line each with a short hint: the expected fill, the net-of-cost edge, the
+  held-out splits, the deflated Sharpe ratio, the probability of overfitting, raw against market-neutral skill, and
+  the ensemble against each single model; with the number of model variants and rules tried so far;
 - what it learned to do and not to do, with each finding's stage, its regimes and whether it filters trades;
 - by market regime: the model's held-out results and the account's closed trades;
 - model versions: each model's held-out headline, whether it passed the gate, its forward trades, and each version's
@@ -484,6 +612,15 @@ On this development machine, two threads, synthetic data only:
 - **Training at the cap** (150,000 candidates, 250 sessions): the walk-forward evaluation took 82 seconds; storing the
   75,100 held-out rows 0.6 seconds (1.6 MB); looking for findings 4.6 seconds (149 rules tested); peak memory about
   550 MB. Training now also writes the findings, so a weekly training takes a few seconds longer than before.
+- **Training at the cap with phase 5** (2026-11-18, model v7; this 4-core machine, two OpenMP threads, partly
+  sharing the CPU with a browser fixture build):
+  - The walk-forward evaluation took **192 seconds**. That covers both variants, the market-neutral model, and the
+    ridge and extra-trees members on every fold.
+  - CPCV (15 splits on 60,000 rows) took **22 seconds**.
+  - The whole bench took **266 seconds** with a peak of **807 MB**. It does not include writing the findings (about 5
+    seconds), or refitting the ridge and extra trees on all rows when the ensemble or one of them is chosen (about 20
+    seconds more).
+  - A weekly training therefore takes about five minutes on a laptop, in its niced two-thread subprocess.
 - **Deciding a session**: scoring 6,000 candidates (a full session at the cap) took 0.28 seconds; a whole decision on
   the six-stock synthetic market (about 300 candidates) took 0.05–0.2 seconds.
 - **The Learner page's data**: well under a second on the synthetic month.
@@ -491,12 +628,13 @@ On this development machine, two threads, synthetic data only:
 ## Building on it
 
 - **Tables**: `stk_learn_candidates`, `stk_learn_labels`, `stk_learn_days`, `stk_learn_models`, `stk_learn_shadow`
-  (phases 1–2); `stk_learn_heldout`, `stk_learn_findings`, `stk_learn_finding_status`, `stk_learn_promotions`
-  (research); `stk_learner_days`, `stk_learner_decisions` (PAPER ledger), with the account's positions, orders and
+  (phases 1–2); `stk_learn_heldout`, `stk_learn_findings`, `stk_learn_finding_status`, `stk_learn_promotions`,
+  `stk_learn_fill_obs`, `stk_learn_entry`, `stk_learn_trials` (research); `stk_learner_days`, `stk_learner_decisions` (PAPER ledger), with the account's positions, orders and
   equity in the usual PAPER tables under the accounts `learner` and `learner_random`.
 - **Functions**: `policy.gate`, `policy.score`, `policy.choose`, `policy.decide`; `findings.mine`, `findings.matches`,
   `findings.current`; `promotion.review`, `promotion.judge`; `account.build`; `regimes.of`.
-- **Frozen rule sets**: `stocks_learner_regimes`, `stocks_learner_findings`, `stocks_learner_policy`,
-  `stocks_learner_promotion`, `stocks_learner_model` v2, and the two PAPER strategies `stocks_paper_learner` and
+- **Frozen rule sets**: `stocks_learner_regimes`, `stocks_learner_findings` v2, `stocks_learner_policy`,
+  `stocks_learner_promotion` v2, `stocks_learner_model` v7, `stocks_learner_fills`, `stocks_learner_validation`,
+  `stocks_learner_overfit`, and the two PAPER strategies `stocks_paper_learner` and
   `stocks_paper_learner_random` (their parameters include the policy's fingerprint, so a policy change needs new
   versions of both).

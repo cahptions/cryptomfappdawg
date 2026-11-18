@@ -1,5 +1,35 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-18 — The Learner, phase 5: cost-aware predictions and much stricter evaluation
+
+- `learner/fills.py` (spec `stocks_learner_fills` v1, research migration 0021: `stk_learn_fill_obs`,
+  `stk_learn_entry`): fill chances of a limit at 0/25/50/75/100% from the mid to the far side, from the saved Schwab
+  quotes of tracked contracts. A fill is observed only when a later saved quote that session crossed the limit. Cells
+  by spread, open interest, volume, days to expiry and moneyness, shrunk toward no fill, isotonic in the fraction, as
+  of the decision session. No data: pay the ask. Forward candidates' decision legs are recorded while their chain is
+  stored. Daily from `learner.job.after_plays`.
+- Model v5: the expected return is trained on and judged by the **net return at the expected fill** (chosen limit's
+  chance × the settlement return at that entry, after fees). The return at the ask is still reported beside it.
+- `learner/validation.py` (spec `stocks_learner_validation` v1): purged combinatorial CV, 6 groups, 15 splits,
+  5 paths, purge by label horizon, 1% embargo, at most 60,000 rows; `metrics.cpcv` on every training.
+- `learner/overfit.py` (spec `stocks_learner_overfit` v1, research migration 0022: `stk_learn_trials`): deflated
+  Sharpe ratio (reproduces the paper's 0.9004), CSCV probability of backtest overfitting, and a persistent trial
+  counter. Findings v2 (net target, structure × regime rules, DSR ≥ 0.95 after every rule ever tried; kestrel check
+  enforces it) and promotion v2 (DSR ≥ 0.95 on the paired forward days) both require the DSR.
+- `learner/neutral.py`, model v6: SPY and sector-fund returns over each row's own horizon; per-structure betas from
+  training rows only; raw and market-neutral rank correlations reported; trains on the neutral target when that is at
+  least as good out of sample.
+- `learner/ensemble.py`, model v7: gradient-boosted trees + ridge + extra trees. Weights come from earlier folds only.
+  The ensemble is used only when it beats the best member held out; each member's score is shown.
+- UI/report: the Learner page's "How strictly it is tested" section and matching Learning report items, shared text
+  from `view.evaluation`; DSR/PBO/CPCV per model in "Model versions". Browser test `stocks_learner_account.mjs`
+  extended.
+- Not done: the Learner PAPER account still pays the ask (using the limit needs a new policy and PAPER strategy
+  versions). Fill data accumulates only from tracked contracts' saved quotes (35-day intraday window, so the first
+  run backfills at most 35 days).
+- Compute (`learner-bench`, 150,000 synthetic rows, 2 threads, 4-core machine): walk-forward evaluation 192 s,
+  CPCV 22 s, total 266 s, peak 807 MB. A weekly training is about five minutes.
+
 ## 2026-11-18 — Earnings: priced vs expected move, phase 4
 
 - `earnings_dates.known(conn, session, as_of)`: the point-in-time calendar — a Finnhub date counts once first seen and

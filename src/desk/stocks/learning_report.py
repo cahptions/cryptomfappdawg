@@ -1394,6 +1394,10 @@ def learner(src: Sources, r: Report) -> None:
               "Permutation importance on held-out rows: how much its ranking worsens when that input is shuffled.",
               items=int(h.get("test_rows") or 0), days=days, unit="candidates", strength="early", link=link,
               key="learner:importance", weight=0.4)
+    for i, line in enumerate(m.get("evaluation") or []):     # how strictly it was tested, in plain words
+        r.add("learner", f"{line['title']}: {line['text']}", line["hint"], items=int(h.get("test_rows") or 0),
+              days=days, unit="candidates", strength="early", link="#learner", key=f"learner:strict:{i}",
+              weight=0.6 - 0.02 * i)
 
 
 def _dollars(x: float | None) -> str:

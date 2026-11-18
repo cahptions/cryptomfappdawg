@@ -210,6 +210,46 @@ const KestrelLearner = (() => {
     box.append(list);
     return box;
   }
+  // How strictly the model is tested, in plain words (written by the worker: costs, many held-out splits, luck from
+  // trying many variants, overfitting, raw vs market-neutral skill, ensemble vs single model).
+  function strictness(data) {
+    const box = el("section", undefined, "learner-strict");
+    box.setAttribute("aria-label", "How strictly it is tested");
+    box.append(
+      el("h2", "How strictly it is tested"),
+      el(
+        "p",
+        "Every number here is from days the model never trained on, after fees and the expected fill. Each line says what it checks.",
+        "caption muted",
+      ),
+    );
+    const lines = data.evaluation || [];
+    if (!lines.length) {
+      box.append(el("p", "No model has been trained yet.", "muted"));
+      return box;
+    }
+    const list = el("ul", undefined, "learner-finding-list");
+    for (const line of lines) {
+      const li = el("li", undefined, "learner-finding learner-strict-line");
+      li.append(
+        el("strong", line.title),
+        el("p", line.text),
+        el("p", line.hint, "caption muted"),
+      );
+      list.append(li);
+    }
+    box.append(list);
+    const t = data.trials || {};
+    if (t.model || t.finding)
+      box.append(
+        el(
+          "p",
+          `Tried so far: ${t.model || 0} model variants and ${t.finding || 0} do / don't rules (every one counts against luck).`,
+          "caption muted",
+        ),
+      );
+    return box;
+  }
   function findings(data) {
     const box = el("section", undefined, "learner-findings");
     box.setAttribute("aria-label", "What it learned to do and not to do");
@@ -347,7 +387,17 @@ const KestrelLearner = (() => {
         list.map((m) => [
           m.id,
           (m.trained_at || "").slice(0, 10),
-          `rank ${m.rank_correlation === null ? "—" : m.rank_correlation.toFixed(2)}; top tenth vs random ${range(m.top_minus_random)}`,
+          `rank ${m.rank_correlation === null ? "—" : m.rank_correlation.toFixed(2)}; top tenth vs random ${range(m.top_minus_random)}` +
+            (m.dsr === null || m.dsr === undefined
+              ? ""
+              : `; deflated Sharpe ${m.dsr.toFixed(2)}`) +
+            (m.pbo === null || m.pbo === undefined
+              ? ""
+              : `; overfitting ${Math.round(100 * m.pbo)}%`) +
+            (m.cpcv && m.cpcv.splits
+              ? `; ${m.cpcv.profitable} of ${m.cpcv.splits} splits profitable`
+              : "") +
+            (m.expected_model ? `; model: ${m.expected_model}` : ""),
           m.gate.ok ? "passed" : m.gate.why,
           m.forward_trades
             ? `${m.forward_trades} closed, ${pct(m.forward_mean, 1)} average`
@@ -414,6 +464,7 @@ const KestrelLearner = (() => {
     app.append(
       grid,
       trades(data),
+      strictness(data),
       findings(data),
       regimes(data),
       models(data),

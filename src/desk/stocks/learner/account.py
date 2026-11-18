@@ -25,6 +25,7 @@ from desk.stocks.connection import _atomic_private
 from desk.stocks.learner import actions as act
 from desk.stocks.learner import findings as fd
 from desk.stocks.learner import model as md
+from desk.stocks.learner import overfit as of
 from desk.stocks.learner import policy
 from desk.stocks.learner import promotion as pr
 from desk.stocks.learner import regimes as rg
@@ -142,6 +143,10 @@ def models(research: sqlite3.Connection, decisions: Mapping[int, Mapping[str, An
                                                            for v in json.loads(row["data_json"]).values()),
                     "rank_correlation": metrics.get("rank_correlation"), "test_days": metrics.get("test_days"),
                     "top_minus_random": (metrics.get("deciles") or {}).get("top_minus_random"),
+                    "dsr": ((metrics.get("overfitting") or {}).get("dsr") or {}).get("dsr"),
+                    "pbo": ((metrics.get("overfitting") or {}).get("pbo") or {}).get("pbo"),
+                    "cpcv": {k: (metrics.get("cpcv") or {}).get(k) for k in ("splits", "profitable")},
+                    "expected_model": (metrics.get("expected_model") or {}).get("kind"),
                     "gate": {"ok": g.ok and row["code_version"] == md.version_hash(), "why": g.why},
                     "traded": row["id"] in used, "forward_trades": len(f),
                     "forward_mean": round(fmean(f), 4) if f else None,
@@ -162,6 +167,11 @@ def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, marke
     latest = md.latest(research)
     g = policy.gate(latest, load=False)
     out["gate"] = {"ok": g.ok, "why": g.why, "model_id": g.model_id, "detail": g.detail}
+    from desk.stocks.learner import fills, view
+
+    out["fills"] = fills.summary(research)
+    out["evaluation"] = view.evaluation(json.loads(latest["metrics_json"]), out["fills"]) if latest is not None else []
+    out["trials"] = of.totals(research)
     if ledger is None or not _has(ledger, "stk_learner_days"):
         out["models"] = models(research, {}, [])
         out["promotion"] = pr.overview(None, research)
@@ -201,7 +211,7 @@ def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, marke
             "new_risk": round(sum(d["risk_usd"] for d in risk), 2), "explore_risk": round(explore, 2),
             "explore_share": round(explore / sum(d["risk_usd"] for d in risk), 4) if risk else None,
             "curve": _curve(book, st.id)}
-    vs_rules = rules_comparison(book)
+    vs_rules = rules_comparison(book, of.counter(research, "model"))
     out["vs_rules"] = vs_rules
     out["days"] = [{"session": date.fromordinal(r["session"]).isoformat(), "account": r["account"],
                     "status": r["status"], "why": r["why"], "model_id": r["model_id"],
@@ -214,7 +224,7 @@ def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, marke
     return out
 
 
-def rules_comparison(book: Any) -> dict[str, Any]:
+def rules_comparison(book: Any, trials: tuple[int, float] = (1, 0.0)) -> dict[str, Any]:
     """Realised returns by entry day: the Learner, its random twin and the rule-based option strategies, each side's
     daily means with a 90% bootstrap range (real fills only)."""
     mine, n, _ = pr.daily(book, policy.ACCOUNT)
@@ -230,6 +240,7 @@ def rules_comparison(book: Any) -> dict[str, Any]:
             "random": pr._boot(list(rand.values())), "random_trades": rn,
             "rules": pr._boot(list(rule_days.values())), "vs_random": pr._boot(paired),
             "vs_rules": pr._boot_difference(list(mine.values()), list(rule_days.values())),
+            "deflated": of.dsr_of(paired, *trials),
             "note": "Realised returns on the money at risk at real fills, averaged by entry day; positions still open "
                     "or closed at a modelled price are left out."}
 

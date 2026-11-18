@@ -51,3 +51,29 @@ def test_the_trial_counter_only_grows(tmp_path: Path) -> None:
     assert n == 3 and var == pytest.approx(np.var([0.2, 0.05, 0.1], ddof=1))
     with pytest.raises(Exception, match="append-only"):
         conn.execute("DELETE FROM stk_learn_trials")
+
+
+def test_the_strictness_is_said_in_plain_words() -> None:
+    from desk.stocks.learner import view
+
+    metrics = {"costs": {"rows": 900, "limit_rows": 300, "limit_share": 0.33, "mean_chance": 0.6,
+                         "top_net": {"mean": 0.08}, "top_at_ask": {"mean": 0.05}},
+               "deciles": {"top_minus_random": {"mean": 0.04, "low": 0.01, "high": 0.07, "days": 40}},
+               "cpcv": {"splits": 15, "profitable": 11, "beat_average": 10, "paths": [{}] * 5,
+                        "path_sharpe": {"min": -0.1, "median": 0.2, "max": 0.4}},
+               "overfitting": {"required_dsr": 0.95, "trials_total": 240,
+                               "dsr": {"dsr": 0.62, "trials": 240, "passes": False},
+                               "pbo": {"pbo": 0.35, "splits": 12870, "periods": 200, "trials": 6}},
+               "neutral": {"ran": True, "rows": 800, "chosen": "raw", "raw_model": {"raw": 0.08, "neutral": 0.03},
+                           "neutral_model": {"raw": 0.05, "neutral": 0.02}},
+               "ensemble": {"members": {"gbt": {"rank_correlation": 0.05}, "ridge": {"rank_correlation": 0.02}},
+                            "ensemble": {"rank_correlation": 0.06}, "chosen": "ensemble"}}
+    lines = {line["title"]: line["text"] for line in view.evaluation(metrics)}
+    assert "In 15 held-out splits, 11 were profitable" in lines["Many held-out splits"]
+    assert "after accounting for the 240 things it tried" in lines["After accounting for what it tried"]
+    assert lines["Probability of overfitting"].startswith("35%")
+    assert "+0.08 raw and +0.03 after removing the market" in lines["Raw vs market-neutral skill"]
+    assert "uses the ensemble" in lines["Ensemble vs single model"]
+    assert "+8% at the expected fill against +5% paying the ask" in lines["Expected fill vs paying the ask"]
+    assert all(line["hint"] for line in view.evaluation(metrics))
+    assert view.evaluation({}) == []

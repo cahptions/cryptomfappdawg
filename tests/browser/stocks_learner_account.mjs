@@ -36,6 +36,16 @@ try {
   assert.ok(data.accounts.learner.curve.length > 0);
   assert.ok(data.baselines.spy.length > 0);
   assert.ok(data.models.length > 0 && data.promotion.length > 0);
+  // How strictly it is tested, in plain words: many held-out splits, luck from what it tried, ensemble vs single.
+  const titles = data.evaluation.map((l) => l.title);
+  for (const t of [
+    "Expected fill vs paying the ask",
+    "Many held-out splits",
+    "After accounting for what it tried",
+    "Ensemble vs single model",
+  ])
+    assert.ok(titles.includes(t), `missing "${t}" in ${titles}`);
+  assert.ok(data.evaluation.every((l) => l.text && l.hint));
   // The saved page shows the real gate's verdict (the synthetic model does not pass it).
   assert.equal(typeof data.gate.why, "string");
   for (const width of [1366, 375]) {
@@ -52,6 +62,7 @@ try {
       "Account value against the baselines",
       "Trades and why",
       "What it learned to do / not to do",
+      "How strictly it is tested",
       "By market regime",
       "Model versions",
     ])
@@ -59,6 +70,9 @@ try {
     const status = await page.locator(".learner-status-box").innerText();
     assert.match(status, /exploit trades whose lower confidence bound/);
     assert.match(status, /15% of each session's 8% new-risk budget/);
+    const strict = await page.locator(".learner-strict").innerText();
+    assert.match(strict, /In \d+ held-out splits, \d+ were profitable/);
+    assert.match(strict, /after accounting for the \d+ things it tried/);
     const trade = page.locator(".learner-trade").first();
     assert.match(await trade.innerText(), /(Exploit|Explore|Random baseline)/);
     assert.match(await trade.innerText(), /at risk/);
