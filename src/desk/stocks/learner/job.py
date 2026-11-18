@@ -21,10 +21,10 @@ JOB = "learner"
 
 def register_specs(market: StocksMarket, now: datetime) -> dict[str, str]:
     """Freeze the Learner's rule sets (a changed rule without a new version is refused, as every frozen rule set)."""
-    from desk.stocks.learner import findings, model, policy, promotion, regimes
+    from desk.stocks.learner import fills, findings, model, policy, promotion, regimes
 
     return {m.NAME: market.register_spec(m.NAME, m.VERSION, m.content(), now)
-            for m in (act, ft, lb, model, regimes, findings, policy, promotion)}
+            for m in (act, ft, lb, model, regimes, findings, policy, promotion, fills)}
 
 
 def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
@@ -90,6 +90,10 @@ def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], n
                     book.close()
     out["account_view"] = refresh_account(paths, dbs, now)
     out["labels"] = lb.run(research.conn, market.conn, lb.ForwardPrices(market.conn, research.conn), now)
+    from desk.stocks.learner import fills
+
+    out["fills"] = {**fills.collect(research.conn, now),
+                    "entries": fills.record_entries(research.conn, market.conn, now)}
     from desk.stocks.learner import replay
 
     out["replay"] = replay.step(market, research, now)
