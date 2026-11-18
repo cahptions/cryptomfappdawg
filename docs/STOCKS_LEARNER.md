@@ -105,6 +105,13 @@ previous session's close**:
   `opt_borrow` (Schwab's borrow rate, recorded from the chain scan onwards). Experience recorded before features v2
   has no such columns: the model reads them as missing (`model` v3), and so does any stock-day without a stored
   liquid chain.
+- **Earnings** (a separate block, features v3, 2026-11-18; `model` v4): `earn_implied_move`, the results-day move
+  the decision chain prices for the next report known before S (`earnings_dates.known` with calendar dates and
+  results filings seen before S's midnight in New York; a report whose entry session is within 45 days; Dubinsky–
+  Johannes, [STOCKS_PLAYS.md](STOCKS_PLAYS.md) "Earnings: priced vs expected move"); `earn_typical_move`, the average
+  size of the stock's last 12 results-day moves whose exit session was before S (`stk_earnings_moves`); `earn_ratio`,
+  KESTREL's expected move ÷ the priced move (above 1: options look cheap for the report). With no report ahead only
+  the typical move is set; experience recorded before features v3 reads all three as missing.
 - **Market**: SPY against its 200-session average, its 21-session return and realized volatility; VIX and its 5-day
   change; SPY's own term structure (the VIX term structure's stand-in); the high-yield spread and its change; the 10-year
   and 3-month Treasury yields.

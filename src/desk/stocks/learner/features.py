@@ -21,10 +21,11 @@ import sqlite3
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
 from desk.core.hashing import canonical_json, sha256_hex
+from desk.stocks import earnings_model as em
 from desk.stocks import options as opt
 from desk.stocks.repo import day_of
 
@@ -32,9 +33,10 @@ if TYPE_CHECKING:
     from desk.stocks.plays import Table, Underlying
 
 NAME = "stocks_learner_features"
-VERSION = 2                         # v2 (2026-11-18): the option-implied stock signals (option_signals), as of S − 1
+VERSION = 3                         # v3 (2026-11-18): the earnings block (earnings_model); v2: the option signals
 SHORT_INTEREST_LAG = 14             # days after settlement before short interest counts as published
 INSIDER_DAYS = 90
+EARNINGS_DAYS = 45                  # the earnings block reads a report whose entry session is at most this far ahead
 DESKS = ("valuation", "quality", "growth", "momentum", "earnings", "insiders", "shorts", "crowd", "risk", "macro",
          "options", "news")
 PREVIOUS = "the previous session's close (data dated before the decision session)"
@@ -101,6 +103,17 @@ STOCK: tuple[Feature, ...] = (
         ("iv_rv", "30-day IV over 22-session realized volatility (vol_forecast)"),
         ("borrow", "Schwab borrow rate as sent (0 = easy to borrow; missing before it was recorded)"))),
 )
+# The earnings block (features v3): the next report as known before S (earnings_dates.known), the move S's chain prices
+# for it and the stock's past results-day moves whose exit session was before S (desk.stocks.earnings_model).
+EARNINGS: tuple[Feature, ...] = (
+    _f("earn_implied_move", "stock", "the decision chain (earnings_model.implied) for the report known before S",
+       QUOTE, f"The results-day move options price for the next report (entry within {EARNINGS_DAYS} days)"),
+    _f("earn_typical_move", "stock", "stk_earnings_moves (exit session before S)", PREVIOUS,
+       "Average size of the stock's last 12 results-day moves"),
+    _f("earn_ratio", "stock", "earnings_model.edge", QUOTE,
+       "KESTREL's expected move ÷ the priced move (above 1: options look cheap for the report)"),
+)
+STOCK = (*STOCK, *EARNINGS)
 MARKET: tuple[Feature, ...] = (
     _f("spy_vs_200d", "market", "stk_bars SPY", PREVIOUS, "SPY against its 200-session average"),
     _f("spy_ret_21d", "market", "stk_bars SPY", PREVIOUS, "SPY's 21-session return"),
@@ -151,7 +164,8 @@ SECTORS = ("NoDur", "Durbl", "Manuf", "Enrgy", "Chems", "BusEq", "Telcm", "Utils
 
 def content() -> dict[str, Any]:
     return {"version": VERSION, "features": [[f.name, f.group, f.source, f.known] for f in ALL],
-            "short_interest_lag": SHORT_INTEREST_LAG, "insider_days": INSIDER_DAYS}
+            "short_interest_lag": SHORT_INTEREST_LAG, "insider_days": INSIDER_DAYS, "earnings_days": EARNINGS_DAYS,
+            "earnings_model": [em.VERSION, em.version_hash()]}
 
 
 def version_hash() -> str:
@@ -182,6 +196,7 @@ class Reader:
     def __init__(self, market: sqlite3.Connection, research: sqlite3.Connection | None, session: date) -> None:
         self.market, self.research, self.session = market, research, session
         self.cut = day_of(session)          # every query below: day < cut
+        self._priors: em.Priors | None = None   # the session's sector ratios, read once
 
     def closes(self, symbol: str, n: int = 260) -> list[tuple[int, float, float]]:
         """(day, split-adjusted close, volume) for up to ``n`` sessions before S, oldest first."""
@@ -261,6 +276,22 @@ class Reader:
         from desk.stocks import option_signals as osg
 
         return osg.read(self.market, cal.previous_trading_day(self.session), [symbol]).get(symbol, {})
+
+    def earnings_outlook(self, u: Underlying, rate: float) -> dict[str, Any]:
+        """The next report known before S (results filings and calendar dates seen before S's midnight in New York),
+        priced by S's own chain; the stock's past moves with exit sessions before S. Empty when nothing is known."""
+        from desk.stocks import calendar as cal
+        from desk.stocks import earnings_dates as ed
+
+        as_of = datetime.combine(self.session, time(0), cal.NEW_YORK)
+        report = ed.known(self.market, self.session, as_of, {u.symbol}).get(u.symbol)
+        if report is None or (date.fromisoformat(report["entry"]) - self.session).days > EARNINGS_DAYS:
+            moves = [abs(float(m["realized"])) for m in em.history(self.market, u.symbol, self.session)]
+            return {"typical": statistics.fmean(moves) if moves else None}
+        if self._priors is None:
+            self._priors = em.Priors(self.market, self.session)
+        points = em.atm_points(u.chains, u.price, self.session, rate)
+        return em.outlook(self.market, u.symbol, self.session, report, points, u.price, self._priors) or {}
 
     def sector(self, symbol: str) -> int | None:
         from desk.stocks.sectors import sector
@@ -355,6 +386,9 @@ def stock_features(reader: Reader, u: Underlying, rate: float) -> dict[str, floa
     for key in ("iv_spread", "skew", "os_abnormal", "d_call_iv", "d_put_iv", "term_slope", "iv_rv", "borrow"):
         out[f"opt_{key}"] = sig.get(key)
     out["opt_os_log"] = math.log(sig["os_ratio"]) if sig.get("os_ratio") else None
+    o = reader.earnings_outlook(u, rate)
+    out["earn_implied_move"], out["earn_typical_move"], out["earn_ratio"] = (o.get("implied"), o.get("typical"),
+                                                                             o.get("ratio"))
     return {k: clean(out.get(k)) for k in STOCK_NAMES}
 
 
@@ -415,6 +449,6 @@ def contract_features(tb: Table, legs: Sequence[tuple[int, str]], play: Mapping[
     return {k: clean(out.get(k)) for k in CONTRACT_NAMES}
 
 
-__all__ = ["ALL", "CONTRACT", "CONTRACT_NAMES", "DESKS", "MARKET", "MARKET_NAMES", "NAME", "STOCK", "STOCK_NAMES",
+__all__ = ["ALL", "CONTRACT", "CONTRACT_NAMES", "DESKS", "EARNINGS", "MARKET", "MARKET_NAMES", "NAME", "STOCK", "STOCK_NAMES",
            "VERSION", "Feature", "Reader", "chain_features", "clean", "content", "contract_features", "market_features",
            "price_features", "stock_features", "version_hash"]

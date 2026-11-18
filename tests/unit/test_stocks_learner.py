@@ -274,7 +274,7 @@ def test_experience_recorded_before_the_option_signals_reads_them_as_missing() -
     from desk.core.hashing import canonical_json
     from desk.stocks.learner import model as md
 
-    old = [n for n in ft.STOCK_NAMES if not n.startswith("opt_")]          # the features v1 recorded
+    old = [n for n in ft.STOCK_NAMES if not n.startswith(("opt_", "earn_"))]   # the features v1 recorded
     assert len(old) < len(ft.STOCK_NAMES) and "opt_iv_spread" in ft.STOCK_NAMES and "opt_borrow" in md.FEATURES
     blob = zlib.compress(canonical_json({"v": 1, "features": "v1", "actions": "a", "price": 10.0, "stock_names": old,
                                          "stock": [1.0] * len(old), "market_names": [], "market": [], "fields": [],
@@ -282,4 +282,37 @@ def test_experience_recorded_before_the_option_signals_reads_them_as_missing() -
     group = ex.unpack(blob)
     vector = md.row_vector(group["stock"], group["market"], {}, False)
     for name in ft.STOCK_NAMES:
-        assert math.isnan(vector[md.FEATURES.index(name)]) == name.startswith("opt_")
+        assert math.isnan(vector[md.FEATURES.index(name)]) == name.startswith(("opt_", "earn_"))
+
+
+def test_the_earnings_block_reads_reports_and_moves_known_before_the_decision(world: Any) -> None:
+    from desk.stocks import earnings_dates as ed
+    from desk.stocks import earnings_model as em
+
+    session = world.days[-10]
+    conn = world.market.conn
+    ctx = pl.Context(session, closing(session), 0.04, None, 0.0, None, {}, [])
+    u = next(u for u in pl.load(world.market, world.research, session) if u.symbol == "S10")
+
+    def move(report: date, exit_: date, value: float) -> None:
+        conn.execute("INSERT INTO stk_earnings_moves VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     ("S10", report.toordinal(), ed.AFTER, "sec_8k", report.toordinal(), exit_.toordinal(), value, None,
+                      None, None, None, None, em.VERSION, None, closing(session).isoformat()))
+
+    for k, value in enumerate((0.05, -0.07, 0.06, -0.04)):
+        report = session - timedelta(days=91 * (k + 1))
+        move(report, report + timedelta(days=1), value)
+    ed.save(conn, [{"symbol": "S10", "date": (session + timedelta(days=6)).isoformat(), "when": ed.AFTER}], {"S10"},
+            closing(session) - timedelta(days=2))
+
+    def features() -> dict[str, Any]:
+        return ft.stock_features(ft.Reader(conn, world.research.conn, session), u, ctx.rate)
+
+    before = features()
+    assert before["earn_typical_move"] == pytest.approx(0.055)
+    assert (before["earn_ratio"] is None) == (before["earn_implied_move"] is None)
+    move(session - timedelta(days=1), session, 0.9)                         # its exit is the decision session
+    ed.save(conn, [{"symbol": "S10", "date": (session + timedelta(days=2)).isoformat(), "when": ed.BEFORE}], {"S10"},
+            closing(session))                                               # first seen after the decision began
+    assert features() == before
+    assert all(n in ft.STOCK_NAMES for n in ("earn_implied_move", "earn_typical_move", "earn_ratio"))

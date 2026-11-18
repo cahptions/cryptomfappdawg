@@ -108,13 +108,23 @@ def sessions(report: date, timing: str | None) -> tuple[date, date]:
     return cal.previous_trading_day(report), cal.next_trading_day(report)
 
 
-def _calendar(conn: sqlite3.Connection, since: date, as_of: datetime | None) -> dict[str, dict[str, Any]]:
+def _only(column: str, symbols: set[str] | None) -> tuple[str, list[str]]:
+    """An ``AND column IN (...)`` filter for a few symbols (placeholders only; values are bound)."""
+    if symbols is None or len(symbols) > 200:
+        return "", []
+    return f" AND {column} IN ({','.join('?' * len(symbols))})", sorted(symbols)
+
+
+def _calendar(conn: sqlite3.Connection, since: date, as_of: datetime | None,
+              symbols: set[str] | None = None) -> dict[str, dict[str, Any]]:
     """Each stock's next calendar date on or after ``since`` as the calendar stood at ``as_of`` (None: now)."""
     stamp = to_iso(as_of) if as_of else "9999"
+    where, args = _only("symbol", symbols)
     try:
         newest = conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates WHERE last_seen <= ?", (stamp,)).fetchone()[0]
-        rows = conn.execute("SELECT symbol, report_date, hour, first_seen, last_seen FROM stk_earnings_dates "
-                            "WHERE first_seen <= ? AND report_date >= ?", (stamp, day_of(since))).fetchall()
+        rows = conn.execute("SELECT symbol, report_date, hour, first_seen, last_seen FROM stk_earnings_dates "  # noqa: S608
+                            "WHERE first_seen <= ? AND report_date >= ?" + where,
+                            (stamp, day_of(since), *args)).fetchall()
     except sqlite3.OperationalError:
         return {}
     best: dict[str, tuple[str, int, str | None]] = {}
@@ -141,10 +151,12 @@ def filed_reports(conn: sqlite3.Connection, as_of: datetime | None = None,
     stamp = to_iso(as_of) if as_of else "9999"
     cut = day_of(cal.new_york(as_of).date()) if as_of else 2**31
     out: dict[str, list[tuple[date, str | None]]] = defaultdict(list)
+    where, args = _only("l.symbol", symbols)
     for symbol, filed, accepted in conn.execute(
-            "SELECT l.symbol, f.filed, f.accepted_at FROM stk_filings f JOIN stk_listings l ON l.cik = f.cik "
+            "SELECT l.symbol, f.filed, f.accepted_at FROM stk_filings f JOIN stk_listings l ON l.cik = f.cik "  # noqa: S608
             "WHERE f.form IN ('8-K', '8-K/A') AND (',' || f.items || ',') LIKE '%,2.02,%' "
-            "AND (f.accepted_at <= ? OR (f.accepted_at IS NULL AND f.filed < ?)) ORDER BY f.filed", (stamp, cut)):
+            "AND (f.accepted_at <= ? OR (f.accepted_at IS NULL AND f.filed < ?))" + where + " ORDER BY f.filed",
+            (stamp, cut, *args)):
         if symbols is not None and symbol not in symbols:
             continue
         report = timing_of(datetime.fromisoformat(accepted) if accepted else None, date_of(filed))
@@ -177,7 +189,7 @@ def known(conn: sqlite3.Connection, session: date, as_of: datetime | None = None
     """The point-in-time calendar: each stock's next report on or after ``session`` as known at ``as_of`` (None:
     everything stored). A confirmed date from Finnhub's calendar beats an estimate from results filings; each says which
     (``confirmed``), its timing (None when unknown) and its entry and exit sessions (``sessions``)."""
-    out = {s: r for s, r in _calendar(conn, session, as_of).items() if symbols is None or s in symbols}
+    out = {s: r for s, r in _calendar(conn, session, as_of, symbols).items() if symbols is None or s in symbols}
     for symbol, reports in filed_reports(conn, as_of, symbols).items():
         if symbol not in out and (guess := estimated(reports, session)) is not None:
             out[symbol] = guess

@@ -53,7 +53,7 @@ from desk.stocks.learner import regimes as rg
 from desk.stocks.learner.experience import unpack
 
 NAME = "stocks_learner_model"
-VERSION = 3                         # v3 (2026-11-18): the option-signal features (features v2); v2: regime codes
+VERSION = 4                         # v4 (2026-11-18): the earnings features (features v3); v3: option signals
 CHECKPOINT_TARGETS = ("s1", "s5", "s10", "s21", "exp")
 FEATURES = (*ft.STOCK_NAMES, *ft.MARKET_NAMES, *rg.FEATURES, *ft.CONTRACT_NAMES, "source_replay")
 CATEGORICAL = ("structure", "bucket", "sector")
