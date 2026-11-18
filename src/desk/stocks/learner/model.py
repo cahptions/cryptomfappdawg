@@ -19,6 +19,11 @@ structure from each fold's training rows only); both models are scored by rank c
 realised return. The neutral target is frozen when its model is at least as good there; the rank correlation against
 the raw and the neutral realised returns are both reported.
 
+**One model or several (v7).** The expected return is predicted by gradient-boosted trees, an L2 linear model and
+extremely randomised trees (``ensemble``), each walk-forward on the chosen variant and target; their weighted average
+(weights from earlier folds only) is used only when its held-out rank correlation beats the best member's, otherwise
+the best member alone. Each member's held-out score is reported.
+
 **Training honestly.** Rows are ordered by decision session. Walk-forward: the later ``TEST_SHARE`` of the sessions is
 cut into ``FOLDS`` consecutive blocks; each block is predicted by models trained only on rows decided at least
 ``EMBARGO`` sessions before it **and whose label was known before it** (the purge: a 21-session or an expiry label
@@ -68,7 +73,7 @@ from desk.stocks.learner import regimes as rg
 from desk.stocks.learner.experience import unpack
 
 NAME = "stocks_learner_model"
-VERSION = 6                         # v6: market-neutral target when better; v5: the net target at the expected fill
+VERSION = 7                         # v7: ensemble of members; v6: market-neutral target; v5: the net target
 CHECKPOINT_TARGETS = ("s1", "s5", "s10", "s21", "exp")
 TARGET = "net"                      # what the expected return and its range are trained on and judged by
 FEATURES = (*ft.STOCK_NAMES, *ft.MARKET_NAMES, *rg.FEATURES, *ft.CONTRACT_NAMES, "source_replay")
@@ -101,7 +106,14 @@ def content() -> dict[str, Any]:
             "neutral": {"returns": "SPY and the sector fund, decision close to label close (stored closes only)",
                         "betas": "per structure, OLS on the training rows: y ~ 1 + market + (sector - market)",
                         "min_rows": nt.MIN_ROWS, "choice": "train on the neutral target when its walk-forward rank "
-                        "correlation with the neutral realised return is at least the raw-trained model's"}}
+                        "correlation with the neutral realised return is at least the raw-trained model's"},
+            "expected_model": _ensemble_content()}
+
+
+def _ensemble_content() -> dict[str, Any]:
+    from desk.stocks.learner import ensemble as en
+
+    return en.content()
 
 
 def version_hash() -> str:
@@ -518,8 +530,17 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
     out["_target"] = neutral["target"]
     if neutral["pred"] is not None:
         out["_trials"]["gbt:neutral"] = trial_series(ds, neutral["pred"], realised, tested)
-    exp = neutral["pred"] if neutral["target"] == "neutral" else raw
-    out["_chosen_trial"] = "gbt:neutral" if neutral["target"] == "neutral" else f"gbt:{chosen}"
+    gbt = neutral["pred"] if neutral["target"] == "neutral" else raw
+    gbt_name = "gbt:neutral" if neutral["target"] == "neutral" else f"gbt:{chosen}"
+    judged = neutral["realised"] if neutral["target"] == "neutral" else realised
+    team = members_check(ds, blocks, chosen, neutral["target"], gbt, judged, tested, progress)
+    out["ensemble"] = team["report"]
+    for name in ("ridge", "extratrees", "ensemble"):
+        if name in team["preds"]:
+            out["_trials"][name] = trial_series(ds, team["preds"][name], realised, tested)
+    out["_expected"] = {"kind": team["chosen"], "weights": team["weights"]}
+    out["_chosen_trial"] = gbt_name if team["chosen"] == "gbt" else team["chosen"]
+    exp = team["preds"][team["chosen"]]
     p = preds["source"]                                     # every other target: the source-feature variant
     ok = tested & ~np.isnan(realised) & ~np.isnan(exp)
     out["rank_correlation"] = out["variants"][chosen]["rank_correlation"]
@@ -567,6 +588,52 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
     return out
 
 
+def fit_member(kind: str, ds: Dataset, before: int | None, variant: str, target: str) -> Any | None:
+    """One expected-return member (``ensemble.MEMBERS``) trained on the rows whose ``target`` was known before
+    ``before``; None with too few rows."""
+    from desk.stocks.learner import ensemble as en
+
+    if kind == "gbt":
+        return fit(ds, before=before, variant=variant, only=("expected",), target=target).models.get("expected")
+    rows = np.where(_known(ds, target, before))[0]
+    if len(rows) < MIN_ROWS:
+        return None
+    model = en.ridge(_categorical(FEATURES)) if kind == "ridge" else en.extratrees(THREADS)
+    return en.fit_member(kind, model, _matrix(ds, rows, variant), np.clip(ds.y[target][rows], -1.0, CLIP_HIGH),
+                         _weights(ds, rows, variant))
+
+
+def members_check(ds: Dataset, blocks: Sequence[tuple[int, int, int]], variant: str, target: str, gbt: np.ndarray,
+                  judged: np.ndarray, tested: np.ndarray, progress: Callable[[str], None] | None = None
+                  ) -> dict[str, Any]:
+    """Walk-forward predictions of each member, and of their ensemble with weights from earlier folds only; each one's
+    held-out rank correlation against ``judged`` (the chosen target's realised value) and which to use."""
+    from desk.stocks.learner import ensemble as en
+
+    n = len(ds)
+    preds: dict[str, np.ndarray] = {"gbt": gbt, "ridge": np.full(n, np.nan), "extratrees": np.full(n, np.nan)}
+    blocks_rows = []
+    for i, (cut, first, end) in enumerate(blocks, 1):
+        sub = ds.subset(np.where(ds.session < cut)[0])
+        if target == "neutral":
+            sub, _ = with_neutral(sub, sub.day[TARGET] < first)
+        rows = np.where((ds.session >= first) & (ds.session <= end))[0]
+        blocks_rows.append(rows)
+        for kind in ("ridge", "extratrees"):
+            if progress:
+                progress(f"fold {i}/{len(blocks)} ({kind})")
+            model = fit_member(kind, sub, first, variant, target)
+            if model is not None:
+                preds[kind][rows] = predict(Fitted({"expected": model}, variant, {}), ds.X[rows])["expected"]
+    out = en.combine(preds, judged, blocks_rows, spearman)
+    report = {"members": {m: {"rank_correlation": out["scores"][m], "days": len(np.unique(ds.session[
+        tested & np.isfinite(preds[m])]))} for m in out["members"]},
+              "ensemble": {"rank_correlation": out["scores"]["ensemble"], "weights_by_fold": out["by_fold"]},
+              "weights": out["weights"], "best_member": out["best"], "chosen": out["chosen"], "judged_on": target}
+    return {"preds": {**preds, "ensemble": out["combined"]}, "chosen": out["chosen"], "weights": out["weights"],
+            "report": report}
+
+
 def with_neutral(ds: Dataset, fit_rows: np.ndarray) -> tuple[Dataset, dict[int, tuple[float, float, float]]]:
     """``ds`` carrying the market-neutral net return (betas from ``fit_rows`` only) as the target ``"neutral"``."""
     structure = ds.column("structure")
@@ -583,8 +650,8 @@ def neutral_check(ds: Dataset, blocks: Sequence[tuple[int, int, int]], variant: 
     n = len(ds)
     mkt = ds.extra.get("mkt")
     if mkt is None or not np.isfinite(mkt).any():
-        return {"target": TARGET, "pred": None, "report": {"ran": False, "reason": "no market returns stored for the "
-                                                           "labelled rows (SPY's daily closes)"}}
+        return {"target": TARGET, "pred": None, "realised": None,
+                "report": {"ran": False, "reason": "no market returns stored for the labelled rows (SPY's daily closes)"}}
     pred, realised_neutral = np.full(n, np.nan), np.full(n, np.nan)
     for i, (cut, first, end) in enumerate(blocks, 1):
         if progress:
@@ -607,7 +674,7 @@ def neutral_check(ds: Dataset, blocks: Sequence[tuple[int, int, int]], variant: 
         "neutral_model": {"raw": spearman(pred[ok], realised[ok]), "neutral": neutral_on_neutral}}
     use = raw_on_neutral is not None and neutral_on_neutral is not None and neutral_on_neutral >= raw_on_neutral
     report["chosen"] = "neutral" if use else "raw"
-    return {"target": "neutral" if use else TARGET, "pred": pred, "report": report}
+    return {"target": "neutral" if use else TARGET, "pred": pred, "report": report, "realised": realised_neutral}
 
 
 def trial_series(ds: Dataset, pred: np.ndarray, realised: np.ndarray, rows: np.ndarray) -> dict[int, float]:
@@ -748,6 +815,7 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     trials = metrics.pop("_trials", {})
     chosen_trial = metrics.pop("_chosen_trial", None)
     target = metrics.pop("_target", TARGET)
+    expected = metrics.pop("_expected", {"kind": "gbt", "weights": {}})
     if target == "neutral":
         ds, b = with_neutral(ds, np.ones(len(ds), bool))
         metrics["neutral"]["betas"] = {act.STRUCTURES[s].id: [round(x, 4) for x in v] for s, v in b.items()}
@@ -759,6 +827,19 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     fitted = fit(ds, variant=variant, target=target)
     if not fitted.models:
         return {"trained": False, "rows": len(ds), "reason": "no target had enough labelled rows"}
+    if expected["kind"] != "gbt" and "expected" in fitted.models:
+        from desk.stocks.learner import ensemble as en
+
+        say(f"fitting the final {expected['kind']} model")
+        members = {"gbt": fitted.models["expected"]}
+        for kind in ("ridge", "extratrees"):
+            if expected["kind"] in (kind, "ensemble"):
+                members[kind] = fit_member(kind, ds, None, variant, target)
+        chosen_model = (en.Ensemble({k: v for k, v in members.items() if v is not None}, expected["weights"])
+                        if expected["kind"] == "ensemble" else members.get(expected["kind"]))
+        if chosen_model is not None:
+            fitted.models["expected"] = chosen_model
+    metrics["expected_model"] = expected
     blocks = folds(ds)
     if blocks and last is not None:
         metrics["importance"] = importance(last, ds, np.where(ds.session >= blocks[-1][1])[0])
@@ -858,5 +939,6 @@ def describe(p: Mapping[str, np.ndarray], i: int) -> dict[str, Any]:
 
 __all__ = ["CHECKPOINT_TARGETS", "FEATURES", "MAX_ROWS", "NAME", "TARGET", "VERSION", "Dataset", "Fitted", "best_exit",
            "boot", "by_regime", "cell", "content", "costs", "cpcv", "data_summary", "describe", "evaluate",
-           "evidence_cells", "fit", "folds", "importance", "latest", "load", "load_models", "overfitting", "predict",
-           "regime_labels", "reliability", "row_vector", "spearman", "train", "trial_series", "version_hash"]
+           "evidence_cells", "fit", "fit_member", "folds", "importance", "latest", "load", "load_models",
+           "members_check", "neutral_check", "overfitting", "predict", "regime_labels", "reliability", "row_vector",
+           "spearman", "train", "trial_series", "version_hash", "with_neutral"]

@@ -89,14 +89,23 @@ def test_training_freezes_registers_and_refuses_a_tampered_artifact(learned: Any
     assert neutral["ran"] and neutral["chosen"] in ("raw", "neutral") and neutral["rows"] > 0
     assert set(neutral["raw_model"]) == set(neutral["neutral_model"]) == {"raw", "neutral"}
     assert metrics["trained_on"] == ("neutral" if neutral["chosen"] == "neutral" else md.TARGET)
+    team = metrics["ensemble"]                      # each member's held-out score; the ensemble only if it beat them
+    assert set(team["members"]) == {"gbt", "ridge", "extratrees"} and team["chosen"] in (*team["members"], "ensemble")
+    if team["chosen"] == "ensemble":
+        assert team["ensemble"]["rank_correlation"] > max(m["rank_correlation"] for m in team["members"].values())
+    assert metrics["expected_model"]["kind"] == team["chosen"]
     over = metrics["overfitting"]                   # every variant tried is counted, and the choice deflated by it
-    assert over["chosen"] == f"gbt:{metrics['chosen_variant']}" and over["trials_this_run"] >= 2
+    gbt = "gbt:neutral" if metrics["trained_on"] == "neutral" else f"gbt:{metrics['chosen_variant']}"
+    assert over["chosen"] == (gbt if team["chosen"] == "gbt" else team["chosen"])
+    assert over["trials_this_run"] == 6 and {t["name"] for t in over["trials"]} >= {"ridge", "extratrees", "ensemble"}
     assert over["trials_total"] == w.research.conn.execute("SELECT COUNT(*) FROM stk_learn_trials WHERE kind='model'"
                                                            ).fetchone()[0]
     assert set(json.loads(row["data_json"])) == {"forward"}
     assert json.loads(row["features_json"]) == list(md.FEATURES)
     fitted = md.load_models(w.paths.home, row)
     assert fitted is not None and "expected" in fitted.models
+    kind = type(fitted.models["expected"]).__name__
+    assert kind == {"gbt": "HistGradientBoostingRegressor", "ensemble": "Ensemble"}.get(team["chosen"], "Pipeline")
     path = w.paths.home / md.MODELS_DIR / row["artifact"]
     good = path.read_bytes()
     path.write_bytes(good[:-1] + bytes([good[-1] ^ 1]))
