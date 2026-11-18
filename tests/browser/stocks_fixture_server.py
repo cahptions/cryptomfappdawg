@@ -48,6 +48,31 @@ def option_signals_fixture(world: StocksWorld) -> None:
                      observed_at=at, now=at)
 
 
+def structure_fixture(world: StocksWorld) -> None:
+    """Synthetic graded history for the structure pricing's gate (every value invented): 25 weekly sessions of six
+    graded "Cheap volatility" plays whose recorded edge tracked their net return, so that section's ranking uses
+    the edge; every other section stays in shadow."""
+    import json as _json
+    import random as _random
+
+    rng = _random.Random(5)
+    first = world.days[0].toordinal()
+    for k in range(25):
+        session = first + 7 * k
+        nets = [rng.gauss(0, 1) for _ in range(6)]
+        for rank, net in enumerate(nets, start=1):
+            play = {"structure_value": {"edge_per_risk": net + rng.gauss(0, 0.2), "chance_profit": 0.5,
+                                        "driver": "volatility"}}
+            world.dbs.research.execute(
+                "INSERT INTO stk_plays(session, category, rank, symbol, action, structure, expiration, event, "
+                "event_kind, event_strike, event_width, entry, max_loss, legs_json, underlying, profit_kestrel, "
+                "play_json, method, recorded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (session, "cheap_vol", rank, "S10", "BUY", "long_call", session + 30, "itm", "call", 50.0, 0.0, 1.0, 100.0,
+                 "[]", 50.0, 0.5, _json.dumps(play), "synthetic", NOW.isoformat()))
+            world.dbs.research.execute("INSERT INTO stk_play_outcomes VALUES (?,?,?,?,?,?,?,?)",
+                                       (session, "cheap_vol", rank, NOW.isoformat(), 50.0, int(net > 0), 0.0, net))
+
+
 def earnings_fixture(world: StocksWorld) -> None:
     """Synthetic results reports for the Earnings section and the stock page (every value invented): S12's options
     look cheap for its report, S13's expensive, S14's fairly priced; each with eight stored past moves and a chain
@@ -376,6 +401,8 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
         world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
         if args.scenario == "earnings":
             earnings_fixture(world)
+        if args.scenario == "structure":
+            structure_fixture(world)
         initial_now = cal.session_close(world.days[-1])+timedelta(minutes=76) if args.scenario == "paper-workflows" else NOW
         process(paths, load_config(paths.config_dir), world.dbs, initial_now)
         process(paths, load_config(paths.config_dir), world.dbs, initial_now, research_only=True)
@@ -528,7 +555,7 @@ def main() -> None:
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
                                                "stock-page", "learning-report", "ops", "account", "learner",
-                                               "learner-account", "earnings"],
+                                               "learner-account", "earnings", "structure"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()

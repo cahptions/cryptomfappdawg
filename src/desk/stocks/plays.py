@@ -217,15 +217,21 @@ def vol_info(model: vf.Model | None) -> dict[str, Any]:
             "method_text": {k: vf.METHODS[v] for k, v in methods.items()}}
 
 
-def method(promoted: Mapping[str, str] | None = None) -> str:
-    """The rule version: categories, the probability model and any challenger promoted into the live rules."""
+def method(promoted: Mapping[str, str] | None = None, structure: Sequence[str] = ()) -> str:
+    """The rule version: categories, the probability model, any challenger promoted into the live rules and the
+    sections whose ranking the structure pricing has earned a say in (``forecast.structure.gates``)."""
+    from desk.stocks.forecast import structure as st
+
     content: dict[str, Any] = {"version": VERSION, "categories": [c.content() for c in CATEGORIES],
                                "iv_weight": od.IV_WEIGHT, "ic_shrink": od.IC_SHRINK_MONTHS,
                                "calibration_prior": od.CALIBRATION_PRIOR, "odds_version": od.MODEL_VERSION,
                                "vol_forecast": vf.VERSION, "earnings_model": [em.VERSION, em.version_hash()],
-                               "calibration_sessions": od.MIN_CALIBRATION_SESSIONS}
+                               "calibration_sessions": od.MIN_CALIBRATION_SESSIONS,
+                               "structure_pricing": [st.VERSION, st.version_hash()]}
     if promoted:
         content["promoted"] = dict(sorted(promoted.items()))
+    if structure:
+        content["structure_ranks"] = sorted(structure)
     return sha256_hex(canonical_json(content))[:16]
 
 
@@ -329,6 +335,7 @@ class Context:
     budget_range: tuple[float, float] | None = None  # whole-play entry cost / maximum loss; never per-share premium
     horizon: tuple[int, int] | None = None           # days to expiry searched instead of each section's own window
     vol_model: vf.Model | None = None                # the volatility fit on or before the session (None: the old blend)
+    outlook: Any = None                              # forecast.structure.Outlook: direction, surprise, fills (or None)
 
 
 def _rate(market: StocksMarket, session: date) -> float:
@@ -1350,7 +1357,51 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
     if kestrel is not None:
         play["forecast"]["quantiles"] = kestrel.quantiles()
     play["calibrated"] = calibrated(play, ctx.calibration, c.category, days)
+    if ctx.outlook is not None:
+        play["structure_value"] = structure_value(c, ctx, play, fit if chain else None)
     return play
+
+
+def structure_value(c: Candidate, ctx: Context, play: Mapping[str, Any], fit: co.Expiry | None) -> dict[str, Any]:
+    """The play valued under KESTREL's direction and volatility forecasts against its realistic fill
+    (``forecast.structure``): fair value, edge, edge per dollar at risk, chance of profit and the direction /
+    volatility split. Today's distribution at the expiry is the base: the chain's own (``fit``) else the lognormal at
+    the at-the-money contract's volatility and drift."""
+    from desk.stocks.forecast import structure as st
+    from desk.stocks.learner import fills as fl
+
+    tb, u = c.table, c.table.u
+    i0 = c.legs[0][0]
+    expiration = tb.quotes[i0].expiration
+    t = float(tb.t[i0])
+    sessions = _sessions_to(ctx.session, expiration)
+    rows = np.flatnonzero(tb.dte == tb.dte[i0])
+    atm = int(rows[np.argmin(np.abs(tb.k[rows] - u.price))])
+    sigma, drift = float(tb.sigma[atm]), float(tb.mu[atm])
+    if fit is not None and fit.kestrel is not None and fit.drift is not None and fit.sigma is not None:
+        kestrel = fit.kestrel
+        sigma, drift = float(fit.sigma), float(fit.drift)
+
+        def base() -> st.Forecast:
+            return st.Forecast.from_table(kestrel.u, kestrel.survival)
+    else:
+        def base() -> st.Forecast:
+            return st.Forecast.lognormal(sigma, drift, t)
+    pair = ctx.outlook.pair(u.symbol, expiration.toordinal(), sessions, base, t=t, rate=ctx.rate, drift=drift)
+    facts = [[float(tb.mid[i]), float(tb.ask[i] - tb.bid[i]) / 2, float(tb.oi[i]), float(tb.volume[i]),
+              float(tb.dte[i]), float(tb.k[i]) / u.price - 1] for i, _ in c.legs]
+    risk = float(play["max_loss"])
+    fill = fl.structure_fill(ctx.outlook.fills, facts, risk) if ctx.outlook.fills is not None else None
+    cost = st.cost(str(play["action"]), float(play["entry"]), len(c.legs), fill, FEE)
+    legs = [st.Leg(tb.quotes[i].kind, float(tb.quotes[i].strike), 1 if side == "buy" else -1) for i, side in c.legs]
+    out = st.price(legs, pair, s=u.price, t=t, rate=ctx.rate, action=str(play["action"]), c=cost, risk=risk,
+                   net_vega=play.get("vega"))
+    out["checkpoints"] = ctx.outlook.ranges(u.symbol, u.price, sigma * pair.vol_multiplier, drift, ctx.rate, sessions)
+    dq = ctx.outlook.quantiles(u.symbol, sessions)
+    corr = ctx.outlook.correction(u.symbol, sessions)
+    out["direction_quantiles"] = None if dq is None else [round(v, 4) for v in dq.cond]
+    out["vol_surprise"] = None if corr is None else round(corr.log_var, 4)
+    return out
 
 
 def raw_chances(play: Mapping[str, Any]) -> dict[str, float]:
@@ -1980,7 +2031,9 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
              "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0],
              "earnings_dates": market.conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates").fetchone()[0],
              "earnings_moves": market.conn.execute("SELECT COUNT(*) FROM stk_earnings_moves").fetchone()[0],
-             "vol_fit": market.conn.execute("SELECT MAX(fit_day) FROM stk_vol_fits").fetchone()[0]}
+             "vol_fit": market.conn.execute("SELECT MAX(fit_day) FROM stk_vol_fits").fetchone()[0],
+             "forecast_fit": market.conn.execute("SELECT MAX(fitted_at) FROM stk_forecast_fits").fetchone()[0],
+             "fill_obs": research.conn.execute("SELECT MAX(session) FROM stk_learn_fill_obs").fetchone()[0]}
     return sha256_hex(canonical_json(parts))
 
 
@@ -2093,10 +2146,13 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                            "every 15 minutes while the market is open.", "graded": graded}
     from desk.stocks import play_learning as lrn
     from desk.stocks import play_plan as plan
+    from desk.stocks.forecast import structure as st
 
     session = min(latest, expected)
     live = lrn.promoted(research.conn)
-    m = method(live)
+    gates = st.gates(research.conn)
+    ranks = sorted(k for k, v in gates.items() if v["live"])
+    m = method(live, ranks)
     key = signature(market, research, session, now, m)
     if previous and previous.get("input_hash") == key and not graded:
         return previous
@@ -2105,6 +2161,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                   flagged_before(research, session))
     ctx.vol_model = vf.model_on(market.conn, session)
     tables = [tb for u in load(market, research, session, now) if (tb := table(u, ctx)) is not None]
+    ctx.outlook = st.outlook(market.conn, research.conn, session, [tb.u.symbol for tb in tables])
     out_categories = []
     recorded: dict[str, list[dict[str, Any]]] = {}
     track = records(research)
@@ -2133,6 +2190,9 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                 finished[id(c)] = p
             return finished[id(c)]
 
+        if cat.id in ranks and cat.id not in live:          # the structure edge has earned a say in this ranking
+            found = st.rerank(found, lambda c: c.score,
+                              lambda c: (done(c).get("structure_value") or {}).get("edge_per_risk"))
         limit = 2 if cat.id == "unusual" else 1
         per_symbol: Counter[str] = Counter()
         plays: list[dict[str, Any]] = []
@@ -2149,6 +2209,9 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
             for v in lrn.VARIANTS:
                 if v.applies(cat.id) and live.get(cat.id) != v.id:
                     shadow[v.id][cat.id] = lrn.select(v, cat.id, found, done, limit)
+        if cat.id in ranks and cat.id not in live:
+            for p in plays:
+                p["structure_ranked"] = True
         recorded[cat.id] = plays
         exit_rule = (learned.get("exits") or {}).get(cat.id) or {}
         cheaper = budget_plays(cat.id, tables, ctx, live.get(cat.id))
@@ -2194,6 +2257,8 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                                         "applied": bool(ctx.calibration["take_profit"].buckets)}},
         "model": {"ic": ic, "ic_months": round(months, 1), "ic_source": source, "iv_weight": od.IV_WEIGHT,
                   "rate": round(ctx.rate, 4), "vol_forecast": vol_info(ctx.vol_model)},
+        "structure": {"version": st.VERSION, "fits": ctx.outlook.fits(), "gates": gates, "ranks": ranks,
+                      "calibration": st.calibration(research.conn)},
         "recorded": added, "recorded_horizons": horizon_added, "twins": twins, "shadow_picks": shadows,
         "graded": graded, "session_closed": closed,
         "categories": out_categories,
@@ -2210,4 +2275,4 @@ __all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "HORIZON_MA
            "calibrator", "committee_ic", "dte_bucket", "event_history", "exit_rule_for", "finish", "flagged_before",
            "followups", "grade", "grade_events", "history_line", "horizon_cohort", "horizon_method", "horizon_plays",
            "implied_vols", "load", "method", "raw_chances", "record", "record_for", "record_twins", "records",
-           "session_closed", "settle_value", "signature", "table", "tracked_quote", "twin"]
+           "session_closed", "settle_value", "signature", "structure_value", "table", "tracked_quote", "twin"]

@@ -179,12 +179,14 @@ def side_data(market: sqlite3.Connection, research: sqlite3.Connection | None, s
     lo, hi = days[0].toordinal(), days[-1].toordinal()
     if research is not None:
         try:
-            for asof, symbol, c in research.execute(
-                    "SELECT asof, symbol, json_extract(scores_json, '$.c') FROM stk_score_history WHERE asof>=? AND "
-                    "asof<=?", (lo, hi)):
-                i, j = index.get(symbol), col.get(int(asof))
-                if i is not None and j is not None and c is not None:
-                    out["committee"][i, j] = float(c)
+            for chunk in _chunks(list(symbols)):
+                marks = ",".join("?" * len(chunk))   # placeholders only; values are bound
+                for asof, symbol, c in research.execute(
+                        "SELECT asof, symbol, json_extract(scores_json, '$.c') FROM stk_score_history WHERE "  # noqa: S608
+                        f"asof>=? AND asof<=? AND symbol IN ({marks})", (lo, hi, *chunk)):
+                    i, j = index.get(symbol), col.get(int(asof))
+                    if i is not None and j is not None and c is not None:
+                        out["committee"][i, j] = float(c)
         except sqlite3.OperationalError:
             pass
     try:

@@ -78,6 +78,37 @@ const KestrelPlays = (() => {
     );
     return box;
   }
+  // What the play is worth under KESTREL's direction and volatility forecasts, against its realistic cost, and which
+  // of the two the edge comes from (forecast.structure). Shadow unless the section has earned the ranking input.
+  function structureView(play) {
+    const v = play.structure_value;
+    if (!v || v.fair === null || v.fair === undefined) return null;
+    const box = el("div", undefined, "structure-view");
+    box.setAttribute("aria-label", "What it's worth");
+    const edge = `${v.edge >= 0 ? "+" : "−"}${money(Math.abs(v.edge))}`;
+    const perRisk =
+      v.edge_per_risk === null || v.edge_per_risk === undefined
+        ? ""
+        : ` (${signed(100 * v.edge_per_risk, 0)}% of the money at risk)`;
+    const part = (x) => `${x >= 0 ? "+" : "−"}${money(Math.abs(x))}`;
+    box.append(
+      el("strong", "What it's worth"),
+      el(
+        "p",
+        `KESTREL values it at ${money(Math.abs(v.fair))}${v.fair < 0 ? " to the seller" : ""} against ${money(Math.abs(v.cost))} ${v.cost < 0 ? "received" : "paid"} at the expected fill: edge ${edge}${perRisk}.`,
+        "structure-value",
+      ),
+      el("p", v.text, "structure-driver"),
+      el(
+        "small",
+        `From the direction ${part(v.direction_part)} · from the option price vs the expected movement ${part(v.vol_part)} · chance of profit ${pct(v.chance_profit)}. ${play.structure_ranked ? "This section's ranking uses it: it ranked past plays better." : "Shadow: shown and recorded, not yet used for ranking."}`,
+        "muted",
+      ),
+    );
+    box.title =
+      "Fair value: the payoff KESTREL expects at expiry from its forecasts of the stock's direction and of how much it will move, today's money. The expected fill: the limit order the fill model expects to fill, else the ask.";
+    return box;
+  }
   function learnerIdeas(view) {
     const box = el("section", undefined, "learner-ideas");
     box.setAttribute("aria-label", "Learner's own top ideas (shadow)");
@@ -434,6 +465,7 @@ const KestrelPlays = (() => {
       confidenceMeter(play),
       yourSize(play),
       exitBlock(play),
+      structureView(play),
       learnerView(play),
     ])
       if (part) c.append(part);

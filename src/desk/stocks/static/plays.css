@@ -1114,6 +1114,21 @@
 .learner-view p {
   margin: 4px 0;
 }
+/* What a play is worth under KESTREL's direction and volatility forecasts (forecast.structure). */
+.structure-view {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.structure-view p {
+  margin: 4px 0;
+}
+.structure-driver {
+  font-weight: 600;
+}
 .learner-ideas {
   margin: 32px 0 0;
   padding: 16px 18px;
