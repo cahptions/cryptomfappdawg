@@ -37,6 +37,8 @@ from desk.core.clock import to_iso
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks import calendar as cal
 from desk.stocks import chain_odds as co
+from desk.stocks import earnings_dates as ed
+from desk.stocks import earnings_model as em
 from desk.stocks import odds as od
 from desk.stocks import options as opt
 from desk.stocks import vol_forecast as vf
@@ -106,12 +108,18 @@ CATEGORIES: tuple[Category, ...] = (
              "(14–60). The chance shown is of a move past either break-even.",
              "No collected underlying has IV well below its realized volatility today."),
     Category("earnings", "Earnings plays", "📅",
-             "Straddles over the next results date, comparing the move options price with the moves this stock "
-             "has made on its last results days.",
-             "Results date announced in Finnhub's free calendar (when its key is set), else a window estimated from "
-             "past report dates, starting within 21 days; first expiry after it (≤ 45 days); at least four past "
-             "results-day moves. Ranked by usual move ÷ priced move.",
-             "No collected underlying has results due within three weeks.", paper="earnings_straddles"),
+             "Around the next results date: buy the at-the-money straddle when options price a smaller move than "
+             "KESTREL expects, sell a defined-risk iron butterfly when they price a bigger one.",
+             "Results date announced in Finnhub's free calendar (when its key is set), else estimated from past "
+             "results filings, within 21 days; first expiry after the results (≤ 45 days). Priced move: the "
+             "results-day move separated from the other days by the expiries' implied volatilities (Dubinsky–"
+             "Johannes). Expected move: the stock's last 12 results-day moves (at least 4), shrunk n/(n+4) toward the "
+             "priced move × its sector's past realized-to-priced ratio. Expected ÷ priced ≥ 1.15: buy the "
+             "at-the-money straddle; ≤ 0.85: sell an at-the-money iron butterfly, wings near the straddle's "
+             "break-evens, credit below the narrower wing; in between: no play. Ranked by expected ÷ priced "
+             "(straddles) or priced ÷ expected (butterflies).",
+             "No collected underlying has results due within three weeks with options priced well away from the move "
+             "KESTREL expects.", paper="earnings_straddles"),
     Category("strangles", "Strangles", "🎢",
              "Buy an out-of-the-money call and put together: pays if the stock moves a long way either way, for "
              "less money than a straddle.",
@@ -214,7 +222,7 @@ def method(promoted: Mapping[str, str] | None = None) -> str:
     content: dict[str, Any] = {"version": VERSION, "categories": [c.content() for c in CATEGORIES],
                                "iv_weight": od.IV_WEIGHT, "ic_shrink": od.IC_SHRINK_MONTHS,
                                "calibration_prior": od.CALIBRATION_PRIOR, "odds_version": od.MODEL_VERSION,
-                               "vol_forecast": vf.VERSION,
+                               "vol_forecast": vf.VERSION, "earnings_model": [em.VERSION, em.version_hash()],
                                "calibration_sessions": od.MIN_CALIBRATION_SESSIONS}
     if promoted:
         content["promoted"] = dict(sorted(promoted.items()))
@@ -286,7 +294,8 @@ class Underlying:
     iv_basis: dict[str, Any] | None = None      # where the rank's year came from (desk.stocks.iv_history)
     earnings: tuple[date, date] | None = None
     earnings_when: str | None = None        # set when the date is announced (Finnhub's calendar): its time of day
-    past_moves: list[float] = field(default_factory=list)
+    earnings_report: dict[str, Any] | None = None    # earnings_dates.known: the next report, confirmed or estimated
+    earnings_outlook: dict[str, Any] | None = None   # earnings_model.outlook: priced vs expected move, in the window
     # occ → (volume, open interest, mid, underlying price, day) on the previous stored session
     prior: dict[str, tuple[int, int, float | None, float | None, date]] = field(default_factory=dict)
     average_volume: dict[str, float] = field(default_factory=dict)
@@ -346,7 +355,13 @@ def _realized(closes: Sequence[float]) -> float | None:
     return vol if vol > 0 and math.isfinite(vol) else None
 
 
-def load(market: StocksMarket, research: StocksResearch, session: date) -> list[Underlying]:
+EARNINGS_DAYS = (1, 21)            # calendar days from the session to the results for an earnings play
+EARNINGS_EXPIRY = 45                # the first expiry after the results, at most this many days out
+
+
+def load(market: StocksMarket, research: StocksResearch, session: date, now: datetime | None = None
+         ) -> list[Underlying]:
+    """Every underlying with a chain on ``session``; results dates as known at ``now`` (None: everything stored)."""
     chains = market.chains_on(session)
     if not chains:
         return []
@@ -367,9 +382,9 @@ def load(market: StocksMarket, research: StocksResearch, session: date) -> list[
     year = year_of_iv(market.conn, {s: {d: iv for d, iv, _ in iv_rows.get(s, []) if iv} for s in symbols}, session)
     prior_days = market.option_days(session, PRIOR_SESSIONS)
     prior_chains = [market.chains_on(d, symbols) for d in prior_days]
-    from desk.stocks.earnings_dates import announced
-
-    dates = announced(market.conn, session)
+    dates = ed.known(market.conn, session, now, set(symbols))
+    priors = em.Priors(market.conn, session) if dates else None
+    rate = _rate(market, session)
     out = []
     for symbol in symbols:
         c = chains[symbol]
@@ -395,14 +410,14 @@ def load(market: StocksMarket, research: StocksResearch, session: date) -> list[
             u.iv_basis = year[symbol][1]
         volumes = [v for day, _, v in history if day < day_of(session) and v]
         u.option_volume_avg = statistics.fmean(volumes[-20:]) if len(volumes) >= 3 else None
-        events = u.detail.get("events") or {}
-        window = events.get("next_window")
-        if symbol in dates:                    # an announced date beats the window estimated from past reports
-            day = date.fromisoformat(dates[symbol]["date"])
-            u.earnings, u.earnings_when = (day, day), dates[symbol]["when"] or "time not given"
-        elif window:
-            u.earnings = (date.fromisoformat(window[0]), date.fromisoformat(window[1]))
-        u.past_moves = [abs(e["reaction"]) for e in events.get("earnings", []) if e.get("reaction") is not None][-8:]
+        report = dates.get(symbol)              # an announced date beats one estimated from past results filings
+        if report is not None:
+            u.earnings = (date.fromisoformat(report["date"]), date.fromisoformat(report["to"]))
+            u.earnings_when = (report["timing"] or "time not given") if report["confirmed"] else None
+            u.earnings_report = report
+            if priors is not None and EARNINGS_DAYS[0] <= (u.earnings[0] - session).days <= EARNINGS_DAYS[1]:
+                points = em.atm_points(u.chains, u.price, session, rate)
+                u.earnings_outlook = em.outlook(market.conn, symbol, session, report, points, u.price, priors)
         seen: dict[str, list[int]] = defaultdict(list)
         for k, (day, prior) in enumerate(zip(prior_days, prior_chains, strict=True)):
             item = prior.get(symbol) or {}
@@ -534,6 +549,7 @@ class Candidate:
     reasons: list[str]
     flags: list[str] = field(default_factory=list)
     unusual: dict[str, Any] | None = None
+    earnings: dict[str, Any] | None = None   # the earnings model's outlook behind an earnings play
 
 
 def _direction(u: Underlying) -> str | None:
@@ -753,23 +769,58 @@ def cheap_vol(tb: Table, ctx: Context) -> list[Candidate]:
                       (1 / ratio) if ratio else 1.0 - (u.iv_rank or 0) / 100, why)]
 
 
-def earnings(tb: Table, ctx: Context) -> list[Candidate]:
+def _earnings_fly(tb: Table, ctx: Context, expiry: date) -> list[tuple[int, str]] | None:
+    """Sell the at-the-money call and put, buy wings near the straddle's break-evens: defined risk, the credit below
+    the narrower wing (both sides can lose)."""
     u = tb.u
-    if u.earnings is None or len(u.past_moves) < 4 or not 1 <= (u.earnings[0] - ctx.session).days <= 21:
+    on = _liquid(tb, 0.20, 50) & np.array([q.expiration == expiry for q in tb.quotes], dtype=bool)
+    calls, puts = np.where(on & tb.call)[0], np.where(on & ~tb.call)[0]
+    both = sorted({float(tb.k[i]) for i in calls} & {float(tb.k[i]) for i in puts}, key=lambda k: abs(k - u.price))
+    if not both:
+        return None
+    sc = int(next(i for i in calls if tb.k[i] == both[0]))
+    sp = int(next(i for i in puts if tb.k[i] == both[0]))
+    straddle = float(tb.mid[sc] + tb.mid[sp])
+    above = [i for i in calls if tb.k[i] > tb.k[sc]]
+    below = [i for i in puts if tb.k[i] < tb.k[sp]]
+    if not above or not below:
+        return None
+    lc = int(min(above, key=lambda i: abs(tb.k[i] - (tb.k[sc] + straddle))))
+    lp = int(min(below, key=lambda i: abs(tb.k[i] - (tb.k[sp] - straddle))))
+    credit = float(tb.bid[sp] + tb.bid[sc] - tb.ask[lp] - tb.ask[lc])
+    width = float(max(tb.k[sp] - tb.k[lp], tb.k[lc] - tb.k[sc]))
+    narrow = float(min(tb.k[sp] - tb.k[lp], tb.k[lc] - tb.k[sc]))
+    risk = (width - credit) * 100 + 4 * FEE
+    if credit * 100 <= 4 * FEE or credit >= narrow or risk <= 0 or not _in_budget(ctx, risk):
+        return None
+    return [(sp, "sell"), (lp, "buy"), (sc, "sell"), (lc, "buy")]
+
+
+def earnings(tb: Table, ctx: Context) -> list[Candidate]:
+    """Cheap options for the report → the at-the-money straddle; expensive → a defined-risk at-the-money iron
+    butterfly; fairly priced (or no verdict) → nothing (desk.stocks.earnings_model)."""
+    u, o = tb.u, tb.u.earnings_outlook
+    if (u.earnings is None or u.earnings_report is None or o is None or o.get("verdict") not in ("cheap", "expensive")
+            or not o.get("expiry") or not EARNINGS_DAYS[0] <= (u.earnings[0] - ctx.session).days <= EARNINGS_DAYS[1]):
         return []
-    legs = _straddle(tb, 1, 45, after=u.earnings[1], budget=ctx.budget_range)
-    if legs is None:
+    expiry = date.fromisoformat(o["expiry"])
+    if (expiry - ctx.session).days > EARNINGS_EXPIRY:
         return []
-    priced = (tb.ask[legs[0]] + tb.ask[legs[1]]) / u.price
-    typical = statistics.median(u.past_moves)
-    flag = ("Priced below its usual results-day move" if typical >= priced
-            else "Priced above its usual results-day move: selling premium may fit better")
-    return [Candidate("earnings", tb, "long_straddle", [(legs[0], "buy"), (legs[1], "buy")], typical / priced,
-                      [f"Results on {u.earnings[0]:%b %-d}, {u.earnings_when} (announced; Finnhub calendar)"
-                       if u.earnings_when else
-                       f"Results expected {u.earnings[0]:%b %-d}–{u.earnings[1]:%b %-d} (estimated from past reports)",
-                       f"Options price ±{priced:.1%}; its last {len(u.past_moves)} results days moved a median "
-                       f"{typical:.1%}", flag])]
+    why = [em.when_text(u.earnings_report), em.text(o)]
+    if o["verdict"] == "cheap":
+        legs = _straddle(tb, 1, EARNINGS_EXPIRY, after=expiry - timedelta(days=1), budget=ctx.budget_range)
+        if legs is None or tb.quotes[legs[0]].expiration != expiry:
+            return []
+        why.append(f"Options look cheap for this report ({o['confidence']} confidence): the straddle pays if the "
+                   "stock moves past either break-even")
+        return [Candidate("earnings", tb, "long_straddle", [(legs[0], "buy"), (legs[1], "buy")], float(o["ratio"]),
+                          why, earnings=o)]
+    chosen = _earnings_fly(tb, ctx, expiry)
+    if chosen is None:
+        return []
+    why.append(f"Options look expensive for this report ({o['confidence']} confidence): the butterfly keeps its "
+               "credit if the stock moves less than priced, and its wings cap the loss")
+    return [Candidate("earnings", tb, "iron_butterfly", chosen, 1 / float(o["ratio"]), why, earnings=o)]
 
 
 def trend_calls(tb: Table, ctx: Context) -> list[Candidate]:
@@ -1284,7 +1335,8 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
         "earnings": earnings, "liquidity": grade, "score": round(c.score, 4), "reasons": c.reasons, "flags": flags,
         "committee": None if u.committee is None else round(float(u.committee), 1),
         "iv30": None if not u.iv30 else round(float(u.iv30), 4), "rv": None if not u.rv else round(float(u.rv), 4),
-        "unusual": c.unusual, "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source,
+        "unusual": c.unusual, "earnings_outlook": c.earnings,
+        "quoted_at": min(quoted) if quoted else u.observed_at, "source": u.source,
         "calibration": move_level if event == "move" else itm_level, "odds_version": od.MODEL_VERSION,
         "odds_basis": fit.describe()}
     from desk.stocks.play_targets import build as target_probabilities
@@ -1927,6 +1979,7 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
              "watchlist": research.watchlist(),
              "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0],
              "earnings_dates": market.conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates").fetchone()[0],
+             "earnings_moves": market.conn.execute("SELECT COUNT(*) FROM stk_earnings_moves").fetchone()[0],
              "vol_fit": market.conn.execute("SELECT MAX(fit_day) FROM stk_vol_fits").fetchone()[0]}
     return sha256_hex(canonical_json(parts))
 
@@ -2051,7 +2104,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     ctx = Context(session, now, _rate(market, session), ic, months, source, calibration(research), research.watchlist(),
                   flagged_before(research, session))
     ctx.vol_model = vf.model_on(market.conn, session)
-    tables = [tb for u in load(market, research, session) if (tb := table(u, ctx)) is not None]
+    tables = [tb for u in load(market, research, session, now) if (tb := table(u, ctx)) is not None]
     out_categories = []
     recorded: dict[str, list[dict[str, Any]]] = {}
     track = records(research)

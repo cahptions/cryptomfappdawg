@@ -13,6 +13,7 @@ import pytest
 from desk.stocks import calendar as cal
 from desk.stocks import earnings_dates as ed
 from desk.stocks import earnings_model as em
+from desk.stocks import odds as od
 from desk.stocks import options as opt
 from desk.stocks import plays as pl
 from desk.stocks.contracts import OptionQuote
@@ -305,5 +306,59 @@ def test_the_stock_page_block(tmp_path: Path) -> None:
         assert em.view(conn, "S09", NOW)["title"] == "Options look fairly priced for this report"  # type: ignore[index]
         assert em.view(conn, "S10", NOW + timedelta(days=em.FRESH_DAYS + 1)) is None     # the chain is too old
         assert em.view(conn, "S07", NOW) is None                              # no chain stored
+    finally:
+        w.close()
+
+
+def earnings_world(tmp_path: Path) -> tuple[StocksWorld, pl.Context, dict[str, pl.Table]]:
+    w = earnings_data(tmp_path)
+    ctx = pl.Context(ASOF, NOW, pl._rate(w.market, ASOF), None, 0.0, None,
+                     {"itm": od.Calibration(), "move": od.Calibration()}, [])
+    tables = {u.symbol: tb for u in pl.load(w.market, w.research, ASOF, NOW) if (tb := pl.table(u, ctx)) is not None}
+    return w, ctx, tables
+
+
+def test_plays_buy_the_straddle_when_cheap_and_sell_a_butterfly_when_expensive(tmp_path: Path) -> None:
+    w, ctx, tables = earnings_world(tmp_path)
+    try:
+        cheap, = pl.earnings(tables["S10"], ctx)
+        assert cheap.structure == "long_straddle" and cheap.earnings is not None
+        assert cheap.earnings["verdict"] == "cheap" and cheap.score == pytest.approx(cheap.earnings["ratio"])
+        legs = [tables["S10"].quotes[i] for i, _ in cheap.legs]
+        assert {q.expiration for q in legs} == {date(2026, 10, 30)} and legs[0].strike == legs[1].strike
+        play = pl.finish(cheap, ctx)
+        assert play["earnings_outlook"]["implied"] == pytest.approx(0.06 * EXPECT, rel=0.08)
+        assert play["reasons"][0] == "Results on Oct 28, after the close (announced)"
+        assert play["reasons"][1].startswith("Options price a ±") and "KESTREL expects ±" in play["reasons"][1]
+        dear, = pl.earnings(tables["S11"], ctx)
+        assert dear.structure == "iron_butterfly" and dear.score == pytest.approx(1 / dear.earnings["ratio"])
+        tb = tables["S11"]
+        (sp, _), (lp, _), (sc, _), (lc, _) = dear.legs
+        assert tb.k[sp] == tb.k[sc] and abs(tb.k[sc] - tb.u.price) <= 1.0     # sold at the money
+        straddle = tb.mid[sc] + tb.mid[sp]
+        assert abs(tb.k[lc] - (tb.k[sc] + straddle)) <= 1.0 and abs(tb.k[lp] - (tb.k[sp] - straddle)) <= 1.0
+        fly = pl.finish(dear, ctx)
+        credit = fly["entry"]
+        assert fly["action"] == "SELL" and 0 < credit < min(tb.k[sp] - tb.k[lp], tb.k[lc] - tb.k[sc])
+        assert fly["max_loss"] > 0 and fly["earnings_outlook"]["verdict"] == "expensive"
+        ranked = sorted([cheap, dear], key=lambda c: -c.score)               # as Plays ranks a section
+        assert all(c.score > 1 / em.EXPENSIVE or c.score >= em.CHEAP for c in ranked)
+    finally:
+        w.close()
+
+
+def test_a_fairly_priced_or_unjudged_report_has_no_play(tmp_path: Path) -> None:
+    w, ctx, tables = earnings_world(tmp_path)
+    try:
+        fair = tables["S09"].u.earnings_outlook
+        assert fair is not None and fair["verdict"] == "fair" and pl.earnings(tables["S09"], ctx) == []
+        w.market.conn.execute("DELETE FROM stk_earnings_moves WHERE symbol='S10' AND report_date<?",
+                              (day_of(date(2025, 11, 1)),))          # only three past reports left
+        u = next(u for u in pl.load(w.market, w.research, ASOF, NOW) if u.symbol == "S10")
+        assert u.earnings_outlook is not None and u.earnings_outlook["verdict"] is None
+        assert pl.earnings(pl.table(u, ctx), ctx) == []                       # type: ignore[arg-type]
+        before = pl.signature(w.market, w.research, ASOF, NOW)
+        past_moves(w, "S00", [0.05])
+        assert pl.signature(w.market, w.research, ASOF, NOW) != before    # a new stored move rebuilds Plays
     finally:
         w.close()

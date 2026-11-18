@@ -420,7 +420,7 @@ them; the first run reads everything once), so grading does not slow down as the
 | ⚖️ **Biggest model edge** | Contracts KESTREL values above their ask: expected payoff per dollar paid ≥ +5%. 7–60 days, \|Δ\| 0.15–0.70, spread ≤ 12%. |
 | 🐋 **Unusual activity** | See below. |
 | 🏷️ **Cheap volatility** | At-the-money straddle (~30 days) where IV30 ≤ 0.9× realized volatility or IV rank ≤ 20. Chance shown: a move past either break-even. |
-| 📅 **Earnings plays** | Results date announced in Finnhub's free calendar (read daily when the optional key is set), else a window estimated from past report dates, starting within 21 days; straddle on the first expiry after it; ranked by the stock's median results-day move ÷ the move options price. Each play says which it used. |
+| 📅 **Earnings plays** | Results within 21 days (announced in Finnhub's free calendar, else estimated from past results filings); first expiry after the results (≤ 45 days). Options cheap for the report (KESTREL's expected move ≥ 1.15× the priced move): **buy** the at-the-money straddle; expensive (≤ 0.85×): **sell** an at-the-money iron butterfly with wings near the straddle's break-evens (defined risk); fairly priced: no play. See [Earnings: priced vs expected move](#earnings-priced-vs-expected-move). |
 | 🎢 **Strangles** | Options not pricing more movement than the stock makes (IV30 ≤ realized, or IV rank ≤ 25): **buy** a call and a put each near 0.30 \|Δ\|, same expiry 21–60 days. Pays on a big move either way for less than a straddle; the chance shown is of finishing past either break-even. |
 | 🚀 **Trend calls** | Momentum ≥ 75 and above the 200-day average: call near 0.60 Δ, 30–75 days. |
 | 🐻 **Bearish puts** | Valuation ≤ 30, momentum ≤ 35 and below the 200-day, or a red-flag filing: put near 0.45 Δ, 30–75 days. |
@@ -451,6 +451,45 @@ period with quoted closing marks — "So far: 1 week after the pick, median +4% 
 and, where a PAPER strategy trades the same idea, that strategy's closed-trade record. Filters: calls/puts,
 buy/sell, maximum cost, minimum headline chance (to hit the take-profit), expiry, cards or table; the page remembers
 them.
+
+## Earnings: priced vs expected move
+
+`desk.stocks.earnings_model` (spec `stocks_earnings_model` v1) decides the Earnings section and the stock page's
+Earnings block.
+
+- **When.** `earnings_dates.known(conn, session, as_of)` is the calendar as it stood at the decision: a date from
+  Finnhub's free calendar counts only once first seen, and only while it stays listed (a moved or withdrawn date drops
+  out); otherwise the report is estimated from past 8-K item 2.02 filings (the last report plus the median gap, ± a
+  week). Confirmed and estimated reports are labelled apart. Timing comes from Finnhub's hour or the filing's
+  acceptance time in New York (before 9:30 before the open, before the close during market hours, else after the
+  close). It fixes the *entry* session (the last close before the results) and the *exit* session (the first close
+  that reflects them): before the open, the session before → that day; after the close, that day → the next; unknown,
+  the session before → the session after.
+- **Priced move** (Dubinsky & Johannes 2006). Each expiry's at-the-money IV gives total variance w = IV² × years over
+  n trading sessions. An ordinary session's variance v is w₀/n₀ from the latest expiry before the results, else
+  (w₂ − w₁)/(n₂ − n₁) from the first two after them; the results day's variance is σ² = w₁ − v(n₁ − 1) at the first
+  expiry after them, and the priced move is σ√(2/π), the average size of such a move. The straddle of that expiry ÷ the
+  price is shown beside it (it also pays for the ordinary days to expiry, so it is larger). No expiry before the
+  results and only one after, or a term structure with no extra results-day variance: no priced move, and no verdict.
+- **Past moves.** The daily job `earnings_moves` stores each past report's close-to-close move from entry to exit,
+  split-adjusted, from the saved daily bars, with the move priced by the last chain observed by 4:15 PM New York on the
+  entry session when one was stored (`stk_earnings_moves`, market migration 0016; at most 400 reports a pass, newest
+  first, resuming next pass).
+- **Expected move.** The average size of the stock's last 12 results-day moves (exit before the decision), shrunk by
+  n / (n + 4) toward the priced move × the realized-to-priced ratio of past reports in its sector (at least 20 reports,
+  else all stocks, none: 1.0; clipped to 0.5–2).
+- **Verdict.** Expected ÷ priced ≥ 1.15: options look **cheap** → buy the at-the-money straddle on that expiry;
+  ≤ 0.85: **expensive** → sell the at-the-money iron butterfly, wings at the strikes nearest the straddle's
+  break-evens, only with a credit below the narrower wing (both sides can lose: defined risk); in between: **fair**, no
+  play. Fewer than 4 past reports: no verdict. Confidence is high when the stock's own record departs from the priced
+  move by at least two standard errors over at least 8 reports, medium at one standard error and 6 reports, else low
+  (for a fair verdict, by the number of reports alone). Straddles rank by expected ÷ priced, butterflies by priced ÷
+  expected. The card says: "Options price a ±X% results-day move; KESTREL expects ±Y% (its last N reports moved ±Z% on
+  average)", and the play carries the whole outlook as `earnings_outlook`.
+
+Plays' rule version includes the model's version and fingerprint, and Plays rebuilds when a stored move is added.
+Not verified yet on real data: how often stored chains bracket a report closely enough for a priced move, and whether
+the verdicts make money (each play is graded like every other; the section's record will say).
 
 ## Unusual activity
 
