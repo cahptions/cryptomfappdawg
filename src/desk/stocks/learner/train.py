@@ -142,7 +142,7 @@ def main(paths: DeskPaths) -> dict[str, Any]:
                 def progress(text: str) -> None:
                     publish(paths, status="running", phase=f"Training the Learner (shadow): {text}")
 
-                result = model.train(dbs.research, paths.home, now, progress=progress)
+                result = model.train(dbs.research, paths.home, now, progress=progress, market=dbs.market)
                 if result.get("trained"):
                     view.refresh(paths, dbs, utc_now(), force=True)
                 publish(paths, status="completed" if result.get("trained") else "waiting", phase=result.get(

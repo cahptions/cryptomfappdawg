@@ -76,7 +76,7 @@ def test_walk_forward_never_trains_on_a_label_known_after_the_test_starts() -> N
 
 def test_training_freezes_registers_and_refuses_a_tampered_artifact(learned: Any, quick: None) -> None:
     w, now = learned
-    out = md.train(w.research.conn, w.paths.home, now)
+    out = md.train(w.research.conn, w.paths.home, now, market=w.market.conn)
     assert out["trained"], out
     row = md.latest(w.research.conn)
     assert row is not None and row["id"] == out["id"] and row["code_version"] == md.version_hash()
@@ -85,6 +85,10 @@ def test_training_freezes_registers_and_refuses_a_tampered_artifact(learned: Any
     assert metrics["chosen_variant"] in ("source", "weighted")
     cpcv = metrics["cpcv"]
     assert cpcv["splits"] == 15 and len(cpcv["paths"]) == 5 and 0 <= cpcv["profitable"] <= cpcv["scored"] <= 15
+    neutral = metrics["neutral"]                    # raw and market-neutral skill, both reported (v6)
+    assert neutral["ran"] and neutral["chosen"] in ("raw", "neutral") and neutral["rows"] > 0
+    assert set(neutral["raw_model"]) == set(neutral["neutral_model"]) == {"raw", "neutral"}
+    assert metrics["trained_on"] == ("neutral" if neutral["chosen"] == "neutral" else md.TARGET)
     over = metrics["overfitting"]                   # every variant tried is counted, and the choice deflated by it
     assert over["chosen"] == f"gbt:{metrics['chosen_variant']}" and over["trials_this_run"] >= 2
     assert over["trials_total"] == w.research.conn.execute("SELECT COUNT(*) FROM stk_learn_trials WHERE kind='model'"

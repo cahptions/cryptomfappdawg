@@ -13,6 +13,12 @@ within the session (a missed fill is no trade: zero). With no fill observations,
 assumed), the limit is the far side: the net return is the return paying the ask. The return at the ask
 (``exp``), and the mid and liquidation checkpoints, are still loaded and reported beside it.
 
+**Skill beyond the market (v6).** Each row carries SPY's and its sector fund's return over its own horizon
+(``neutral``). Walk-forward, a second expected-return model is trained on the market-neutral net return (betas per
+structure from each fold's training rows only); both models are scored by rank correlation against the market-neutral
+realised return. The neutral target is frozen when its model is at least as good there; the rank correlation against
+the raw and the neutral realised returns are both reported.
+
 **Training honestly.** Rows are ordered by decision session. Walk-forward: the later ``TEST_SHARE`` of the sessions is
 cut into ``FOLDS`` consecutive blocks; each block is predicted by models trained only on rows decided at least
 ``EMBARGO`` sessions before it **and whose label was known before it** (the purge: a 21-session or an expiry label
@@ -57,11 +63,12 @@ from desk.stocks.learner import actions as act
 from desk.stocks.learner import features as ft
 from desk.stocks.learner import fills as fl
 from desk.stocks.learner import labels as lb
+from desk.stocks.learner import neutral as nt
 from desk.stocks.learner import regimes as rg
 from desk.stocks.learner.experience import unpack
 
 NAME = "stocks_learner_model"
-VERSION = 5                         # v5: the net target at the expected fill; v4: earnings features; v3: options
+VERSION = 6                         # v6: market-neutral target when better; v5: the net target at the expected fill
 CHECKPOINT_TARGETS = ("s1", "s5", "s10", "s21", "exp")
 TARGET = "net"                      # what the expected return and its range are trained on and judged by
 FEATURES = (*ft.STOCK_NAMES, *ft.MARKET_NAMES, *rg.FEATURES, *ft.CONTRACT_NAMES, "source_replay")
@@ -90,7 +97,11 @@ def content() -> dict[str, Any]:
             "regimes": rg.version_hash(), "target": TARGET, "fills": fl.version_hash(),
             "net": "fills.net: chance of filling at the chosen limit x the settlement return after fees at that entry; "
                    "the fill model as of the decision session; replay rows and rows without decision legs: the far "
-                   "side"}
+                   "side",
+            "neutral": {"returns": "SPY and the sector fund, decision close to label close (stored closes only)",
+                        "betas": "per structure, OLS on the training rows: y ~ 1 + market + (sector - market)",
+                        "min_rows": nt.MIN_ROWS, "choice": "train on the neutral target when its walk-forward rank "
+                        "correlation with the neutral realised return is at least the raw-trained model's"}}
 
 
 def version_hash() -> str:
@@ -164,7 +175,7 @@ def _groups(conn: sqlite3.Connection, sources: Sequence[str], max_rows: int, see
 
 
 def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "replay"), max_rows: int = MAX_ROWS,
-         seed: int = 7) -> Dataset:
+         seed: int = 7, market: sqlite3.Connection | None = None) -> Dataset:
     """Every labelled candidate (at most ``max_rows``: whole stock-sessions, a seeded sample) with its targets, and the
     net target at the expected fill (``fills``, as of each decision session)."""
     av, lv = act.version_hash(), lb.version_hash()
@@ -221,11 +232,13 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
                                                             float(row["max_loss"]), len(row["legs"]), fill))
             day[TARGET].append(0 if held is None else held[1])
     n = len(X)
-    return Dataset(np.asarray(X, dtype=np.float32).reshape(n, len(FEATURES)), np.asarray(session, dtype=np.int32),
-                   np.asarray(source, dtype=np.int8), origin, np.asarray(explore, dtype=np.int8), key, symbol,
-                   {t: np.asarray(v, dtype=np.float32) for t, v in y.items()},
-                   {t: np.asarray(v, dtype=np.int32) for t, v in day.items()}, np.asarray(index, dtype=np.int32),
-                   {"fill_f": np.asarray(fill_f, dtype=np.float32), "fill_p": np.asarray(fill_p, dtype=np.float32)})
+    ds = Dataset(np.asarray(X, dtype=np.float32).reshape(n, len(FEATURES)), np.asarray(session, dtype=np.int32),
+                 np.asarray(source, dtype=np.int8), origin, np.asarray(explore, dtype=np.int8), key, symbol,
+                 {t: np.asarray(v, dtype=np.float32) for t, v in y.items()},
+                 {t: np.asarray(v, dtype=np.int32) for t, v in day.items()}, np.asarray(index, dtype=np.int32),
+                 {"fill_f": np.asarray(fill_f, dtype=np.float32), "fill_p": np.asarray(fill_p, dtype=np.float32)})
+    ds.extra["mkt"], ds.extra["sec"] = nt.horizon_returns(market, ds.session, ds.day[TARGET], ds.column("sector"))
+    return ds
 
 
 # ── fitting ──────────────────────────────────────────────────────────────────────────────────────
@@ -288,9 +301,10 @@ def _matrix(ds: Dataset, rows: np.ndarray, variant: str) -> np.ndarray:
 
 
 def fit(ds: Dataset, *, before: int | None = None, variant: str = "source", only: Sequence[str] | None = None,
-        progress: Callable[[str], None] | None = None) -> Fitted:
+        progress: Callable[[str], None] | None = None, target: str = TARGET) -> Fitted:
     """Train every target (or ``only`` those) on the rows whose label was known before session ``before`` (all rows
-    when None)."""
+    when None); the expected return and its range on ``target`` (``TARGET``, or ``"neutral"`` when the dataset
+    carries it)."""
     models: dict[str, Any] = {}
     counts: dict[str, int] = {}
     say = progress or (lambda _text: None)
@@ -303,8 +317,8 @@ def fit(ds: Dataset, *, before: int | None = None, variant: str = "source", only
         models[name] = model
         counts[name] = len(rows)
 
-    hold = np.where(_known(ds, TARGET, before))[0]
-    clipped = np.clip(ds.y[TARGET][hold], -1.0, CLIP_HIGH)
+    hold = np.where(_known(ds, target, before))[0]
+    clipped = np.clip(ds.y[target][hold], -1.0, CLIP_HIGH)
     train("expected", _regressor(), hold, clipped)
     for q in QUANTILES:
         train(f"q{round(q * 100)}", _regressor(loss="quantile", quantile=q), hold, clipped)
@@ -498,9 +512,15 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
     out["_last"] = last.get(chosen)
     out["_trials"] = {f"gbt:{v}": trial_series(ds, p["expected"], realised, tested)
                       for v, p in preds.items() if "expected" in p}
-    out["_chosen_trial"] = f"gbt:{chosen}"
+    raw = preds[chosen]["expected"] if "expected" in preds[chosen] else np.full(n, np.nan)
+    neutral = neutral_check(ds, blocks, chosen, raw, tested, progress)
+    out["neutral"] = neutral["report"]
+    out["_target"] = neutral["target"]
+    if neutral["pred"] is not None:
+        out["_trials"]["gbt:neutral"] = trial_series(ds, neutral["pred"], realised, tested)
+    exp = neutral["pred"] if neutral["target"] == "neutral" else raw
+    out["_chosen_trial"] = "gbt:neutral" if neutral["target"] == "neutral" else f"gbt:{chosen}"
     p = preds["source"]                                     # every other target: the source-feature variant
-    exp = preds[chosen]["expected"] if "expected" in preds[chosen] else np.full(n, np.nan)
     ok = tested & ~np.isnan(realised) & ~np.isnan(exp)
     out["rank_correlation"] = out["variants"][chosen]["rank_correlation"]
     out["rank_correlation_days"] = len(np.unique(ds.session[ok]))
@@ -545,6 +565,49 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
                                 "versus_hold": boot(_daily(ds.session[rows], realised_rule - hold,
                                                            np.ones(len(rows), bool)))}
     return out
+
+
+def with_neutral(ds: Dataset, fit_rows: np.ndarray) -> tuple[Dataset, dict[int, tuple[float, float, float]]]:
+    """``ds`` carrying the market-neutral net return (betas from ``fit_rows`` only) as the target ``"neutral"``."""
+    structure = ds.column("structure")
+    b = nt.betas(ds.y[TARGET], ds.extra["mkt"], ds.extra["sec"], structure, fit_rows)
+    ds.y["neutral"] = nt.neutralise(ds.y[TARGET], ds.extra["mkt"], ds.extra["sec"], structure, b)
+    ds.day["neutral"] = ds.day[TARGET]
+    return ds, b
+
+
+def neutral_check(ds: Dataset, blocks: Sequence[tuple[int, int, int]], variant: str, raw: np.ndarray,
+                  tested: np.ndarray, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """Walk-forward on the market-neutral target (betas from each fold's training rows): the raw-trained and the
+    neutral-trained models' rank correlations with the raw and the neutral realised returns, and the choice."""
+    n = len(ds)
+    mkt = ds.extra.get("mkt")
+    if mkt is None or not np.isfinite(mkt).any():
+        return {"target": TARGET, "pred": None, "report": {"ran": False, "reason": "no market returns stored for the "
+                                                           "labelled rows (SPY's daily closes)"}}
+    pred, realised_neutral = np.full(n, np.nan), np.full(n, np.nan)
+    for i, (cut, first, end) in enumerate(blocks, 1):
+        if progress:
+            progress(f"fold {i}/{len(blocks)} (market-neutral)")
+        sub = ds.subset(np.where(ds.session < cut)[0])
+        sub, b = with_neutral(sub, sub.day[TARGET] < first)                 # betas from labels known by the test
+        rows = np.where((ds.session >= first) & (ds.session <= end))[0]
+        realised_neutral[rows] = nt.neutralise(ds.y[TARGET][rows], mkt[rows], ds.extra["sec"][rows],
+                                               ds.column("structure")[rows], b)
+        model = fit(sub, before=first, variant=variant, only=("expected",), target="neutral").models.get("expected")
+        if model is not None:
+            pred[rows] = predict(Fitted({"expected": model}, variant, {}), ds.X[rows])["expected"]
+    realised = ds.y[TARGET]
+    ok = tested & np.isfinite(realised_neutral) & ~np.isnan(raw) & ~np.isnan(pred)
+    raw_on_neutral, neutral_on_neutral = spearman(raw[ok], realised_neutral[ok]), spearman(pred[ok], realised_neutral[ok])
+    report: dict[str, Any] = {
+        "ran": True, "rows": int(ok.sum()), "days": len(np.unique(ds.session[ok])),
+        "market_rows": int((tested & np.isfinite(mkt)).sum()),
+        "raw_model": {"raw": spearman(raw[ok], realised[ok]), "neutral": raw_on_neutral},
+        "neutral_model": {"raw": spearman(pred[ok], realised[ok]), "neutral": neutral_on_neutral}}
+    use = raw_on_neutral is not None and neutral_on_neutral is not None and neutral_on_neutral >= raw_on_neutral
+    report["chosen"] = "neutral" if use else "raw"
+    return {"target": "neutral" if use else TARGET, "pred": pred, "report": report}
 
 
 def trial_series(ds: Dataset, pred: np.ndarray, realised: np.ndarray, rows: np.ndarray) -> dict[int, float]:
@@ -595,13 +658,13 @@ def cpcv(ds: Dataset, variant: str, progress: Callable[[str], None] | None = Non
         done[0] += 1
         if progress:
             progress(f"CPCV split {done[0]}")
-        fitted = fit(sub.subset(train), variant=variant, only=("expected",))
+        fitted = fit(sub.subset(train), variant=variant, only=("expected",), target=target)
         model = fitted.models.get("expected")
         if model is None:
             return np.full(len(test), np.nan)
         return np.asarray(predict(Fitted({"expected": model}, variant, {}), sub.X[test])["expected"])
 
-    out = va.run(sub.session, sub.day[target], sub.y[target], fit_predict)
+    out = va.run(sub.session, sub.day[target], sub.y[TARGET], fit_predict)          # judged in money: the net return
     return {**out, "rows": len(rows), "variant": variant, "target": target,
             "seconds": round(time.monotonic() - started, 1), "rules": va.version_hash()}
 
@@ -668,12 +731,13 @@ def data_summary(ds: Dataset) -> dict[str, Any]:
 
 
 def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int = MAX_ROWS,
-          progress: Callable[[str], None] | None = None, note: str | None = None) -> dict[str, Any]:
+          progress: Callable[[str], None] | None = None, note: str | None = None,
+          market: sqlite3.Connection | None = None) -> dict[str, Any]:
     """Load, evaluate walk-forward, fit the final models on every labelled row, freeze and register them."""
     started = time.monotonic()
     say = progress or (lambda _text: None)
     say("loading the experience log")
-    ds = load(conn, max_rows=max_rows)
+    ds = load(conn, max_rows=max_rows, market=market)
     if len(ds) < MIN_ROWS or len(np.unique(ds.session)) < MIN_SESSIONS:
         return {"trained": False, "rows": len(ds), "sessions": len(np.unique(ds.session)),
                 "reason": f"needs {MIN_ROWS} labelled candidates from {MIN_SESSIONS} sessions"}
@@ -683,11 +747,16 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     held = metrics.pop("_heldout", None)
     trials = metrics.pop("_trials", {})
     chosen_trial = metrics.pop("_chosen_trial", None)
+    target = metrics.pop("_target", TARGET)
+    if target == "neutral":
+        ds, b = with_neutral(ds, np.ones(len(ds), bool))
+        metrics["neutral"]["betas"] = {act.STRUCTURES[s].id: [round(x, 4) for x in v] for s, v in b.items()}
+    metrics["trained_on"] = target
     if metrics.get("folds"):
         say("purged combinatorial cross-validation")
-        metrics["cpcv"] = cpcv(ds, variant, progress)
+        metrics["cpcv"] = cpcv(ds, variant, progress, target=target)
     say("fitting the final models")
-    fitted = fit(ds, variant=variant)
+    fitted = fit(ds, variant=variant, target=target)
     if not fitted.models:
         return {"trained": False, "rows": len(ds), "reason": "no target had enough labelled rows"}
     blocks = folds(ds)

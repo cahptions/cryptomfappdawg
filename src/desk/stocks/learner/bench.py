@@ -59,9 +59,12 @@ def synthetic(rows: int = md.MAX_ROWS, sessions: int = 250, *, replay_share: flo
         y[t][missing] = np.nan
     keys = [f"{act.STRUCTURES[int(s)].id}|d30|w0|1m" for s in structure]
     origin = ["plays:edge#1" if r < 0.02 else "grid" for r in rng.random(rows)]
+    market = {int(d): rng.normal(0, 0.04) for d in np.unique(session)}
+    mkt = np.asarray([market[int(d)] for d in session], dtype=np.float32)
     return md.Dataset(X, session, source, origin, (rng.random(rows) < 0.01).astype(np.int8), keys,
                       [f"S{i % 60}" for i in range(rows)], y, day, np.zeros(0, np.int32),
-                      {"fill_f": np.where(chance < 1, 0.5, 1.0).astype(np.float32), "fill_p": chance})
+                      {"fill_f": np.where(chance < 1, 0.5, 1.0).astype(np.float32), "fill_p": chance, "mkt": mkt,
+                       "sec": (mkt + rng.normal(0, 0.02, rows)).astype(np.float32)})
 
 
 def run(rows: int = md.MAX_ROWS, sessions: int = 250) -> dict[str, Any]:
