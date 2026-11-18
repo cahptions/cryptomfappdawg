@@ -45,6 +45,14 @@ including a wait and why (``stk_learner_days``), in the PAPER ledger in the same
 fill like every PAPER option order (``paper.engine``): at the next session's quotes, buying at the ask and selling at
 the bid, the usual fees, never on a stale, crossed or unfair quote.
 
+**Entries at a limit (v2, phase 6).** Each entry is placed at the fill model's chosen limit (``fills``, as of the
+decision session): bought legs at mid + f × half spread, sold legs at mid − f × half spread, on the decision quotes.
+It fills at those limits only when a stored quote of the fill session crossed every leg (``fills.limit_fill``: the
+session's chain snapshot or saved intraday quotes), is refused when every leg has saved intraday quotes and one never
+crossed, and is otherwise decided by a draw seeded by the session, account and candidate, recorded in the decision,
+against the model's chance. With f = 1 (no fill observations, or the model's choice) it pays the ask as in v1. The
+random twin and the learned trials (``trials``) get the same treatment.
+
 ``content`` is the frozen policy; ``version_hash`` its fingerprint. Nothing here changes Plays, another PAPER account,
 Learning or any calibration.
 """
@@ -70,13 +78,14 @@ from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks import calendar as cal
 from desk.stocks.learner import actions as act
 from desk.stocks.learner import experience as ex
+from desk.stocks.learner import fills as fl
 from desk.stocks.learner import model as md
 from desk.stocks.learner import regimes as rg
 from desk.stocks.paper import fills
 from desk.stocks.paper.strategies import Strategy
 
 NAME = "stocks_learner_policy"
-VERSION = 1
+VERSION = 2                         # v2: entries at the fill model's chosen limit (phase 6); v1 paid the ask
 ACCOUNT = "learner"
 RANDOM = "learner_random"
 CAPITAL = 50_000.0
@@ -110,7 +119,14 @@ def content() -> dict[str, Any]:
             "rule": "exploit by lower confidence bound mu - lcb_z*se > 0; explore by a Thompson draw mu + se*z among "
                     "lcb <= 0 < ucb; se = max(min_sigma, (q90 - q10)/2.5631) / sqrt(n + 1)",
             "random": "uniform candidate, uniform exit rule, trade_risk sizing, same sessions and limits",
-            "actions": act.version_hash(), "regimes": rg.version_hash()}
+            "entry": "the fill model's chosen limit (fills.structure_fill as of the decision session) on the decision "
+                     "quotes: bought legs at mid + f x half spread rounded up to the cent, sold at mid - f x half "
+                     "rounded down; f = 1 pays the ask as before. It fills, at the limits, only when a stored quote of "
+                     "the fill session crossed every leg (its chain snapshot or saved intraday quotes); when every leg "
+                     "has saved intraday quotes and one never crossed, it does not; otherwise when a draw seeded by "
+                     "the session, account and candidate (recorded in the decision) is below the model's chance. "
+                     "The random twin and the learned trials get the same treatment. Sizing stays at the far side.",
+            "fills": fl.version_hash(), "actions": act.version_hash(), "regimes": rg.version_hash()}
 
 
 def version_hash() -> str:
@@ -121,12 +137,12 @@ def _P(**kw: Any) -> tuple[tuple[str, Any], ...]:
     return tuple(sorted(kw.items()))
 
 
-LEARNER = Strategy(ACCOUNT, 1, "Learner", "option", "learner",
+LEARNER = Strategy(ACCOUNT, 2, "Learner", "option", "learner",
                    "A model of every recorded candidate, choosing trades by a lower confidence bound and exploring a "
                    "fixed 15% of new risk by Thompson sampling, beats a random account of the same risk, the "
                    "rule-based option strategies and SPY",
                    _P(rule="learner_policy", policy=version_hash(), capital=CAPITAL, compare=RANDOM))
-LEARNER_RANDOM = Strategy(RANDOM, 1, "Learner's random twin", "option", "learner",
+LEARNER_RANDOM = Strategy(RANDOM, 2, "Learner's random twin", "option", "learner",
                           "Random grid candidates with random exits at the Learner's risk and on its sessions: the bar "
                           "the Learner must clear", _P(rule="learner_random", policy=version_hash(), capital=CAPITAL),
                           baseline=True)
@@ -232,12 +248,13 @@ class Option:
     scores: dict[str, Any] = field(default_factory=dict)
     exit_rule: str = "hold"
     dont: str | None = None
+    legs: list[dict[str, Any]] | None = None     # one unit at the session's quotes, once priced
+    index: int = -1                              # the row's place in its stored group
+    price: float = 0.0                           # the stock's price the group was valued at
 
     @property
     def key(self) -> str:
         return str(self.row["key"])
-
-    legs: list[dict[str, Any]] | None = None     # one unit at the session's quotes, once priced
 
     @property
     def risk_unit(self) -> float:
@@ -270,12 +287,13 @@ def session_candidates(research: sqlite3.Connection, session: date) -> list[Opti
     for g in ex.groups_for(research, "forward", since=session.toordinal(), until=session.toordinal()):
         group = ex.unpack(g["rows_zlib"])
         sector = group["stock"].get("sector")
-        for r in group["rows"]:
+        for i, r in enumerate(group["rows"]):
             if not r["key"]:
                 continue
             out.append(Option(g["symbol"], r, group["stock"], group["market"],
                               md.row_vector(group["stock"], group["market"], r["x"], False),
-                              "unknown" if sector is None else str(int(sector))))
+                              "unknown" if sector is None else str(int(sector)), index=i,
+                              price=float(group["price"])))
     return out
 
 
@@ -434,7 +452,7 @@ def choose_random(options: Sequence[Option], limits: Limits, session: date) -> l
             continue
         limits.take(o, "random", risk)
         rule = rng.choice(act.EXIT_RULES)
-        twin = Option(o.symbol, o.row, o.stock, o.market, o.x, o.sector, {}, rule.id, None, o.legs)
+        twin = Option(o.symbol, o.row, o.stock, o.market, o.x, o.sector, {}, rule.id, None, o.legs, o.index, o.price)
         out.append(Choice(twin, "random", units, risk,
                           f"Random baseline: drawn uniformly from the session's {len(options):,} candidates; exit "
                           f"drawn at random: {rule.title.lower()}", []))
@@ -490,11 +508,50 @@ def decided(conn: sqlite3.Connection, session: date, account: str) -> bool:
         return True
 
 
+def fill_table(research: sqlite3.Connection, session: date) -> fl.Table:
+    """The fill model as of the decision session (observations of sessions up to it only)."""
+    return fl.Fills.load(research).at(session.toordinal())
+
+
+def _cent(x: float, up: bool) -> float:
+    return (math.ceil(x * 100 - 1e-6) if up else math.floor(x * 100 + 1e-6)) / 100
+
+
+def entry_fill(o: Option, table: fl.Table | None, pricer: Pricer | None, session: date, account: str
+               ) -> dict[str, Any]:
+    """The limit a trade is entered at (``content()["entry"]``): the fraction, its chance of filling, each leg's
+    limit price and the seeded draw that decides a fill no stored quote can settle (recorded in the decision)."""
+    far: dict[str, Any] = {"fraction": 1.0, "chance": 1.0, "limits": None, "draw": None, "fills": fl.version_hash()}
+    quotes = None if pricer is None else pricer.quotes.get(o.symbol)
+    if table is None or not quotes or o.price <= 0:
+        return {**far, "why": "no fill model or no decision quotes: pays the far side"}
+    chain = {occ: (float(q.bid), float(q.ask), q.open_interest, q.volume) for occ, q in quotes.items()
+             if q.bid is not None and q.ask is not None}
+    legs = fl.decision_legs(o.row, chain, session, o.price)
+    fill = fl.structure_fill(table, legs, float(o.row["max_loss"]))
+    if legs is None or fill.fraction >= 1.0:
+        return {**far, "chance_inside": list(fill.p), "observations": table.n,
+                "why": "the fill model chose the far side" if legs else "decision legs unknown: pays the far side"}
+    limits = {}
+    for (occ, sign), (mid, half, *_rest) in zip(o.row["legs"], legs, strict=True):
+        price = mid + fill.fraction * half if sign > 0 else mid - fill.fraction * half
+        limits[occ] = _cent(max(price, 0.01), up=sign > 0)
+    draw = random.Random(f"{session.isoformat()}:{account}:{o.symbol}:{o.key}:{ex.legs_key(o.row['legs'])}:fill"  # noqa: S311
+                         ).random()
+    return {"fraction": fill.fraction, "chance": round(fill.chance, 6), "limits": limits, "draw": round(draw, 6),
+            "fills": fl.version_hash(), "observations": table.n, "through": table.through,
+            "why": f"limit {fill.fraction:.0%} of the way from the mid to the far side, {fill.chance:.0%} chance"}
+
+
 def _place(book: Any, st: Strategy, session: date, now: datetime, c: Choice, g: Gate | None, equity: float,
-           regime: str) -> None:
+           regime: str, table: fl.Table | None = None, pricer: Pricer | None = None) -> None:
     o = c.option
     legs = o.legs
     assert legs is not None
+    entry = entry_fill(o, table, pricer, session, st.id)
+    o.scores = {**o.scores, "fill": entry}
+    if entry["limits"]:
+        legs = [{**leg, "limit": entry["limits"][leg["occ"]]} for leg in legs]
     rule = act.BY_EXIT[o.exit_rule]
     a = act.parse_key(o.key)
     plan = {"exit_rule": rule.id, "take_profit": rule.take_profit, "stop": rule.stop, "sessions": rule.sessions,
@@ -513,10 +570,15 @@ def _place(book: Any, st: Strategy, session: date, now: datetime, c: Choice, g: 
          o.symbol, o.key, c.mode, rule.id, c.units, round(c.risk, 2), round(equity, 2), regime,
          json.dumps(o.scores, allow_nan=False), json.dumps(c.alternatives, allow_nan=False), c.reason, did))
     plan["learner_decision"] = int(cur.lastrowid or 0)
-    book.place(did, st.id, now, session, {"asset": "option", "action": "ENTER", "symbol": o.symbol,
-                                          "structure": a.structure, "legs": legs, "units": c.units,
-                                          "max_debit": max_debit(legs, c.units, o.row["action"]),
-                                          "risk_usd": round(c.risk, 2), "plan": plan, "strict_quotes": True})
+    order: dict[str, Any] = {"asset": "option", "action": "ENTER", "symbol": o.symbol, "structure": a.structure,
+                             "legs": legs, "units": c.units, "max_debit": max_debit(legs, c.units, o.row["action"]),
+                             "risk_usd": round(c.risk, 2), "plan": plan, "strict_quotes": True}
+    if entry["limits"]:
+        fee = fills.OPTION_FEE_PER_CONTRACT * len(legs)
+        order["max_debit"] = _cents_up(c.units * (sum(leg["quantity"] * leg["limit"] for leg in legs) * fills.CONTRACT
+                                                  + fee))
+        order["limit_entry"] = entry
+    book.place(did, st.id, now, session, order)
 
 
 def decide(research: sqlite3.Connection, ledger: sqlite3.Connection, market: Any, home: Path, session: date,
@@ -558,6 +620,7 @@ def decide(research: sqlite3.Connection, ledger: sqlite3.Connection, market: Any
     scored = clock.monotonic() - started
     results: dict[str, Any] = {}
     pricer = Pricer(market, session)
+    table = fill_table(research, session)
     with book.atomic():
         for st in todo:
             state = account_state(book, st.id)
@@ -567,7 +630,7 @@ def decide(research: sqlite3.Connection, ledger: sqlite3.Connection, market: Any
             else:
                 chosen = choose_random([o for o in options if o.dont is None], limits, session)
             for c in chosen:
-                _place(book, st, session, now, c, g, state.equity, regime)
+                _place(book, st, session, now, c, g, state.equity, regime, table, pricer)
             placed = chosen
             usable = [o for o in options if o.scores.get("expected") is not None]
             detail = {"candidates": len(options), "scored": len(usable),
@@ -593,5 +656,6 @@ def decide(research: sqlite3.Connection, ledger: sqlite3.Connection, market: Any
 
 __all__ = ["ACCOUNT", "ACCOUNTS", "CAPITAL", "EXPLORE_SHARE", "GATE_MIN_DAYS", "LEARNER", "LEARNER_RANDOM", "NAME",
            "RANDOM", "STRATEGIES", "VERSION", "Choice", "Gate", "Limits", "Option", "Pricer", "State", "account_state", "choose",
-           "choose_random", "content", "decide", "decided", "gate", "max_debit", "order_legs", "score",
+           "choose_random", "content", "decide", "decided", "entry_fill", "fill_table", "gate", "max_debit", "order_legs",
+           "score",
            "session_candidates", "version_hash"]

@@ -396,6 +396,46 @@ def entry_legs(research: sqlite3.Connection, source: str, session: int, symbol: 
     return {int(i): legs for i, legs in _unpack(row[0]) if legs is not None}
 
 
+def saved_quotes(research: sqlite3.Connection, occ: str, session: date) -> list[tuple[float, float]]:
+    """Every saved (bid, ask) of a contract during ``session``: the folded intraday history and any ticks not yet
+    folded (the per-contract quotes of tracked contracts). Empty when none were saved."""
+    from desk.stocks.play_tracking import unpack
+
+    out: list[tuple[float, float]] = []
+    try:
+        row = research.execute("SELECT packed FROM stk_track_intraday WHERE occ=? AND session=? AND status='quoted'",
+                               (occ, session.toordinal())).fetchone()
+        if row is not None:
+            out += [(float(p[1]), float(p[2])) for p in unpack(row[0]) if p[1] is not None and p[2] is not None]
+        out += [(float(b), float(a)) for b, a in research.execute(
+            "SELECT bid, ask FROM stk_track_ticks WHERE occ=? AND session=? AND bid IS NOT NULL AND ask IS NOT NULL",
+            (occ, session.toordinal()))]
+    except sqlite3.OperationalError:
+        return []
+    return [(b, a) for b, a in out if 0 <= b <= a and a > 0]
+
+
+def limit_fill(limits: Mapping[str, tuple[int, float]], snapshot: Mapping[str, tuple[float, float]],
+               saved: Mapping[str, Sequence[tuple[float, float]]], chance: float, draw: float) -> tuple[bool, str]:
+    """Whether a limit entry fills on its session (``limits``: occ → (+1 bought / −1 sold, limit price)), and how it
+    was decided. **Observed** when a stored quote of that session crossed every leg's limit (the session's chain
+    snapshot or a saved intraday quote: a buy's ask at or below it, a sell's bid at or above it), or when every leg has
+    saved intraday quotes and one never crossed. Otherwise the fill model's ``chance`` against the ``draw`` recorded at
+    the decision (filled when ``draw < chance``)."""
+    crossed, covered = True, True
+    for occ, (sign, limit) in limits.items():
+        quotes = [*([snapshot[occ]] if occ in snapshot else []), *saved.get(occ, ())]
+        hit = any((a <= limit + 1e-9) if sign > 0 else (b >= limit - 1e-9) for b, a in quotes)
+        crossed &= hit
+        covered &= bool(saved.get(occ))
+    if crossed:
+        return True, "observed: a stored quote of the session crossed the limit"
+    if covered:
+        return False, "observed: no saved quote of the session crossed the limit"
+    return draw < chance, (f"fill model: {chance:.0%} chance, seeded draw {draw:.3f} "
+                           + ("(filled)" if draw < chance else "(not filled)"))
+
+
 def summary(research: sqlite3.Connection) -> dict[str, Any]:
     """What the fill model rests on, and its chances for a typical liquid and a typical wide contract (plain words)."""
     fills = Fills.load(research)
@@ -414,6 +454,32 @@ def summary(research: sqlite3.Connection) -> dict[str, Any]:
                          for k, v in examples.items()}}
 
 
-__all__ = ["CELLS", "EDGE", "FAR_SIDE", "FRACTIONS", "INSIDE", "NAME", "PRIOR", "VERSION", "Fill", "Fills", "Table",
-           "at_fill", "cell", "collect", "content", "decision_legs", "entry_legs", "estimate", "net", "observe",
-           "record_entries", "session_observations", "structure_fill", "summary", "version_hash"]
+__all__ = [
+    "CELLS",
+    "EDGE",
+    "FAR_SIDE",
+    "FRACTIONS",
+    "INSIDE",
+    "NAME",
+    "PRIOR",
+    "VERSION",
+    "Fill",
+    "Fills",
+    "Table",
+    "at_fill",
+    "cell",
+    "collect",
+    "content",
+    "decision_legs",
+    "entry_legs",
+    "estimate",
+    "limit_fill",
+    "net",
+    "observe",
+    "record_entries",
+    "saved_quotes",
+    "session_observations",
+    "structure_fill",
+    "summary",
+    "version_hash",
+]

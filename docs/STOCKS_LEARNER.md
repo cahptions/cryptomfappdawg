@@ -213,9 +213,7 @@ settlement and fees, the −100% floor kept), times its chance of filling. A mis
 observations it equals the return paying the ask. The return at the ask and the mid and liquidation checkpoints are
 still loaded and reported beside it.
 
-**Not done:** the Learner PAPER account still enters by paying the ask, within its 10% fill limit. Using the chosen
-limit for its own orders would need a new policy version and new versions of both PAPER strategies. Until there are
-fill observations, both are the same.
+**The account's own entries** (policy v2, phase 6) use the chosen limit too: see "Execution" below.
 
 ## Replay examples (`learner/replay.py`)
 
@@ -517,10 +515,25 @@ put's maximum loss is its strike, so at 2% of $50,000 only puts on stocks under 
 
 ### Execution
 
-- **Entries** are orders filled by the PAPER engine at the **next session's** stored quotes: bought legs at the ask,
-  sold legs at the bid, $0.65 a contract a leg, refused when a quote is stale (not from that session or not after the
-  decision), crossed or empty, wider than 35% of its mid, when a bought leg's ask ran more than 10% (or 5 cents) past
-  the decision's, or when a sold structure's credit fell below 90% of the decision's.
+- **Entries** are orders filled by the PAPER engine at the **next session's** stored quotes, refused when a quote is
+  stale (not from that session or not after the decision), crossed or empty.
+  - **At the fill model's limit** (policy v2, 2026-11-18). At the decision the fill model as of that session
+    (`fills.Fills.at`) chooses a fraction *f* of the way from the mid to the far side. Each bought leg's limit is
+    mid + *f* × half spread (rounded up to the cent), each sold leg's mid − *f* × half spread (rounded down), on the
+    decision's quotes. On the fill session the order fills **at its limits** only when a stored quote of that
+    session crossed every leg: its chain snapshot, or the saved intraday quotes of a tracked contract
+    (`stk_track_intraday`, `stk_track_ticks`). When every leg has saved intraday quotes and one never crossed, it is
+    **not filled** (observed). Otherwise the fill model's chance decides, against a draw seeded by the session, the
+    account and the candidate and **recorded in the decision** (`scores.fill`: fraction, chance, limits, draw). An
+    unfilled limit is a cancelled order with the reason, e.g. "the limit entry did not fill (fill model: 34%
+    chance, seeded draw 0.712 (not filled))". The position records how it filled (`plan.entry_fill`).
+  - **At the far side** when the model chooses *f* = 1 (always, until there are fill observations): bought legs at
+    the ask, sold legs at the bid, refused when wider than 35% of its mid, when a bought leg's ask ran more than 10%
+    (or 5 cents) past the decision's, or when a sold structure's credit fell below 90% of the decision's (v1's rule).
+  - The **random twin** and the **learned trials** get the same treatment, each with its own seeded draw.
+  - Sizing stays at the far side (the most the order could cost), so a limit never risks more than decided.
+  - $0.65 a contract a leg either way. Policy v2 is a new Learner version, so its promotion test starts again; the
+    PAPER strategies are `stocks_paper_learner` v2 and `stocks_paper_learner_random` v2.
 - **Exits** follow the trade's exit rule on that session's **real closing quotes** at liquidation value (bought legs at
   the bid, sold legs at the ask, after exit fees): a take-profit or a stop on the return on the money at risk, or the
   session count since the decision (decided the session before, so it fills on that session's quotes). A rule never
@@ -712,8 +725,9 @@ On this development machine, two threads, synthetic data only:
   equity in the usual PAPER tables under the accounts `learner` and `learner_random`.
 - **Functions**: `policy.gate`, `policy.score`, `policy.choose`, `policy.decide`; `findings.mine`, `findings.matches`,
   `findings.current`; `promotion.review`, `promotion.judge`; `account.build`; `regimes.of`.
-- **Frozen rule sets**: `stocks_learner_regimes`, `stocks_learner_findings` v2, `stocks_learner_policy`,
+- **Frozen rule sets**: `stocks_learner_regimes`, `stocks_learner_findings` v2, `stocks_learner_policy` v2,
+  `stocks_learner_trials`, `stocks_learner_graduation`,
   `stocks_learner_promotion` v2, `stocks_learner_model` v7, `stocks_learner_fills`, `stocks_learner_validation`,
-  `stocks_learner_overfit`, and the two PAPER strategies `stocks_paper_learner` and
-  `stocks_paper_learner_random` (their parameters include the policy's fingerprint, so a policy change needs new
-  versions of both).
+  `stocks_learner_overfit`, and the two PAPER strategies `stocks_paper_learner` v2 and
+  `stocks_paper_learner_random` v2 (their parameters include the policy's fingerprint, so a policy change needs new
+  versions of both); each learned trial's spec (`stocks_trial_<id>`) and PAPER account (`stocks_paper_learned_<id>`).

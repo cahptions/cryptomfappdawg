@@ -882,9 +882,13 @@ def check_book_fills(src: Sources) -> Finding:
                      f"{name}: bought at {price:g} outside the day's {bar['low']:g}–{bar['high']:g}")
             continue
         quotes = chain(p["symbol"], p["entry_day"])
+        plan = json.loads(p["plan_json"]) if p["plan_json"] else {}
         for leg in legs:                  # bought at the ask, sold at the bid: inside that day's quote
             q = quotes.get(leg.get("occ"))
             price = _num(leg.get("entry_price"))
+            if leg.get("limit") is not None and price is not None and abs(price - float(leg["limit"])) < 1e-6 \
+                    and plan.get("decided"):  # a Learner limit entry: its limit lies inside the decision's quote
+                q = chain(p["symbol"], date.fromisoformat(plan["decided"]).toordinal()).get(leg.get("occ"))
             f.expect(q is not None and q[3] is not None and q[4] is not None and price is not None
                      and q[3] - 1e-9 <= price <= q[4] + 1e-9,
                      lambda name=name, leg=leg, q=q: f"{name}: {leg.get('occ')} filled at {leg.get('entry_price')} "

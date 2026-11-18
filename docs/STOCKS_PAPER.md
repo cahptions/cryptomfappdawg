@@ -263,7 +263,10 @@ account the daily-high upper bound.
 one **learned trial** account per live trial (`learned_<id>`, at most five): each trades its confirmed finding's
 frozen rule on the session's recorded candidates, held to expiry, against the random twin. Their entries are decided
 by `desk.stocks.learner`, never by the engine's rules; the engine fills, marks, exits and settles them like every
-option account. A retired trial keeps managing its open positions and opens no new ones.
+option account. Their entries (Learner policy v2) are limit orders at the fill model's chosen limit: filled at the
+limit only on an observed crossing in that session's stored quotes, refused when saved intraday quotes show none,
+otherwise by a seeded draw recorded in the decision against the model's chance; the far side (as before) when the
+model says so. A retired trial keeps managing its open positions and opens no new ones.
 
 ### Preregistered option research on real prices
 

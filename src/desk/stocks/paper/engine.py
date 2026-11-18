@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -126,8 +127,10 @@ def strict_exit_problem(p: Position, quotes: dict[str, OptionQuote]) -> str | No
 
 class PaperEngine:
     def __init__(self, market: StocksMarket, book: PaperBook, settings: StocksSection,
-                 strategies: tuple[Strategy, ...] = STRATEGIES, retired: set[str] | frozenset[str] = frozenset()) -> None:
+                 strategies: tuple[Strategy, ...] = STRATEGIES, retired: set[str] | frozenset[str] = frozenset(),
+                 intraday: Callable[[str, date], list[tuple[float, float]]] | None = None) -> None:
         self.market = market
+        self.intraday = intraday             # saved (bid, ask) of a contract in a session, for limit entries
         self.book = book
         self.settings = settings
         self.strategies = {s.id: s for s in strategies}
@@ -379,7 +382,12 @@ class PaperEngine:
                 if q.bid is None or q.ask is None or q.bid <= 0 or q.ask < q.bid:
                     raise _Cancel(f"{leg['occ']} is quoted {q.bid}/{q.ask}: no fill on a crossed or empty quote")
         legs = [{**leg, "quantity": leg["quantity"] * spec["units"]} for leg in spec["legs"]]
-        f = fills.open_legs(legs, quotes)
+        plan = spec["plan"]
+        limit = spec.get("limit_entry") or {}
+        if limit.get("limits"):                  # a Learner entry at the fill model's limit (learner.policy v2)
+            f, plan = self._limit_entry(spec, legs, quotes, asof, limit)
+        else:
+            f = fills.open_legs(legs, quotes)
         if f.problem:
             raise _Cancel(f.problem)
         total = f.debit + f.fees
@@ -398,9 +406,30 @@ class PaperEngine:
                                 structure=spec["structure"], legs=f.legs, decision_id=o.decision_id, at=now, day=asof,
                                 cost=f.debit, fees=f.fees, max_loss=total if f.debit > 0 else sold_max_loss(f.legs, total),
                                 stop_price=None,
-                                expires=expires, plan=spec["plan"])
+                                expires=expires, plan=plan)
         rep.opened += 1
         return True
+
+    def _limit_entry(self, spec: dict[str, Any], legs: list[dict[str, Any]], quotes: dict[str, OptionQuote],
+                     asof: date, limit: dict[str, Any]) -> tuple[fills.OptionFill, dict[str, Any]]:
+        """Fill a limit entry at its limits, or cancel it (``learner.fills.limit_fill``: observed crossings on the
+        session's stored quotes first, else the recorded seeded draw against the fill model's chance)."""
+        from desk.stocks.learner.fills import limit_fill
+
+        prices = {str(k): float(v) for k, v in limit["limits"].items()}
+        snapshot = {occ: (float(q.bid), float(q.ask)) for occ in prices
+                    if (q := quotes.get(occ)) is not None and q.bid is not None and q.ask is not None}
+        saved = {occ: self.intraday(occ, asof) if self.intraday is not None else [] for occ in prices}
+        signs = {leg["occ"]: 1 if leg["quantity"] > 0 else -1 for leg in legs}
+        filled, basis = limit_fill({occ: (signs[occ], p) for occ, p in prices.items()}, snapshot, saved,
+                                   float(limit["chance"]), float(limit["draw"]))
+        if not filled:
+            raise _Cancel(f"the limit entry did not fill ({basis})")
+        out = [{**leg, "entry_price": prices[leg["occ"]]} for leg in legs]
+        debit = sum(leg["quantity"] * leg["entry_price"] * fills.CONTRACT for leg in out)
+        fees = round(sum(abs(leg["quantity"]) for leg in out) * fills.OPTION_FEE_PER_CONTRACT, 2)
+        entry = {"basis": basis, "fraction": limit["fraction"], "chance": limit["chance"], "draw": limit["draw"]}
+        return fills.OptionFill(out, debit, fees), {**spec["plan"], "entry_fill": entry}
 
     def _with_marks(self, p: Position) -> list[dict[str, Any]]:
         marks = (p.marks or {}).get("legs", {})

@@ -275,6 +275,7 @@ def decide(research: sqlite3.Connection, ledger: sqlite3.Connection, market: Any
     X = np.asarray([o.x for o in options], dtype=np.float32) if options else np.zeros((0, len(md.FEATURES)), np.float32)
     blocked = fd.filter_reason(fd.confirmed_donts(research), X) if options else []
     pricer = policy.Pricer(market, session)
+    table = policy.fill_table(research, session)
     out: dict[str, Any] = {}
     with book.atomic():
         for t in todo:
@@ -297,11 +298,12 @@ def decide(research: sqlite3.Connection, ledger: sqlite3.Connection, market: Any
                 if units < 1:
                     continue
                 limits.take(o, "random", risk)
-                trade = policy.Option(o.symbol, o.row, o.stock, o.market, o.x, o.sector, {}, "hold", None, o.legs)
+                trade = policy.Option(o.symbol, o.row, o.stock, o.market, o.x, o.sector, {}, "hold", None, o.legs,
+                                      o.index, o.price)
                 c = policy.Choice(trade, "random", units, risk,
                                   f"Trial of a learned rule: {t['words']}; drawn in a fixed random order from the "
                                   f"session's {len(pool):,} matching candidates; held to expiry", [])
-                policy._place(book, st, session, now, c, None, state.equity, regime)
+                policy._place(book, st, session, now, c, None, state.equity, regime, table, pricer)
                 placed.append(c)
             status = "traded" if placed else "nothing"
             detail = {"candidates": len(options), "matching": len(pool), "new_risk": round(sum(c.risk for c in placed), 2),
