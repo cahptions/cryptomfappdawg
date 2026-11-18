@@ -60,6 +60,7 @@ try {
     for (const name of [
       "The account",
       "Account value against the baselines",
+      "Learner picks",
       "Trades and why",
       "What it learned to do / not to do",
       "How strictly it is tested",
@@ -70,6 +71,12 @@ try {
     const status = await page.locator(".learner-status-box").innerText();
     assert.match(status, /exploit trades whose lower confidence bound/);
     assert.match(status, /15% of each session's 8% new-risk budget/);
+    // Not graduated in this fixture: its picks are a preview on this page only.
+    assert.equal(
+      await page.locator(".learner-picks-state").innerText(),
+      "Preview (shadow): not shown on Plays until it graduates.",
+    );
+    assert.ok((await page.locator(".learner-pick").count()) > 0);
     const strict = await page.locator(".learner-strict").innerText();
     assert.match(strict, /In \d+ held-out splits, \d+ were profitable/);
     assert.match(strict, /after accounting for the \d+ things it tried/);

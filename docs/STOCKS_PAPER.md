@@ -259,6 +259,12 @@ lotto account's Historical replay card shows its version: picks, return on the m
 worthless, reached 3× and 10×, the best pick, KESTREL against random with a bootstrap range, and for the sold-at-triple
 account the daily-high upper bound.
 
+**The Learner's accounts** ([STOCKS_LEARNER.md](STOCKS_LEARNER.md)): the **Learner** and its **random twin**, and
+one **learned trial** account per live trial (`learned_<id>`, at most five): each trades its confirmed finding's
+frozen rule on the session's recorded candidates, held to expiry, against the random twin. Their entries are decided
+by `desk.stocks.learner`, never by the engine's rules; the engine fills, marks, exits and settles them like every
+option account. A retired trial keeps managing its open positions and opens no new ones.
+
 ### Preregistered option research on real prices
 
 Four research-backed option rules were written down on 2026-11-08, before any result existed

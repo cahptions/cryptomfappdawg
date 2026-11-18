@@ -21,10 +21,22 @@ JOB = "learner"
 
 def register_specs(market: StocksMarket, now: datetime) -> dict[str, str]:
     """Freeze the Learner's rule sets (a changed rule without a new version is refused, as every frozen rule set)."""
-    from desk.stocks.learner import fills, findings, model, overfit, policy, promotion, regimes, validation
+    from desk.stocks.learner import (
+        fills,
+        findings,
+        graduation,
+        model,
+        overfit,
+        policy,
+        promotion,
+        regimes,
+        trials,
+        validation,
+    )
 
     return {m.NAME: market.register_spec(m.NAME, m.VERSION, m.content(), now)
-            for m in (act, ft, lb, model, regimes, findings, policy, promotion, fills, validation, overfit)}
+            for m in (act, ft, lb, model, regimes, findings, policy, promotion, fills, validation, overfit, trials,
+                      graduation)}
 
 
 def _learning_book(paths: DeskPaths) -> sqlite3.Connection | None:
@@ -42,7 +54,7 @@ def paper_step(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[st
     """Run by the PAPER step (``runner.process``), never by a research preview: decide the newest recorded closing
     session for the Learner account and its random twin (once; ``policy.decide`` refuses a session whose next one has
     opened), then record promotion stages and save the Learner page. A failure is reported and never raised."""
-    from desk.stocks.learner import account, policy
+    from desk.stocks.learner import account, policy, trials
 
     out: dict[str, Any] = {}
     market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
@@ -56,6 +68,14 @@ def paper_step(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[st
                                                stop=paths.stop_file.exists())
     except Exception as exc:  # recorded in the result; the next pass retries an undecided session
         out["error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
+    try:      # what it tries next: confirmed findings become trials (and failed ones retire), then they trade
+        register_specs(market, now)
+        out["trials"] = trials.sync(research.conn, dbs.ledger, now, market)
+        if row and row[0] is not None:
+            out["trials"]["decided"] = trials.decide(research.conn, dbs.ledger, market, date.fromordinal(int(row[0])),
+                                                     now, stop=paths.stop_file.exists())
+    except Exception as exc:  # recorded in the result; the next pass retries
+        out["trials_error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
     try:
         out["page"] = account.refresh(paths, dbs, now, review=True)
     except Exception as exc:  # the page keeps its previous view

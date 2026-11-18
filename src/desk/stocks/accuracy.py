@@ -1125,7 +1125,8 @@ def check_learner_account(src: Sources) -> Finding:
         f.skipped = "no Learner account"
         return f
     decisions = {r["id"]: r for r in src.ledger.execute("SELECT * FROM stk_learner_decisions")}
-    for p in src.ledger.execute("SELECT * FROM stk_positions WHERE account IN (?, ?)", policy.ACCOUNTS):
+    for p in src.ledger.execute("SELECT * FROM stk_positions WHERE account IN (?, ?) OR account LIKE 'learned\\_%' "
+                                "ESCAPE '\\'", policy.ACCOUNTS):        # the Learner, its twin and learned trials
         plan = json.loads(p["plan_json"])
         problems = learner_position_problems(p, decisions.get(int(plan.get("learner_decision") or 0)))
         f.expect(not problems, lambda p=p, problems=problems:

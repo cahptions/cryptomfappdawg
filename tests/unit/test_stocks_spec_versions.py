@@ -43,17 +43,20 @@ def current() -> dict[str, tuple[int, str]]:
         features,
         fills,
         findings,
+        graduation,
         labels,
         model,
         overfit,
         policy,
         promotion,
         regimes,
+        trials,
         validation,
     )
 
     out.update({m.NAME: (m.VERSION, h(m.content())) for m in (actions, features, labels, model, regimes, findings,
-                                                               policy, promotion, fills, validation, overfit)})
+                                                               policy, promotion, fills, validation, overfit, trials,
+                                                               graduation)})
     out.update({f"stocks_paper_{s.id}": (s.version, h(s.content())) for s in policy.STRATEGIES})
     return out
 

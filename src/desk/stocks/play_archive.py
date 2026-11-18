@@ -220,6 +220,13 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime,
         if plays:
             categories.append({"id":category.id,"title":category.title,"emoji":category.emoji,
                                "plays":plays,"summary":_summary(plays)})
+    from desk.stocks.play_history import is_learned, section_label
+
+    for cid in sorted({r["category"] for r in rows.values() if is_learned(r["category"])}):
+        plays = sorted((r for r in rows.values() if r["category"] == cid),
+                       key=lambda r:(r.get("identified_at") or "",r["symbol"],r.get("archive_id") or str(r["rank"])))
+        categories.append({"id":cid,"title":section_label(cid),"emoji":"🧪" if cid != "learner_picks" else "🤖",
+                           "plays":plays,"summary":_summary(plays)})
     every = [r for c in categories for r in c["plays"]]
     valued = sum(r["latest"] is not None for r in every)
     return {**closing,"version":2,"scope":"all","categories":categories,"summary":_summary(every),

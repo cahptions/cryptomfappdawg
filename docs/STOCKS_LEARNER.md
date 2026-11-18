@@ -15,6 +15,7 @@ It is built in phases:
 | 3 | A Learner PAPER account that composes its own trades within risk limits, with directed exploration, against the rules and random | built |
 | 4 | Written "do / don't" findings with evidence, regime awareness, promotion only after forward confirmation | built |
 | 5 | Cost-aware predictions (the expected fill of a limit order) and much stricter evaluation: many purged held-out splits, the deflated Sharpe ratio and the probability of overfitting, market-neutral skill, an ensemble only when it beats a single model | built |
+| 6 | Closing the loop: confirmed findings become trials (a Plays section and a PAPER account), "don't" warnings on Plays, the Learner's picks on Plays once it graduates, limit-order entries, and where each trade's money came from | built |
 
 **What it never does.** It places no order (research and PAPER only: its own account trades simulated money). It does
 not change a Plays ranking, another PAPER strategy, the Learning book or any calibration. No language model judges any trade: the model is ordinary
@@ -581,8 +582,42 @@ never trained on them, with their realised returns held to expiry), grid candida
 Each finding is written in plain words with its numbers, for example "Do: Long calls with IV rank at most 20 and price
 against its 200-day average at most −15%: +26% average held to expiry (90% range +17% to +35%), 75 candidates over 40
 days, held-out" (a synthetic example). Every stage is a new row (`stk_learn_findings`, `stk_learn_finding_status`). A
-confirmed **don't** is a hard filter for the Learner account; a **do** is information only. Frozen as
+confirmed **don't** is a hard filter for the Learner account and a warning on Plays; a confirmed **do** becomes a
+trial (below). Frozen as
 `stocks_learner_findings` v1.
+
+## From findings to trials (`learner/trials.py`, phase 6)
+
+A finding used to be information only. Since phase 6 every **confirmed "do"** finding (findings v2: Benjamini-Hochberg
+across the run, confirmed on later untouched days, deflated Sharpe ratio at least 0.95) becomes a **trial**: the
+Learner tries it forward.
+
+- **Derived, never edited.** `trials.derive(finding)` is a pure function of the finding: its rule (frozen), the rule
+  in words, the finding's id and rules version and the trials version. Its SHA-256 is the trial's fingerprint, and
+  the spec is registered (`stocks_trial_<id>`). The same finding always gives the same trial. Its id is
+  `learned_<first 8 of the finding id>`.
+- **A Plays section** with that id, "Learned: <rule>", labelled a trial with the finding's evidence: today's matching
+  candidates, one a stock, stocks and dial settings in a seeded order (session and trial), at most 12, held to
+  expiry ([STOCKS_PLAYS.md](STOCKS_PLAYS.md) → What the Learner learned). Recorded, twinned and graded like every
+  section. Matching uses the same point-in-time features as the experience log (`trials.Featurer`: stock and market
+  groups as of the previous close; a test writes wild values on and after the session and proves nothing changes).
+  Inputs known before pricing are checked first, so only stocks and dial settings that can still match are priced.
+- **A PAPER account** with that id (`trials.decide`, at the PAPER step after the Learner): the session's recorded
+  grid candidates matching the rule and no confirmed "don't", in a seeded order, sized like the random twin (2% a
+  trade, 8% a session) within the Learner's limits, **held to expiry**, compared with the random twin
+  (`paper.report`). Its decisions are in `stk_learner_decisions` / `stk_learner_days` (mode `random`, no model).
+- **Bounded.** At most **5** trials are live (`MAX_LIVE`); a confirmed finding waits, oldest confirmation first.
+  Each trial created is one more trial in the persistent counter (kind `finding`), so later findings face a higher
+  bar.
+- **Retired automatically** when its finding is retired, or when either forward record fails: over at least 20 graded
+  days (Plays: resolved at expiry, by pick session; PAPER: decision days whose trades have all closed at real fills)
+  the mean of daily means is at or below zero. A retired trial stops showing on Plays and stops opening positions;
+  its open positions run to expiry. Every stage is a new row (`stk_learn_trial_specs`, `stk_learn_trial_status`,
+  research migration `0023`).
+- **"Don't" findings** do not become trials. Plays puts a warning on every play they describe, and the Learner's
+  accounts (and the trial accounts) already skip such trades.
+
+Frozen as `stocks_learner_trials` v1. `trials.sync` runs at every PAPER step (`learner.job.paper_step`).
 
 ## Promotion only after forward confirmation (`learner/promotion.py`)
 
@@ -603,9 +638,27 @@ Realised returns at real fills only. Stages are appended to `stk_learn_promotion
 `stocks_learner_promotion` v1. Nothing is adopted anywhere by a confirmation: it is a label of evidence, in the style
 of the Learning promotions.
 
+## Learner picks on Plays (`learner/graduation.py`, phase 6)
+
+- **Graduated** when the current Learner version (model code + policy) is **confirmed** by promotion v2 (its first 20
+  entry days beat Random and the rule-based strategies, both 90% ranges above zero, deflated Sharpe ratio ≥ 0.95).
+  From then its newest decided trades (the newest session it traded, at most 5 sessions old) are a real Plays
+  section, **🤖 Learner picks**, each valued at today's quotes of its own contracts (a contract missing from today's
+  chain is left out), with the Learner's dials, mode and exit rule on the card. Recorded, twinned and graded at expiry
+  like every section; the section's id is `learner_picks` and its graduation is part of the Plays rule version.
+- **Until then** the picks are a **shadow preview** on the Learner page only ("Preview (shadow): not shown on Plays
+  until it graduates").
+- **Demoted automatically**: at each PAPER step the latest 20 entry days whose positions have all closed are judged by
+  the same test (`promotion.judge` on those days). A failure demotes it and the section goes away. It graduates again
+  only when a later window, starting after the failed one, passes. A new version (new model code or policy) starts
+  from nothing.
+- Every change is a row in `stk_learn_graduation` (research migration `0023`). Frozen as `stocks_learner_graduation`
+  v1.
+
 ## The Learner page (`#learner`; `learner/account.py`)
 
 - the account's status: trading or waiting, and the gate's reason with its numbers; the rule and the limits in words;
+- **Learner picks**: on Plays once graduated, otherwise a shadow preview of its newest decided trades, with why;
 - the Learner, its random twin, SPY (total return) and the rule-based option strategies' average on one chart, with a
   named legend; its grade (the PAPER grade); the realised comparison by entry day with ranges; the exploration share;
 - open and closed trades, each with its dials, legs, entry, money at risk, result, and its decision: the model's

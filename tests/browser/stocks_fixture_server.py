@@ -249,6 +249,54 @@ def learner_fixture(root: Path) -> None:
     world.close()
 
 
+def learned_trials_fixture(root: Path) -> None:
+    """A confirmed "do" finding turned into a learned trial (a Plays section) and a confirmed "don't" warning on the
+    straddles it describes, over a few recorded synthetic sessions: synthetic findings, never real evidence."""
+    from desk.stocks import plays
+    from desk.stocks.learner import experience, trials
+    from desk.stocks.runner import publish_plays
+    from tests.integration.test_stocks_learner_trials import CALL_MONTH, STRADDLES, add_finding
+
+    world = make_world(root, n=14)
+    add_chains(world, ["SPY", "CHEAP", "SQZ", "S10", "S11", "S12"], world.days[-6:], max_days=120)
+    for d in world.days[-6:-1]:
+        close = cal.session_close(d) + timedelta(minutes=30)
+        plays.build(world.market, world.research, close)
+        experience.record_forward(world.market, world.research, d, close)
+    add_finding(world.research.conn, CALL_MONTH)
+    add_finding(world.research.conn, STRADDLES, kind="dont")
+    evening = cal.session_close(world.days[-1]) + timedelta(hours=2)
+    trials.sync(world.research.conn, world.dbs.ledger, evening, world.market)
+    trials.decide(world.research.conn, world.dbs.ledger, world.market, world.days[-2],
+                  cal.session_close(world.days[-2]) + timedelta(minutes=40))
+    # The Learner graduated (synthetic: its version marked confirmed) with three picks decided the session before.
+    from desk.stocks.learner import graduation, policy
+    from desk.stocks.paper.book import PaperBook
+
+    session, book = world.days[-2], PaperBook(world.dbs.ledger)
+    pricer, chosen = policy.Pricer(world.market, session), []
+    for o in policy.session_candidates(world.research.conn, session):
+        if o.row["action"] != "BUY" or o.symbol in {c.option.symbol for c in chosen}:
+            continue
+        o.legs = pricer(o)
+        if o.legs is None:
+            continue
+        o.scores = {"expected": 0.18, "lcb": 0.04}
+        chosen.append(policy.Choice(o, "exploit", 1, o.risk_unit, "Exploit: synthetic fixture pick", []))
+        if len(chosen) == 3:
+            break
+    with book.atomic():
+        for c in chosen:
+            policy._place(book, policy.LEARNER, session, cal.session_close(session) + timedelta(minutes=40), c, None,
+                          policy.CAPITAL, "uptrend")
+    code, pv = graduation.current()
+    world.research.conn.execute("INSERT INTO stk_learn_promotions(model_code, policy_version, stage, at, detail_json) "
+                                "VALUES (?,?,?,?,?)", (code, pv, "confirmed", evening.isoformat(), "{}"))
+    graduation.step(world.research.conn, book, {}, evening)
+    publish_plays(world.paths, world.dbs, evening)
+    world.close()
+
+
 def learner_account_fixture(root: Path) -> None:
     """The Learner PAPER account over thirty synthetic sessions: candidates recorded, labelled, a small model trained,
     then each session decided by the policy and stepped by the PAPER engine. The synthetic model would not pass the
@@ -330,6 +378,8 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
         learner_fixture(root)
     elif args.scenario == "learner-account":
         learner_account_fixture(root)
+    elif args.scenario == "learned-trials":
+        learned_trials_fixture(root)
     elif args.scenario == "archive-history":
         from desk.stocks import play_selections, play_tracking, web
         from desk.stocks.repo import StocksDatabases
@@ -555,7 +605,7 @@ def main() -> None:
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
                                                "stock-page", "learning-report", "ops", "account", "learner",
-                                               "learner-account", "earnings", "structure"],
+                                               "learner-account", "earnings", "structure", "learned-trials"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()

@@ -25,6 +25,9 @@
   "1": "739dc807e8b3b2bd5fe28903c83baf8d838758cb65f8c163432d9e2a0dd7889b",
   "2": "1abe4d55396edd796fe38b0eaae5a7f4573f33669c8d92f65ffea1fe369e311a"
  },
+ "stocks_learner_graduation": {
+  "1": "b67d47eb419f25c7191d64a312f977306f3a4bd7269fdc6aafe054d944c1c080"
+ },
  "stocks_learner_labels": {
   "1": "31e44eac64cd410ec95d1cb4e92939d8619338a0db6332988a8e28cbab691bab",
   "2": "10e08ba4d2f88f40fda5d5d2163828a8043495d4b688962a3c854c3b2e3fca40"
@@ -51,6 +54,9 @@
  },
  "stocks_learner_regimes": {
   "1": "8d65defe81b28cf5002fafe48f4ad6994f955d58dabfcfd6cbbcbe8db2a2bb16"
+ },
+ "stocks_learner_trials": {
+  "1": "700459c419d65049366982753e741b87b7c986fbde9e4a0616e44dd3cdb4b11b"
  },
  "stocks_learner_validation": {
   "1": "415ed385a7efe8b0191142349b11c9a235a5e03cdfd3f22c6544969dd2266d76"

@@ -202,6 +202,11 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime) -> 
         if rows:
             categories.append({"id": c.id, "title": c.title, "emoji": c.emoji, "plays": rows, "summary": _summary(rows)})
             every.extend(rows)
+    for cid in sorted(k for k in by_category if is_learned(k)):        # learned trials and the Learner's picks
+        rows = by_category[cid]
+        categories.append({"id": cid, "title": section_label(cid), "emoji": "🧪" if cid != "learner_picks" else "🤖",
+                           "plays": rows, "summary": _summary(rows)})
+        every.extend(rows)
     return {"version": VERSION, "session": session.isoformat(), "generated_at": now.isoformat(),
             "categories": categories, "summary": _summary(every), "repair": get_state(research, "repair"),
             "methods": sorted({r["method"] for r in every})}
@@ -211,9 +216,17 @@ def session_view(research: sqlite3.Connection, session: date, now: datetime) -> 
 SORTS = {"rank": "Board order", "best": "Best return", "worst": "Worst return", "newest": "Newest first"}
 
 
+def is_learned(category_id: str) -> bool:
+    """A section the Learner adds and retires itself: a learned trial (``learned_*``) or the Learner's picks."""
+    return category_id.startswith("learned_") or category_id == "learner_picks"
+
+
 def section_label(category_id: str) -> str:
     """The section as Today's plays titles it; a retired section says its plays are older records."""
-    c = BY_CATEGORY[category_id]
+    c = BY_CATEGORY.get(category_id)
+    if c is None:                     # a learned trial or the Learner's picks: sections that come and go
+        return "Learner picks" if category_id == "learner_picks" else \
+            f"Learned trial ({category_id.removeprefix('learned_')})"
     return f"{c.title} (older recorded {c.title})" if any(r.id == c.id for r in RETIRED) else c.title
 
 
@@ -527,5 +540,5 @@ def resolve(research: sqlite3.Connection, when: str, now: datetime) -> date | No
     return nearest_session(research, date.fromisoformat(when))
 
 
-__all__ = ["SORTS", "basis_loss", "exit_opportunities", "filtered", "label", "live_values", "nearest_session", "order",
-           "play_view", "pnl", "point_time", "resolve", "section_label", "session_view", "sessions"]
+__all__ = ["SORTS", "basis_loss", "exit_opportunities", "filtered", "is_learned", "label", "live_values",
+           "nearest_session", "order", "play_view", "pnl", "point_time", "resolve", "section_label", "session_view", "sessions"]

@@ -435,6 +435,35 @@ const KestrelPlays = (() => {
     );
   }
 
+  // A learned trial's banner (learner.trials): what it is, where its rule came from and its forward record so far.
+  function trialBox(t) {
+    const box = el("div", undefined, "play-trial");
+    box.setAttribute("aria-label", "Learned trial");
+    box.append(
+      el("strong", "Trial · something the Learner learned"),
+      el("p", t.label),
+      el("p", `Forward record so far: ${t.forward_words}`, "caption"),
+      el(
+        "p",
+        `Rule frozen at fingerprint ${t.fingerprint} (trial version ${t.version}). It is retired automatically if the finding is retired or this record averages at or below zero over 20 graded days.`,
+        "caption muted",
+      ),
+    );
+    return box;
+  }
+
+  // A confirmed "don't" finding describes this play (learner.trials.warnings).
+  function dontWarning(play) {
+    if (!play.dont_warning) return null;
+    const p = el(
+      "p",
+      `⚠ Learned "don't": ${play.dont_warning.text}`,
+      "play-dont",
+    );
+    p.setAttribute("role", "note");
+    return p;
+  }
+
   function card(play) {
     const c = el("article", undefined, "setup-card play-card"),
       head = el("div", undefined, "setup-heading play-heading");
@@ -451,6 +480,16 @@ const KestrelPlays = (() => {
     if (play.unusual?.tier)
       head.append(el("span", play.unusual.tier, "research-badge quiet"));
     c.append(head);
+    const warning = dontWarning(play);
+    if (warning) c.append(warning);
+    if (play.learner_pick)
+      c.append(
+        el(
+          "p",
+          `Learner's choice: ${play.learner_pick.dials} · ${play.learner_pick.mode} · its exit rule: ${play.learner_pick.exit_title}`,
+          "caption play-learner-pick",
+        ),
+      );
     c.append(
       el(
         "p",
@@ -1331,6 +1370,16 @@ const KestrelPlays = (() => {
         );
       head.append(text);
       body.append(head, el("p", cat.basis, "muted caption"));
+      if (cat.trial) body.append(trialBox(cat.trial));
+      if (cat.learner) {
+        const g = el("div", undefined, "play-trial play-learner");
+        g.setAttribute("aria-label", "Learner picks");
+        g.append(
+          el("strong", "Graduated · the Learner's own picks"),
+          el("p", cat.learner.why),
+        );
+        body.append(g);
+      }
       if (budget) {
         const note = el(
           "p",

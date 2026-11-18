@@ -245,10 +245,12 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
     panel = load_panel(market, target - timedelta(days=settings.history_days), target)
     analyzer = Analyzer(market, research, settings)
     learned, retired = lab.strategies(research)
+    from desk.stocks.learner import trials
     from desk.stocks.learner.policy import STRATEGIES as LEARNER_ACCOUNTS
 
-    strategies = (*STRATEGIES, *learned, *LEARNER_ACCOUNTS)   # the Learner's accounts: entries from learner.policy
-    engine = PaperEngine(market, book, settings, strategies, retired)
+    tried, ended = trials.strategies(research.conn)          # learned trials: entries from learner.trials
+    strategies = (*STRATEGIES, *learned, *LEARNER_ACCOUNTS, *tried)   # the Learner's accounts: entries from learner.policy
+    engine = PaperEngine(market, book, settings, strategies, retired | ended)
     # Missed sessions manage existing exposure only; no retrospectively discovered entries or fabricated bars.
     last = book.last_step()
     missed = [d for d in available if last is not None and last < d < target]

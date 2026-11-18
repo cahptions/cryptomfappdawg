@@ -1152,3 +1152,23 @@
   white-space: normal;
   vertical-align: top;
 }
+/* A learned trial's banner and a learned "don't" warning on a card (learner.trials). */
+.play-trial {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--accent, var(--line-strong));
+  border-radius: 8px;
+  background: var(--surface-1);
+  font-size: 13px;
+}
+.play-trial p {
+  margin: 4px 0;
+}
+.play-dont {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-radius: 4px;
+  font-size: 13px;
+}

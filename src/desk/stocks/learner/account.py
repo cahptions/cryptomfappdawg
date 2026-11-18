@@ -187,6 +187,11 @@ def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, marke
     out["evaluation"] = view.evaluation(json.loads(latest["metrics_json"]), out["fills"]) if latest is not None else []
     out["trials"] = of.totals(research)
     out["forecast"] = forecast_view(getattr(market, "conn", market), research)
+    from desk.stocks.learner import graduation as gr
+
+    out["graduation"] = gr.status(research)
+    out["picks"] = {**gr.picks(ledger if ledger is not None and _has(ledger, "stk_learner_decisions") else None,
+                               now.date()), "on_plays": out["graduation"]["graduated"]}
     if ledger is None or not _has(ledger, "stk_learner_days"):
         out["models"] = models(research, {}, [])
         out["promotion"] = pr.overview(None, research)
@@ -311,6 +316,13 @@ def refresh(paths: DeskPaths, dbs: Any, now: datetime, *, force: bool = False, r
              "models": research.execute("SELECT COUNT(*) FROM stk_learn_models").fetchone()[0],
              "findings": research.execute("SELECT COUNT(*) FROM stk_learn_finding_status").fetchone()[0]}
     promoted = pr.review(ledger, research, now) if review else None
+    if review:
+        from desk.stocks.learner import graduation as gr
+
+        graduated = gr.review(ledger, research, now)
+        promoted = {**(promoted or {}), "graduation": graduated} if graduated.get("changed") else promoted
+    stamp["graduation"] = research.execute("SELECT COUNT(*) FROM stk_learn_graduation").fetchone()[0] \
+        if _has(research, "stk_learn_graduation") else 0
     previous = saved(paths.home) or {}
     if not force and not promoted and previous.get("stamp") == json.loads(json.dumps(stamp)):
         return {"refreshed": False}

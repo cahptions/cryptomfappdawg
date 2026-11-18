@@ -1188,6 +1188,18 @@ footer {
 .learner-status-box p {
   margin: 0;
 }
+/* Learner picks: a preview until it graduates, a Plays section after (learner.graduation). */
+.learner-picks-state {
+  font-weight: 600;
+}
+.learner-picks-state.preview {
+  color: var(--muted, inherit);
+}
+.learner-pick-list {
+  margin: 4px 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
 .learner-chart-svg {
   width: 100%;
   height: auto;

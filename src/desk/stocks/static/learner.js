@@ -210,6 +210,47 @@ const KestrelLearner = (() => {
     box.append(list);
     return box;
   }
+  // Its daily picks: a real Plays section once it has graduated (learner.graduation), a shadow preview until then.
+  function picks(data) {
+    const box = el("section", undefined, "learner-picks");
+    box.setAttribute("aria-label", "Learner picks");
+    const g = data.graduation || {},
+      pk = data.picks || { items: [] };
+    box.append(
+      el("h2", "Learner picks"),
+      el(
+        "p",
+        g.graduated
+          ? "On Plays: its newest picks are the Plays section “Learner picks”, graded like every section."
+          : "Preview (shadow): not shown on Plays until it graduates.",
+        `learner-picks-state ${g.graduated ? "on-plays" : "preview"}`,
+      ),
+      el("p", g.why || "", "caption muted"),
+    );
+    if (!pk.items?.length) {
+      box.append(
+        el(
+          "p",
+          pk.session
+            ? `It chose no trade on ${pk.session}.`
+            : "No picks yet: it has not traded.",
+          "muted",
+        ),
+      );
+      return box;
+    }
+    const list = el("ul", undefined, "learner-pick-list");
+    for (const i of pk.items)
+      list.append(
+        el(
+          "li",
+          `${i.symbol} · ${i.dials} · ${i.mode} · expected ${pct(i.expected)} · exit: ${i.exit_title}`,
+          "learner-pick",
+        ),
+      );
+    box.append(el("p", `Decided on ${pk.session}:`, "caption"), list);
+    return box;
+  }
   // How strictly the model is tested, in plain words (written by the worker: costs, many held-out splits, luck from
   // trying many variants, overfitting, raw vs market-neutral skill, ensemble vs single model).
   function strictness(data) {
@@ -513,6 +554,7 @@ const KestrelLearner = (() => {
     grid.append(accounts(data), chart(curves));
     app.append(
       grid,
+      picks(data),
       trades(data),
       strictness(data),
       forecast(data),

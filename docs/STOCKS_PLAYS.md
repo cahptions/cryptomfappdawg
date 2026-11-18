@@ -524,6 +524,34 @@ included, under KESTREL's two forecasts ([STOCKS_METHOD.md](STOCKS_METHOD.md) se
   stays the calibrated `odds` chance: Plays' model info reports both Brier scores on the same graded plays, and
   switching would take a new `odds.MODEL_VERSION`.
 
+## What the Learner learned: trials and warnings
+
+The Learner's written findings ([STOCKS_LEARNER.md](STOCKS_LEARNER.md) → From findings to trials) are not only
+documented: they change what Plays shows.
+
+- **🧪 Learned: <the rule in words>.** Each live learned trial is its own section, for example "Learned: Long calls
+  expiring about a month (22–45 days) with IV rank at most 20". Its banner says it is a **trial** (found on held-out
+  data, confirmed on later untouched data, not proven until its own forward record says so), shows the finding's
+  evidence (its average, days, confirmation and deflated Sharpe ratio), the rule's fingerprint and the forward record
+  so far ("Plays: +6% average over 14 graded days (31 trades); judged from 20 days"). Its plays are today's
+  candidates matching the rule: the stocks in a fixed random order (seeded by the session and the trial), one
+  matching trade a stock, at most 12. That is a fair sample, not a ranking, because the finding is about the average
+  matching trade. The exit plan is **hold to expiry**, the way the finding was measured. The section is recorded at
+  the close, twinned and graded at expiry like every other section, appears in History, and goes away when the trial
+  is retired (its finding retired, or its record averaged at or below zero over 20 graded days). At most five are
+  live. The live trials' fingerprints are part of the Plays rule version.
+- **⚠ Learned "don't".** A play matching a confirmed "don't" finding carries a warning on its card: "The Learner
+  found that long straddles did worse than a random candidate (−9% average held to expiry over 31 days), and
+  confirmed it on later data. Its own accounts skip trades like this one." The ranking is not changed. Checked for
+  each section's main list and the trial sections, with the Learner's own point-in-time features (as of the previous
+  close).
+- **🤖 Learner picks.** Once the Learner PAPER account has **graduated** (its version confirmed forward: 20 entry
+  days beating its random twin and the rule-based strategies, deflated Sharpe ratio ≥ 0.95), its newest decided
+  trades are their own section, valued at today's quotes, each card saying the Learner's dials, explore or exploit
+  and its exit rule. Recorded and graded at expiry like every section. It is **demoted** (the section goes away) when
+  its latest 20 closed entry days fall below the same bar. Until it graduates, the picks are a preview on the Learner
+  page only.
+
 ## Unusual activity
 
 Paid "unusual options activity" feeds read every exchange trade print (OPRA) and see sweeps, blocks and which side

@@ -217,9 +217,11 @@ def vol_info(model: vf.Model | None) -> dict[str, Any]:
             "method_text": {k: vf.METHODS[v] for k, v in methods.items()}}
 
 
-def method(promoted: Mapping[str, str] | None = None, structure: Sequence[str] = ()) -> str:
-    """The rule version: categories, the probability model, any challenger promoted into the live rules and the
-    sections whose ranking the structure pricing has earned a say in (``forecast.structure.gates``)."""
+def method(promoted: Mapping[str, str] | None = None, structure: Sequence[str] = (), trials: Sequence[str] = ()
+           ) -> str:
+    """The rule version: categories, the probability model, any challenger promoted into the live rules, the
+    sections whose ranking the structure pricing has earned a say in (``forecast.structure.gates``) and the live
+    learned trials' fingerprints (``learner.trials``) with the Learner's picks once it has graduated."""
     from desk.stocks.forecast import structure as st
 
     content: dict[str, Any] = {"version": VERSION, "categories": [c.content() for c in CATEGORIES],
@@ -232,6 +234,8 @@ def method(promoted: Mapping[str, str] | None = None, structure: Sequence[str] =
         content["promoted"] = dict(sorted(promoted.items()))
     if structure:
         content["structure_ranks"] = sorted(structure)
+    if trials:
+        content["learned"] = sorted(trials)
     return sha256_hex(canonical_json(content))[:16]
 
 
@@ -2132,6 +2136,87 @@ def horizon_cohort(category: str, plays: Sequence[dict[str, Any]]) -> dict[str, 
     return out
 
 
+def _learned_rules(research: StocksResearch) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """The live learned trials, the confirmed "don't" findings and the Learner's graduation (``learner.trials``,
+    ``learner.findings``, ``learner.graduation``)."""
+    from desk.stocks.learner import findings as fd
+    from desk.stocks.learner import graduation as gr
+    from desk.stocks.learner import trials as tr
+
+    return tr.live(research.conn), fd.confirmed_donts(research.conn), gr.status(research.conn)
+
+
+def learner_picks(tables: Sequence[Table], ctx: Context, ledger: PaperBook | None, session: date,
+                  graduation: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The graduated Learner's newest picks as a Plays section (``learner.graduation``): its decided trades, each
+    valued at this session's quotes of its own contracts; None until it has graduated."""
+    if not graduation.get("graduated"):
+        return None
+    from desk.stocks.learner import experience as ex
+    from desk.stocks.learner import graduation as gr
+
+    chosen = gr.picks(None if ledger is None else ledger.conn, session)
+    by = {tb.u.symbol: tb for tb in tables}
+    plays: list[dict[str, Any]] = []
+    for item in chosen["items"]:
+        tb = by.get(item["symbol"])
+        if tb is None or not item["legs"]:
+            continue
+        index = {q.occ: i for i, q in enumerate(tb.quotes)}
+        try:
+            structure = structure_of(item["legs"])
+            legs = [(index[leg["occ"]], str(leg["side"])) for leg in ex.ordered(structure, item["legs"])]
+            p = finish(Candidate(gr.SECTION, tb, structure, legs, float(item.get("expected") or 0.0),
+                                 [item["reason"]]), ctx)
+        except (KeyError, ValueError, ZeroDivisionError, IndexError, FloatingPointError):
+            continue
+        plays.append({**p, "rank": len(plays) + 1, "selection_score": float(item.get("expected") or 0.0),
+                      "learner_pick": {k: item[k] for k in ("dials", "mode", "exit_title", "reason", "expected")}})
+    return {"id": gr.SECTION, "title": "Learner picks", "emoji": "🤖",
+            "blurb": ("The Learner's own trades, chosen by its model within its risk limits from every candidate "
+                      "KESTREL recorded" + (f" on {chosen['session']}" if chosen.get("session") else "")
+                      + ", shown at today's quotes. " + graduation["why"]),
+            "basis": ("Its PAPER account's decisions of its newest trading session (exploit: a lower confidence bound "
+                      "above zero; explore: a seeded Thompson draw), in the order it chose them. Graded at expiry "
+                      "like every section."),
+            "empty": "The Learner chose no trade on its newest session.", "plays": plays, "learner": graduation}
+
+
+def learned_sections(market: StocksMarket, research: StocksResearch, tables: Sequence[Table], ctx: Context,
+                     session: date, now: datetime, ledger: PaperBook | None, specs: Sequence[dict[str, Any]],
+                     donts: Sequence[dict[str, Any]], board: Sequence[dict[str, Any]],
+                     recorded: dict[str, list[dict[str, Any]]], track: Mapping[str, Mapping[str, Any]],
+                     take_history: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Each live learned trial as a Plays section (``learner.trials``: today's trades matching the finding's frozen
+    rule, a fair seeded sample), recorded and graded like every section; and a warning on every play of the board
+    matching a confirmed "don't" finding."""
+    if not (specs or donts) or not tables:
+        return []
+    from desk.stocks import play_plan as plan
+    from desk.stocks.learner import trials as tr
+
+    featurer = tr.Featurer(market, research, tables, session, now, ctx.rate, ctx.outlook)
+    out = []
+    for spec in specs:
+        plays: list[dict[str, Any]] = []
+        for c in tr.candidates(spec, tables, featurer, session, PER_CATEGORY):
+            try:
+                p = finish(c, ctx)
+            except (ValueError, KeyError, ZeroDivisionError, IndexError, FloatingPointError):
+                continue
+            plays.append({**p, "selection_score": c.score, "rank": len(plays) + 1})
+        for p in plays:
+            plan.attach(p, spec["id"], record_for(track, spec["id"], int(p["dte"])), None, ctx.rate, session,
+                        calibrations=ctx.calibration, history=take_history)
+        recorded[spec["id"]] = plays
+        card = tr.card(spec, research.conn, None if ledger is None else ledger.conn)
+        out.append({**tr.section(spec, card), "plays": plays, "record": track.get(spec["id"]), "so_far": None,
+                    "paper": None, "budget_plays": [], "horizon_plays": [], "horizon_free": True,
+                    "horizon_records": {}, "label": None, "live_rules": None, "exit": None})
+    tr.warnings(donts, [p for c in (*board, *out) for p in c["plays"]], tables, featurer)
+    return out
+
+
 def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledger: PaperBook | None = None,
           previous: dict[str, Any] | None = None) -> dict[str, Any]:
     """Score the latest options session into plays; record them once the session has closed; grade expired ones."""
@@ -2152,7 +2237,9 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     live = lrn.promoted(research.conn)
     gates = st.gates(research.conn)
     ranks = sorted(k for k, v in gates.items() if v["live"])
-    m = method(live, ranks)
+    learned_specs, donts, graduation = _learned_rules(research)
+    m = method(live, ranks, [t["fingerprint"] for t in learned_specs]
+               + ([f"learner_picks:{graduation['version']}"] if graduation["graduated"] else []))
     key = signature(market, research, session, now, m)
     if previous and previous.get("input_hash") == key and not graded:
         return previous
@@ -2234,6 +2321,18 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
         if cat.id == "unusual":
             entry["followups"] = followups(ctx.flagged, tables, research)
         out_categories.append(entry)
+    learned_entries = learned_sections(market, research, tables, ctx, session, now, ledger, learned_specs, donts,
+                                       out_categories, recorded, track, take_history)
+    picked = learner_picks(tables, ctx, ledger, session, graduation)
+    if picked is not None:
+        for p in picked["plays"]:
+            plan.attach(p, picked["id"], record_for(track, picked["id"], int(p["dte"])), None, ctx.rate, session,
+                        calibrations=ctx.calibration, history=take_history)
+        recorded[picked["id"]] = picked["plays"]
+        learned_entries.insert(0, {**picked, "record": track.get(picked["id"]), "so_far": None, "paper": None,
+                                   "budget_plays": [], "horizon_plays": [], "horizon_free": True,
+                                   "horizon_records": {}, "label": None, "live_rules": None, "exit": None})
+    out_categories.extend(learned_entries)
     added = record(research, session, recorded, now, m) if closed else []
     horizon_added = record(research, session, by_horizon, now, horizon_method(m), keep=HORIZON_KEPT) if closed else []
     twins = record_twins(research, session, {c: recorded[c] for c in added}, tables, now) if added else 0
@@ -2270,9 +2369,10 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     }
 
 
-__all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "HORIZON_MARK", "RECORDED", "RETIRED", "Candidate",
-           "Category", "Context", "Table", "Underlying", "build", "calibrated", "calibration", "calibration_summary",
-           "calibrator", "committee_ic", "dte_bucket", "event_history", "exit_rule_for", "finish", "flagged_before",
-           "followups", "grade", "grade_events", "history_line", "horizon_cohort", "horizon_method", "horizon_plays",
-           "implied_vols", "load", "method", "raw_chances", "record", "record_for", "record_twins", "records",
-           "session_closed", "settle_value", "signature", "structure_value", "table", "tracked_quote", "twin"]
+__all__ = ["BY_CATEGORY", "CATEGORIES", "GRADED_EVENTS", "HORIZONS", "HORIZON_MARK", "RECORDED", "RETIRED",
+           "Candidate", "Category", "Context", "Table", "Underlying", "build", "calibrated", "calibration",
+           "calibration_summary", "calibrator", "committee_ic", "dte_bucket", "event_history", "exit_rule_for",
+           "finish", "flagged_before", "followups", "grade", "grade_events", "history_line", "horizon_cohort",
+           "horizon_method", "horizon_plays", "implied_vols", "learned_sections", "learner_picks", "load", "method",
+           "raw_chances", "record", "record_for", "record_twins", "records", "session_closed", "settle_value",
+           "signature", "structure_value", "table", "tracked_quote", "twin"]

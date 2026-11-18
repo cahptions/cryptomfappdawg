@@ -90,6 +90,8 @@ def _standard(play: Mapping[str, Any], category: str) -> tuple[float | None, flo
     gain = (play.get("max_gain") or 0.0) / play["max_loss"] if play.get("max_gain") else None
     if category == "lottos":
         return 2.0, None, None, "Lottos: sell when it triples; otherwise let it run, sized so losing it all is fine"
+    if category.startswith("learned_"):
+        return None, None, None, "A learned trial: held to expiry, the way the finding was measured"
     if category == "leaps" or (s in ("long_call", "long_put") and dte >= 180):
         return 0.5, 0.3, 60, "Long-dated: bank +50%, cut at −30%, and leave before the last two months of fast decay"
     if s in ("long_call", "long_put"):
