@@ -82,6 +82,10 @@ def add_parser(sub: Any) -> None:
                         "minutes; never adopted by any trading)").set_defaults(func=run)
     commands.add_parser("learner-bench", help="time and memory of a Learner training on a synthetic year (no data is "
                         "read or written)").set_defaults(func=run)
+    commands.add_parser("forecast-fit", help="fit this week's direction and volatility-surprise models now (a few "
+                        "minutes) and show their out-of-sample check").set_defaults(func=run)
+    commands.add_parser("forecast-bench", help="time and memory of one weekly direction fit on a synthetic universe "
+                        "(1,200 stocks, about ten years; no data is read or written)").set_defaults(func=run)
     commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
     vol = commands.add_parser("vol-forecast", help="compute every stock's realized variance not yet stored, refit "
                               "the HAR-IV volatility forecast and show its out-of-sample check (a few minutes at most)")
@@ -181,7 +185,30 @@ def _run(args: argparse.Namespace) -> int:
         from desk.stocks.learner import train
 
         paths.ensure()
-        print(json.dumps(train.main(paths), indent=2, default=str))
+        print(json.dumps(train.main(paths, force=True), indent=2, default=str))
+        return 0
+    if args.stocks_command in ("forecast-fit", "forecast-bench"):
+        from desk.core.clock import utc_now
+        from desk.stocks.forecast import job as forecast_job
+
+        def tell(line: str) -> None:
+            print("  " + line, file=sys.stderr, flush=True)
+
+        if args.stocks_command == "forecast-bench":
+            print(json.dumps(forecast_job.bench(progress=tell), indent=2))
+            return 0
+        paths.ensure()
+        dbs = StocksDatabases.open(paths)
+        try:
+            from desk.stocks.daily import register_specs
+
+            now = utc_now()
+            register_specs(StocksMarket(dbs.market), now)
+            print(json.dumps(forecast_job.run(dbs.market, dbs.research, now, progress=tell), indent=2, default=str))
+            for line in forecast_job.summary_lines(dbs.market):
+                print(line)
+        finally:
+            dbs.close()
         return 0
     if args.stocks_command == "vol-forecast":
         from desk.core.clock import utc_now

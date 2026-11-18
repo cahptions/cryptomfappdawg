@@ -33,9 +33,9 @@ def current() -> dict[str, tuple[int, str]]:
            "stocks_validation": (val.VERSION, h(val.content())), me.NAME: (me.VERSION, h(me.content())),
            vf.NAME: (vf.VERSION, h(vf.content())), osg.NAME: (osg.VERSION, h(osg.content())),
            em.NAME: (em.VERSION, h(em.content()))}
-    from desk.stocks.forecast import direction
+    from desk.stocks.forecast import direction, vol_surprise
 
-    out.update({m.NAME: (m.VERSION, h(m.content())) for m in (direction,)})
+    out.update({m.NAME: (m.VERSION, h(m.content())) for m in (direction, vol_surprise)})
     out.update({f"stocks_list_{s.id}": (s.version, h(s.content())) for s in LISTS})
     out.update({f"stocks_paper_{s.id}": (s.version, h(s.content())) for s in STRATEGIES})
     from desk.stocks.learner import (

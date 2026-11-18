@@ -208,5 +208,8 @@
  },
  "stocks_vol_forecast": {
   "1": "30c540cc2acc9c56f76f4c4aed89acc6d9ba7f9665f952606f7dfd26ae77602b"
+ },
+ "stocks_vol_surprise": {
+  "1": "6483a360d307fa97f9ef43fe70ada12f0c2706431bc079d114eff79bff1c9829"
  }
 }

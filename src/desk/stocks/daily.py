@@ -43,9 +43,9 @@ def register_specs(market: StocksMarket, at: datetime) -> dict[str, str]:
     out[vf.NAME] = market.register_spec(vf.NAME, vf.VERSION, vf.content(), at)
     out[osg.NAME] = market.register_spec(osg.NAME, osg.VERSION, osg.content(), at)
     out[em.NAME] = market.register_spec(em.NAME, em.VERSION, em.content(), at)
-    from desk.stocks.forecast import direction
+    from desk.stocks.forecast import direction, vol_surprise
 
-    for m in (direction,):
+    for m in (direction, vol_surprise):
         out[m.NAME] = market.register_spec(m.NAME, m.VERSION, m.content(), at)
     return out
 

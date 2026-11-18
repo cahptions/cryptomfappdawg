@@ -136,3 +136,9 @@ def test_fits_are_append_only_and_used_only_from_their_day(dbs: StocksDatabases,
     with pytest.raises(Exception, match="append-only"):
         dbs.market.execute("DELETE FROM stk_forecast_fits")
 
+
+def test_the_weekly_job_records_a_reason_when_there_is_no_data(dbs: StocksDatabases) -> None:
+    now = datetime(2026, 1, 20, 23, tzinfo=UTC)
+    assert job.due(dbs.market, now)
+    out = job.run(dbs.market, dbs.research, now)
+    assert out["direction"]["fitted"] is False and out["vol_surprise"]["fitted"] is False

@@ -64,14 +64,40 @@ def _registry(paths: DeskPaths) -> tuple[str | None, int]:
 MIN_GROUPS = 40                    # labelled stock-sessions before the first model is worth training
 
 
-def due(paths: DeskPaths, now: datetime) -> bool:
+def learner_due(paths: DeskPaths, now: datetime) -> bool:
     last, groups = _registry(paths)
-    if groups < MIN_GROUPS:
+    return groups >= MIN_GROUPS and (last is None or now - datetime.fromisoformat(last) >= WEEK)
+
+
+def forecast_due(paths: DeskPaths, now: datetime) -> bool:
+    """The direction or volatility-surprise model has no fit for this week yet (``forecast.job``)."""
+    from desk.stocks.forecast import job
+    from desk.stocks.repo import MARKET_FILE
+
+    path = paths.db_dir / MARKET_FILE
+    if not path.exists():
         return False
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+    try:
+        if conn.execute("SELECT 1 FROM stk_bars LIMIT 1").fetchone() is None:
+            return False
+        return job.due(conn, now)
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+
+def due(paths: DeskPaths, now: datetime) -> bool:
+    """The Learner's weekly training is due, or the forecast models' weekly fit is (tried once per fit day, so a
+    week without enough data does not start the subprocess on every check)."""
+    from desk.stocks import vol_forecast as vf
+
     s = state(paths)
     if s.get("status") == "failed" and s.get("updated_at") and now - datetime.fromisoformat(s["updated_at"]) < RETRY:
         return False
-    return last is None or now - datetime.fromisoformat(last) >= WEEK
+    tried = s.get("forecast_for") == vf.current_fit_day(now).isoformat()
+    return learner_due(paths, now) or (not tried and forecast_due(paths, now))
 
 
 class Trainer:
@@ -127,9 +153,9 @@ class Trainer:
                     self.process.kill()
 
 
-def main(paths: DeskPaths) -> dict[str, Any]:
-    """Train, freeze and register; then refresh the shadow view. Run in the subprocess (or ``desk stocks
-    learner-train``)."""
+def main(paths: DeskPaths, *, force: bool = False) -> dict[str, Any]:
+    """Refit the forecast models when due, then train, freeze and register the Learner when due (``force``: both now);
+    then refresh the shadow view. Run in the subprocess (or ``desk stocks learner-train``, which forces)."""
     from desk.stocks.learner import model, view
     from desk.stocks.repo import StocksDatabases
 
@@ -142,11 +168,22 @@ def main(paths: DeskPaths) -> dict[str, Any]:
                 def progress(text: str) -> None:
                     publish(paths, status="running", phase=f"Training the Learner (shadow): {text}")
 
+                forecasts, tried = None, state(paths).get("forecast_for")
+                if force or forecast_due(paths, now):     # the direction and volatility-surprise fits come first
+                    from desk.stocks.forecast import job as forecast_job
+
+                    forecasts = forecast_job.run(dbs.market, dbs.research, now, progress=progress)
+                    tried = forecasts["fit_day"]
+                if not (force or learner_due(paths, now)):
+                    publish(paths, status="completed", phase="Forecast models refitted", forecasts=forecasts,
+                            forecast_for=tried)
+                    return {"trained": False, "reason": "the Learner is not due this week", "forecasts": forecasts}
                 result = model.train(dbs.research, paths.home, now, progress=progress, market=dbs.market)
+                result["forecasts"] = forecasts
                 if result.get("trained"):
                     view.refresh(paths, dbs, utc_now(), force=True)
                 publish(paths, status="completed" if result.get("trained") else "waiting", phase=result.get(
-                    "reason") or "Trained", result=result)
+                    "reason") or "Trained", result=result, forecast_for=tried)
                 return result
             finally:
                 dbs.close()

@@ -1,4 +1,4 @@
-"""The weekly refit of the forecast models, run in the Learner's niced training subprocess
+"""The weekly refit of the direction and volatility-surprise models, run in the Learner's niced training subprocess
 (``learner.train.main``) before the Learner itself trains, so its features use the newest fits; also ``desk stocks
 forecast-fit``. Each model fits once per fit day (the first session of the week, as ``vol_forecast``); a failure is
 recorded and the other model still runs. ``bench`` measures one weekly fit on a synthetic universe."""
@@ -17,12 +17,14 @@ from desk.stocks import vol_forecast as vf
 from desk.stocks.forecast import direction as dr
 from desk.stocks.forecast import panel as pn
 from desk.stocks.forecast import store
+from desk.stocks.forecast import vol_surprise as vs
 
 
 def due(market: Any, now: datetime) -> bool:
     """A model has no fit for this week's fit day yet."""
     target = vf.current_fit_day(now)
-    return (store.newest_day(market, dr.MODEL, dr.VERSION) or date.min) < target
+    return any((store.newest_day(market, m, v) or date.min) < target
+               for m, v in ((dr.MODEL, dr.VERSION), (vs.MODEL, vs.VERSION)))
 
 
 def run(market: Any, research: Any, now: datetime, *, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
@@ -30,7 +32,8 @@ def run(market: Any, research: Any, now: datetime, *, progress: Callable[[str], 
     fit_day = vf.current_fit_day(now)
     out: dict[str, Any] = {"fit_day": fit_day.isoformat()}
     work: dict[str, Callable[[], dict[str, Any]]] = {
-        "direction": lambda: dr.refit(market, research, fit_day, now, progress=progress)}
+        "direction": lambda: dr.refit(market, research, fit_day, now, progress=progress),
+        "vol_surprise": lambda: vs.refit(market, fit_day, now, progress=progress)}
     for name, fit in work.items():
         try:
             out[name] = fit()
@@ -42,7 +45,7 @@ def run(market: Any, research: Any, now: datetime, *, progress: Callable[[str], 
 def summary_lines(market: Any) -> list[str]:
     """Plain lines for ``desk stocks forecast-fit``: each model's newest fit and its held-out check per horizon."""
     lines = []
-    for title, model, version in (("Direction", dr.MODEL, dr.VERSION),):
+    for title, model, version in (("Direction", dr.MODEL, dr.VERSION), ("Volatility surprise", vs.MODEL, vs.VERSION)):
         rec = store.latest(market, model, version)
         if rec is None:
             lines.append(f"{title}: no fit yet (the baseline is used: KESTREL behaves as before).")
