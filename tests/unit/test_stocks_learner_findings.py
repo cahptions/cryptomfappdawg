@@ -47,8 +47,9 @@ def planted(rows: int = 20_000, sessions: int = 100, seed: int = 3) -> md.Datase
     structure = X[:, md.FEATURES.index("structure")]
     good = (structure == 0) & (X[:, md.FEATURES.index("iv_rank")] < 20)
     bad = (structure == 3) & (X[:, md.FEATURES.index("regime_vol")] == 2)
-    ds.y["exp"][good] = np.maximum(-1, rng.normal(0.8, 0.3, good.sum()))
-    ds.y["exp"][bad] = np.maximum(-1, rng.normal(-0.8, 0.15, bad.sum()))
+    ups, downs = np.maximum(-1, rng.normal(0.8, 0.3, good.sum())), np.maximum(-1, rng.normal(-0.8, 0.15, bad.sum()))
+    for t in ("exp", md.TARGET):                    # paying the ask and at the expected fill alike
+        ds.y[t][good], ds.y[t][bad] = ups, downs
     ds.index = np.arange(rows, dtype=np.int32)
     ds.key = [f"{act.STRUCTURES[int(v)].id}|d30|w0|1m" for v in structure]
     return ds
@@ -74,6 +75,7 @@ def mined(tmp_path_factory: pytest.TempPathFactory) -> Any:
 def test_findings_come_from_held_out_rows_and_find_the_planted_regions(mined: Any) -> None:
     conn, ds, held, metrics, stored, out = mined
     assert out["looked"] and out["new"] > 0 and out["rules_tested"] >= out["kept_by_fdr"]
+    assert out["trials_total"] == out["rules_tested"] and out["pbo"] is not None and 0 <= out["pbo"]["pbo"] <= 1
     tested = held["tested"]
     assert stored["rows"] == int(tested.sum()) and stored["first"] >= int(ds.session[tested].min())
     found = fd.current(conn)
@@ -83,6 +85,9 @@ def test_findings_come_from_held_out_rows_and_find_the_planted_regions(mined: An
         assert f["evidence"]["days"] >= fd.MIN_DAYS and f["evidence"]["p"] <= f["evidence"]["fdr_threshold"]
         assert f["words"].startswith("Do: " if f["kind"] == "do" else "Don't: ")
         assert "held-out" in f["words"]
+        deflated = f["evidence"]["deflated"]                                # v2: luck from every rule tried
+        assert deflated["passes"] and deflated["trials"] >= f["evidence"]["rules_tested"]
+        assert "deflated Sharpe ratio" in f["words"]
         if f["kind"] == "do":
             assert f["evidence"]["low"] > 0
         else:
@@ -91,8 +96,11 @@ def test_findings_come_from_held_out_rows_and_find_the_planted_regions(mined: An
     assert any(f["rule"]["structure"] == 0 and any(c["f"] == "iv_rank" and c.get("le") is not None
                                                      and c["le"] <= 25 for c in f["rule"]["conditions"])
                for f in does), [f["words"] for f in found]
-    donts = fd.confirmed_donts(conn)
-    assert any(f["rule"]["structure"] == 3 for f in donts)
+    # the planted "don't" is found (put debit spreads in high-vol markets); it is confirmed once enough later high-vol
+    # days arrive, and the broad "all put debit spreads" no longer passes: its deflated Sharpe ratio is too low
+    donts = [f for f in found if f["kind"] == "dont"]
+    assert any(f["rule"] == {"structure": 3, "conditions": [{"f": "regime_vol", "in": [2]}]} for f in donts)
+    assert not any(f["rule"] == {"structure": 3, "conditions": []} for f in found)
     assert metrics["by_regime"] and all("regime" in r for r in metrics["by_regime"])
     with pytest.raises(sqlite3.DatabaseError, match="append-only"):
         conn.execute("UPDATE stk_learn_finding_status SET status='confirmed'")
@@ -116,7 +124,7 @@ def test_later_days_that_contradict_a_confirmed_finding_retire_it(mined: Any) ->
     later = ds.subset(np.arange(len(ds)))
     later.session = later.session + 400                            # every row after every window
     hit = fd.matches(target["rule"], later.X)
-    later.y["exp"][hit] = -0.9                                      # now it loses
+    later.y[md.TARGET][hit] = -0.9                                  # now it loses
     later_held = {**held, "tested": np.ones(len(later), bool)}
     fd.save_heldout(conn, "model-b", later, later_held, NOW)
     again = fd.mine(conn, later, later_held, "model-b", NOW)

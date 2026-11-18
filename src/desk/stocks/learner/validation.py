@@ -104,7 +104,7 @@ def paths(n_groups: int = GROUPS, k: int = TEST_GROUPS) -> list[list[int]]:
     return [[per_group[g][p] for g in range(n_groups)] for p in range(count)]
 
 
-def _daily_top(sessions: np.ndarray, pred: np.ndarray, realised: np.ndarray, rows: np.ndarray
+def daily_top(sessions: np.ndarray, pred: np.ndarray, realised: np.ndarray, rows: np.ndarray
                ) -> tuple[dict[int, float], dict[int, float]]:
     """Each day's top-tenth mean realised and its excess over that day's average candidate."""
     top, excess = {}, {}
@@ -149,7 +149,7 @@ def run(sessions: np.ndarray, label_day: np.ndarray, realised: np.ndarray,
         if len(train) and len(test):
             pred[test] = fit_predict(train, test)
         ok = sp.test & ~np.isnan(pred) & ~np.isnan(realised)
-        top, excess = _daily_top(sessions, pred, realised, ok)
+        top, excess = daily_top(sessions, pred, realised, ok)
         excess_by_split.append(excess)
         per_split.append({"test_groups": list(sp.test_groups), "train_rows": int(sp.train.sum()),
                           "test_rows": int(ok.sum()), "days": len(top),
@@ -178,5 +178,5 @@ def run(sessions: np.ndarray, label_day: np.ndarray, realised: np.ndarray,
             "path_mean": _spread([p["mean"] for p in out_paths if p["mean"] is not None]), "per_split": per_split}
 
 
-__all__ = ["EMBARGO_SHARE", "GROUPS", "MAX_ROWS", "NAME", "TEST_GROUPS", "VERSION", "Split", "content", "group_bounds",
-           "paths", "run", "sharpe", "splits", "version_hash"]
+__all__ = ["EMBARGO_SHARE", "GROUPS", "MAX_ROWS", "NAME", "TEST_GROUPS", "VERSION", "Split", "content", "daily_top",
+           "group_bounds", "paths", "run", "sharpe", "splits", "version_hash"]

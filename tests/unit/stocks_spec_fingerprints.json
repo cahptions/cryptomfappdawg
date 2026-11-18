@@ -18,7 +18,8 @@
   "1": "13f448590b3a852206315555871a012c85e1c3560ae28419d2e0972e45f770a4"
  },
  "stocks_learner_findings": {
-  "1": "739dc807e8b3b2bd5fe28903c83baf8d838758cb65f8c163432d9e2a0dd7889b"
+  "1": "739dc807e8b3b2bd5fe28903c83baf8d838758cb65f8c163432d9e2a0dd7889b",
+  "2": "1abe4d55396edd796fe38b0eaae5a7f4573f33669c8d92f65ffea1fe369e311a"
  },
  "stocks_learner_labels": {
   "1": "31e44eac64cd410ec95d1cb4e92939d8619338a0db6332988a8e28cbab691bab"
@@ -30,11 +31,15 @@
   "4": "b9ea79e1791f4e87b731bd438ea113c0aad0e18cc0645bfaf3e3b9faa1734a92",
   "5": "a7e7b3e783377c9717633c2df869f20a6a506943d7d2767d139a9eb24b3fe0e3"
  },
+ "stocks_learner_overfit": {
+  "1": "89e3992f0d92d032d7c93540dbb9a212e65db0a628443d0345127602f0d0d26d"
+ },
  "stocks_learner_policy": {
   "1": "549bf94633ec5e8e073afa8db678b1327cd3d3544389713cbf4aa3766c873879"
  },
  "stocks_learner_promotion": {
-  "1": "4a97fda4d34cc14d7a227dc726f940078914ed951d5e74c379f13fde063c9cda"
+  "1": "4a97fda4d34cc14d7a227dc726f940078914ed951d5e74c379f13fde063c9cda",
+  "2": "e8959bd009a73cf93b5aea02e8ce950d3dca053db4ed3880ca0ea8eb9f147c39"
  },
  "stocks_learner_regimes": {
   "1": "8d65defe81b28cf5002fafe48f4ad6994f955d58dabfcfd6cbbcbe8db2a2bb16"

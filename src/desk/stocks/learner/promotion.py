@@ -15,7 +15,9 @@ days only:
   resampling each side's days. It needs at least ``MIN_RULE_DAYS`` rule entry days; with fewer the version stays
   provisional and says so.
 
-Both ranges above zero: **confirmed**. Otherwise **failed**, kept and shown, and the version is never promoted on
+Both ranges above zero **and** (v2) a **deflated Sharpe ratio** of the paired daily differences against Random of at
+least ``overfit.REQUIRED`` (0.95), counting every model trial ever recorded (``overfit``: the more variants were tried,
+the higher the bar): **confirmed**. Otherwise **failed**, kept and shown, and the version is never promoted on
 those days again (a new version starts its own test). Returns are realised at real fills only: a position closed at a
 modelled price (an underlying split, a modelled exit) is left out of every side. ``content`` is the frozen rule.
 
@@ -36,10 +38,11 @@ from typing import Any
 from desk.core.clock import to_iso
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks.learner import model as md
+from desk.stocks.learner import overfit as of
 from desk.stocks.learner import policy
 
 NAME = "stocks_learner_promotion"
-VERSION = 1
+VERSION = 2                         # v2: the deflated Sharpe ratio is required as well
 FORWARD_DAYS = 20
 MIN_RULE_DAYS = 5
 DRAWS = 2000
@@ -50,7 +53,9 @@ def content() -> dict[str, Any]:
             "unit": "model code version + policy version", "metric": "realised return on the money at risk per "
             "trade, averaged by entry day; real fills only", "vs_random": "paired by day, 90% bootstrap over days",
             "vs_rules": "difference of daily means over the same window, 90% bootstrap resampling each side",
-            "confirmed": "both lower ends above zero"}
+            "confirmed": "both lower ends above zero and the deflated Sharpe ratio of the paired daily differences "
+                         "against Random >= overfit.REQUIRED, N = every model trial recorded",
+            "overfit": of.version_hash()}
 
 
 def version_hash() -> str:
@@ -154,8 +159,9 @@ def _record(research: sqlite3.Connection, code: str, pv: str, stage: str, detail
                      "VALUES (?,?,?,?,?)", (code, pv, stage, to_iso(now), json.dumps(detail, allow_nan=False)))
 
 
-def judge(book: Any, decisions: Mapping[int, int]) -> dict[str, Any]:
-    """The forward test of one version (see the module docstring): progress, or the verdict and its evidence."""
+def judge(book: Any, decisions: Mapping[int, int], trials: tuple[int, float] = (1, 0.0)) -> dict[str, Any]:
+    """The forward test of one version (see the module docstring): progress, or the verdict and its evidence.
+    ``trials`` is the persistent model trial count and the variance of their Sharpe ratios (``overfit.counter``)."""
     opened = {p.plan.get("learner_decision") for p in book.positions(policy.ACCOUNT, state=None)}
     entry_days = sorted({session for decision, session in decisions.items() if decision in opened})
     window = entry_days[:FORWARD_DAYS]
@@ -181,16 +187,21 @@ def judge(book: Any, decisions: Mapping[int, int]) -> dict[str, Any]:
             rules[d].append(v)
     rule_days = [fmean(v) for _, v in sorted(rules.items())]
     vs_random, vs_rules = _boot(paired), _boot_difference(list(mine.values()), rule_days)
-    out.update(trades=counted, random_trades=rand_n, paired_days=len(paired), rule_days=len(rule_days),
+    deflated = of.dsr_of(paired, *trials)
+    out.update(deflated=deflated, trades=counted, random_trades=rand_n, paired_days=len(paired), rule_days=len(rule_days),
                learner=_boot(list(mine.values())), random=_boot([rand[d] for d in sorted(rand)]),
                vs_random=vs_random, vs_rules=vs_rules)
     if len(rule_days) < MIN_RULE_DAYS:
         return {**out, "verdict": None, "why": f"the rule-based option strategies entered on {len(rule_days)} days in "
                                                f"the window ({MIN_RULE_DAYS} needed to compare); it stays provisional"}
-    ok = bool(vs_random and vs_random["low"] > 0 and vs_rules and vs_rules["low"] > 0)
+    ranges = bool(vs_random and vs_random["low"] > 0 and vs_rules and vs_rules["low"] > 0)
+    ok = ranges and bool(deflated and deflated["passes"])
+    luck = (f"; deflated Sharpe ratio {deflated['dsr']:.2f} after {deflated['trials']:,} model trials (needs "
+            f"{of.REQUIRED:.2f})" if deflated else "; no deflated Sharpe ratio (too few days)")
     return {**out, "verdict": "confirmed" if ok else "failed",
-            "why": "beat Random and the rule-based strategies on its untouched forward days, both ranges above zero"
-            if ok else "did not beat both Random and the rule-based strategies with ranges above zero"}
+            "why": ("beat Random and the rule-based strategies on its untouched forward days, both ranges above zero"
+                    if ranges else "did not beat both Random and the rule-based strategies with ranges above zero")
+            + luck}
 
 
 def review(ledger: sqlite3.Connection, research: sqlite3.Connection, now: datetime) -> dict[str, Any]:
@@ -200,13 +211,14 @@ def review(ledger: sqlite3.Connection, research: sqlite3.Connection, now: dateti
     book = PaperBook(ledger)
     done = stages(research)
     out = {}
+    trials = of.counter(research, "model")
     for (code, pv), decisions in versions(ledger, research).items():
         have = done.get((code, pv), {})
         if "provisional" not in have:
             first = min(decisions.values())
             _record(research, code, pv, "provisional", {"first_session": date.fromordinal(first).isoformat(),
                                                         "rule": content()}, now)
-        result = judge(book, decisions)
+        result = judge(book, decisions, trials)
         if result["verdict"] and result["verdict"] not in have:
             _record(research, code, pv, result["verdict"], result, now)
         out[f"{code}/{pv}"] = result
@@ -224,7 +236,7 @@ def overview(ledger: sqlite3.Connection | None, research: sqlite3.Connection) ->
 
         try:
             for key, decisions in versions(ledger, research).items():
-                progress[key] = judge(PaperBook(ledger), decisions)
+                progress[key] = judge(PaperBook(ledger), decisions, of.counter(research, "model"))
         except sqlite3.OperationalError:
             progress = {}
     for key in sorted(set(done) | set(progress) | {current}):

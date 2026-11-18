@@ -1165,7 +1165,8 @@ def check_learner_findings(src: Sources) -> Finding:
     from desk.stocks.learner import findings as fd
 
     f = Finding("learner.findings", "Learner", "Learner findings: found on held-out days with enough days, corrected "
-                "for every rule tested, the right sign, and stages in order (confirmed only on later days)")
+                "for every rule tested, a deflated Sharpe ratio high enough after every rule ever tried, the right sign, "
+                "and stages in order (confirmed only on later days)")
     if src.research is None or not _has_table(src.research, "stk_learn_findings"):
         f.skipped = "no Learner findings"
         return f
@@ -1183,6 +1184,8 @@ def check_learner_findings(src: Sources) -> Finding:
             problems.append("a 'do' without a positive range")
         if item["kind"] == "dont" and not (ev.get("mean", 0) < 0 and ev.get("excess_high", 0) < 0):
             problems.append("a 'don't' without a negative range against the day's average")
+        if item["rules_version"] == fd.version_hash() and not (ev.get("deflated") or {}).get("passes"):
+            problems.append("no deflated Sharpe ratio at the required level after every rule tried")
         window = heldout.get(item["model_id"])
         if window is None:
             problems.append("its model kept no held-out rows")

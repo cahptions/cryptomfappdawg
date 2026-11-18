@@ -2,14 +2,16 @@
 Do / don't findings).
 
 **Held-out data only.** A finding is looked for on a model's walk-forward held-out rows (``model.evaluate``: rows
-predicted by models that never trained on them, with their realised, unclipped returns held to expiry), grid
-candidates only. Those rows' sessions are cut in two: the earlier ``DISCOVERY_SHARE`` is where rules are looked for,
-the rest (after an ``EMBARGO`` of sessions) is kept untouched to confirm them.
+predicted by models that never trained on them, with their realised, unclipped net returns held to expiry at the
+expected fill, ``model.TARGET``; v2), grid candidates only. Those rows' sessions are cut in two: the earlier
+``DISCOVERY_SHARE`` is where rules are looked for, the rest (after an ``EMBARGO`` of sessions) is kept untouched to
+confirm them.
 
 **Looking.** For each structure with enough rows, two shallow regression trees (depth ``DEPTH``, large leaves) are fit
 on a short list of readable inputs (``RULE_FEATURES``): one on the realised returns, one on the model's held-out
 predictions. Each leaf is a rule: the structure plus at most ``DEPTH`` conditions, thresholds rounded to readable
-steps. The structure alone and each structure × expiry bucket are rules too.
+steps. The structure alone, each structure × expiry bucket and (v2) each structure in each regime label are rules
+too.
 
 **Keeping.** A rule is evaluated on its matching rows **by day** (each day's mean is one observation; neighbouring
 rows of one day are not independent):
@@ -19,7 +21,11 @@ rows of one day are not independent):
   90% bootstrap range below zero: it is worse than picking at random, not only a losing trade;
 * at least ``MIN_DAYS`` days and ``MIN_ROWS`` rows;
 * its one-sided t-test p-value (on the daily means or excesses) clears **Benjamini-Hochberg** at ``FDR`` across every
-  rule evaluated in that run.
+  rule evaluated in that run;
+* (v2) its **deflated Sharpe ratio** (``overfit``: the daily means for a do, the daily shortfalls against the average
+  candidate for a don't) is at least ``overfit.REQUIRED`` after **every rule ever tried** (the persistent trial
+  counter; each run's rules are added to it first). Each run also reports the probability of backtest overfitting of
+  picking its best rules.
 
 It is then a **candidate**. **Confirmed** needs the untouched later days (at least ``CONFIRM_DAYS``) to show the same
 direction again: a one-sided p below ``ALPHA_CONFIRM`` on that window alone, its range excluding zero. If those days
@@ -49,11 +55,12 @@ from desk.core.clock import to_iso
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks.learner import actions as act
 from desk.stocks.learner import model as md
+from desk.stocks.learner import overfit as of
 from desk.stocks.learner import regimes as rg
 from desk.stocks.learning_promotion import one_sided_p
 
 NAME = "stocks_learner_findings"
-VERSION = 1
+VERSION = 2                         # v2: the net return at the expected fill; the deflated Sharpe ratio required
 DISCOVERY_SHARE = 2 / 3
 EMBARGO = md.EMBARGO
 DEPTH = 2
@@ -88,10 +95,13 @@ def content() -> dict[str, Any]:
             "min_leaf_share": MIN_LEAF_SHARE, "min_leaf": MIN_LEAF, "min_rows": MIN_ROWS, "min_days": MIN_DAYS,
             "confirm_days": CONFIRM_DAYS, "fdr": FDR, "alpha_confirm": ALPHA_CONFIRM, "max_per_kind": MAX_PER_KIND,
             "overlap": OVERLAP, "clip": CLIP, "rule_features": [list(f) for f in RULE_FEATURES],
+            "fixed_rules": "each structure; x each expiry bucket; x each regime label (trend, volatility, credit)",
             "test": "one-sided t on daily means (do) or daily excess over the day's average candidate (don't); "
                     "Benjamini-Hochberg across the run; 90% bootstrap range over days must exclude zero",
             "retire": "a confirmed finding whose later held-out mean is on the other side of zero over the "
-                      "confirmation days"}
+                      "confirmation days", "target": md.TARGET, "overfit": of.version_hash(),
+            "deflated": "a candidate also needs a deflated Sharpe ratio >= overfit.REQUIRED of its daily series (do: "
+                        "daily means; don't: minus the daily excess) with N = every finding rule ever tried"}
 
 
 def version_hash() -> str:
@@ -110,11 +120,14 @@ def pack_heldout(ds: md.Dataset, held: Mapping[str, np.ndarray]) -> tuple[bytes,
             return [None] * len(rows)
         return [None if not math.isfinite(float(x)) else round(float(x), 5) for x in v[rows].tolist()]
 
-    value = {"v": 1, "source": ds.source[rows].tolist(), "session": ds.session[rows].tolist(),
+    value = {"v": 2, "source": ds.source[rows].tolist(), "session": ds.session[rows].tolist(),
              "symbol": [ds.symbol[i] for i in rows], "index": ds.index[rows].tolist() if len(ds.index) else [],
              "key": [ds.key[i] for i in rows], "origin": [ds.origin[i] for i in rows],
              "explore": ds.explore[rows].tolist(), "regime": regimes,
-             "realised": [None if not math.isfinite(float(x)) else round(float(x), 5) for x in ds.y["exp"][rows].tolist()],
+             "realised": [None if not math.isfinite(float(x)) else round(float(x), 5)
+                          for x in ds.y[md.TARGET][rows].tolist()],
+             "realised_at_ask": [None if not math.isfinite(float(x)) else round(float(x), 5)
+                                 for x in ds.y["exp"][rows].tolist()],
              **{name: col(name) for name in ("expected", "q10", "q50", "q90", "p_exp", "best_exit")}}
     sessions = ds.session[rows]
     meta = {"rows": len(rows), "days": len(np.unique(sessions)),
@@ -208,12 +221,16 @@ def describe(rule: Mapping[str, Any]) -> str:
 def sentence(kind: str, rule: Mapping[str, Any], ev: Mapping[str, Any], status: str = "candidate") -> str:
     """The finding as written: what, how much, on how many trades and days, and that it is held out."""
     what = describe(rule)
+    deflated = ev.get("deflated") or {}
     tail = (f"{ev['rows']:,} candidates over {ev['days']} days, held-out"
-            + (f", {ev['first']} to {ev['last']}" if ev.get("first") else ""))
+            + (f", {ev['first']} to {ev['last']}" if ev.get("first") else "")
+            + (f"; deflated Sharpe ratio {deflated['dsr']:.2f} after {deflated['trials']:,} rules tried"
+               if deflated.get("dsr") is not None else ""))
     if kind == "do":
-        return (f"Do: {what}: {ev['mean'] * 100:+.0f}% average held to expiry (90% range {ev['low'] * 100:+.0f}% to "
-                f"{ev['high'] * 100:+.0f}%), {tail}.")
-    return (f"Don't: {what}: {ev['mean'] * 100:+.0f}% average held to expiry, {ev['excess'] * 100:+.0f} points against "
+        return (f"Do: {what}: {ev['mean'] * 100:+.0f}% average held to expiry at the expected fill (90% range "
+                f"{ev['low'] * 100:+.0f}% to {ev['high'] * 100:+.0f}%), {tail}.")
+    return (f"Don't: {what}: {ev['mean'] * 100:+.0f}% average held to expiry at the expected fill, "
+            f"{ev['excess'] * 100:+.0f} points against "
             f"the same day's average candidate (90% range {ev['excess_low'] * 100:+.0f} to "
             f"{ev['excess_high'] * 100:+.0f}), {tail}.")
 
@@ -264,8 +281,8 @@ def _rule(structure: int, bounds: Mapping[str, Sequence[float | None]]) -> dict[
 
 
 def candidate_rules(X: np.ndarray, realised: np.ndarray, predicted: np.ndarray) -> list[dict[str, Any]]:
-    """Every rule looked at: each structure, each structure × expiry bucket, and the leaves of two trees per
-    structure (on the realised returns and on the model's predictions)."""
+    """Every rule looked at: each structure, each structure × expiry bucket, each structure in each regime label (v2),
+    and the leaves of two trees per structure (on the realised returns and on the model's predictions)."""
     structure = X[:, md.FEATURES.index("structure")]
     bucket = X[:, md.FEATURES.index("bucket")]
     rules: dict[str, dict[str, Any]] = {}
@@ -276,6 +293,10 @@ def candidate_rules(X: np.ndarray, realised: np.ndarray, predicted: np.ndarray) 
         found = [{"structure": s, "conditions": []}]
         for b in sorted({int(v) for v in bucket[rows & ~np.isnan(bucket)].tolist()}):
             found.append({"structure": s, "conditions": [{"f": "bucket", "in": [b]}]})
+        for f in ("regime_trend", "regime_vol", "regime_credit"):           # v2: each structure in each regime
+            col = X[:, md.FEATURES.index(f)]
+            for code in sorted({int(v) for v in col[rows & ~np.isnan(col)].tolist()}):
+                found.append({"structure": s, "conditions": [{"f": f, "in": [code]}]})
         y = np.clip(realised[rows], -1.0, CLIP)
         found += _tree_rules(X[rows], y, s)
         p = predicted[rows]
@@ -404,7 +425,7 @@ def _later(sessions: np.ndarray, after: int) -> np.ndarray:
 def mine(conn: sqlite3.Connection, ds: md.Dataset, held: Mapping[str, np.ndarray], model_id: str,
          now: datetime) -> dict[str, Any]:
     """Re-check the stored findings on the newest held-out days, then look for new ones (see the module docstring)."""
-    realised = ds.y["exp"]
+    realised = ds.y[md.TARGET]
     grid = np.array([bool(k) for k in ds.key]) if len(ds) else np.zeros(0, bool)
     base = held["tested"] & ~np.isnan(realised) & grid
     if not base.any():
@@ -455,11 +476,15 @@ def mine(conn: sqlite3.Connection, ds: md.Dataset, held: Mapping[str, np.ndarray
     pvalues = {k: v[2]["p_do" if v[1] == "do" else "p_dont"] for k, v in evaluated.items()}
     kept, threshold = benjamini_hochberg(pvalues)
     out.update(rules_looked=len(rules), rules_tested=len(evaluated), kept_by_fdr=len(kept))
+    series = {k: signed_daily(kind, mask, sessions, realised, day_average) for k, (_, kind, _, mask) in evaluated.items()}
+    deflated = deflate(conn, series, model_id, now)
+    out.update(trials_total=deflated["trials"], pbo=deflated["pbo"])
     passing = []
     for k in kept:
         rule, kind, ev, mask = evaluated[k]
+        ev["deflated"] = deflated["dsr"].get(k)
         ok = ev["low"] > 0 if kind == "do" else (ev["mean"] < 0 and ev["excess_high"] < 0)
-        if ok:
+        if ok and (ev["deflated"] or {}).get("passes"):
             passing.append((pvalues[k], k, rule, kind, ev, mask))
     chosen: dict[str, list[tuple[str, dict[str, Any], dict[str, Any], np.ndarray, float]]] = {"do": [], "dont": []}
     for p, k, rule, kind, ev, mask in sorted(passing, key=lambda x: (x[0], x[1])):
@@ -473,7 +498,9 @@ def mine(conn: sqlite3.Connection, ds: md.Dataset, held: Mapping[str, np.ndarray
             sources = {"forward": int((mask & (ds.source == 0)).sum()), "replay": int((mask & (ds.source == 1)).sum())}
             evidence = {**ev, "p": p, "fdr": FDR, "fdr_threshold": threshold, "rules_tested": len(evaluated),
                         "sources": sources, "regimes": _by_regime(mask, sessions, realised, regimes),
-                        "basis": "held-out rows (walk-forward), realised returns held to expiry, grid candidates"}
+                        "pbo": deflated["pbo"], "trials_total": deflated["trials"],
+                        "basis": "held-out rows (walk-forward), realised net returns held to expiry at the expected "
+                                 "fill, grid candidates"}
             conn.execute("INSERT OR IGNORE INTO stk_learn_findings(id, kind, rule_json, words, rules_version, model_id, "
                          "evidence_json, first_session, last_session, found_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                          (k, kind, canonical_json(rule), sentence(kind, rule, ev), version_hash(), model_id,
@@ -489,6 +516,35 @@ def mine(conn: sqlite3.Connection, ds: md.Dataset, held: Mapping[str, np.ndarray
     return out
 
 
+def signed_daily(kind: str, mask: np.ndarray, sessions: np.ndarray, realised: np.ndarray,
+                 day_average: Mapping[int, float]) -> dict[int, float]:
+    """A rule's daily series in the direction it claims: a do's daily means; a don't's daily shortfall against the
+    day's average candidate (positive when it was worse)."""
+    daily = _by_day(sessions, realised, mask)
+    if kind == "do":
+        return daily
+    return {s: day_average[s] - v for s, v in daily.items() if s in day_average}
+
+
+def deflate(conn: sqlite3.Connection, series: Mapping[str, Mapping[int, float]], model_id: str,
+            now: datetime) -> dict[str, Any]:
+    """Add this run's rules to the persistent trial counter, then each rule's deflated Sharpe ratio after every rule
+    ever tried, and the probability of backtest overfitting of choosing among this run's rules (days without a
+    matching candidate count as zero)."""
+    from desk.stocks.learner.validation import sharpe
+
+    trials = []
+    for k, s in series.items():
+        values = [s[d] for d in sorted(s)]
+        trials.append({"name": k, "sharpe": sharpe(values), "observations": len(values)})
+    of.record(conn, "finding", trials, model_id, now)
+    total, variance = of.counter(conn, "finding")
+    dsr = {k: of.dsr_of([s[d] for d in sorted(s)], total, variance) for k, s in series.items()}
+    days = sorted(set().union(*(set(s) for s in series.values()))) if series else []
+    matrix = np.asarray([[s.get(d, 0.0) for s in series.values()] for d in days]) if days else np.zeros((0, 0))
+    return {"trials": total, "dsr": dsr, "pbo": of.pbo(matrix) if len(days) else None}
+
+
 def filter_reason(donts: Iterable[Mapping[str, Any]], X: np.ndarray) -> list[str | None]:
     """For each row of ``X``, the first confirmed "don't" it matches (its id), or None."""
     out: list[str | None] = [None] * X.shape[0]
@@ -501,5 +557,6 @@ def filter_reason(donts: Iterable[Mapping[str, Any]], X: np.ndarray) -> list[str
 
 
 __all__ = ["ALPHA_CONFIRM", "CONFIRM_DAYS", "FDR", "MIN_DAYS", "NAME", "VERSION", "benjamini_hochberg",
-           "candidate_rules", "confirmed_donts", "content", "current", "describe", "evaluate_rule", "filter_reason",
-           "matches", "mine", "pack_heldout", "rule_id", "save_heldout", "sentence", "unpack_heldout", "version_hash"]
+           "candidate_rules", "confirmed_donts", "content", "current", "deflate", "describe", "evaluate_rule",
+           "filter_reason", "matches", "mine", "pack_heldout", "rule_id", "save_heldout", "sentence", "signed_daily",
+           "unpack_heldout", "version_hash"]

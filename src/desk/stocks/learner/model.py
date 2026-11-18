@@ -496,6 +496,9 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
     chosen = max(("source", "weighted"), key=score)
     out["chosen_variant"] = chosen
     out["_last"] = last.get(chosen)
+    out["_trials"] = {f"gbt:{v}": trial_series(ds, p["expected"], realised, tested)
+                      for v, p in preds.items() if "expected" in p}
+    out["_chosen_trial"] = f"gbt:{chosen}"
     p = preds["source"]                                     # every other target: the source-feature variant
     exp = preds[chosen]["expected"] if "expected" in preds[chosen] else np.full(n, np.nan)
     ok = tested & ~np.isnan(realised) & ~np.isnan(exp)
@@ -542,6 +545,36 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
                                 "versus_hold": boot(_daily(ds.session[rows], realised_rule - hold,
                                                            np.ones(len(rows), bool)))}
     return out
+
+
+def trial_series(ds: Dataset, pred: np.ndarray, realised: np.ndarray, rows: np.ndarray) -> dict[int, float]:
+    """One trial's held-out result by day: each day's top tenth by ``pred`` minus that day's average candidate."""
+    from desk.stocks.learner.validation import daily_top
+
+    ok = rows & ~np.isnan(pred) & ~np.isnan(realised)
+    return daily_top(ds.session, pred, realised, ok)[1]
+
+
+def overfitting(conn: sqlite3.Connection, trials: Mapping[str, Mapping[int, float]], chosen: str,
+                model_id: str, now: datetime) -> dict[str, Any]:
+    """Record this training's trials in the persistent counter, then the deflated Sharpe ratio of the chosen one
+    after every model trial ever recorded, and the probability of backtest overfitting of this choice (``overfit``)."""
+    from desk.stocks.learner import overfit as of
+    from desk.stocks.learner.validation import sharpe
+
+    rows = []
+    for name, series in trials.items():
+        values = [series[d] for d in sorted(series)]
+        rows.append({"name": name, "sharpe": sharpe(values), "observations": len(values)})
+    of.record(conn, "model", rows, model_id, now)
+    total, variance = of.counter(conn, "model")
+    series = trials.get(chosen) or {}
+    dsr = of.dsr_of([series[d] for d in sorted(series)], total, variance)
+    days = sorted(set.intersection(*(set(v) for v in trials.values()))) if trials else []
+    matrix = np.asarray([[trials[n][d] for n in trials] for d in days]) if days else np.zeros((0, 0))
+    return {"chosen": chosen, "trials_this_run": len(rows), "trials_total": total, "sharpe_variance": round(variance, 6),
+            "dsr": dsr, "pbo": of.pbo(matrix) if len(days) else None, "required_dsr": of.REQUIRED,
+            "trials": rows, "rules": of.version_hash()}
 
 
 def cpcv(ds: Dataset, variant: str, progress: Callable[[str], None] | None = None, *, target: str = TARGET,
@@ -648,6 +681,8 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     variant = metrics.get("chosen_variant", "source")
     last = metrics.pop("_last", None)
     held = metrics.pop("_heldout", None)
+    trials = metrics.pop("_trials", {})
+    chosen_trial = metrics.pop("_chosen_trial", None)
     if metrics.get("folds"):
         say("purged combinatorial cross-validation")
         metrics["cpcv"] = cpcv(ds, variant, progress)
@@ -681,6 +716,8 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
                                    "seconds": round(time.monotonic() - mined, 1)}
         except (ValueError, FloatingPointError, MemoryError) as exc:          # recorded; the model still registers
             metrics["findings"] = {"looked": False, "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    if chosen_trial is not None:
+        metrics["overfitting"] = overfitting(conn, trials, chosen_trial, ident, now)
     seconds = round(time.monotonic() - started, 1)
     conn.execute("INSERT OR IGNORE INTO stk_learn_models(id, trained_at, code_version, data_json, features_json, "
                  "metrics_json, artifact, artifact_sha256, bytes, seconds, peak_mb, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -751,6 +788,6 @@ def describe(p: Mapping[str, np.ndarray], i: int) -> dict[str, Any]:
 
 
 __all__ = ["CHECKPOINT_TARGETS", "FEATURES", "MAX_ROWS", "NAME", "TARGET", "VERSION", "Dataset", "Fitted", "best_exit",
-           "boot", "by_regime", "cell", "content", "costs", "cpcv", "data_summary", "describe", "evaluate", "evidence_cells",
-           "fit", "folds", "importance", "latest", "load", "load_models", "predict", "regime_labels", "reliability",
-           "row_vector", "spearman", "train", "version_hash"]
+           "boot", "by_regime", "cell", "content", "costs", "cpcv", "data_summary", "describe", "evaluate",
+           "evidence_cells", "fit", "folds", "importance", "latest", "load", "load_models", "overfitting", "predict",
+           "regime_labels", "reliability", "row_vector", "spearman", "train", "trial_series", "version_hash"]

@@ -303,6 +303,10 @@ def test_a_version_is_confirmed_only_after_beating_random_and_the_rules_forward(
     verdict = pr.judge(good, decisions)
     assert verdict["verdict"] == "confirmed" and verdict["vs_random"]["low"] > 0 and verdict["vs_rules"]["low"] > 0
     assert verdict["paired_days"] == pr.FORWARD_DAYS
+    assert verdict["deflated"]["passes"] and verdict["deflated"]["trials"] == 1
+    # the same forward record after a great many varied trials: luck explains it, so it is not confirmed (v2)
+    lucky = pr.judge(good, decisions, (1_000_000, 2500.0))
+    assert lucky["verdict"] == "failed" and not lucky["deflated"]["passes"] and "deflated Sharpe" in lucky["why"]
     bad = _Fake([*(_closed("learner", d, -0.3 + 0.01 * (i % 3), i) for i, d in enumerate(days)),
                  *(_closed("learner_random", d, -0.2 + 0.01 * (i % 4)) for i, d in enumerate(days)),
                  *(_closed(rule, d, -0.1 + 0.02 * (i % 2)) for i, d in enumerate(days[:10]))])

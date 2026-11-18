@@ -85,6 +85,10 @@ def test_training_freezes_registers_and_refuses_a_tampered_artifact(learned: Any
     assert metrics["chosen_variant"] in ("source", "weighted")
     cpcv = metrics["cpcv"]
     assert cpcv["splits"] == 15 and len(cpcv["paths"]) == 5 and 0 <= cpcv["profitable"] <= cpcv["scored"] <= 15
+    over = metrics["overfitting"]                   # every variant tried is counted, and the choice deflated by it
+    assert over["chosen"] == f"gbt:{metrics['chosen_variant']}" and over["trials_this_run"] >= 2
+    assert over["trials_total"] == w.research.conn.execute("SELECT COUNT(*) FROM stk_learn_trials WHERE kind='model'"
+                                                           ).fetchone()[0]
     assert set(json.loads(row["data_json"])) == {"forward"}
     assert json.loads(row["features_json"]) == list(md.FEATURES)
     fitted = md.load_models(w.paths.home, row)
