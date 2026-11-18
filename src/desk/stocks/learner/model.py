@@ -73,7 +73,8 @@ from desk.stocks.learner import regimes as rg
 from desk.stocks.learner.experience import unpack
 
 NAME = "stocks_learner_model"
-VERSION = 7                         # v7: ensemble of members; v6: market-neutral target; v5: the net target
+VERSION = 8                         # v8: forecast features (features v4), labels v2; v7: ensemble of members;
+#                                     v6: market-neutral target; v5: the net target
 CHECKPOINT_TARGETS = ("s1", "s5", "s10", "s21", "exp")
 TARGET = "net"                      # what the expected return and its range are trained on and judged by
 FEATURES = (*ft.STOCK_NAMES, *ft.MARKET_NAMES, *rg.FEATURES, *ft.CONTRACT_NAMES, "source_replay")
@@ -199,6 +200,7 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
     day: dict[str, list[int]] = {t: [] for t in (*names, TARGET)}
     fill_f: list[float] = []
     fill_p: list[float] = []
+    hedged: list[float] = []
     nan = float("nan")
     fills = fl.Fills.load(conn)
     for src, sess, sym, _ in _groups(conn, sources, max_rows, seed):
@@ -213,7 +215,9 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
                 "AND actions_version=? AND labels_version=?", (src, sess, sym, av, lv)):
             for r in lb.unpack_labels(lblob):
                 if checkpoint.startswith("exp:"):
-                    idx, settled, _mfe, _mae, _n, _have, exits = r
+                    idx, settled, _mfe, _mae, _n, _have, exits, *rest = r
+                    if rest and rest[0] is not None:            # labels v2: the delta-hedged return
+                        labels[idx]["dh"] = (float(rest[0]), int(label_day))
                     if settled is not None:
                         labels[idx]["exp"] = (float(settled), int(label_day))
                     for rule, value in zip(act.EXIT_IDS, exits, strict=True):
@@ -239,6 +243,8 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
             fill = fl.structure_fill(table, legs.get(idx), float(row["max_loss"]))
             fill_f.append(fill.fraction)
             fill_p.append(fill.chance)
+            dh = labels[idx].get("dh")
+            hedged.append(nan if dh is None else dh[0])
             held = labels[idx].get("exp")
             y[TARGET].append(nan if held is None else fl.net(held[0], row["action"], float(row["entry"]),
                                                             float(row["max_loss"]), len(row["legs"]), fill))
@@ -248,7 +254,8 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
                  np.asarray(source, dtype=np.int8), origin, np.asarray(explore, dtype=np.int8), key, symbol,
                  {t: np.asarray(v, dtype=np.float32) for t, v in y.items()},
                  {t: np.asarray(v, dtype=np.int32) for t, v in day.items()}, np.asarray(index, dtype=np.int32),
-                 {"fill_f": np.asarray(fill_f, dtype=np.float32), "fill_p": np.asarray(fill_p, dtype=np.float32)})
+                 {"fill_f": np.asarray(fill_f, dtype=np.float32), "fill_p": np.asarray(fill_p, dtype=np.float32),
+                  "dh": np.asarray(hedged, dtype=np.float32)})
     ds.extra["mkt"], ds.extra["sec"] = nt.horizon_returns(market, ds.session, ds.day[TARGET], ds.column("sector"))
     return ds
 

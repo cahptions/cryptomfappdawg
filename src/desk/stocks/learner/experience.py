@@ -323,6 +323,9 @@ def record_forward(market: Any, research: Any, session: date, now: datetime, *,
     ic, months, ic_source = pl.committee_ic(research)
     ctx = pl.Context(session, now, pl._rate(market, session), ic, months, ic_source, {}, [])
     tables = [tb for u in pl.load(market, research, session) if (tb := pl.table(u, ctx)) is not None]
+    from desk.stocks.forecast import structure as st
+
+    ctx.outlook = st.outlook(market.conn, research.conn, session, [tb.u.symbol for tb in tables])
     reader = ft.Reader(market.conn, research.conn, session)
     spy = next((tb.u for tb in tables if tb.u.symbol == "SPY"), None)
     market_x = ft.market_features(reader, spy, ctx.rate)

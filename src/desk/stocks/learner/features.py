@@ -33,7 +33,8 @@ if TYPE_CHECKING:
     from desk.stocks.plays import Table, Underlying
 
 NAME = "stocks_learner_features"
-VERSION = 3                         # v3 (2026-11-18): the earnings block (earnings_model); v2: the option signals
+VERSION = 4                         # v4 (2026-11-18): direction / volatility forecasts and the structure's edge;
+#                                     v3: the earnings block (earnings_model); v2: the option signals
 SHORT_INTEREST_LAG = 14             # days after settlement before short interest counts as published
 INSIDER_DAYS = 90
 EARNINGS_DAYS = 45                  # the earnings block reads a report whose entry session is at most this far ahead
@@ -155,6 +156,24 @@ CONTRACT: tuple[Feature, ...] = (
     _f("expected_move", "contract", "plays.finish", QUOTE, "KESTREL's one-sigma move to expiry"),
     _f("chain_basis", "contract", "chain_odds", QUOTE, "1 when the chances came from the chain's own smile"),
 )
+# The forecast block (features v4): the direction model's standardized quantiles at the candidate's expiry, the
+# volatility-surprise model's correction and the structure valued under both (desk.stocks.forecast; fits made on or
+# before S, inputs as of S − 1 for direction and S's close for the volatility; missing before the first fit).
+FORECAST: tuple[Feature, ...] = (
+    _f("dir_q10", "contract", "forecast.direction (fit on or before S)", PREVIOUS,
+       "Direction model: 10th percentile of the standardized return to expiry"),
+    _f("dir_q50", "contract", "forecast.direction", PREVIOUS, "Direction model: median standardized return to expiry"),
+    _f("dir_q90", "contract", "forecast.direction", PREVIOUS,
+       "Direction model: 90th percentile of the standardized return to expiry"),
+    _f("vol_surprise", "contract", "forecast.vol_surprise (fit on or before S)", QUOTE,
+       "Predicted log(realized ÷ HAR-IV variance) to expiry"),
+    _f("struct_edge_risk", "contract", "forecast.structure", QUOTE,
+       "KESTREL fair value − realistic cost, per dollar at risk"),
+    _f("struct_dir_share", "contract", "forecast.structure", QUOTE,
+       "Direction part's share of |direction| + |volatility| parts of the edge"),
+    _f("struct_chance", "contract", "forecast.structure", QUOTE, "Chance of profit under the forecast distribution"),
+)
+CONTRACT = (*CONTRACT, *FORECAST)
 ALL: tuple[Feature, ...] = (*STOCK, *MARKET, *CONTRACT)
 STOCK_NAMES = tuple(f.name for f in STOCK)
 MARKET_NAMES = tuple(f.name for f in MARKET)
@@ -446,9 +465,18 @@ def contract_features(tb: Table, legs: Sequence[tuple[int, str]], play: Mapping[
         "ev_risk": float(play["expected_value"]) / risk if risk > 0 else None,
         "expected_move": play.get("expected_move"),
         "chain_basis": 1.0 if (play.get("odds_basis") or {}).get("basis") == "chain" else 0.0}
+    sv = play.get("structure_value") or {}
+    q = sv.get("direction_quantiles") or []
+    if len(q) == 7:                                     # direction.QUANTILES: 5, 10, 25, 50, 75, 90, 95
+        out["dir_q10"], out["dir_q50"], out["dir_q90"] = q[1], q[3], q[5]
+    out["vol_surprise"] = sv.get("vol_surprise")
+    out["struct_edge_risk"] = sv.get("edge_per_risk")
+    parts = abs(sv.get("direction_part") or 0.0) + abs(sv.get("vol_part") or 0.0)
+    out["struct_dir_share"] = abs(sv["direction_part"]) / parts if sv and parts > 0 else None
+    out["struct_chance"] = sv.get("chance_profit")
     return {k: clean(out.get(k)) for k in CONTRACT_NAMES}
 
 
-__all__ = ["ALL", "CONTRACT", "CONTRACT_NAMES", "DESKS", "EARNINGS", "MARKET", "MARKET_NAMES", "NAME", "STOCK", "STOCK_NAMES",
-           "VERSION", "Feature", "Reader", "chain_features", "clean", "content", "contract_features", "market_features",
-           "price_features", "stock_features", "version_hash"]
+__all__ = ["ALL", "CONTRACT", "CONTRACT_NAMES", "DESKS", "EARNINGS", "FORECAST", "MARKET", "MARKET_NAMES", "NAME",
+           "STOCK", "STOCK_NAMES", "VERSION", "Feature", "Reader", "chain_features", "clean", "content",
+           "contract_features", "market_features", "price_features", "stock_features", "version_hash"]

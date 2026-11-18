@@ -58,6 +58,9 @@ def record_day(market: StocksMarket, research: StocksResearch, inputs: Any, d: d
         for s in inputs.lotto_names:
             items.setdefault(s, {}).update({e: inputs.lotto[(s, e)] for e in inputs.weekly(d)})
     tables = play_replay.tables(market, d, ctx, items)
+    from desk.stocks.forecast import structure as st
+
+    ctx.outlook = st.outlook(market.conn, None, d, [tb.u.symbol for tb in tables])   # replay: far-side fills
     reader = ft.Reader(market.conn, research.conn, d)
     spy = next((tb.u for tb in tables if tb.u.symbol == "SPY"), None)
     market_x = ft.market_features(reader, spy, ctx.rate)

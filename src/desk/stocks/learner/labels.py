@@ -10,6 +10,15 @@ settled at intrinsic value on the official close of its settlement session (``pl
 **Returns** use Plays' own arithmetic (``play_marks.profit``): per contract after fees, on the money at risk; a bought
 position's loss stops at −100% (it can always be left to expire), a sold one's at its maximum loss.
 
+**Delta-hedged (labels v2).** Each ``exp:<day>`` row also carries the candidate's **delta-hedged return** held to
+settlement: the position bought at the decision session's closing mid, hedged with the stock at every stored close by
+selling its delta (the position's Black–Scholes delta at that close, from each leg's implied volatility solved from that
+close's stored mid; a session without every leg quoted keeps the previous delta), and settled at intrinsic value:
+(settlement value − mid at the decision − Σ delta × the stock's change) ÷ the money at risk per share. Before fees and
+spreads: it measures whether the options were priced for more or less movement than followed (Bakshi & Kapadia 2003;
+what the volatility-surprise model predicts), not what a trade earned. Missing (None) without the decision's closing
+quotes, with any stock close missing between the decision and the settlement, or after a split.
+
 **Never estimated.** A closing quote is a stored quote of that session observed within ``FRESH_CLOSE`` of its close
 (forward: the chains collected that session; replay: the contract's own Massive daily bar, its closing trade with the
 replay's stated spread). A leg without one makes that checkpoint *missing* for the candidate, permanently; a split
@@ -41,7 +50,7 @@ from desk.stocks.repo import _unpack, day_of
 from desk.storage.db import transaction
 
 NAME = "stocks_learner_labels"
-VERSION = 1
+VERSION = 2                             # v2 (2026-11-18): the delta-hedged return on every expiry row
 CHECKPOINTS = (1, 5, 10, 21)
 FRESH_CLOSE = timedelta(minutes=60)     # a forward closing quote: observed no earlier than this before the close
 LABEL_AFTER = timedelta(hours=3)        # forward checkpoints are written this long after their session's close
@@ -54,7 +63,10 @@ def content() -> dict[str, Any]:
     return {"version": VERSION, "checkpoints": list(CHECKPOINTS), "fresh_close_minutes": FRESH_CLOSE.seconds // 60,
             "label_after_hours": LABEL_AFTER.seconds // 3600, "grade_window_days": GRADE_WINDOW,
             "exit_rules": [[r.id, r.take_profit, r.stop, r.sessions] for r in act.EXIT_RULES],
-            "returns": "play_marks.profit: per contract after fees on the money at risk; floors at -100%"}
+            "returns": "play_marks.profit: per contract after fees on the money at risk; floors at -100%",
+            "delta_hedged": "exp rows: (settlement - decision closing mid - sum delta x stock change) / risk per "
+                            "share; delta = Black-Scholes at each close's mid IV (rate: UST3M before the decision, "
+                            "else 4%); a session without every leg quoted keeps the previous delta; no fees"}
 
 
 def version_hash() -> str:
@@ -219,6 +231,67 @@ def _r(x: float | None) -> float | None:
     return None if x is None else round(x, 5)
 
 
+def position_delta(legs: Sequence[Mapping[str, Any]], quotes: Mapping[str, tuple[float, float]], s: float, day: date,
+                   expiration: int, rate: float) -> float | None:
+    """The position's delta per share at one close (bought legs +, sold −) from each leg's IV solved from its mid;
+    None when a leg has no quote. A mid at or below intrinsic value counts as all intrinsic (delta ±1 or 0)."""
+    from desk.stocks import options as opt
+
+    t = max((date.fromordinal(expiration) - day).days, 0.25) / opt.YEAR_DAYS
+    total = 0.0
+    for leg in legs:
+        q = quotes.get(leg["occ"])
+        if q is None:
+            return None
+        mid = (q[0] + q[1]) / 2
+        k, call = float(leg["strike"]), leg["kind"] == "call"
+        iv = opt.implied_vol(leg["kind"], mid, s, k, t, rate) if mid > 0 else None
+        if iv:
+            d = opt.greeks(leg["kind"], s, k, t, iv, rate).delta
+        else:
+            d = (1.0 if s > k else 0.0) if call else (-1.0 if s < k else 0.0)
+        total += d if leg["side"] == "buy" else -d
+    return total
+
+
+def delta_hedged(c: Candidate, decision: Mapping[str, tuple[float, float]],
+                 path: Mapping[int, Mapping[str, tuple[float, float]]], days: Sequence[date],
+                 closes: Sequence[float | None], settle_close: float | None, rate: float) -> float | None:
+    """The delta-hedged return held to settlement (see the module docstring). ``days`` are the decision session then
+    every session before the settlement session; ``closes`` the stock's close on each."""
+    if settle_close is None or not days or any(x is None or x <= 0 for x in closes) or len(closes) != len(days):
+        return None
+    start = 0.0
+    for leg in c.legs:
+        q = decision.get(leg["occ"])
+        if q is None:
+            return None
+        start += (1 if leg["side"] == "buy" else -1) * (q[0] + q[1]) / 2
+    prices = [float(x) for x in closes if x is not None] + [settle_close]
+    delta = position_delta(c.legs, decision, prices[0], days[0], c.expiration, rate)
+    if delta is None:
+        return None
+    hedge = 0.0
+    for k in range(1, len(prices)):
+        hedge -= delta * (prices[k] - prices[k - 1])
+        if k < len(days):
+            got = position_delta(c.legs, path.get(days[k].toordinal(), {}), prices[k], days[k], c.expiration, rate)
+            delta = delta if got is None else got
+    gain = settlement(c.legs, settle_close) - start + hedge
+    risk = c.max_loss / 100
+    return gain / risk if risk > 0 else None
+
+
+def rate_before(market: sqlite3.Connection, session: date) -> float:
+    """The 3-month Treasury yield from before ``session`` (FRED or Schwab), else 4%."""
+    try:
+        row = market.execute("SELECT value FROM stk_rates WHERE series IN ('UST3M', 'UST3M@schwab') AND day<? "
+                             "ORDER BY day DESC LIMIT 1", (day_of(session),)).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    return float(row[0]) / 100 if row and row[0] is not None else 0.04
+
+
 def exit_returns(path: Sequence[float | None], settled: float | None) -> list[float | None]:
     """Each exit rule's return on a path of liquidation returns (``path[n-1]`` is the n-th session after the
     decision; None where no closing quote was stored) and the settlement return (None when unknown)."""
@@ -304,6 +377,9 @@ def label_group(market: sqlite3.Connection, prices: Prices, g: sqlite3.Row, have
                 rows.append([c.index, "quoted", _r(got[1]), _r(got[0])] if got else [c.index, "missing", None, None])
             count += rows[-1][1] != "missing"
         out.append((name, day_of(day), rows, count))
+    rate: float | None = None
+    decision: Mapping[str, tuple[float, float]] = {}
+    closes: list[float | None] = []
     for expiration in sorted({c.expiration for c in cands}):
         name = f"exp:{expiration}"
         if name in have:
@@ -317,6 +393,12 @@ def label_group(market: sqlite3.Connection, prices: Prices, g: sqlite3.Row, have
         path = {} if last <= session else prices.path(symbol, mine, expiration, cal.next_trading_day(session), last)
         days = [] if last <= session else cal.trading_days(cal.next_trading_day(session), last)
         split_on = next((x for x in days if _split(market, symbol, session, x)), None)
+        hedged_days = [session, *days]
+        if split_on is None and close is not None:
+            decision = prices.quotes(symbol, session, mine)
+            closes = [prices.close(symbol, x) for x in hedged_days]
+            if rate is None:
+                rate = rate_before(market, session)
         rows, count = [], 0
         for c in group:
             settled = None if close is None else c.settled(close)
@@ -325,8 +407,10 @@ def label_group(market: sqlite3.Connection, prices: Prices, g: sqlite3.Row, have
                 got = None if split_on is not None and x >= split_on else c.liquidation(path.get(day_of(x), {}))
                 series.append(None if got is None else got[0])
             checked = [r for r in series if r is not None] + ([settled] if settled is not None else [])
+            hedged = None if split_on is not None or close is None else delta_hedged(
+                c, decision, path, hedged_days, closes, close, rate or 0.04)
             rows.append([c.index, _r(settled), _r(max(checked)) if checked else None, _r(min(checked)) if checked else None,
-                         len(series), sum(r is not None for r in series), exit_returns(series, settled)])
+                         len(series), sum(r is not None for r in series), exit_returns(series, settled), _r(hedged)])
             count += settled is not None
         out.append((name, day_of(d), rows, count))
     return out
@@ -378,5 +462,5 @@ def coverage(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 __all__ = ["CHECKPOINTS", "FRESH_CLOSE", "GRADE_WINDOW", "LABEL_AFTER", "NAME", "VERSION", "Candidate",
-           "ForwardPrices", "Prices", "ReplayPrices", "content", "coverage", "exit_returns", "label_group", "pending",
-           "run", "unpack_labels", "version_hash"]
+           "ForwardPrices", "Prices", "ReplayPrices", "content", "coverage", "delta_hedged", "exit_returns",
+           "label_group", "pending", "position_delta", "rate_before", "run", "unpack_labels", "version_hash"]

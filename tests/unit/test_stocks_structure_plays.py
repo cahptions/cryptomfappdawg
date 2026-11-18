@@ -6,6 +6,7 @@ only. Synthetic worlds only."""
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,9 @@ import pytest
 from desk.stocks import calendar as cal
 from desk.stocks import plays as pl
 from desk.stocks.forecast import structure as st
+from desk.stocks.learner import experience as ex
+from desk.stocks.learner import features as ft
+from desk.stocks.learner import labels as lb
 from tests.stocks_world import add_chains, make_world
 
 SYMBOLS = ["SPY", "CHEAP", "SQZ", "S10", "S11"]
@@ -88,3 +92,75 @@ def test_the_edge_ranks_a_section_only_after_beating_the_current_ranking(world: 
             assert p.get("structure_ranked", False) == (c["id"] == "edge")
     cal_ = st.calibration(conn)
     assert cal_["plays"] == 6 * 58 and 0 <= cal_["brier_structure"] <= 1
+
+
+def test_learner_features_read_the_forecast_block(world: Any) -> None:
+    session = world.days[-30]
+    ex.record_forward(world.market, world.research, session, closing(session))
+    g = ex.unpack(world.research.conn.execute("SELECT rows_zlib FROM stk_learn_candidates LIMIT 1").fetchone()[0])
+    x = g["rows"][0]["x"]
+    for name in ("dir_q10", "dir_q50", "dir_q90", "vol_surprise", "struct_edge_risk", "struct_dir_share",
+                 "struct_chance"):
+        assert name in ft.CONTRACT_NAMES and name in x
+    assert x["struct_edge_risk"] is not None and x["dir_q50"] is None    # no direction fit yet: missing, not zero
+    assert ft.VERSION == 4
+
+
+# ── the delta-hedged label ───────────────────────────────────────────────────────────────────────
+def _call(expiration: date) -> lb.Candidate:
+    return lb.Candidate(0, "BUY", 5.0, 565.0, expiration.toordinal(),
+                        [{"occ": "C100", "kind": "call", "strike": 100.0, "side": "buy"}])
+
+
+def test_delta_hedged_arithmetic() -> None:
+    days = cal.trading_days(date(2026, 3, 2), date(2026, 3, 6))[:3]
+    expiration = date(2026, 3, 20)
+    c = _call(expiration)
+    decision = {"C100": (4.9, 5.1)}
+    path = {days[1].toordinal(): {"C100": (6.9, 7.1)}, days[2].toordinal(): {"C100": (5.4, 5.6)}}
+    closes = [100.0, 103.0, 101.0]
+    got = lb.delta_hedged(c, decision, path, days, closes, 104.0, 0.04)
+    d0 = lb.position_delta(c.legs, decision, 100.0, days[0], c.expiration, 0.04)
+    d1 = lb.position_delta(c.legs, path[days[1].toordinal()], 103.0, days[1], c.expiration, 0.04)
+    d2 = lb.position_delta(c.legs, path[days[2].toordinal()], 101.0, days[2], c.expiration, 0.04)
+    assert d0 is not None and d1 is not None and d2 is not None and 0.4 < d0 < 0.7
+    hedge = -(d0 * 3.0 + d1 * -2.0 + d2 * 3.0)
+    assert got == pytest.approx((4.0 - 5.0 + hedge) / 5.65)
+    # a session without the quote keeps the previous delta
+    gap = {days[2].toordinal(): path[days[2].toordinal()]}
+    got2 = lb.delta_hedged(c, decision, gap, days, closes, 104.0, 0.04)
+    assert got2 == pytest.approx((4.0 - 5.0 - (d0 * 3.0 + d0 * -2.0 + d2 * 3.0)) / 5.65)
+    # no stored close, or no decision quote: missing, never estimated
+    assert lb.delta_hedged(c, decision, path, days, [100.0, None, 101.0], 104.0, 0.04) is None
+    assert lb.delta_hedged(c, {}, path, days, closes, 104.0, 0.04) is None
+    assert lb.delta_hedged(c, decision, path, days, closes, None, 0.04) is None
+
+
+def test_a_sold_position_hedges_the_other_way() -> None:
+    days = cal.trading_days(date(2026, 3, 2), date(2026, 3, 3))
+    put = lb.Candidate(0, "SELL", 2.0, 300.0, date(2026, 3, 20).toordinal(),
+                       [{"occ": "P95", "kind": "put", "strike": 95.0, "side": "sell"}])
+    decision = {"P95": (1.9, 2.1)}
+    d0 = lb.position_delta(put.legs, decision, 100.0, days[0], put.expiration, 0.04)
+    assert d0 is not None and d0 > 0                                  # short a put: long delta
+    got = lb.delta_hedged(put, decision, {}, days, [100.0, 98.0], 97.0, 0.04)
+    assert got == pytest.approx((0.0 + 2.0 - d0 * (98.0 - 100.0) - d0 * (97.0 - 98.0)) / 3.0)
+
+
+def test_expiry_labels_carry_the_delta_hedged_return(world: Any) -> None:
+    session = world.days[-30]
+    ex.record_forward(world.market, world.research, session, closing(session))
+    now = cal.session_close(world.days[-1]) + timedelta(hours=4)
+    lb.run(world.research.conn, world.market.conn, lb.ForwardPrices(world.market.conn, world.research.conn), now)
+    rows = [x for (blob,) in world.research.conn.execute(
+        "SELECT labels_zlib FROM stk_learn_labels WHERE checkpoint LIKE 'exp:%'") for x in lb.unpack_labels(blob)]
+    assert rows and all(len(x) == 8 for x in rows)
+    hedged = [x[7] for x in rows if x[7] is not None]
+    assert hedged and all(math.isfinite(v) for v in hedged)
+    assert lb.VERSION == 2
+
+
+def test_the_model_version_moves_with_the_new_features_and_labels() -> None:
+    from desk.stocks.learner import model as md
+
+    assert md.VERSION == 8 and "dir_q50" in md.FEATURES and "struct_edge_risk" in md.FEATURES

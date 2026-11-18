@@ -263,6 +263,9 @@ def board_views(market: Any, research: Any, board: Mapping[str, Any], fitted: md
     reader = ft.Reader(market.conn, research.conn, session)
     loaded = [u for u in pl.load(market, research, session) if u.symbol in wanted or u.symbol == "SPY"]
     tables = {u.symbol: tb for u in loaded if (tb := pl.table(u, ctx)) is not None}
+    from desk.stocks.forecast import structure as st
+
+    ctx.outlook = st.outlook(market.conn, research.conn, session, sorted(tables))
     market_x = ft.market_features(reader, tables["SPY"].u if "SPY" in tables else None, ctx.rate)
     rows, keys = [], []
     for symbol, picks in wanted.items():
