@@ -329,3 +329,57 @@ of what it has meant historically (coloured only when the research gives it a di
 among the stocks measured on the newest session with signals; a missing signal is marked *Not measured* with the
 reason. Evidence shows the Options desk's status (observer or voting), its live record and each signal's own forward
 record; Evidence → Data health shows the chain scan's coverage.
+
+## 12. Direction and volatility (`desk.stocks.forecast`, 2026-11-18)
+
+*Where will the stock go, and how much will it move?* An option's outcome mixes the two. Bali, Beckmeyer, Moerke &
+Weigert (2021) find delta-hedged option returns more predictable than stock returns, by nonlinear models, with
+option-based characteristics (IV level and shape, moneyness) the strongest; Goyal & Saretto (2009) find the gap between
+realized and implied volatility predicts delta-hedged straddle returns. So KESTREL learns the two apart, each on far
+more data than its own plays could give, and uses each only where it beat a no-skill baseline out of sample.
+
+**Direction model** (`forecast/direction.py`, spec `stocks_direction_model` v1). Quantiles (5, 10, 25, 50, 75, 90, 95%)
+of each stock's log return from the decision close over 1, 5, 10, 21 and 63 sessions, **standardized** by the stock's
+reference scale (root mean square daily return over the previous 63 sessions × √h), so the trees learn shape and tilt
+rather than each stock's volatility. Inputs (`forecast/panel.py`), all as of the previous close: 1-week and 1-month
+returns (short-term reversal), 12-1 momentum, nearness to the 52-week high, realized variance over a day, a week and a
+month and its ratio to the reference, dollar volume and its 5- vs 63-session surge, SPY's 1-week and 1-month returns
+and realized variance, the sector fund's 1-month return and the stock's return against it, the committee score (from
+the daily score history, where it exists), three option signals (call−put IV spread, OTM put skew, IV ÷ realized
+volatility; section 11; newest within five sessions) and days to the next results (an announced date first seen by
+then, else the last results filing + 91 days); missing stays missing. Data: the 1,200 stocks with the most dollar
+volume over their whole stored history (at least 300 sessions; no ETFs), every fifth session per stock (offset by
+stock), rows only where the stock traded at least $2 million a day over the previous 20 sessions; split-adjusted
+closes from the saved daily bars (the ten Schwab years and Massive's two). Model: scikit-learn's histogram gradient
+boosting with quantile loss, one model per horizon and quantile (80 trees of 15 leaves, at least 200 rows a leaf), at
+most 150,000 rows per final fit and 80,000 per evaluation fit, one thread; the predicted quantiles of a row are sorted.
+
+**Evaluation and gate.** A fit on the first session of each week trains on rows whose outcome was known before it.
+Its evaluation predicts each of the three 252-session blocks before the fit day with models trained only on rows
+whose outcome was known before that block began (purged), against the **baseline**: the same rows' unconditional
+quantiles (no skill; KESTREL's behaviour before: drift-neutral). Scores: pinball loss (the proper scoring rule for
+quantiles), calibration (how often the realized return fell below each predicted quantile; error = mean distance from
+its target), and the **market-neutral** cross-sectional rank correlation of the predicted median with the realized
+return within each session (a within-session correlation ignores the market's common move). A horizon goes live only
+with ≥ 5,000 held-out rows over ≥ 60 sessions and ≥ 30 stocks, a lower pinball loss with a Newey–West t ≥ 2 across
+sessions, and a calibration error no worse than the baseline's + 0.01. A synthetic universe of pure noise never goes
+live; a planted one-week reversal does at the short horizons (tests).
+
+**Volatility-surprise model** (`forecast/vol_surprise.py`, spec `stocks_vol_surprise` v1). Target: log(mean
+realized variance over the next h sessions ÷ IV30² / 252) per stock, from section 10's realized variance. Baseline:
+HAR-IV's own log forecast of that ratio from the fit stored for that day (section 10). Inputs: the implied level, the
+IV / 22-session realized gap, the HAR inputs and HAR-IV's forecast, the term slope, OTM put skew, call−put spread, days
+to the next results and whether they fall inside the window. Gradient-boosted trees (squared error), every third
+session per stock, four 63-session purged blocks; live with ≥ 2,000 held-out rows over ≥ 60 sessions and 30 stocks
+and a lower squared error than HAR-IV alone (Newey–West t ≥ 2). Used as a multiplier e^{(prediction − HAR)/2} on
+KESTREL's volatility (bounded 0.5–2), linear between horizons, fading as 63/h beyond 63 sessions; 1 where not live.
+
+**Weekly fit.** Both fit in the Learner's niced training subprocess (once per week's fit day, before the Learner
+trains; a week without enough data is tried once) or with `desk stocks forecast-fit`; fits are append-only
+(`stk_forecast_fits`, market migration 0017) with their evaluation, rows, time and peak memory; the newest eight fits'
+models are kept (`stk_forecast_blobs`, hash-checked); a day whose fit is no longer kept uses the baseline, never a
+later fit. `desk stocks forecast-bench` times one direction fit on a synthetic universe of the default size.
+
+**Use.** Plays values every structure from the two (docs/STOCKS_PLAYS.md "What a play is worth"); the Learner reads
+them as features (docs/STOCKS_LEARNER.md); the Learning report and the Learner page show which horizons are live.
+

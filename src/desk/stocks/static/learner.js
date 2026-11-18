@@ -250,6 +250,56 @@ const KestrelLearner = (() => {
       );
     return box;
   }
+  // Direction vs volatility (forecast.insight): which direction horizons beat the no-skill baseline, the
+  // volatility-surprise model's skill, and which part the top plays' edge came from.
+  function forecast(data) {
+    const box = el("section", undefined, "learner-strict learner-forecast");
+    box.setAttribute("aria-label", "Direction vs volatility");
+    box.append(
+      el("h2", "Direction vs volatility"),
+      el(
+        "p",
+        "KESTREL splits each option's outlook into where the stock may go (direction) and how much it may move (volatility), and uses each part only where it beat a no-skill baseline on days it never trained on.",
+        "caption muted",
+      ),
+    );
+    const f = data.forecast;
+    if (!f) {
+      box.append(
+        el(
+          "p",
+          "No weekly fit yet: plays are valued as before (no direction tilt, volatility from the HAR-IV forecast).",
+          "muted",
+        ),
+      );
+      return box;
+    }
+    box.append(el("strong", f.headline), el("p", f.detail));
+    const rows = el("ul", undefined, "learner-finding-list");
+    for (const [h, e] of Object.entries(f.direction?.horizons || {})) {
+      const li = el("li", undefined, "learner-finding");
+      li.append(
+        el(
+          "strong",
+          `${h} ${h === "1" ? "session" : "sessions"}: ${e.live ? "live" : "baseline"}`,
+        ),
+        el(
+          "p",
+          e.rows
+            ? `Pinball loss ${e.pinball.toFixed(3)} vs ${e.pinball_baseline.toFixed(3)} for the baseline; calibration error ${e.calibration_error.toFixed(3)} vs ${e.calibration_error_baseline.toFixed(3)}; ${e.rows.toLocaleString("en-US")} held-out forecasts.`
+            : e.note || "No held-out forecasts yet.",
+        ),
+        el(
+          "p",
+          "Pinball loss scores a forecast range (lower is better); calibration error is how far each forecast percentile's hit rate was from its target.",
+          "caption muted",
+        ),
+      );
+      rows.append(li);
+    }
+    if (rows.children.length) box.append(rows);
+    return box;
+  }
   function findings(data) {
     const box = el("section", undefined, "learner-findings");
     box.setAttribute("aria-label", "What it learned to do and not to do");
@@ -465,6 +515,7 @@ const KestrelLearner = (() => {
       grid,
       trades(data),
       strictness(data),
+      forecast(data),
       findings(data),
       regimes(data),
       models(data),

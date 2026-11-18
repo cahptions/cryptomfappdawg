@@ -155,6 +155,20 @@ def models(research: sqlite3.Connection, decisions: Mapping[int, Mapping[str, An
     return out
 
 
+def forecast_view(market: sqlite3.Connection | None, research: sqlite3.Connection) -> dict[str, Any] | None:
+    """The "Direction vs volatility" section (``forecast.insight``); None before either model's first fit."""
+    from desk.stocks.forecast import insight
+
+    try:
+        info = insight.summary(market, research)
+    except sqlite3.Error:
+        return None
+    if info is None:
+        return None
+    headline, detail = insight.sentences(info)
+    return {"headline": headline, "detail": detail, **info}
+
+
 def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, market: Any, now: datetime) -> dict[str, Any]:
     """The Learner page's data (read-only)."""
     from desk.stocks.paper.book import PaperBook
@@ -172,6 +186,7 @@ def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, marke
     out["fills"] = fills.summary(research)
     out["evaluation"] = view.evaluation(json.loads(latest["metrics_json"]), out["fills"]) if latest is not None else []
     out["trials"] = of.totals(research)
+    out["forecast"] = forecast_view(getattr(market, "conn", market), research)
     if ledger is None or not _has(ledger, "stk_learner_days"):
         out["models"] = models(research, {}, [])
         out["promotion"] = pr.overview(None, research)

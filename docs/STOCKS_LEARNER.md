@@ -121,6 +121,14 @@ previous session's close**:
   against it; break-evens against the price; the market's and KESTREL's (raw, uncalibrated) chances and the chance of a
   profit at expiry (`chain_odds`, `play_targets`); KESTREL's expected value against the money at risk; the expected
   move; whether the chances came from the chain's smile.
+- **Forecast** (features v4, 2026-11-18; `model` v8; [STOCKS_METHOD.md](STOCKS_METHOD.md) section 12): `dir_q10`,
+  `dir_q50`, `dir_q90`, the direction model's 10th, 50th and 90th percentiles of the stock's standardized return to
+  the candidate's expiry (fit made on or before S, inputs as of S − 1); `vol_surprise`, the volatility-surprise
+  model's predicted log(realized ÷ HAR-IV variance) to expiry (fit on or before S, inputs as of S's close);
+  `struct_edge_risk`, `struct_dir_share` and `struct_chance`: the structure valued under both forecasts against its
+  realistic fill (`forecast.structure`; edge per dollar at risk, the direction part's share of the edge and the chance
+  of profit). Before a model's first fit its columns are missing (the structure value is still there, at the
+  baseline); experience recorded before features v4 reads all seven as missing.
 
 Every feature's source and availability is listed in `features.STOCK`, `MARKET` and `CONTRACT`. Every query goes
 through `features.Reader` and carries `day < S`. A test (`test_no_feature_reads_anything_after_the_decision`) writes
@@ -140,6 +148,15 @@ For every candidate:
   market holiday).
 - **Excursions**: the best and worst return over the checked closes and the settlement.
 - **Every exit rule's return** on that same path.
+- **Delta-hedged return** (labels v2, 2026-11-18): bought at the decision session's closing mid, hedged at every stored
+  close by selling the position's Black–Scholes delta (each leg's IV solved from that close's stored mid; a session
+  with a leg unquoted keeps the previous delta; the rate is the 3-month Treasury yield before the decision, else 4%),
+  settled at intrinsic value: (settlement − decision mid − Σ delta × the stock's change) ÷ the money at risk per share,
+  before fees. It isolates what the options were priced to expect about the stock's movement from where the stock went,
+  so the volatility-surprise model is evaluated on what it predicts (the Learning report's "Direction vs volatility"
+  item correlates its prediction, signed by the position's vega, with this label). Missing without the decision's
+  closing quotes, with any stock close missing on the way, or after a split. The model loads it beside the other labels
+  (`Dataset.extra["dh"]`) but does not train on it.
 
 **Returns** use Plays' own arithmetic (`play_marks.profit`): per contract after fees, on the money at risk. A bought
 position's loss stops at −100% (it can always be left to expire); a sold one's loss stops at its maximum loss.
@@ -596,6 +613,9 @@ of the Learning promotions.
 - how strictly it is tested, one plain line each with a short hint: the expected fill, the net-of-cost edge, the
   held-out splits, the deflated Sharpe ratio, the probability of overfitting, raw against market-neutral skill, and
   the ensemble against each single model; with the number of model variants and rules tried so far;
+- direction vs volatility (`forecast.insight`): which direction horizons beat the no-skill baseline (pinball loss
+  and calibration error against it, held out), the volatility-surprise model's skill against HAR-IV alone and on the
+  delta-hedged labels, how often each part drove the top plays, and which Plays sections the structure edge ranks;
 - what it learned to do and not to do, with each finding's stage, its regimes and whether it filters trades;
 - by market regime: the model's held-out results and the account's closed trades;
 - model versions: each model's held-out headline, whether it passed the gate, its forward trades, and each version's
@@ -624,6 +644,12 @@ On this development machine, two threads, synthetic data only:
 - **Deciding a session**: scoring 6,000 candidates (a full session at the cap) took 0.28 seconds; a whole decision on
   the six-stock synthetic market (about 300 candidates) took 0.05–0.2 seconds.
 - **The Learner page's data**: well under a second on the synthetic month.
+
+- **The forecast models' weekly fit** (2026-11-18, `desk stocks forecast-bench`; one thread, nothing else running):
+  one direction fit on a synthetic universe of 1,200 stocks × 2,600 sessions (562,786 sampled rows; 105 evaluation
+  and 35 final quantile models) took **123 seconds** with a peak of **468 MB**. It runs in the same niced subprocess
+  before the Learner trains; reading the real bars adds seconds. With two OpenMP threads beside another busy process
+  it took 29 minutes (threads contending), so the forecast models use one thread.
 
 ## Building on it
 

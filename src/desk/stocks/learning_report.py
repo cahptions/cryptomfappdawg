@@ -1523,9 +1523,33 @@ def volatility(src: Sources, r: Report) -> None:
              days=sessions, unit="forecasts")
 
 
+def direction_volatility(src: Sources, r: Report) -> None:
+    """Direction vs volatility (desk.stocks.forecast): which direction horizons are live, their pinball loss and
+    calibration against the no-skill baseline, the volatility-surprise model's skill, and which part drove the plays."""
+    if not _has(src.market, "stk_forecast_fits"):
+        return
+    from desk.stocks.forecast import insight
+
+    info = insight.summary(src.market, src.research)
+    if info is None:
+        r.wait("Direction vs volatility", "KESTREL's direction and volatility-surprise models fit weekly once enough "
+               "daily bars and realized variance are saved; until a horizon beats its baseline out of sample, plays "
+               "are valued as before (drift-neutral, HAR-IV volatility).", PLAYS)
+        return
+    headline, detail = insight.sentences(info)
+    d, v = info.get("direction") or {}, info.get("vol_surprise") or {}
+    rows = max([e.get("rows") or 0 for e in (d.get("horizons") or {}).values()] or [0])
+    sessions = max([e.get("sessions") or 0 for e in (d.get("horizons") or {}).values()] or [0])
+    live = len(d.get("live") or []) + len(v.get("live") or [])
+    r.add("learned", headline, detail, items=rows, days=sessions, unit="held-out forecasts",
+          strength="suggestive" if live else "early", link=PLAYS, key="direction-volatility", weight=0.9)
+    r.metric("forecast.direction_live", "Direction horizons beating the baseline", len(d.get("live") or []),
+             items=rows, days=sessions, unit="held-out forecasts")
+
+
 LOOPS = (plays_calibration, plays_learning, plays_records, plays_behaviour, workspace, paper_forward, evidence,
          replays, marks_health, health, learner, learner_findings, learner_account,
-         volatility)
+         volatility, direction_volatility)
 # The two loops that read every graded chance and every recent mark are remembered until those tables change (new
 # grades and marks arrive once a session): on a large desk they are most of the time a report takes.
 HEAVY = frozenset({"plays_calibration", "marks_health"})

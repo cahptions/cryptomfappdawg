@@ -1,5 +1,40 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-18 — Direction vs volatility: two forecasts and every structure priced from them, phase 3
+
+- `desk.stocks.forecast` (market migration 0017: `stk_forecast_fits` append-only, `stk_forecast_blobs` the newest 8
+  fits' models, hash-checked). `panel`: split-adjusted daily panel and point-in-time features (as of S − 1).
+- `direction` (spec `stocks_direction_model` v1): quantiles 5–95% of the log return over 1/5/10/21/63 sessions
+  standardized by the 63-session RMS daily return × √h; gradient-boosted quantile trees on 21 features (reversal,
+  12-1 momentum, 52-week high, HAR realized variances, dollar volume and surge, SPY and sector returns, committee,
+  option signals, days to results); 1,200 stocks by whole-history dollar volume, every 5th session, ≥ $2M a day;
+  weekly purged walk-forward (three 252-session blocks), pinball + calibration vs the unconditional baseline,
+  market-neutral per-session rank IC; live per horizon only with a Newey–West t ≥ 2 and no worse calibration.
+- `vol_surprise` (spec `stocks_vol_surprise` v1): log(realized ÷ implied variance) per horizon, gated against
+  HAR-IV's own forecast from the fit stored for that day; a bounded volatility multiplier where live.
+- `structure` (spec `stocks_structure_pricing` v1): today's KESTREL distribution (chain smile else lognormal) × the
+  surprise, + the direction model's deviation from no skill (median shift + shape difference, PCHIP in normal score);
+  fair value = discounted expected payoff (Black–Scholes on a lognormal, tested), cost = the fill model's limit else
+  the ask/bid, edge, edge per dollar at risk, chance of profit, price ranges; edge split into direction and
+  volatility parts (exact). Every play carries `structure_value`; the card's "What it's worth" box says where the edge
+  comes from. Shadow until a section's graded plays show its edge ranked them better than the current ranking
+  (Newey–West t ≥ 2, ≥ 20 sessions); then that section ranks by the mean of both percentile ranks (rule version
+  records it). The odds model stays the chance source; both Brier scores are reported.
+- Learner: labels v2 (the delta-hedged return held to settlement on every expiry row, from stored closes and quotes
+  only), features v4 (`dir_q10/50/90`, `vol_surprise`, `struct_edge_risk`, `struct_dir_share`, `struct_chance`),
+  model v8. The weekly fit runs in the Learner's training subprocess first (once per fit day), or
+  `desk stocks forecast-fit`; `desk stocks forecast-bench` measures it.
+- Report/UI: Learning report "Direction vs volatility" item; Learner page section (live horizons, pinball and
+  calibration vs baseline, vol-surprise skill, which part drove the top plays). Browser test `stocks_structure.mjs`
+  (scenario `structure`, 1366 and 375).
+- Compute (`forecast-bench`, synthetic 1,200 stocks × 2,600 sessions, 562,786 sampled rows, one thread, this 4-core
+  machine, nothing else running): one weekly direction fit (3 held-out blocks × 5 horizons × 7 quantiles, then the
+  final 35 models) **123 s, peak 468 MB**; the volatility-surprise fit is smaller (≤ 500 stocks, squared error).
+  Two OpenMP threads beside another busy process took 29 minutes: one thread is the default.
+- Not verified on real data: whether any direction horizon beats the baseline on the user's ten years of bars,
+  the vol-surprise skill (needs months of IV history and HAR fits), the delta-hedged labels' coverage (needs every
+  close and the decision's closing quotes), and the gates (need ≥ 20 graded sessions per section).
+
 ## 2026-11-18 — The Learner, phase 5: cost-aware predictions and much stricter evaluation
 
 - `learner/fills.py` (spec `stocks_learner_fills` v1, research migration 0021: `stk_learn_fill_obs`,

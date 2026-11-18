@@ -164,3 +164,30 @@ def test_the_model_version_moves_with_the_new_features_and_labels() -> None:
     from desk.stocks.learner import model as md
 
     assert md.VERSION == 8 and "dir_q50" in md.FEATURES and "struct_edge_risk" in md.FEATURES
+
+
+def test_the_direction_vs_volatility_insight_reads_the_stored_fits(world: Any) -> None:
+    from desk.stocks.forecast import direction as dr
+    from desk.stocks.forecast import insight, store
+    from desk.stocks.forecast import vol_surprise as vs
+    from desk.stocks.learner.account import forecast_view
+
+    assert insight.summary(world.market.conn, world.research.conn) is None
+    assert forecast_view(world.market.conn, world.research.conn) is None
+    e = {"rows": 9000, "sessions": 300, "stocks": 400, "pinball": 0.21, "pinball_baseline": 0.22, "t": 3.1,
+         "calibration_error": 0.006, "calibration_error_baseline": 0.005, "neutral_ic": 0.03, "live": True}
+    off = {**e, "pinball": 0.23, "t": -1.0, "live": False}
+    now = closing(world.days[-1])
+    store.save(world.market.conn, dr.MODEL, dr.VERSION, world.days[-1], {}, {1: True, 5: False},
+               {"1": e, "5": off}, 150000, 1200, 123.0, 468.0, now)
+    store.save(world.market.conn, vs.MODEL, vs.VERSION, world.days[-1], {}, {1: False},
+               {"1": {"rows": 3000, "sessions": 90, "mse": 0.31, "mse_har": 0.30, "skill": -0.03, "t": -0.5,
+                      "live": False}}, 5000, 300, 20.0, None, now)
+    info = insight.summary(world.market.conn, world.research.conn)
+    assert info is not None and info["direction"]["live"] == [1] and info["vol_surprise"]["live"] == []
+    headline, detail = insight.sentences(info)
+    assert headline == "Direction vs volatility: direction live at 1 of 5 horizons, volatility from HAR-IV alone."
+    assert "1 session: pinball 0.210 vs 0.220" in detail and "not beating HAR-IV alone yet" in detail
+    assert "no section's ranking uses it yet" in detail
+    view = forecast_view(world.market.conn, world.research.conn)
+    assert view is not None and view["headline"] == headline

@@ -491,6 +491,39 @@ Plays' rule version includes the model's version and fingerprint, and Plays rebu
 Not verified yet on real data: how often stored chains bracket a report closely enough for a priced move, and whether
 the verdicts make money (each play is graded like every other; the section's record will say).
 
+## What a play is worth: direction vs volatility
+
+`desk.stocks.forecast.structure` (spec `stocks_structure_pricing` v1) values every play, budget and Expiry-filter pick
+included, under KESTREL's two forecasts ([STOCKS_METHOD.md](STOCKS_METHOD.md) section 12) against what it really costs.
+
+- **The distribution at expiry.** Today's KESTREL forecast at that expiry (the chain's own smile shape where it was
+  fitted, rescaled to KESTREL's volatility and drift; else the lognormal at the at-the-money contract's volatility and
+  drift), as a quantile function on 2,400 equal-probability-in-normal-score cells; its spread × the volatility-surprise
+  multiplier where that horizon is live (re-centred to its drift); plus the direction model's deviation from no skill
+  where its horizon is live: the shift of its median against the baseline's (× the reference scale × √h) and the
+  difference of the two shapes (each centred on its median and divided by its own standard deviation, both monotone
+  cubic interpolations in normal score with straight tails) × the forecast's standard deviation. So the chain's skew is
+  kept exactly when the direction model knows nothing, bent only by what it learned, and the spread comes from the
+  volatility forecast alone.
+- **Fair value**: the discounted expected payoff of the legs at expiry (on a lognormal at drift r, the Black–Scholes
+  price; tested). **Cost**: the fill model's chosen limit when it has observations as of the decision
+  ([STOCKS_LEARNER.md](STOCKS_LEARNER.md) "Costs"), else the ask (bought legs) and the bid (sold legs), plus fees.
+  **Edge** = fair value − cost, per contract and per dollar at risk; **chance of profit** = the chance the payoff at
+  expiry beats the cost; the 5th / 50th / 95th percentile prices at expiry and at 5 and 21 sessions.
+- **Where the edge comes from.** Re-priced with the drift at the risk-free rate (no committee tilt) and no direction
+  deviation, volatility unchanged: that value − cost is the **volatility part** (options cheap or expensive against how
+  much the stock should move), the rest the **direction part**; they add up to the edge. The card's "What it's worth"
+  box says it in words: "Edge mostly from options looking cheap vs how much the stock should move" (expensive for a
+  position short volatility), "Edge mostly from the expected direction of the stock" (a part with at least 60% of the
+  two parts' total size) or both; "No edge at the expected fill" otherwise.
+- **Shadow first.** The value is recorded with every play (`structure_value`). It changes a section's ranking only
+  once, on that section's graded plays, its edge per dollar at risk ranked them better than the current ranking: the
+  mean per-session rank correlation with the realized net return beats the current rank's by a Newey–West t ≥ 2 over
+  at least 20 sessions with 3 graded plays each. Then the section's main list ranks by the average of the two
+  percentile ranks, the card says so, and Plays' rule version records the sections ranked this way. The chance shown
+  stays the calibrated `odds` chance: Plays' model info reports both Brier scores on the same graded plays, and
+  switching would take a new `odds.MODEL_VERSION`.
+
 ## Unusual activity
 
 Paid "unusual options activity" feeds read every exchange trade print (OPRA) and see sweeps, blocks and which side
