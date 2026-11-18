@@ -47,6 +47,9 @@ def synthetic(rows: int = md.MAX_ROWS, sessions: int = 250, *, replay_share: flo
         day[t] = (session + int(n * 1.45)).astype(np.int32)
     horizon = rng.integers(7, 120, rows)
     y["exp"], day["exp"] = ret, (session + horizon).astype(np.int32)
+    chance = np.where(source == 1, 1.0, rng.choice([1.0, 0.8, 0.6], rows)).astype(np.float32)
+    y[md.TARGET] = (chance * (ret + 0.03 * (chance < 1))).astype(np.float32)    # a limit's saving, times its chance
+    day[md.TARGET] = day["exp"]
     for i, rule in enumerate(act.EXIT_IDS):
         y[f"exit:{rule}"] = (ret if i == 0 else np.maximum(-1.0, ret + rng.normal(0.02 * (i % 3), 0.2, rows))
                              ).astype(np.float32)
@@ -57,7 +60,8 @@ def synthetic(rows: int = md.MAX_ROWS, sessions: int = 250, *, replay_share: flo
     keys = [f"{act.STRUCTURES[int(s)].id}|d30|w0|1m" for s in structure]
     origin = ["plays:edge#1" if r < 0.02 else "grid" for r in rng.random(rows)]
     return md.Dataset(X, session, source, origin, (rng.random(rows) < 0.01).astype(np.int8), keys,
-                      [f"S{i % 60}" for i in range(rows)], y, day)
+                      [f"S{i % 60}" for i in range(rows)], y, day, np.zeros(0, np.int32),
+                      {"fill_f": np.where(chance < 1, 0.5, 1.0).astype(np.float32), "fill_p": chance})
 
 
 def run(rows: int = md.MAX_ROWS, sessions: int = 250) -> dict[str, Any]:

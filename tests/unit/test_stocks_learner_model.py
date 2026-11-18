@@ -144,3 +144,33 @@ def test_the_learning_report_has_a_learner_section(learned: Any, quick: None) ->
     assert all(i["strength"] in ("early", "suggestive") for i in section["items"])    # never "tested": shadow only
     assert not report_problems(report)
     assert "The Learner" in lr.render_markdown(report)
+
+
+def test_the_net_target_is_the_return_at_the_expected_fill(learned: Any) -> None:
+    """Without fill observations the net target is the return paying the ask; with them, rows whose decision legs
+    were recorded are restated at the chosen limit times its chance; observations after a decision change nothing."""
+    from desk.stocks.learner import fills as fl
+
+    w, now = learned
+    conn = w.research.conn
+    before = md.load(conn)
+    known = ~np.isnan(before.y["exp"])
+    assert np.array_equal(before.y[md.TARGET][known], before.y["exp"][known]) and (before.extra["fill_f"] == 1).all()
+    assert fl.record_entries(conn, w.market.conn, now, limit=10_000)["candidates_with_legs"] > 0
+    first = int(before.session.min())
+    rows = [[f"X{i}", 0.06, 5000, 800, 30, 0.0, [int(i % 2 == 0), 1, 1, 1], [int(i % 2 == 0), 1, 1, 1]]
+            for i in range(3000)]
+    conn.execute("INSERT INTO stk_learn_fill_obs VALUES (?,?,?,?,?)", (first - 1, fl.version_hash(), len(rows),
+                                                                       fl._pack(rows), now.isoformat()))
+    after = md.load(conn)
+    limit = after.extra["fill_f"] < 1
+    assert limit.any() and ((after.extra["fill_p"][limit] > 0) & (after.extra["fill_p"][limit] <= 1)).all()
+    changed = limit & known
+    assert (after.y[md.TARGET][changed] != after.y["exp"][changed]).any()
+    assert np.array_equal(after.y[md.TARGET][known & ~limit], after.y["exp"][known & ~limit])
+    late = int(after.session.max()) + 1                 # observations after every decision: nothing changes
+    conn.execute("INSERT INTO stk_learn_fill_obs VALUES (?,?,?,?,?)",
+                 (late, fl.version_hash(), 3000, fl._pack([[r[0], *r[1:6], [0, 0, 0, 0], [0, 0, 0, 0]] for r in rows]),
+                  now.isoformat()))
+    again = md.load(conn)
+    assert np.array_equal(again.y[md.TARGET], after.y[md.TARGET], equal_nan=True)

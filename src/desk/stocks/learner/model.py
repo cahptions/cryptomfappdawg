@@ -3,8 +3,15 @@
 no language model judges anything, and nothing it predicts is adopted by Plays, PAPER, Learning or any calibration.
 
 **What it predicts, per candidate.** The chance of a profit (liquidation value above the money at risk's cost, after
-fees) at 1, 5, 10 and 21 sessions and at expiry; the expected return on the money at risk if held to expiry, and its
-10th, 50th and 90th percentiles; which exit rule of the grid (``actions.EXIT_RULES``) would have done best.
+fees) at 1, 5, 10 and 21 sessions and at expiry; the **net** return on the money at risk held to expiry at the
+**expected fill** (``TARGET``, model v5), and its 10th, 50th and 90th percentiles; which exit rule of the grid
+(``actions.EXIT_RULES``) would have done best.
+
+**The net return** (``fills``): the settlement return after fees restated at the entry of the limit order the fill
+model chooses as of the decision (a fraction of the way from the mid to the far side), times its chance of filling
+within the session (a missed fill is no trade: zero). With no fill observations, or for replay rows (whose spread is
+assumed), the limit is the far side: the net return is the return paying the ask. The return at the ask
+(``exp``), and the mid and liquidation checkpoints, are still loaded and reported beside it.
 
 **Training honestly.** Rows are ordered by decision session. Walk-forward: the later ``TEST_SHARE`` of the sessions is
 cut into ``FOLDS`` consecutive blocks; each block is predicted by models trained only on rows decided at least
@@ -48,13 +55,15 @@ from desk.core.clock import to_iso
 from desk.core.hashing import canonical_json, sha256_hex
 from desk.stocks.learner import actions as act
 from desk.stocks.learner import features as ft
+from desk.stocks.learner import fills as fl
 from desk.stocks.learner import labels as lb
 from desk.stocks.learner import regimes as rg
 from desk.stocks.learner.experience import unpack
 
 NAME = "stocks_learner_model"
-VERSION = 4                         # v4 (2026-11-18): the earnings features (features v3); v3: option signals
+VERSION = 5                         # v5: the net target at the expected fill; v4: earnings features; v3: options
 CHECKPOINT_TARGETS = ("s1", "s5", "s10", "s21", "exp")
+TARGET = "net"                      # what the expected return and its range are trained on and judged by
 FEATURES = (*ft.STOCK_NAMES, *ft.MARKET_NAMES, *rg.FEATURES, *ft.CONTRACT_NAMES, "source_replay")
 CATEGORICAL = ("structure", "bucket", "sector")
 PARAMS = {"max_iter": 80, "learning_rate": 0.1, "max_leaf_nodes": 31, "min_samples_leaf": 40,
@@ -78,7 +87,10 @@ def content() -> dict[str, Any]:
             "exit_params": EXIT_PARAMS, "max_rows": MAX_ROWS, "folds": FOLDS, "test_share": TEST_SHARE,
             "embargo": EMBARGO, "clip_high": CLIP_HIGH, "min_rows": MIN_ROWS, "quantiles": list(QUANTILES),
             "actions": act.version_hash(), "features_version": ft.version_hash(), "labels": lb.version_hash(),
-            "regimes": rg.version_hash()}
+            "regimes": rg.version_hash(), "target": TARGET, "fills": fl.version_hash(),
+            "net": "fills.net: chance of filling at the chosen limit x the settlement return after fees at that entry; "
+                   "the fill model as of the decision session; replay rows and rows without decision legs: the far "
+                   "side"}
 
 
 def version_hash() -> str:
@@ -98,6 +110,7 @@ class Dataset:
     y: dict[str, np.ndarray] = field(default_factory=dict)        # target -> return (NaN = not known)
     day: dict[str, np.ndarray] = field(default_factory=dict)      # target -> the session its label became known
     index: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int32))   # the row's place in its stored group
+    extra: dict[str, np.ndarray] = field(default_factory=dict)  # per-row facts: fill_f, fill_p (the expected fill)
 
     def __len__(self) -> int:
         return int(self.X.shape[0])
@@ -106,7 +119,7 @@ class Dataset:
         return Dataset(self.X[rows], self.session[rows], self.source[rows], [self.origin[i] for i in rows],
                        self.explore[rows], [self.key[i] for i in rows], [self.symbol[i] for i in rows],
                        {k: v[rows] for k, v in self.y.items()}, {k: v[rows] for k, v in self.day.items()},
-                       self.index[rows] if len(self.index) else self.index)
+                       self.index[rows] if len(self.index) else self.index, {k: v[rows] for k, v in self.extra.items()})
 
     def column(self, name: str) -> np.ndarray:
         out: np.ndarray = self.X[:, FEATURES.index(name)]
@@ -152,16 +165,22 @@ def _groups(conn: sqlite3.Connection, sources: Sequence[str], max_rows: int, see
 
 def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "replay"), max_rows: int = MAX_ROWS,
          seed: int = 7) -> Dataset:
-    """Every labelled candidate (at most ``max_rows``: whole stock-sessions, a seeded sample) with its targets."""
+    """Every labelled candidate (at most ``max_rows``: whole stock-sessions, a seeded sample) with its targets, and the
+    net target at the expected fill (``fills``, as of each decision session)."""
     av, lv = act.version_hash(), lb.version_hash()
     X: list[list[float]] = []
     session, source, explore, index = [], [], [], []
     origin, key, symbol = [], [], []
     names = targets()
-    y: dict[str, list[float]] = {t: [] for t in names}
-    day: dict[str, list[int]] = {t: [] for t in names}
+    y: dict[str, list[float]] = {t: [] for t in (*names, TARGET)}
+    day: dict[str, list[int]] = {t: [] for t in (*names, TARGET)}
+    fill_f: list[float] = []
+    fill_p: list[float] = []
     nan = float("nan")
+    fills = fl.Fills.load(conn)
     for src, sess, sym, _ in _groups(conn, sources, max_rows, seed):
+        legs = fl.entry_legs(conn, src, sess, sym) if src == "forward" else {}
+        table = fills.at(sess)
         blob = conn.execute("SELECT rows_zlib FROM stk_learn_candidates WHERE source=? AND session=? AND symbol=? AND "
                             "actions_version=?", (src, sess, sym, av)).fetchone()[0]
         g = unpack(blob)
@@ -194,11 +213,19 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
                 got = labels[idx].get(t)
                 y[t].append(nan if got is None else got[0])
                 day[t].append(0 if got is None else got[1])
+            fill = fl.structure_fill(table, legs.get(idx), float(row["max_loss"]))
+            fill_f.append(fill.fraction)
+            fill_p.append(fill.chance)
+            held = labels[idx].get("exp")
+            y[TARGET].append(nan if held is None else fl.net(held[0], row["action"], float(row["entry"]),
+                                                            float(row["max_loss"]), len(row["legs"]), fill))
+            day[TARGET].append(0 if held is None else held[1])
     n = len(X)
     return Dataset(np.asarray(X, dtype=np.float32).reshape(n, len(FEATURES)), np.asarray(session, dtype=np.int32),
                    np.asarray(source, dtype=np.int8), origin, np.asarray(explore, dtype=np.int8), key, symbol,
                    {t: np.asarray(v, dtype=np.float32) for t, v in y.items()},
-                   {t: np.asarray(v, dtype=np.int32) for t, v in day.items()}, np.asarray(index, dtype=np.int32))
+                   {t: np.asarray(v, dtype=np.int32) for t, v in day.items()}, np.asarray(index, dtype=np.int32),
+                   {"fill_f": np.asarray(fill_f, dtype=np.float32), "fill_p": np.asarray(fill_p, dtype=np.float32)})
 
 
 # ── fitting ──────────────────────────────────────────────────────────────────────────────────────
@@ -276,8 +303,8 @@ def fit(ds: Dataset, *, before: int | None = None, variant: str = "source", only
         models[name] = model
         counts[name] = len(rows)
 
-    hold = np.where(_known(ds, "exp", before))[0]
-    clipped = np.clip(ds.y["exp"][hold], -1.0, CLIP_HIGH)
+    hold = np.where(_known(ds, TARGET, before))[0]
+    clipped = np.clip(ds.y[TARGET][hold], -1.0, CLIP_HIGH)
     train("expected", _regressor(), hold, clipped)
     for q in QUANTILES:
         train(f"q{round(q * 100)}", _regressor(loss="quantile", quantile=q), hold, clipped)
@@ -448,8 +475,8 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
                 preds[variant][name][rows] = values
             last[variant] = fitted
         tested |= test
-    realised = ds.y["exp"]
-    out: dict[str, Any] = {"folds": len(blocks), "embargo_sessions": EMBARGO,
+    realised = ds.y[TARGET]
+    out: dict[str, Any] = {"folds": len(blocks), "embargo_sessions": EMBARGO, "target": TARGET,
                            "blocks": [{"train_through": date.fromordinal(c).isoformat(),
                                        "test_from": date.fromordinal(f).isoformat(),
                                        "test_to": date.fromordinal(t).isoformat()} for c, f, t in blocks],
@@ -484,6 +511,7 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
     out["daily_rank_correlation"] = boot(daily_ic)
     out["deciles"] = deciles(ds, exp, realised, ok)
     out["by_regime"] = by_regime(ds, exp, realised, ok)
+    out["costs"] = costs(ds, exp, ok)
     out["_heldout"] = {"tested": tested, "expected": exp, **{k: p[k] for k in ("q10", "q50", "q90", "p_exp", "best_exit")
                                                              if k in p}}
     out["calibration"] = {}
@@ -516,17 +544,40 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
     return out
 
 
+def costs(ds: Dataset, pred: np.ndarray, ok: np.ndarray) -> dict[str, Any]:
+    """What the expected fill changes, on the held-out rows: how often a limit inside the spread was chosen, its
+    average chance of filling, and each day's top tenth realised at the expected fill against paying the ask."""
+    rows = ok & ~np.isnan(ds.y["exp"])
+    if not rows.any() or "fill_f" not in ds.extra:
+        return {"rows": 0}
+    f, p = ds.extra["fill_f"], ds.extra["fill_p"]
+    inside = rows & (f < 1)
+    top = np.zeros(len(ds), bool)
+    for s in np.unique(ds.session[rows]):
+        r = np.where(rows & (ds.session == s))[0]
+        if len(r) >= 10:
+            top[r[np.argsort(pred[r])[-max(1, len(r) // 10):]]] = True
+    net_day, ask_day = _daily(ds.session, ds.y[TARGET], rows & top), _daily(ds.session, ds.y["exp"], rows & top)
+    return {"rows": int(rows.sum()), "limit_rows": int(inside.sum()),
+            "limit_share": round(float(inside.sum() / rows.sum()), 4),
+            "mean_fraction": round(float(f[rows].mean()), 4), "mean_chance": round(float(p[rows].mean()), 4),
+            "mean_net": round(float(np.mean(ds.y[TARGET][rows])), 4),
+            "mean_at_ask": round(float(np.mean(ds.y["exp"][rows])), 4),
+            "top_net": boot(net_day), "top_at_ask": boot(ask_day),
+            "top_net_minus_ask": boot({s: v - ask_day[s] for s, v in net_day.items() if s in ask_day})}
+
+
 def importance(fitted: Fitted, ds: Dataset, rows: np.ndarray, *, limit: int = 4000, top: int = 10) -> list[dict[str, Any]]:
     """Permutation importance of the expected-return model on held-out rows, in plain words."""
     from sklearn.inspection import permutation_importance
 
     model = fitted.models.get("expected")
-    ok = rows[~np.isnan(ds.y["exp"][rows])]
+    ok = rows[~np.isnan(ds.y[TARGET][rows])]
     if model is None or len(ok) < 200:
         return []
     rng = np.random.default_rng(3)
     ok = rng.choice(ok, size=min(limit, len(ok)), replace=False)
-    result = permutation_importance(model, _matrix(ds, ok, fitted.variant), ds.y["exp"][ok], n_repeats=3,
+    result = permutation_importance(model, _matrix(ds, ok, fitted.variant), ds.y[TARGET][ok], n_repeats=3,
                                     random_state=3, scoring="r2", n_jobs=1)
     about = {f.name: f.about for f in ft.ALL} | {"source_replay": "Whether the row came from the replay"}
     order = np.argsort(-result.importances_mean)[:top]
@@ -618,7 +669,7 @@ def cell(key: str) -> str | None:
 def evidence_cells(ds: Dataset) -> dict[str, int]:
     """Labelled rows (held to expiry) the final models saw, per region of the action space (``cell``)."""
     out: dict[str, int] = defaultdict(int)
-    known = ~np.isnan(ds.y["exp"])
+    known = ~np.isnan(ds.y[TARGET])
     for k, ok in zip(ds.key, known.tolist(), strict=True):
         c = cell(k)
         if ok and c is not None:
@@ -667,7 +718,7 @@ def describe(p: Mapping[str, np.ndarray], i: int) -> dict[str, Any]:
     return out
 
 
-__all__ = ["CHECKPOINT_TARGETS", "FEATURES", "MAX_ROWS", "NAME", "VERSION", "Dataset", "Fitted", "best_exit", "boot",
-           "by_regime", "cell", "content", "data_summary", "describe", "evaluate", "evidence_cells", "fit", "folds",
-           "importance", "latest", "load", "load_models", "predict", "regime_labels", "reliability", "row_vector",
-           "spearman", "train", "version_hash"]
+__all__ = ["CHECKPOINT_TARGETS", "FEATURES", "MAX_ROWS", "NAME", "TARGET", "VERSION", "Dataset", "Fitted", "best_exit",
+           "boot", "by_regime", "cell", "content", "costs", "data_summary", "describe", "evaluate", "evidence_cells",
+           "fit", "folds", "importance", "latest", "load", "load_models", "predict", "regime_labels", "reliability",
+           "row_vector", "spearman", "train", "version_hash"]
