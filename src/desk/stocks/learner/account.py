@@ -190,6 +190,12 @@ def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, marke
     from desk.stocks.learner import graduation as gr
 
     out["graduation"] = gr.status(research)
+    from desk.stocks.learner import trials as tr
+
+    has_ledger = ledger is not None and _has(ledger, "stk_learner_days")
+    out["learned_trials"] = [tr.card(t, research, ledger if has_ledger else None) for t in tr.specs(research)]
+    out["trials_waiting"] = sum(1 for f in fd.current(research) if f["kind"] == "do" and f["status"] == "confirmed"
+                                and f["id"] not in {t["finding"] for t in tr.specs(research)})
     out["picks"] = {**gr.picks(ledger if ledger is not None and _has(ledger, "stk_learner_decisions") else None,
                                now.date()), "on_plays": out["graduation"]["graduated"]}
     if ledger is None or not _has(ledger, "stk_learner_days"):
@@ -203,6 +209,10 @@ def build(ledger: sqlite3.Connection | None, research: sqlite3.Connection, marke
         for p in book.positions(account, state=None):
             evidence = pr._evidence(ledger, p.id) if p.state == "CLOSED" else None
             trades.append(_trade(p, decisions.get(int(p.plan.get("learner_decision") or 0)), evidence))
+    from desk.stocks import attribution
+
+    for t in trades:                       # where each closed trade's money came from (stored quotes only)
+        t["attribution"] = attribution.of_trade(research, "paper", t["id"]) if t["state"] == "CLOSED" else None
     trades.sort(key=lambda t: (t["state"] != "OPEN", t["exit_day"] or "", t["entry_day"]), reverse=False)
     open_ = [t for t in trades if t["state"] == "OPEN"]
     closed = sorted((t for t in trades if t["state"] == "CLOSED"), key=lambda t: (t["exit_day"], t["id"]), reverse=True)
@@ -323,6 +333,8 @@ def refresh(paths: DeskPaths, dbs: Any, now: datetime, *, force: bool = False, r
         promoted = {**(promoted or {}), "graduation": graduated} if graduated.get("changed") else promoted
     stamp["graduation"] = research.execute("SELECT COUNT(*) FROM stk_learn_graduation").fetchone()[0] \
         if _has(research, "stk_learn_graduation") else 0
+    stamp["attribution"] = research.execute("SELECT COUNT(*) FROM stk_pl_attribution WHERE kind='paper'").fetchone()[0] \
+        if _has(research, "stk_pl_attribution") else 0
     previous = saved(paths.home) or {}
     if not force and not promoted and previous.get("stamp") == json.loads(json.dumps(stamp)):
         return {"refreshed": False}

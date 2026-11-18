@@ -1053,6 +1053,14 @@ const KestrelPlaysHistory = (() => {
             `Still open. Last saved value: ${pct(latest.pct)} at the close basis${data.exits?.first?.latest ? `, ${pct(data.exits.first.latest.pct)} if bought when first shown` : ""}.`,
           ),
         );
+      if (data.attribution)
+        happened.append(
+          el(
+            "p",
+            `Where the money came from (per contract): ${data.attribution.words}. Split from stored quotes: direction is delta and gamma times the stock's moves, volatility is vega times the change in implied volatility, time decay is theta times the days, costs are the spread and fees; the rest is shown as unexplained.`,
+            "pl-attribution",
+          ),
+        );
       if (data.twin) {
         const tl = data.twin.marks.at(-1);
         happened.append(

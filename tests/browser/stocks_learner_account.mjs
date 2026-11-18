@@ -71,6 +71,13 @@ try {
     const status = await page.locator(".learner-status-box").innerText();
     assert.match(status, /exploit trades whose lower confidence bound/);
     assert.match(status, /15% of each session's 8% new-risk budget/);
+    // Where each closed trade's money came from (stored quotes only), when it could be split.
+    const split = page.locator(".learner-attribution");
+    if (data.trades.some((t) => t.attribution))
+      assert.match(
+        await split.first().innerText(),
+        /^Where the money came from: [+−]\$[\d,]+ (from |costs)/,
+      );
     // Not graduated in this fixture: its picks are a preview on this page only.
     assert.equal(
       await page.locator(".learner-picks-state").innerText(),

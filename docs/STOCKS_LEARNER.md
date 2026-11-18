@@ -675,7 +675,9 @@ of the Learning promotions.
 - the Learner, its random twin, SPY (total return) and the rule-based option strategies' average on one chart, with a
   named legend; its grade (the PAPER grade); the realised comparison by entry day with ranges; the exploration share;
 - open and closed trades, each with its dials, legs, entry, money at risk, result, and its decision: the model's
-  view, its uncertainty and evidence, explore or exploit, the chosen exit rule and the alternatives weighed;
+  view, its uncertainty and evidence, explore or exploit, the chosen exit rule and the alternatives weighed; each
+  closed trade also says **where its money came from** (direction, volatility, time decay, costs, unexplained:
+  `desk.stocks.attribution`, [STOCKS_LEARNING.md](STOCKS_LEARNING.md));
 - how strictly it is tested, one plain line each with a short hint: the expected fill, the net-of-cost edge, the
   held-out splits, the deflated Sharpe ratio, the probability of overfitting, raw against market-neutral skill, and
   the ensemble against each single model; with the number of model variants and rules tried so far;

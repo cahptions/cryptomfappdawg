@@ -639,7 +639,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     def plays_history(when: str = Query(default="latest",
                                         pattern=r"^(latest|yesterday|week|month|quarter|year|\d{4}-\d{2}-\d{2})$"),
                       scope: Literal["all", "closing"] | None = None,
-                      section: str | None = Query(default=None, pattern=r"^[a-z_]{1,40}$"),
+                      section: str | None = Query(default=None, pattern=r"^[a-z0-9_]{1,40}$"),
                       sort: Literal["rank", "best", "worst", "newest"] | None = None,
                       ) -> dict[str, Any]:
         """One session's plays. Coverage, section and order not given come from the saved History preferences."""
@@ -647,7 +647,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         saved = ui_prefs(paths)["history"]
         scope, section, sort = scope or saved["scope"], section or saved["section"], sort or saved["sort"]
-        if section != "all" and section not in BY_CATEGORY:
+        if section != "all" and section not in BY_CATEGORY and not play_history.is_learned(section):
             raise HTTPException(400, "Choose a valid section")
         now = utc_now()
         try:
@@ -667,7 +667,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         return play_history.filtered(view, section, sort)
 
     @app.get("/api/stocks/plays/play")
-    def plays_play(session: date, category: str = Query(pattern=r"^[a-z_]{1,40}$"),
+    def plays_play(session: date, category: str = Query(pattern=r"^[a-z0-9_]{1,40}$"),
                    rank: int = Query(ge=1, le=1000)) -> dict[str, Any]:
         with reader(paths, RESEARCH_FILE) as conn:
             value = play_history.play_view(conn, session, category, rank, utc_now())

@@ -580,7 +580,7 @@ const KestrelLearning = (() => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  const openByDefault = new Set(["learned", "wrong", "achievements"]);
+  const openByDefault = new Set(["learned", "trying", "wrong", "achievements"]);
   function fillReport(box, report) {
     box.replaceChildren();
     const head = el("div", undefined, "learning-report-head");

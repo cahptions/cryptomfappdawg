@@ -1,5 +1,40 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-18 — Closing the loop: the Learner tries what it learned, phase 6
+
+- **Findings → trials** (`learner/trials.py`, spec `stocks_learner_trials` v1; research migration 0023): each
+  confirmed "do" finding becomes a frozen trial derived from it alone (rule, words, finding id, versions →
+  fingerprint; spec `stocks_trial_<id>`), at most 5 live, each counted in the persistent trial counter. It is a Plays
+  section "🧪 Learned: <rule>" (labelled a trial, with the finding's evidence and its forward record; today's matching
+  trades, one a stock, seeded order, held to expiry; recorded, twinned, graded, in History) and a PAPER account
+  `learned_<id>` (matching recorded candidates, the twin's sizing, held to expiry, vs the random twin). Retired when
+  the finding retires or either forward record averages ≤ 0 over 20 graded days. Confirmed "don't" findings put a
+  warning on every matching play's card. The live trials' fingerprints are in the Plays rule version.
+- **Graduation** (`learner/graduation.py`, spec `stocks_learner_graduation` v1): once the current Learner version is
+  confirmed (promotion v2) its newest picks are the Plays section "🤖 Learner picks" (valued at today's quotes,
+  graded like the others); demoted when its latest 20 closed entry days fail the same bar, graduated again only on a
+  later window. Until then a shadow preview on #learner.
+- **Limit entries** (policy v2; `stocks_paper_learner` v2, `stocks_paper_learner_random` v2): the fill model's chosen
+  limit on the decision quotes; filled at the limits only on an observed crossing of a stored quote that session
+  (chain snapshot or saved intraday quotes), refused when saved intraday quotes show none, else by a seeded draw
+  recorded in the decision; far side as before when the model says so (always until there are fill observations).
+  The twin and the trials alike. `kestrel check` books.fills accepts a limit inside the decision's quote.
+- **Where the money came from** (`desk.stocks.attribution`; research migration 0024): every closed PAPER option trade
+  and graded play split into direction (delta and gamma × the stock's moves), volatility (vega × ΔIV), time decay
+  (theta × days), costs (half spreads in and out, fees) and the unexplained rest, from stored quotes only (never a
+  modelled exit, never across a split); the parts sum to the recorded P/L. Bounded job at each PAPER step. On each
+  Learner trade and each play's History detail.
+- **Learning report**: "What it's trying next" (live trials and their forward records, retired ones, waiting
+  findings, graduation) and "What it learned from its own trades" (by strategy/section, then the largest consistent
+  sources of profit and loss).
+- Tests: `test_stocks_learner_trials.py` (derivation, cap, counter, retirement, Plays section, don't warning, trial
+  account, picks section, no look-ahead), `test_stocks_learner_graduation.py`, `test_stocks_learner_limit_entries.py`,
+  `test_stocks_attribution.py`, `test_stocks_attribution_plays.py`; browser `stocks_learned_trials.mjs` (scenario
+  `learned-trials`), `stocks_attribution.mjs` (scenario `attribution`), `stocks_learner_account.mjs` extended.
+- Not verified on real data: no finding has been confirmed on the user's data yet, so no trial exists until one is;
+  the Learner has not graduated; limit entries need fill observations (tracked contracts' saved quotes) before any
+  limit is tried; attribution of PAPER trades needs the entry-to-exit chains still stored.
+
 ## 2026-11-18 — Direction vs volatility: two forecasts and every structure priced from them, phase 3
 
 - `desk.stocks.forecast` (market migration 0017: `stk_forecast_fits` append-only, `stk_forecast_blobs` the newest 8

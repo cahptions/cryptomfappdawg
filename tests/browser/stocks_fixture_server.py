@@ -343,6 +343,9 @@ def learner_account_fixture(root: Path) -> None:
                 policy.decide(world.research.conn, world.dbs.ledger, world.market, world.paths.home, d, closing(d))
     finally:
         policy.gate = real  # type: ignore[assignment]
+    from desk.stocks import attribution
+
+    attribution.run(world.market.conn, world.research.conn, world.dbs.ledger, closing(trade_days[-1]))
     account.refresh(world.paths, world.dbs, closing(trade_days[-1]), force=True)
     world.close()
 
@@ -398,6 +401,16 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
                 "VALUES (?,?,?,?,?,?,?,?)",(p["legs"][0]["occ"],LATER.isoformat(),LATER.date().toordinal(),
                                            4.,4.1,102.,LATER.isoformat(),"synthetic_archive_fixture"))
         dbs.close()
+    elif args.scenario == "attribution":
+        # Graded synthetic plays split into direction, volatility, time decay and costs (no provider).
+        from desk.stocks import attribution
+        from tests.integration.test_stocks_play_history import simulate
+
+        world = make_world(root, n=60)
+        simulate(world)
+        attribution.run(world.market.conn, world.research.conn, None, cal.session_close(world.days[-1]) +
+                        timedelta(hours=2))
+        world.close()
     elif args.scenario in {"plays-history", "learning-report"}:
         from desk.stocks import play_learning, play_performance
         from tests.integration.test_stocks_play_history import simulate
@@ -605,7 +618,8 @@ def main() -> None:
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
                                                "stock-page", "learning-report", "ops", "account", "learner",
-                                               "learner-account", "earnings", "structure", "learned-trials"],
+                                               "learner-account", "earnings", "structure", "learned-trials",
+                                               "attribution"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()

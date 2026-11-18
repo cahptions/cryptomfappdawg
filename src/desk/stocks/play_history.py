@@ -15,6 +15,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from desk.stocks import attribution
 from desk.stocks import calendar as cal
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.play_marks import profit, settle_day
@@ -249,7 +250,7 @@ def order(rows: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
 def filtered(view: dict[str, Any], section: str, sort: str) -> dict[str, Any]:
     """One section (or all) of a session view, in the chosen order. The session summary becomes the section's own,
     computed by the view's own scope (its per-category summary), so the headline numbers match what is listed."""
-    if section != "all" and section not in BY_CATEGORY:
+    if section != "all" and section not in BY_CATEGORY and not is_learned(section):
         raise ValueError(f"unknown section {section!r}")
     if sort not in SORTS:
         raise ValueError(f"unknown sort {sort!r}")
@@ -515,6 +516,7 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
             "outcome": None if outcome is None else {"hit": bool(outcome["hit"]), "payoff": outcome["payoff"],
                                                     "net_return": outcome["net_return"],
                                                     "underlying_close": outcome["underlying_close"]},
+            "attribution": attribution.of_trade(research, "play", f"{n}:{category}:{rank}"),
             "method": row["method"], "fees_per_leg": FEE,
             "intraday_note": "Five-minute marks are kept for at least 30 days; older days show the daily close."}
 

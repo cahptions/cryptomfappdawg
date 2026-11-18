@@ -41,7 +41,8 @@ MIN_DAYS = 10            # a pattern seen on fewer separate days than this is "e
 RECENT_DAYS = 90         # behaviour and data health read the last 90 days
 PACE_DAYS = 28           # "about N weeks" estimates use the last four weeks' pace
 TABLE = "stk_learning_reports"
-SECTIONS = (("learned", "What it has learned"), ("behaviour", "How it behaves"),
+SECTIONS = (("learned", "What it has learned"), ("trying", "What it's trying next"),
+            ("own_trades", "What it learned from its own trades"), ("behaviour", "How it behaves"),
             ("wrong", "What it's getting wrong"), ("achievements", "Achievements"),
             ("surprises", "Surprises — worth a look"), ("coming", "Coming up"),
             ("changed", "Changed since last week"), ("replay", "Replays on past data — not forward results"),
@@ -1486,6 +1487,97 @@ def learner_account(src: Sources, r: Report) -> None:
                   key=f"learner:promotion:{v['model_code']}:{v['policy_version']}", weight=0.8)
 
 
+def trying_next(src: Sources, r: Report) -> None:
+    """What it's trying next: the live learned trials (from confirmed findings) and what their forward records say so
+    far, the ones retired and why, and whether the Learner's own picks have graduated to Plays."""
+    view = src.views.get("learner_account") or {}
+    link = "#learner"
+    trials = view.get("learned_trials") or []
+    for t in [t for t in trials if t.get("status") == "live"]:
+        disc = (t.get("evidence") or {}).get("discovery") or {}
+        found = (f"Found on held-out data ({signed(disc.get('mean'))} average over {count(int(disc['days']), 'day')})"
+                 if disc.get("mean") is not None else "Found on held-out data")
+        fwd = t.get("forward") or {}
+        graded = max(int((fwd.get("plays") or {}).get("days") or 0), int((fwd.get("paper") or {}).get("days") or 0))
+        trades = int((fwd.get("plays") or {}).get("trades") or 0) + int((fwd.get("paper") or {}).get("trades") or 0)
+        r.add("trying", f"Trying: {t['words']}.",
+              f"{found} and confirmed on later untouched data, so it is now a Plays section and a PAPER account, "
+              f"graded forward. So far — {t.get('forward_words')} Retired automatically if the finding is retired or "
+              "its record averages at or below zero over 20 graded days.",
+              items=trades, days=graded, unit="trades", day_unit="days",
+              strength=strength(trades, graded, need=20, need_days=20), link="#plays",
+              key=f"trying:{t['id']}", weight=0.9)
+    for t in [t for t in trials if t.get("status") == "retired"][:3]:
+        r.add("trying", f"Stopped trying: {t['words']}.", ((t.get("retired") or {}).get("reason") or "")
+              + f" Its record: {t.get('forward_words')}", items=0, days=0, strength="early", link=link,
+              key=f"trying:retired:{t['id']}", weight=0.4)
+    waiting = int(view.get("trials_waiting") or 0)
+    if waiting:
+        r.add("trying", f"{count(waiting, 'more confirmed finding')} {'wait' if waiting != 1 else 'waits'} for a trial "
+                        "slot.", "At most five learned trials run at once, so the number of things tested forward "
+                                 "stays small; each one counts as another trial against luck.",
+              items=waiting, days=0, unit="findings", strength="early", link=link, key="trying:waiting", weight=0.3)
+    if not trials and view:
+        r.add("trying", "Nothing learned to try yet.",
+              "When a Learner \"do\" finding is confirmed on later untouched data, it becomes a trial: a Plays section "
+              "of today's matching trades and a PAPER account trading them, both graded forward.",
+              items=0, days=0, strength="early", link=link, key="trying:none", weight=0.3)
+    g = view.get("graduation")
+    if g:
+        r.add("trying", "The Learner's own picks are a Plays section (graduated)." if g.get("graduated") else
+              "The Learner's own picks are a preview on the Learner page (not graduated).", g.get("why") or "",
+              items=0, days=0, strength="tested" if g.get("graduated") else "early",
+              link="#plays" if g.get("graduated") else link, key="trying:graduation", weight=0.8)
+
+
+def own_trades(src: Sources, r: Report) -> None:
+    """Where the money came from, by strategy and section (``attribution``: direction, volatility, time decay, costs
+    and what is unexplained, from stored quotes only), and the largest consistent sources of profit and loss."""
+    if not _has(src.research, "stk_pl_attribution"):
+        return
+    assert src.research is not None
+    from desk.stocks import attribution as at
+
+    titles: dict[str, str] = {}
+    from desk.stocks.learner import policy
+    from desk.stocks.paper.strategies import STRATEGIES
+
+    for st in (*STRATEGIES, *policy.STRATEGIES):
+        titles[st.id] = st.title
+    for t in (src.views.get("learner_account") or {}).get("learned_trials") or []:
+        titles[t["id"]] = f"Learned: {t['words']}"
+    groups = [g for g in at.summary(src.research) if "@" not in g["group"]]    # sections, not their expiry cohorts
+    for g in groups:
+        g["title"] = titles.get(g["group"]) or section_title(g["group"])
+        g["what"] = "PAPER trades" if g["kind"] == "paper" else "graded plays"
+    for g in groups[:8]:
+        per = " per contract" if g["kind"] == "play" else ""
+        r.add("own_trades", f"Where the money came from — {g['title']}: {g['words']}{per}.",
+              f"{count(g['trades'], g['what'][:-1])} split into direction (delta and gamma times the stock's moves), "
+              "volatility (vega times the change in implied volatility), time decay (theta times the days) and costs "
+              "(spreads and fees), from stored quotes only; what the greeks do not explain is shown as unexplained.",
+              items=g["trades"], days=g["trades"], unit="trades", day_unit="trades",
+              strength=strength(g["trades"], g["trades"], need=at.MIN_TRADES, need_days=at.MIN_TRADES),
+              link="#learner" if g["kind"] == "paper" else PERFORMANCE, key=f"own:{g['kind']}:{g['group']}",
+              weight=0.6)
+    lessons = sorted(((g, c) for g in groups for c in g["consistent"]), key=lambda x: -abs(x[1]["sum"]))
+    for g, c in lessons[:4]:
+        earns = c["sum"] > 0
+        r.add("own_trades", f"{g['title']} {'make' if earns else 'lose'} money consistently from "
+                            f"{at.WORDS[c['part']]}: {money(c['sum'])} over {count(g['trades'], g['what'][:-1])}.",
+              f"The same sign in {pct(c['share'])} of them ({money(c['mean'])} a trade on average). "
+              + ("A real source of its profit so far." if earns else "A steady drain worth understanding."),
+              items=g["trades"], days=g["trades"], unit="trades", day_unit="trades",
+              strength=strength(g["trades"], g["trades"], need=at.MIN_TRADES, need_days=at.MIN_TRADES),
+              link="#learner" if g["kind"] == "paper" else PERFORMANCE,
+              key=f"own:lesson:{g['kind']}:{g['group']}:{c['part']}", weight=0.85)
+    if not groups:
+        r.add("own_trades", "No closed trade has been split yet.",
+              "Each closed PAPER trade and each graded play is split into direction, volatility, time decay and costs "
+              "once it has stored quotes along the way.", items=0, days=0, strength="early", link="#learner",
+              key="own:none", weight=0.2)
+
+
 # ── build ────────────────────────────────────────────────────────────────────────────────────────
 def volatility(src: Sources, r: Report) -> None:
     """KESTREL's volatility forecast: which method each horizon uses and its out-of-sample error against the old blend."""
@@ -1549,7 +1641,7 @@ def direction_volatility(src: Sources, r: Report) -> None:
 
 LOOPS = (plays_calibration, plays_learning, plays_records, plays_behaviour, workspace, paper_forward, evidence,
          replays, marks_health, health, learner, learner_findings, learner_account,
-         volatility, direction_volatility)
+         volatility, direction_volatility, trying_next, own_trades)
 # The two loops that read every graded chance and every recent mark are remembered until those tables change (new
 # grades and marks arrive once a session): on a large desk they are most of the time a report takes.
 HEAVY = frozenset({"plays_calibration", "marks_health"})

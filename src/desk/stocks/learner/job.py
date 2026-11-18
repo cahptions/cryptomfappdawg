@@ -76,6 +76,12 @@ def paper_step(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> dict[st
                                                      now, stop=paths.stop_file.exists())
     except Exception as exc:  # recorded in the result; the next pass retries
         out["trials_error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
+    try:      # where each closed trade's and graded play's money came from (bounded a pass)
+        from desk.stocks import attribution
+
+        out["attribution"] = attribution.run(market.conn, research.conn, dbs.ledger, now)
+    except Exception as exc:  # recorded in the result; the next pass retries
+        out["attribution_error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
     try:
         out["page"] = account.refresh(paths, dbs, now, review=True)
     except Exception as exc:  # the page keeps its previous view

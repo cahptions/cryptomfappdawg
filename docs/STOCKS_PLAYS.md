@@ -640,6 +640,12 @@ Archive implementation: `play_archive.py`; `0011_play_archive.sql` adds lookup i
 skip audit. `stk_play_ideas` preserves the original complete snapshots; the older `stk_play_first_seen` table is the
 recovery source. Archive daily marks use a separate category namespace and do not enter closing-cohort grading.
 
+### Where the money came from
+
+A graded play's History detail splits its result per contract into direction, volatility, time decay, costs and what
+is unexplained, from its decision quotes, its quoted closing marks and its settlement only
+([STOCKS_LEARNING.md](STOCKS_LEARNING.md) → Where the money came from). The Learning report adds it up by section.
+
 ### Closing snapshot
 
 Plays → **History** shows any recorded session (Today, Yesterday, 1 week, 1 month, 3 months, 1 year, or a date; a date

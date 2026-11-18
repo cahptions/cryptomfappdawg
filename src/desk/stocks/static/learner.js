@@ -205,6 +205,14 @@ const KestrelLearner = (() => {
         el("p", result),
         el("p", decisionText(d), "learner-why"),
       );
+      if (t.attribution)
+        item.append(
+          el(
+            "p",
+            `Where the money came from: ${t.attribution.words}.`,
+            "caption learner-attribution",
+          ),
+        );
       list.append(item);
     }
     box.append(list);

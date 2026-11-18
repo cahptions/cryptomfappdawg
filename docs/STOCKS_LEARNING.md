@@ -231,6 +231,8 @@ databases, that says what every learning loop knows (`src/desk/stocks/learning_r
 
 | Section | What it reads |
 |---|---|
+| What it's trying next | The live **learned trials** (each a confirmed Learner "do" finding now tested forward as a Plays section and a PAPER account: what it is, where it was found, and what its forward record says so far), the trials retired and why, confirmed findings waiting for a slot, and whether the Learner's own picks have **graduated** to Plays or are still a preview ([STOCKS_LEARNER.md](STOCKS_LEARNER.md) → From findings to trials) |
+| What it learned from its own trades | **Where the money came from**, by PAPER strategy and Plays section: each closed trade's and graded play's profit or loss split into direction, volatility, time decay and costs, e.g. "Iron condors: +$420 from time decay, −$610 from direction moves, −$95 costs (spreads and fees)"; then the **largest consistent sources** of profit and loss (a part with the same sign in at least 60% of at least 10 trades), e.g. "Iron condors make money consistently from time decay" (below) |
 | What it has learned | Calibration now in use ("when KESTREL said 60–70% for Trend calls, 41% finished in the money … it now shows those as about 45%"), suggested exit rules, inputs that predict a week's return, challengers that won or were rejected, best holding times, the lab's promotions, options rich or cheap, the volatility forecast ("How much KESTREL expects the stock to move": which horizons use the learned forecast and which the fixed blend, its out-of-sample error against the blend and the held-out forecasts, sessions and stocks it rests on; STOCKS_METHOD.md §10) |
 | How it behaves | What it picks (sections, calls/puts/straddles, buying or selling, days to expiry, price, sectors, stocks) over the last 90 days, its odds against the market's own (more bullish? more confident?), Learning's mix, invested share and turnover, research against the $500,000 reference, concentration of P/L |
 | What it's getting wrong | Over/under-confidence by chance with the size of the gap, sections trailing their random twins or failing, losing recipes and Expiry-filter cohorts, small accounts losing, the biggest high-confidence misses, PAPER strategies behind or backwards, and data problems (estimated/modelled marks, failing jobs, Schwab history refused, quarantined plays) |
@@ -240,6 +242,25 @@ databases, that says what every learning loop knows (`src/desk/stocks/learning_r
 | Changed since last week | Counts, scores and grades against the previous weekly snapshot, and findings that are new |
 | Replays on past data | Historical replays, preregistered option research, lottos on real past prices and the Evidence page's rebuilt history and proposed weights, always labelled and never mixed with forward results |
 | The Learner — a shadow model, not traded | The Learner's experience log (candidates recorded, labels), its last training and its walk-forward held-out results with days and bootstrap ranges, calibration and what it relies on; never stronger than suggestive while it is shadow only ([STOCKS_LEARNER.md](STOCKS_LEARNER.md)) |
+
+**Where the money came from** (`src/desk/stocks/attribution.py`, research migration `0024`). Every closed PAPER /
+Learner option trade and every graded play is split, once, into:
+
+- **direction**: Σ legs × (delta × the stock's move + ½ gamma × the move²), step by step;
+- **volatility**: Σ legs × vega × the change in implied volatility;
+- **time decay**: Σ legs × theta × calendar days;
+- **costs**: the half spreads paid on the way in and out (each fill against its mid) and the fees;
+- **unexplained**: whatever is left (moves larger than the greeks describe, a day without a quote of every leg, greeks
+  changing within a step), shown as it is.
+
+The steps run between observations where every leg had a **stored** quote: for a PAPER trade the entry session's
+stored chain, every stored session's chain up to the exit (at most 40, evenly spaced) and the exit fill or the
+settlement at intrinsic value on the official close; for a play its decision quotes, its quoted closing marks
+(`stk_track_days`, status quoted) and its settlement. Greeks are Black-Scholes at the start of each step, from the
+implied volatility solved from that stored mid. A trade closed at a modelled price, or across a split, is left out
+(recorded with the reason); a leg without an implied volatility leaves its step unexplained. The parts always add up
+to the recorded profit or loss. It runs at every PAPER step (at most 200 trades a pass) and appears in the report,
+on each Learner trade ("Where the money came from: …") and on each play's History detail (per contract).
 
 **Honesty rules.** Every finding shows its evidence, the number of items **and** of separate sessions or days, and a
 strength: **early** (below that loop's own threshold, such as 30 resolved plays from 10 sessions for calibration or 60 settled plays
