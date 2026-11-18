@@ -83,6 +83,8 @@ def test_training_freezes_registers_and_refuses_a_tampered_artifact(learned: Any
     metrics = json.loads(row["metrics_json"])
     assert metrics["folds"] >= 1 and metrics["test_days"] > 0
     assert metrics["chosen_variant"] in ("source", "weighted")
+    cpcv = metrics["cpcv"]
+    assert cpcv["splits"] == 15 and len(cpcv["paths"]) == 5 and 0 <= cpcv["profitable"] <= cpcv["scored"] <= 15
     assert set(json.loads(row["data_json"])) == {"forward"}
     assert json.loads(row["features_json"]) == list(md.FEATURES)
     fitted = md.load_models(w.paths.home, row)

@@ -39,6 +39,9 @@
  "stocks_learner_regimes": {
   "1": "8d65defe81b28cf5002fafe48f4ad6994f955d58dabfcfd6cbbcbe8db2a2bb16"
  },
+ "stocks_learner_validation": {
+  "1": "415ed385a7efe8b0191142349b11c9a235a5e03cdfd3f22c6544969dd2266d76"
+ },
  "stocks_list_big_moves": {
   "1": "c5b7f621c842898b7dbf4a7ecf5bf89391963785bba2648c37c3f44266373a8b"
  },

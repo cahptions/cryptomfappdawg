@@ -544,6 +544,35 @@ def evaluate(ds: Dataset, progress: Callable[[str], None] | None = None) -> dict
     return out
 
 
+def cpcv(ds: Dataset, variant: str, progress: Callable[[str], None] | None = None, *, target: str = TARGET,
+         max_rows: int | None = None, seed: int = 11) -> dict[str, Any]:
+    """Purged combinatorial cross-validation of the expected-return model (``validation``): at most
+    ``validation.MAX_ROWS`` labelled rows (a seeded sample), the walk-forward-chosen variant."""
+    from desk.stocks.learner import validation as va
+
+    started = time.monotonic()
+    rows = np.where(~np.isnan(ds.y[target]))[0]
+    cap = va.MAX_ROWS if max_rows is None else max_rows
+    if len(rows) > cap:
+        rows = np.sort(np.random.default_rng(seed).choice(rows, cap, replace=False))
+    sub = ds.subset(rows)
+    done = [0]
+
+    def fit_predict(train: np.ndarray, test: np.ndarray) -> np.ndarray:
+        done[0] += 1
+        if progress:
+            progress(f"CPCV split {done[0]}")
+        fitted = fit(sub.subset(train), variant=variant, only=("expected",))
+        model = fitted.models.get("expected")
+        if model is None:
+            return np.full(len(test), np.nan)
+        return np.asarray(predict(Fitted({"expected": model}, variant, {}), sub.X[test])["expected"])
+
+    out = va.run(sub.session, sub.day[target], sub.y[target], fit_predict)
+    return {**out, "rows": len(rows), "variant": variant, "target": target,
+            "seconds": round(time.monotonic() - started, 1), "rules": va.version_hash()}
+
+
 def costs(ds: Dataset, pred: np.ndarray, ok: np.ndarray) -> dict[str, Any]:
     """What the expected fill changes, on the held-out rows: how often a limit inside the spread was chosen, its
     average chance of filling, and each day's top tenth realised at the expected fill against paying the ask."""
@@ -619,6 +648,9 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     variant = metrics.get("chosen_variant", "source")
     last = metrics.pop("_last", None)
     held = metrics.pop("_heldout", None)
+    if metrics.get("folds"):
+        say("purged combinatorial cross-validation")
+        metrics["cpcv"] = cpcv(ds, variant, progress)
     say("fitting the final models")
     fitted = fit(ds, variant=variant)
     if not fitted.models:
@@ -719,6 +751,6 @@ def describe(p: Mapping[str, np.ndarray], i: int) -> dict[str, Any]:
 
 
 __all__ = ["CHECKPOINT_TARGETS", "FEATURES", "MAX_ROWS", "NAME", "TARGET", "VERSION", "Dataset", "Fitted", "best_exit",
-           "boot", "by_regime", "cell", "content", "costs", "data_summary", "describe", "evaluate", "evidence_cells",
+           "boot", "by_regime", "cell", "content", "costs", "cpcv", "data_summary", "describe", "evaluate", "evidence_cells",
            "fit", "folds", "importance", "latest", "load", "load_models", "predict", "regime_labels", "reliability",
            "row_vector", "spearman", "train", "version_hash"]

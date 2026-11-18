@@ -72,6 +72,8 @@ def run(rows: int = md.MAX_ROWS, sessions: int = 250) -> dict[str, Any]:
     metrics = md.evaluate(ds)
     evaluated = time.monotonic() - started
     last = metrics.pop("_last", None)
+    cpcv = md.cpcv(ds, metrics.get("chosen_variant", "source"))
+    validated = time.monotonic() - started
     fitted = md.fit(ds, variant=metrics.get("chosen_variant", "source"))
     blocks = md.folds(ds)
     if last is not None:
@@ -79,6 +81,8 @@ def run(rows: int = md.MAX_ROWS, sessions: int = 250) -> dict[str, Any]:
     total = time.monotonic() - started
     return {"synthetic": True, "rows": rows, "sessions": sessions, "features": len(md.FEATURES),
             "seconds_build": round(built, 1), "seconds_evaluate": round(evaluated - built, 1),
+            "seconds_cpcv": round(validated - evaluated, 1), "cpcv": {k: cpcv.get(k) for k in (
+                "splits", "profitable", "beat_average", "rank_correlation", "path_sharpe", "rows")},
             "seconds_total": round(total, 1),
             "peak_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
             "models": sorted(fitted.models), "held_out": {k: metrics.get(k) for k in (
