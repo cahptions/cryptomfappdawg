@@ -202,3 +202,58 @@ def test_replays_use_only_fits_made_on_or_before_their_day(dbs: StocksDatabases)
     assert vf.forecast_sigma(0.3, 0.2, t=0.1, vol=vf.Vol(s, look.model(first - timedelta(days=1)))).method == "blend"
     info = vf.latest(conn)
     assert info is not None and info["fit_day"] == fits[-1].day.isoformat() and info["methods"]["1"] == "har_iv"
+
+
+def test_the_chances_and_replays_use_the_forecast_only_where_a_past_fit_is_live(dbs: StocksDatabases) -> None:
+    from desk.stocks import lotto_history, play_replay
+    from desk.stocks import odds as od
+
+    conn = dbs.market
+    fits = vf.walk_forward(planted())
+    vf.save_fits(conn, fits, datetime(2026, 11, 18, 22, tzinfo=UTC))
+    s = vf.State(fits[-1].day, math.exp(-7), math.exp(-7), math.exp(-7))
+    kw = {"kind": "call", "action": "buy", "s": 100.0, "k": 105.0, "t": 30 / 365, "iv": 0.3, "rv": 0.25, "r": 0.04,
+          "premium": 1.0, "history": None, "ic": None, "ic_months": 0.0, "z": None}
+    old = od.odds(**kw)                                                     # type: ignore[arg-type]
+    assert old.sigma == pytest.approx(vf.blend(0.3, 0.25))
+    learned = od.odds(**kw, vol=vf.Vol(s, fits[-1].model))                 # type: ignore[arg-type]
+    assert learned.sigma == pytest.approx(vf.forecast_sigma(0.3, 0.25, t=30 / 365, vol=vf.Vol(s, fits[-1].model)).sigma)
+    assert learned.sigma != pytest.approx(old.sigma)
+    # a replay day before the first fit: the old blend, exactly as before
+    before = fits[0].day - timedelta(days=1)
+    assert play_replay._context(dbs_market(dbs), before).vol_model is None
+    assert play_replay._context(dbs_market(dbs), fits[3].day).vol_model.fit_day == fits[3].day
+    look = vf.Lookup(conn)
+    early = lotto_history.score("call", 0.2, 100.0, 105.0, 0.03, 0.25, vf.Vol(s, look.model(before)))
+    assert early == lotto_history.score("call", 0.2, 100.0, 105.0, 0.03, 0.25)
+    late = lotto_history.score("call", 0.2, 100.0, 105.0, 0.03, 0.25, vf.Vol(s, look.model(fits[-1].day)))
+    assert late is not None and late != early
+
+
+def dbs_market(dbs: StocksDatabases):  # type: ignore[no-untyped-def]
+    from desk.stocks.repo import StocksMarket
+
+    return StocksMarket(dbs.market)
+
+
+def test_the_daily_step_refits_at_most_weekly_from_the_stored_table(dbs: StocksDatabases) -> None:
+    conn = dbs.market
+    panel = planted(stocks=32, sessions=400)
+    at = "2026-01-01T00:00:00Z"
+    for i, symbol in enumerate(panel.symbols):
+        conn.execute("INSERT INTO stk_rv_symbols VALUES (?,?,?)", (symbol, vf._splits_key([]), at))
+        conn.executemany("INSERT INTO stk_rv_daily VALUES (?,?,?,?,?,NULL,?)",
+                         [(symbol, d.toordinal(), float(panel.rv[i, j]), float(panel.ret[i, j]), "daily", at)
+                          for j, d in enumerate(panel.days)])
+        conn.executemany("INSERT INTO stk_iv_daily VALUES (?,?,?,'massive_close',2,?)",
+                         [(symbol, d.toordinal(), math.sqrt(float(panel.iv[i, j]) * 252), at)
+                          for j, d in enumerate(panel.days)])
+    now = cal.session_close(panel.days[-1]) + timedelta(hours=1)
+    first = vf.step(conn, now, {})
+    assert first["remaining"] == 0 and first["rows_written"] == 0 and first["refit"]["added"] > 0
+    assert first["refit_for"] == vf.current_fit_day(now).isoformat()
+    assert "refit" not in vf.step(conn, now, first)                            # once a week
+    info = vf.latest(conn)
+    expected = vf.walk_forward(panel)[-1]
+    assert info is not None and info["fit_day"] == expected.day.isoformat()
+    assert info["methods"] == expected.model.methods()

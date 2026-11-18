@@ -6,8 +6,9 @@ understates crashes and, under the usual equity skew, misprices the chance of fi
 strike. This module turns the chain into the terminal distribution its prices imply and uses it twice:
 
 * **Market** view: the chance the chain itself prices (risk-neutral, skew and fat tails included).
-* **KESTREL** forecast: the same shape, its spread rescaled by KESTREL's volatility blend (``odds.IV_WEIGHT`` of
-  implied variance, the rest realized) and shifted to KESTREL's drift (the committee tilt, ``odds.tilt``).
+* **KESTREL** forecast: the same shape, its spread rescaled by KESTREL's volatility forecast at the money
+  (``vol_forecast.forecast_sigma``: the learned HAR-IV forecast where live, else the blend of ``odds.IV_WEIGHT``
+  implied variance and the rest realized) and shifted to KESTREL's drift (the committee tilt, ``odds.tilt``).
 
 **Method, and why.** Breeden–Litzenberger: the chance the stock finishes above K is minus the forward value of the
 call price's slope in strike, P(S_T > K) = −e^{rT} ∂C/∂K. Differencing quoted prices directly needs dense, tight
@@ -37,6 +38,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from desk.stocks import odds as od
+from desk.stocks import vol_forecast as vf
 
 Array = np.ndarray
 MIN_STRIKES = 5             # usable strikes in one expiry, ...
@@ -252,7 +254,7 @@ class Expiry:
     market: Distribution | None = None
     kestrel: Distribution | None = None
     atm_iv: float | None = None
-    sigma: float | None = None      # KESTREL's volatility at this expiry (the money's IV blended with realized)
+    sigma: float | None = None      # KESTREL's volatility at this expiry (``vol_forecast`` at the money's IV)
     drift: float | None = None      # KESTREL's annual drift (risk-free rate + committee tilt)
     strikes: int = 0
 
@@ -264,7 +266,7 @@ class Expiry:
 
 
 def expiry(k: Array, iv: Array, spread: Array, call: Array, mid: Array, *, s: float, t: float, r: float, rv: float | None,
-           ic: float | None, ic_months: float, z: float | None) -> Expiry:
+           ic: float | None, ic_months: float, z: float | None, vol: vf.Vol | None = None) -> Expiry:
     """The basis for one expiry of one stock: fit, build, check; else the lognormal fallback and why."""
     smile, why = fit_smile(k, iv, spread, call, mid, s, t, r)
     if smile is None:
@@ -272,7 +274,7 @@ def expiry(k: Array, iv: Array, spread: Array, call: Array, mid: Array, *, s: fl
     market, why = implied(smile, s, t, r)
     if market is None:
         return Expiry("lognormal", why)
-    sigma = od.forecast_sigma(smile.atm, rv) or smile.atm
+    sigma = vf.forecast_sigma(smile.atm, rv, t=t, vol=vol).sigma or smile.atm
     mu = r + od.tilt(ic, ic_months, z, sigma, t)
     kestrel = market.reshaped(sigma / smile.atm, mu, t)
     return Expiry("chain", f"the chain's own smile across {smile.strikes} strikes", market, kestrel, smile.atm, sigma,

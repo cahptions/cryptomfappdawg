@@ -5,10 +5,12 @@
   price, not a forecast.
 * **History**: how often this stock really moved that far over that many sessions, from its own daily closes,
   rescaled to today's realized volatility (keeps its fat tails and skew, drops its old trend).
-* **KESTREL**: a forecast. Volatility blends implied and realized variance (implied volatility usually overstates the
-  move that follows); the drift is tilted by the committee's view only as far as the committee's measured
-  information coefficient allows (Grinold: expected move = IC × z-score × volatility), never beyond the horizon the IC
-  was measured on. Then it is calibrated against how past plays actually finished (``Calibration``).
+* **KESTREL**: a forecast. Volatility is KESTREL's learned forecast (``desk.stocks.vol_forecast``: the stock's recent
+  daily, weekly and monthly realized variance plus implied variance, HAR-IV) at the horizons where it beat the old
+  fixed blend out of sample, else that blend (``IV_WEIGHT`` of implied variance, the rest realized); the drift is
+  tilted by the committee's view only as far as the committee's measured information coefficient allows (Grinold:
+  expected move = IC × z-score × volatility), never beyond the horizon the IC was measured on. Then it is calibrated
+  against how past plays actually finished (``Calibration``).
 
 Every probability is the chance of the stated event at expiration unless named otherwise ("touch" = the price reaches
 the level at any time before expiration).
@@ -23,6 +25,7 @@ from collections.abc import Hashable, Iterable, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 
+from desk.stocks import vol_forecast as vf
 from desk.stocks.options import norm_cdf
 
 # Bump when the probability model itself changes (what it predicts before calibration): calibration restarts for it.
@@ -30,9 +33,12 @@ from desk.stocks.options import norm_cdf
 # 2026-11-12) is not the model: the raw predictions it learns from are unchanged, so earlier plays still count.
 # 2 (2026-11-12): the market and KESTREL chances use the option chain's own distribution where an expiry's smile can be
 # fitted (``desk.stocks.chain_odds``), the lognormal elsewhere; plays of version 1 stay graded but no longer calibrate.
-MODEL_VERSION = 2
+# 3 (2026-11-18): KESTREL's volatility is the learned HAR-IV forecast (``desk.stocks.vol_forecast``) at every horizon
+# where it beat the fixed 0.7/0.3 blend out of sample, so KESTREL's predictions change there; plays of version 2 stay
+# graded but no longer calibrate.
+MODEL_VERSION = 3
 TRADING_YEAR = 252
-IV_WEIGHT = 0.7                  # forecast variance = 0.7 × implied² + 0.3 × realized²
+IV_WEIGHT = vf.IV_WEIGHT         # the fallback: forecast variance = 0.7 × implied² + 0.3 × realized²
 IC_HORIZON_YEARS = 21 / 252      # the committee's information coefficient is measured over one month
 IC_SHRINK_MONTHS = 24            # an IC from n independent months counts n / (n + 24) of itself
 MIN_HISTORY_WINDOWS = 120
@@ -118,9 +124,8 @@ class History:
 
 # ── the forecast ─────────────────────────────────────────────────────────────────────────────────
 def forecast_sigma(iv: float | None, rv: float | None) -> float | None:
-    if iv and rv:
-        return math.sqrt(IV_WEIGHT * iv * iv + (1 - IV_WEIGHT) * rv * rv)
-    return iv or rv
+    """The old fixed blend (the fallback); ``vol_forecast.forecast_sigma`` gives KESTREL's forecast and its method."""
+    return vf.blend(iv, rv)
 
 
 def tilt(ic: float | None, independent_months: float, z: float | None, sigma: float, t: float) -> float:
@@ -268,9 +273,10 @@ class Odds:
 
 def odds(*, kind: str, action: str, s: float, k: float, t: float, iv: float, rv: float | None, r: float, premium: float,
          history: History | None, ic: float | None, ic_months: float, z: float | None,
-         calibration: Calibration | None = None) -> Odds:
-    """All three views of one contract. ``premium`` is per share: paid (``action`` "buy") or received ("sell")."""
-    sigma = forecast_sigma(iv, rv) or iv
+         calibration: Calibration | None = None, vol: vf.Vol | None = None) -> Odds:
+    """All three views of one contract. ``premium`` is per share: paid (``action`` "buy") or received ("sell").
+    ``vol``: the stock's realized-variance state and the volatility fit on the decision day (None: the old blend)."""
+    sigma = vf.forecast_sigma(iv, rv, t=t, vol=vol).sigma or iv
     mu = r + tilt(ic, ic_months, z, sigma, t)
     itm_market = finishes_beyond(kind, s, k, t, iv, r)
     raw = finishes_beyond(kind, s, k, t, sigma, mu)

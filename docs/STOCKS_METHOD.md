@@ -270,7 +270,7 @@ horizon switches to the learned forecast only after it beat the blend out of sam
    day's close, else the blend.
 7. **Cost.** The realized-variance update runs in each collection pass with a 60-second budget (the rest next pass);
    the weekly refit rebuilds the walk-forward from the stored rows once every stock is current (a fraction of a second
-   per 10,000 stock-sessions; about 10 seconds for 500 stocks × 1,000 sessions). `kestrel stocks vol-forecast`
+   per 10,000 stock-sessions; about 10 seconds for 500 stocks × 1,000 sessions). `desk stocks vol-forecast`
    rebuilds and evaluates on demand, with progress.
 
 Limits: most stored sessions before the minute archive began use the noisier close-to-close measure, which mainly

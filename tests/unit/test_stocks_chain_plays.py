@@ -101,7 +101,8 @@ def test_a_sparse_expiry_keeps_todays_lognormal() -> None:
                    premium=play["entry"], history=None, ic=None, ic_months=0, z=None)
     assert play["itm_market"] == pytest.approx(want.itm_market, abs=1e-4)
     assert play["itm_kestrel_raw"] == pytest.approx(want.itm_kestrel_raw, abs=1e-4)
-    assert play["forecast"] == {"sigma": round(want.sigma, 4), "drift": round(want.drift, 4), "basis": "lognormal"}
+    assert play["forecast"] == {"sigma": round(want.sigma, 4), "drift": round(want.drift, 4), "basis": "lognormal",
+                                "vol_method": "blend"}
 
 
 def test_the_plan_monte_carlo_finishes_on_the_same_distribution() -> None:

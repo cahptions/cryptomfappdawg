@@ -319,6 +319,9 @@ def underlying(market: StocksMarket, symbol: str, d: date, chains: dict[date, li
     u = pl.Underlying(symbol, float(price[0]), cal.session_close(d).isoformat(), SOURCE, chains)
     u.closes = [r["close"] for r in adjusted_bars(market.conn, symbol, rows)]
     u.rv = pl._realized(u.closes)
+    from desk.stocks import vol_forecast as vf
+
+    u.vol_state = vf.state(market.conn, symbol, d)          # realized variance up to d's close only
     u.iv30 = opt.daily_summary(chains, u.price, d, rate).get("iv30")
     if u.iv30:
         prior = iv_history.series(market.conn, [symbol], d - timedelta(days=iv_history.RANK_DAYS),
@@ -389,8 +392,11 @@ def _chances(play: Mapping[str, Any]) -> dict[str, Any]:
 
 def _context(market: StocksMarket, d: date) -> Any:
     from desk.stocks import plays as pl
+    from desk.stocks import vol_forecast as vf
 
-    return pl.Context(d, cal.session_close(d), pl._rate(market, d), None, 0.0, None, {}, [])
+    ctx = pl.Context(d, cal.session_close(d), pl._rate(market, d), None, 0.0, None, {}, [])
+    ctx.vol_model = vf.model_on(market.conn, d)              # a fit made on or before d, else the old blend
+    return ctx
 
 
 def record_day(market: StocksMarket, d: date, sections: Mapping[str, Sequence[Any]], m: str, now: datetime) -> int:

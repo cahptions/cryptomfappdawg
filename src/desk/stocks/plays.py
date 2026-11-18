@@ -39,6 +39,7 @@ from desk.stocks import calendar as cal
 from desk.stocks import chain_odds as co
 from desk.stocks import odds as od
 from desk.stocks import options as opt
+from desk.stocks import vol_forecast as vf
 from desk.stocks.activity import quote_session
 from desk.stocks.contracts import OptionQuote
 from desk.stocks.hub import adjusted_bars
@@ -200,11 +201,20 @@ HORIZONS = (("weeks", "Up to 2 weeks", 1, 14), ("month", "About a month", 15, 45
 HORIZON_FREE = frozenset({"unusual", "earnings", "lottos"})   # the flow seen, a results date, or short-dated by design
 
 
+def vol_info(model: vf.Model | None) -> dict[str, Any]:
+    """KESTREL's volatility method at each fitted horizon (sessions), for the Plays model info."""
+    methods = model.methods() if model is not None else {str(h): "blend" for h in vf.HORIZONS}
+    return {"about": vf.ABOUT, "fit_day": None if model is None else model.fit_day.isoformat(),
+            "fit_sha": None if model is None else model.sha, "methods": methods,
+            "method_text": {k: vf.METHODS[v] for k, v in methods.items()}}
+
+
 def method(promoted: Mapping[str, str] | None = None) -> str:
     """The rule version: categories, the probability model and any challenger promoted into the live rules."""
     content: dict[str, Any] = {"version": VERSION, "categories": [c.content() for c in CATEGORIES],
                                "iv_weight": od.IV_WEIGHT, "ic_shrink": od.IC_SHRINK_MONTHS,
                                "calibration_prior": od.CALIBRATION_PRIOR, "odds_version": od.MODEL_VERSION,
+                               "vol_forecast": vf.VERSION,
                                "calibration_sessions": od.MIN_CALIBRATION_SESSIONS}
     if promoted:
         content["promoted"] = dict(sorted(promoted.items()))
@@ -281,6 +291,7 @@ class Underlying:
     prior: dict[str, tuple[int, int, float | None, float | None, date]] = field(default_factory=dict)
     average_volume: dict[str, float] = field(default_factory=dict)
     option_volume_avg: float | None = None
+    vol_state: vf.State | None = None           # recent realized variance for KESTREL's volatility forecast
 
     def desk(self, name: str) -> float | None:
         d = (self.detail.get("desks") or {}).get(name) or {}
@@ -308,6 +319,7 @@ class Context:
     flagged: dict[str, dict[str, Any]] = field(default_factory=dict)   # occ → the last recorded unusual play of it
     budget_range: tuple[float, float] | None = None  # whole-play entry cost / maximum loss; never per-share premium
     horizon: tuple[int, int] | None = None           # days to expiry searched instead of each section's own window
+    vol_model: vf.Model | None = None                # the volatility fit on or before the session (None: the old blend)
 
 
 def _rate(market: StocksMarket, session: date) -> float:
@@ -374,6 +386,7 @@ def load(market: StocksMarket, research: StocksResearch, session: date) -> list[
         rows.reverse()
         u.closes = [r["close"] for r in adjusted_bars(market.conn, symbol, rows)]
         u.rv = u.feature("vol_20d") or _realized(u.closes)
+        u.vol_state = vf.state(market.conn, symbol, session)
         history = iv_rows.get(symbol, [])
         current = [iv for day, iv, _ in history if day == day_of(session) and iv]
         u.iv30 = current[-1] if current else None
@@ -425,6 +438,8 @@ class Table:
     itm_market: Array
     itm_kestrel: Array
     payoff: Array        # KESTREL expected payoff per share at expiration
+    vol: vf.Vol | None = None                                       # what KESTREL's volatility forecast read
+    vol_methods: dict[date, str] = field(default_factory=dict)      # each expiry's volatility method (``vol_forecast``)
     # each expiry's basis for the chances: the chain's own smile, or the lognormal fallback and why (``chain_odds``)
     fits: dict[date, co.Expiry] = field(default_factory=dict)
 
@@ -463,8 +478,12 @@ def table(u: Underlying, ctx: Context) -> Table | None:
     sq = safe_iv * np.sqrt(t)
     d1 = (np.log(s / k) + (ctx.rate + 0.5 * safe_iv ** 2) * t) / sq
     delta = np.where(call, _ncdf(d1), _ncdf(d1) - 1.0)
-    rv = u.rv or 0.0
-    sigma = np.sqrt(od.IV_WEIGHT * safe_iv ** 2 + (1 - od.IV_WEIGHT) * rv ** 2) if rv else safe_iv
+    vol = vf.Vol(u.vol_state, ctx.vol_model)
+    sigma, methods = np.empty_like(safe_iv), {}
+    for days in np.unique(dte):                     # one horizon per expiry; each contract keeps its own IV
+        rows = dte == days
+        sigma[rows], methods[ctx.session + timedelta(days=int(days))] = vf.forecast_sigmas(
+            safe_iv[rows], u.rv, t=float(t[rows][0]), vol=vol)
     used = 0.0 if not ctx.ic or ctx.ic <= 0 or u.z is None else (
         ctx.ic * ctx.ic_months / (ctx.ic_months + od.IC_SHRINK_MONTHS) * max(-3.0, min(3.0, u.z)))
     mu = ctx.rate + used * sigma * np.sqrt(np.minimum(t, od.IC_HORIZON_YEARS)) / t
@@ -476,7 +495,7 @@ def table(u: Underlying, ctx: Context) -> Table | None:
                ((ask - bid) / mid)[keep], np.array([q.volume for q in pick], dtype=float),
                np.array([q.open_interest for q in pick], dtype=float), iv[keep], delta[keep], sigma[keep], mu[keep],
                np.where(call, above_m, 1 - above_m)[keep], np.where(call, above_k, 1 - above_k)[keep],
-               _payoff(call, s, k, t, sigma, mu)[keep])
+               _payoff(call, s, k, t, sigma, mu)[keep], vol=vol, vol_methods=methods)
     _chain_basis(tb, ctx)
     return tb
 
@@ -490,7 +509,8 @@ def _chain_basis(tb: Table, ctx: Context) -> None:
     for ordinal in sorted(set(expiries.tolist())):
         rows = np.where(expiries == ordinal)[0]
         fit = co.expiry(tb.k[rows], tb.iv[rows], tb.spread[rows], tb.call[rows], tb.mid[rows], s=u.price,
-                        t=float(tb.t[rows[0]]), r=ctx.rate, rv=u.rv, ic=ctx.ic, ic_months=ctx.ic_months, z=u.z)
+                        t=float(tb.t[rows[0]]), r=ctx.rate, rv=u.rv, ic=ctx.ic, ic_months=ctx.ic_months, z=u.z,
+                        vol=tb.vol)
         tb.fits[date.fromordinal(ordinal)] = fit
         if fit.market is None or fit.kestrel is None or fit.sigma is None or fit.drift is None:
             continue
@@ -1170,7 +1190,8 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
             return co.chance_odds(fit, kind=kind, action="buy" if buyer else "sell", s=u.price, k=k, t=t,
                                   premium=premium, history=history, rv=u.rv, iv=iv, calibration=cal)
         return od.odds(kind=kind, action="buy" if buyer else "sell", s=u.price, k=k, t=t, iv=iv, rv=u.rv, r=ctx.rate,
-                       premium=premium, history=history, ic=ctx.ic, ic_months=ctx.ic_months, z=u.z, calibration=cal)
+                       premium=premium, history=history, ic=ctx.ic, ic_months=ctx.ic_months, z=u.z, calibration=cal,
+                       vol=tb.vol)
     breakevens: list[float] | None = None
     if c.structure in MOVES:
         # Two break-evens around the held strikes; bought: chance of finishing beyond either, sold: between them.
@@ -1272,7 +1293,8 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
     play["probability_targets"] = target_probabilities(play, sigma, drift, t, kestrel)
     # for the plan's odds: KESTREL's volatility and drift, and on the chain's basis its distribution at expiry
     play["forecast"] = {"sigma": round(float(sigma), 4), "drift": round(float(drift), 4),
-                        "basis": "chain" if kestrel is not None else "lognormal"}
+                        "basis": "chain" if kestrel is not None else "lognormal",
+                        "vol_method": tb.vol_methods.get(expiration, "blend")}
     if kestrel is not None:
         play["forecast"]["quantiles"] = kestrel.quantiles()
     play["calibrated"] = calibrated(play, ctx.calibration, c.category, days)
@@ -1904,7 +1926,8 @@ def signature(market: StocksMarket, research: StocksResearch, session: date, now
              "learning": research.conn.execute("SELECT MAX(id) FROM stk_play_learning").fetchone()[0],
              "watchlist": research.watchlist(),
              "bars": market.conn.execute("SELECT MAX(day) FROM stk_bar_days WHERE rows > 0").fetchone()[0],
-             "earnings_dates": market.conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates").fetchone()[0]}
+             "earnings_dates": market.conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates").fetchone()[0],
+             "vol_fit": market.conn.execute("SELECT MAX(fit_day) FROM stk_vol_fits").fetchone()[0]}
     return sha256_hex(canonical_json(parts))
 
 
@@ -2027,6 +2050,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     ic, months, source = committee_ic(research)
     ctx = Context(session, now, _rate(market, session), ic, months, source, calibration(research), research.watchlist(),
                   flagged_before(research, session))
+    ctx.vol_model = vf.model_on(market.conn, session)
     tables = [tb for u in load(market, research, session) if (tb := table(u, ctx)) is not None]
     out_categories = []
     recorded: dict[str, list[dict[str, Any]]] = {}
@@ -2116,7 +2140,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
                         "take_profit": {"graded": int(sum(c[0] for c in take_history.get("*", {}).values())),
                                         "applied": bool(ctx.calibration["take_profit"].buckets)}},
         "model": {"ic": ic, "ic_months": round(months, 1), "ic_source": source, "iv_weight": od.IV_WEIGHT,
-                  "rate": round(ctx.rate, 4)},
+                  "rate": round(ctx.rate, 4), "vol_forecast": vol_info(ctx.vol_model)},
         "recorded": added, "recorded_horizons": horizon_added, "twins": twins, "shadow_picks": shadows,
         "graded": graded, "session_closed": closed,
         "categories": out_categories,

@@ -417,6 +417,16 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             if _backfill_due(market, schwab_history.JOB, now, 24):
                 jobs[schwab_history.JOB] = await run_job(schwab_history.JOB, schwab_history.job(
                     suite, market, now, settings))
+        # KESTREL's volatility forecast: each finished session's realized variance (a minute a pass at most, the rest
+        # next pass), then the weekly HAR-IV refit once every stock is current. Never stops collection.
+        from desk.stocks import vol_forecast
+
+        if _backfill_due(market, vol_forecast.JOB, now, 6):
+            try:
+                jobs[vol_forecast.JOB] = await run_job(vol_forecast.JOB, vol_forecast.job(market, utc_now()))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("volatility forecast failed", extra={"error": str(exc)[:200]})
+                market.job(vol_forecast.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         progress("analysis")
         try:
             preview = preview_now()

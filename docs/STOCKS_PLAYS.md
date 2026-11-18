@@ -266,7 +266,7 @@ group first: this category at this expiry, then the category, then every play); 
 |---|---|
 | **Market** | What the option chain prices: the expiry's own distribution, read from its whole smile (skew and fat tails included; see "The chain's own skew"), or, where the smile cannot be fitted, the lognormal at the option's implied volatility drifting at the risk-free rate. A price, not a forecast. |
 | **History** | How often this stock actually moved that far in that many trading sessions, from up to three years of its own closes, rescaled to today's realized volatility. Keeps the stock's fat tails and skew; drops its old trend. |
-| **KESTREL** | A forecast: the chain's own distribution reshaped, or the lognormal where the chain falls back. Volatility blends 70% implied and 30% realized variance (implied volatility usually overstates the move that follows). The drift is tilted by the committee's view only as far as the committee's measured information coefficient allows — expected move = IC × z-score × volatility (Grinold), with the IC shrunk by its evidence n / (n + 24 months) and never extrapolated past the one-month horizon it was measured on. With no positive measured IC there is no tilt. |
+| **KESTREL** | A forecast: the chain's own distribution reshaped, or the lognormal where the chain falls back. Volatility is KESTREL's volatility forecast (probability model version 3, 2026-11-18; "KESTREL's volatility forecast" below): learned from the stock's recent daily, weekly and monthly swings plus what options imply, at every horizon where it beat the old fixed blend out of sample, and that blend (70% implied, 30% realized variance) elsewhere. The drift is tilted by the committee's view only as far as the committee's measured information coefficient allows — expected move = IC × z-score × volatility (Grinold), with the IC shrunk by its evidence n / (n + 24 months) and never extrapolated past the one-month horizon it was measured on. With no positive measured IC there is no tilt. |
 
 KESTREL's chance is then **calibrated against how past plays actually finished**. Every recorded play is graded at
 expiration; once a group has 30 resolved plays **from at least 10 separate sessions**, predicted chances are grouped in
@@ -293,6 +293,32 @@ labels call calibration evidence "early" until it has both 30 plays and 10 sessi
 counted, not what the model predicts, so it did not change `odds.MODEL_VERSION`: calibration learns from the model's
 own raw chances, which are the same under either rule.
 
+### KESTREL's volatility forecast (probability model version 3)
+
+*How much KESTREL expects the stock to move, learned from its recent daily, weekly and monthly swings plus what options
+imply.* Until 2026-11-18 KESTREL's volatility was a fixed blend: 70% of the option's implied variance and 30% of the
+stock's 20-session realized variance (`odds.IV_WEIGHT`). It is now `vol_forecast.forecast_sigma`
+(`src/desk/stocks/vol_forecast.py`; method in docs/STOCKS_METHOD.md §10), which returns the volatility and the method
+used:
+
+- **HAR-IV** (`har_iv`): a regression, pooled across stocks and refitted weekly, of the average variance over the next
+  1, 5, 10, 21 or 63 sessions on the stock's latest session, 5-session and 22-session realized variance and the implied
+  variance, in logs. Each contract feeds its own implied volatility, so the smile keeps its shape; the horizon is the
+  sessions to expiry (interpolated between the fitted ones; beyond 63 sessions it reverts to the stock's own
+  one-year level).
+- **The old blend** (`blend`) at every horizon where HAR-IV has not yet beaten it **out of sample**: on forecasts made
+  before the fit day and already realized, covering at least 60 sessions and 30 stocks, HAR-IV must have both a lower
+  QLIKE loss and a lower log-variance error than the blend. A stock without 22 consecutive recent sessions of
+  realized variance, or a day before the first fit, also keeps the blend.
+
+The change makes KESTREL predict differently, so it is probability model version 3: plays recorded under version 2 stay
+graded but calibration restarts on version 3 plays, and the replays (Plays' and the lottos') re-record under the new
+model. Each play stores its expiry's method (`forecast.vol_method`); the board's model info lists the method per
+horizon, the fit day and hash (`model.vol_forecast`), and the Learning report shows the out-of-sample error reduction
+against the blend and its sample. A replayed day uses only a fit made on or before it and the stock's realized
+variance to that day's close. The Learner's candidate features keep the blend (its frozen feature rules predate this);
+held PAPER positions' account view also still shows the blend.
+
 ### The chain's own skew (probability model version 2)
 
 A lognormal at one implied volatility treats the stock as equally likely to jump up or down, with thin tails. The
@@ -313,8 +339,8 @@ chain (`src/desk/stocks/chain_odds.py`):
    strikes the smile continues along its edge tangent (kept within 0.3–3× the money's volatility). The chance is
    tabulated on 1,201 points and checked: it must fall as the strike rises; a rise of more than 2 points anywhere
    (a negative probability) rejects the fit.
-3. **KESTREL's forecast.** The same shape, its spread rescaled by KESTREL's volatility blend (70% of the money's implied
-   variance, 30% realized), and shifted so the expected price grows at KESTREL's drift: the risk-free rate plus the
+3. **KESTREL's forecast.** The same shape, its spread rescaled by KESTREL's volatility forecast at the money's implied
+   volatility (the learned forecast where live, else the blend of 70% implied and 30% realized variance), and shifted so the expected price grows at KESTREL's drift: the risk-free rate plus the
    committee tilt, exactly as before. On a flat smile this is the old lognormal.
 
 Why this method: differencing quoted prices directly (raw Breeden–Litzenberger) needs dense, tight strikes and turns

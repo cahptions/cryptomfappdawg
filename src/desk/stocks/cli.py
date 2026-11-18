@@ -83,6 +83,10 @@ def add_parser(sub: Any) -> None:
     commands.add_parser("learner-bench", help="time and memory of a Learner training on a synthetic year (no data is "
                         "read or written)").set_defaults(func=run)
     commands.add_parser("command", help="rewrite the kestrel command for this computer").set_defaults(func=run)
+    vol = commands.add_parser("vol-forecast", help="compute every stock's realized variance not yet stored, refit "
+                              "the HAR-IV volatility forecast and show its out-of-sample check (a few minutes at most)")
+    vol.add_argument("--json", action="store_true", help="the newest fit's evaluation as JSON")
+    vol.set_defaults(func=run)
     commands.add_parser("options-history", help="read-only: can the Massive key read historical option prices? "
                         "(two requests)").set_defaults(func=run)
     commands.add_parser("verify-schwab", help="read-only: which Schwab fields the app reads come back on this account "
@@ -178,6 +182,35 @@ def _run(args: argparse.Namespace) -> int:
 
         paths.ensure()
         print(json.dumps(train.main(paths), indent=2, default=str))
+        return 0
+    if args.stocks_command == "vol-forecast":
+        from desk.core.clock import utc_now
+        from desk.stocks import vol_forecast as vf
+
+        paths.ensure()
+        dbs = StocksDatabases.open(paths)
+        try:
+            now = utc_now()
+            market = StocksMarket(dbs.market)
+            market.register_spec(vf.NAME, vf.VERSION, vf.content(), now)
+
+            def say(line: str) -> None:
+                print("  " + line, file=sys.stderr, flush=True)
+
+            print("Realized variance (computed once per stock and session)…", file=sys.stderr, flush=True)
+            done = vf.update(dbs.market, now, budget_seconds=None, progress=say)
+            say(f"{done['rows_written']:,} sessions added for {done['stocks']} stocks; by source {done['rows_by_source']}")
+            print("Walk-forward refit and out-of-sample check…", file=sys.stderr, flush=True)
+            fitted = vf.refit(dbs.market, now, progress=say)
+            say(f"{fitted['fits']} weekly fits, {fitted['added']} new")
+            market.job(vf.JOB, now, detail={**done, "refit": fitted, "refit_for": vf.current_fit_day(now).isoformat()})
+            info = vf.latest(dbs.market)
+            if args.json:
+                print(json.dumps(None if info is None else {k: v for k, v in info.items() if k != "model"}, indent=2))
+            else:
+                print("\n".join(vf.summary_lines(dbs.market)))
+        finally:
+            dbs.close()
         return 0
     paths.ensure()
     loaded = load_config(paths.config_dir)

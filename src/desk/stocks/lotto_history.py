@@ -12,8 +12,9 @@ strikes a rough price estimate puts near the lotto range; the real prices decide
 
 Replay, on every downloaded day: each contract whose real close was $0.05-$0.50, 2-14 days from expiry, at least 3%
 out of the money and traded at least 50 times that day. KESTREL's Lottos rule ranks them (the payoff on a
-one-standard-deviation move per dollar, times the chance in the money, from the contract's implied and the stock's
-realized volatility; the replay has no committee tilt), the best per stock, the top 12 a day. Random lottos take a
+one-standard-deviation move per dollar, times the chance in the money, at KESTREL's volatility forecast from the
+contract's implied and the stock's realized volatility, using only a volatility fit made on or before that day
+(``vol_forecast``); the replay has no committee tilt), the best per stock, the top 12 a day. Random lottos take a
 random qualifying contract per stock. Each pick is $300, bought at the next session's real open plus 5% (about half a
 lotto's spread) and $0.65 a contract; sold at triple on a later close less 5%, or held and settled at expiry.
 
@@ -40,7 +41,7 @@ from desk.core.clock import to_iso
 from desk.core.errors import DeskError, ProviderError
 from desk.stocks import calendar as cal
 from desk.stocks import options as opt
-from desk.stocks.odds import IV_WEIGHT
+from desk.stocks import vol_forecast as vf
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.repo import StocksMarket, date_of, day_of
 
@@ -218,12 +219,14 @@ def _ncdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
-def score(kind: str, price: float, spot: float, strike: float, years: float, rv: float | None) -> float | None:
-    """KESTREL's Lottos ranking: the payoff on a one-standard-deviation move per dollar × the chance in the money."""
+def score(kind: str, price: float, spot: float, strike: float, years: float, rv: float | None,
+          vol: vf.Vol | None = None) -> float | None:
+    """KESTREL's Lottos ranking: the payoff on a one-standard-deviation move per dollar × the chance in the money, at
+    KESTREL's volatility forecast (``vol``: the fit made on or before the day, else the old blend)."""
     iv = opt.implied_vol(kind, price, spot, strike, years, RATE)
     if iv is None:
         return None
-    sigma = math.sqrt(IV_WEIGHT * iv * iv + (1 - IV_WEIGHT) * rv * rv) if rv else iv
+    sigma = vf.forecast_sigma(iv, rv, t=years, vol=vol).sigma or iv
     move = math.exp(sigma * math.sqrt(years))
     target = spot * move if kind == "call" else spot / move
     payoff = max(target - strike, 0.0) if kind == "call" else max(strike - target, 0.0)
@@ -297,13 +300,14 @@ def replay(market: StocksMarket, now: datetime) -> dict[str, Any]:
                                                "spot": spot, "otm": otm, "decided": day})
     trades: dict[str, list[dict[str, Any]]] = {v: [] for v, _ in VARIANTS}
     unfilled = 0
+    lookup = vf.Lookup(market.conn)
     for day in sorted(pools):
         kestrel, randoms = [], []
         for symbol, options in sorted(pools[day].items()):
             rv = _realized(closes_by[symbol], day)
             ranked = [(s, o) for o in options
                       if (s := score(o["kind"], o["close"], o["spot"], o["strike"],
-                                     opt.year_fraction(day, o["expiry"]), rv)) is not None]
+                                     opt.year_fraction(day, o["expiry"]), rv, lookup.vol(symbol, day))) is not None]
             if ranked:
                 kestrel.append(max(ranked, key=lambda x: x[0]))
             randoms.append(random.Random(f"lotto:{day}:{symbol}").choice(sorted(options, key=lambda o: o["occ"])))  # noqa: S311
@@ -326,7 +330,7 @@ def replay(market: StocksMarket, now: datetime) -> dict[str, Any]:
     for v, title in VARIANTS:
         summary[v]["title"] = title
     days = sorted(pools)
-    return {"version": 2, "generated_at": to_iso(now),
+    return {"version": 3, "generated_at": to_iso(now),
             "first": days[0].isoformat() if days else None, "last": days[-1].isoformat() if days else None,
             "sessions": len(days), "names": list(NAMES), "unfilled_kestrel": unfilled, "variants": summary,
             "kestrel_vs_random": {"run": versus(trades["kestrel_run"], trades["random_run"]),
@@ -384,7 +388,7 @@ async def job(massive: Any, market: StocksMarket, home: Path, now: datetime, bud
     got = await download(massive, market, now, budget)
     previous = load(home / REPORT)
     fetched = got.get("contracts_fetched", 0)
-    stale = previous is None or previous.get("version") != 2 or fetched - (previous.get("coverage") or {}).get(
+    stale = previous is None or previous.get("version") != 3 or fetched - (previous.get("coverage") or {}).get(
         "contracts_fetched", 0) >= 150 or (
         got.get("requests_left") == 0 and (previous.get("coverage") or {}).get("requests_left") != 0)
     if stale and fetched:

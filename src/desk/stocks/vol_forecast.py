@@ -743,7 +743,7 @@ async def job(market: Any, now: datetime) -> dict[str, Any]:
 
 
 def summary_lines(conn: sqlite3.Connection) -> list[str]:
-    """Plain lines for ``kestrel stocks vol-forecast``."""
+    """Plain lines for ``desk stocks vol-forecast``."""
     info = latest(conn)
     if info is None:
         return ["No volatility fit yet: it needs at least " f"{MIN_FIT_ROWS} stock-sessions of realized variance; "
