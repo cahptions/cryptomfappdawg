@@ -73,6 +73,10 @@ try {
     const strict = await page.locator(".learner-strict").innerText();
     assert.match(strict, /In \d+ held-out splits, \d+ were profitable/);
     assert.match(strict, /after accounting for the \d+ things it tried/);
+    // Direction vs volatility: no weekly fit in this fixture, so it says plays are valued as before.
+    const forecast = await page.locator(".learner-forecast").innerText();
+    assert.match(forecast, /^Direction vs volatility/);
+    assert.match(forecast, /No weekly fit yet: plays are valued as before/);
     const trade = page.locator(".learner-trade").first();
     assert.match(await trade.innerText(), /(Exploit|Explore|Random baseline)/);
     assert.match(await trade.innerText(), /at risk/);

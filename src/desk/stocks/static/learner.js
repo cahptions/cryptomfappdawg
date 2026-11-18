@@ -253,7 +253,7 @@ const KestrelLearner = (() => {
   // Direction vs volatility (forecast.insight): which direction horizons beat the no-skill baseline, the
   // volatility-surprise model's skill, and which part the top plays' edge came from.
   function forecast(data) {
-    const box = el("section", undefined, "learner-strict learner-forecast");
+    const box = el("section", undefined, "learner-forecast");
     box.setAttribute("aria-label", "Direction vs volatility");
     box.append(
       el("h2", "Direction vs volatility"),
