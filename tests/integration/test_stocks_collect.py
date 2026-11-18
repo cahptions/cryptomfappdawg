@@ -139,9 +139,10 @@ async def test_paper_uses_ready_data_despite_unavailable_optional_sources(tmp_pa
         monkeypatch.setattr(collect, name, unavailable)
     try:
         result = await runner.cycle(world.paths, load_config(REPO / "config"))
+        local = ("vol_forecast", "option_signals")                               # local work, no source needed
         assert not result["research_only"] and all(not job["ok"] for name, job in result["jobs"].items()
-                                                   if name != "vol_forecast")    # local work, no source needed
-        assert result["jobs"]["vol_forecast"]["ok"]
+                                                   if name not in local)
+        assert result["jobs"]["vol_forecast"]["ok"] and result["jobs"]["option_signals"]["ok"]
         assert result["analysis"]["paper"]["skipped"] is None
         assert runner.saved(world.paths, "research")["lists"]
         ledger = list(world.dbs.ledger.iterdump())

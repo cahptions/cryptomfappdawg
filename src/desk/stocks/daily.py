@@ -10,6 +10,7 @@ from typing import Any
 
 from desk.core.clock import to_iso
 from desk.stocks import desks as dk
+from desk.stocks import option_signals as osg
 from desk.stocks import validation as val
 from desk.stocks import vol_forecast as vf
 from desk.stocks.analysis import Analyzer, Day, compact, stock_detail
@@ -39,6 +40,7 @@ def register_specs(market: StocksMarket, at: datetime) -> dict[str, str]:
     for spec in LISTS:
         out[f"stocks_list_{spec.id}"] = market.register_spec(f"stocks_list_{spec.id}", spec.version, spec.content(), at)
     out[vf.NAME] = market.register_spec(vf.NAME, vf.VERSION, vf.content(), at)
+    out[osg.NAME] = market.register_spec(osg.NAME, osg.VERSION, osg.content(), at)
     return out
 
 

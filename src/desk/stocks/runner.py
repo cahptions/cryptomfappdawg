@@ -427,6 +427,16 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             except Exception as exc:  # recorded; never stops collection
                 log.warning("volatility forecast failed", extra={"error": str(exc)[:200]})
                 market.job(vol_forecast.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+        # Option-implied stock signals from the chains collected during finished sessions (a minute a pass at most,
+        # newest first, the rest next pass). Never stops collection.
+        from desk.stocks import option_signals
+
+        if _backfill_due(market, option_signals.JOB, now, 6):
+            try:
+                jobs[option_signals.JOB] = await run_job(option_signals.JOB, option_signals.job(market, utc_now()))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("option signals failed", extra={"error": str(exc)[:200]})
+                market.job(option_signals.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         progress("analysis")
         try:
             preview = preview_now()

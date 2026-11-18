@@ -99,6 +99,9 @@
  "stocks_market_events": {
   "1": "b1ccd2551c4ca9c59427a3be9af1d7131860a7115141c5017883781ae6e15ef3"
  },
+ "stocks_option_signals": {
+  "1": "a4d776ca110590f6e58d617e9d58c8c3eab184b98eba645192f01dcc22a4b3f7"
+ },
  "stocks_paper_bear_put_spreads": {
   "1": "a8dff24df1db86a048dfc4bd6327bf35aa7714fe2d1d9ae70b56de903c00b08e"
  },

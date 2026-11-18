@@ -277,3 +277,29 @@ Limits: most stored sessions before the minute archive began use the noisier clo
 lowers how much weight the regression can give the single day. The evaluation scores every horizon with the 30-day
 IV, whereas Plays uses each expiry's own IV; both the learned forecast and the blend are scored on the same IV, so the
 comparison is fair, but its size at very short and very long expiries is an estimate.
+
+## 11. Options desk: what option prices say about the stock (`desk.stocks.option_signals`, 2026-11-18)
+
+*Option traders often know something first; these are the option-price patterns that have predicted stock returns in
+published research.* Each is measured per stock and session from one chain (spec `stocks_option_signals`, table
+`stk_option_signals`, market migration 0015), and missing — with the reason in the row's snapshot — when the chain does
+not have enough usable quotes. A quote counts only with a bid above zero, an ask at or above it, (ask − bid) / mid at
+most 50%, a mid of at least $0.05 and a solvable Black-Scholes IV (the day's 3-month Treasury yield, the stock's
+trailing dividend yield); a stock-session counts only with at least 10 such contracts.
+
+| Signal | Measure | Research | Direction |
+|---|---|---|---|
+| Calls vs puts (`iv_spread`) | open-interest-weighted average of call IV − put IV over call-put pairs at the same strike and expiry, 10–60 days out, within 30% of the price (at least 3 pairs) | Cremers & Weinbaum 2010 | calls richer → higher returns |
+| Price of crash protection (`skew`) | IV of the put with \|delta\| nearest 0.225 (0.15–0.35; else the strike 4–12% below the price nearest 7.5%) minus the at-the-money call's IV, in the expiry nearest 30 days (10–60) | Xing, Zhang & Zhao 2010 | steeper → lower returns |
+| Option vs share trading (`os_ratio`) | contracts traded (expiries within 120 days) × 100 / shares traded that session; and its log against the stock's own median of the previous 60 stored sessions (at least 20) | Johnson & So 2012 | heavier → lower returns |
+| Call / put IV, past week (`d_call_iv`, `d_put_iv`) | change in the 30-day at-the-money call (put) IV against the row 4–8 sessions earlier nearest 5 | An, Ang, Bali & Cakici 2014 | call IV up → higher; put IV up → lower |
+| 3-month vs 1-month IV (`term_slope`) | 90-day minus 30-day at-the-money IV (constant maturity, total-variance interpolation; nearest expiry within 12 / 30 days otherwise) | Vasquez 2017 | predicts option (straddle) returns, not the stock: Learner and stock page only |
+| Options vs actual moves (`iv_rv`) | 30-day IV over realized volatility of the last 22 sessions (`vol_forecast`'s realized variance) | Vasquez 2017 | as above |
+| Cost to borrow (`borrow`) | Schwab's `htbRate` (percent a year) when a quote sends it; 0 when Schwab says the stock is easy to borrow (`isHardToBorrow` false, no rate); otherwise missing. Recorded from the chain scan's quotes going forward only | borrow-fee studies (much of the skew and IV-spread signal is short-sale cost) | dearer → lower returns |
+
+**Point in time.** A row is computed from one session's chain and that session's share volume. Measures that need
+other sessions (the volume ratio's median, the IV changes) are derived when read, from that row and earlier rows only;
+a test writes wild values after a day and proves the day's signals do not change. Rows come from the after-close chain
+scan (`desk.stocks.chain_scan`, [STOCKS_SOURCES.md](STOCKS_SOURCES.md)) or, for stocks and days the scan did not
+cover, the chain collected during the session; each row says which. Collected chains already stored are back-filled
+newest first, a minute a collection pass (job `option_signals`), each finished session once.
