@@ -342,7 +342,7 @@ const KestrelLearning = (() => {
       el("h2", "Small-account tests"),
       el(
         "p",
-        "These accounts choose affordable trades from the research available at each decision. Each keeps its own cash and results, with no automatic top-ups. They start when this update first runs.",
+        "These accounts choose affordable trades from the research available at each decision. Each keeps its own cash and results. Their cash was filled back up once on 16 Nov (counted as funding, not profit); every trade is sized from the cash they hold now.",
         "muted",
       ),
     );
@@ -359,11 +359,16 @@ const KestrelLearning = (() => {
         ["Net trading P/L", signed(a.trading_pnl)],
         ["Return on starting balance", percent(a.return_on_start)],
         ["Cash available", money(a.cash)],
+        [
+          "Next trade up to",
+          money(Math.min(a.cash, 0.25 * Math.max(0, a.equity ?? 0))),
+        ],
         ["Trades", `${a.open_positions} open · ${a.closed_trades} closed`],
       ])
         stats.append(el("dt", title), el("dd", value));
       card.append(
         stats,
+        el("p", `Now: ${a.policy?.phase || "Waiting for fresh quotes"}`),
         el("p", policyName(a.policy?.mode), "caption muted"),
         open,
       );
