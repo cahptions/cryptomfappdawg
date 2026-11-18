@@ -153,3 +153,15 @@ def test_kestrel_check_accepts_the_findings_and_catches_a_bad_one(mined: Any) ->
                  "'x', 'v', 'nowhere', '{\"days\": 3, \"mean\": -0.1, \"low\": -0.2, \"p\": 0.5, "
                  "\"fdr_threshold\": 0.01}', 1, 2, '2026-11-13T00:00:00+00:00')")
     assert acc.check_learner_findings(src).violations == 1
+
+
+def test_a_split_on_missing_inputs_gives_no_unreadable_bound() -> None:
+    rng = np.random.default_rng(5)
+    X = np.full((600, len(md.FEATURES)), np.nan, dtype=np.float32)
+    X[:, md.FEATURES.index("structure")] = 0
+    present = rng.random(600) < 0.5
+    X[present, md.FEATURES.index("iv_rank")] = rng.uniform(0, 100, int(present.sum()))
+    y = np.where(present, 1.0, -1.0)                                # the only signal: whether the input is there
+    for rule in fd._tree_rules(X, y, 0):
+        for c in rule["conditions"]:
+            assert all(v is None or np.isfinite(v) for v in (c.get("gt"), c.get("le")))

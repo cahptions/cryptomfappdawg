@@ -252,6 +252,10 @@ def _tree_rules(X: np.ndarray, target: np.ndarray, structure: int) -> list[dict[
                 out.append(_rule(structure, bounds))
             return
         f = RULE_NAMES[int(t.feature[node])]
+        if not math.isfinite(float(t.threshold[node])):     # a split of missing from present inputs: no readable bound
+            walk(int(t.children_left[node]), bounds)
+            walk(int(t.children_right[node]), bounds)
+            return
         v = _step(float(t.threshold[node]), BY_FEATURE[f][1])
         lo, hi = bounds.get(f, [None, None])
         left = {**bounds, f: [lo, v if hi is None else min(hi, v)]}
