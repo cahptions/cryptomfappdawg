@@ -257,3 +257,19 @@ def test_the_daily_step_refits_at_most_weekly_from_the_stored_table(dbs: StocksD
     expected = vf.walk_forward(panel)[-1]
     assert info is not None and info["fit_day"] == expected.day.isoformat()
     assert info["methods"] == expected.model.methods()
+
+
+def test_the_learning_report_says_which_method_each_horizon_uses(dbs: StocksDatabases) -> None:
+    from desk.stocks import learning_report as lr
+
+    now = datetime(2026, 11, 18, 22, tzinfo=UTC)
+    waiting = lr.Report(now)
+    lr.volatility(lr.Sources(market=dbs.market), waiting)
+    assert waiting.items[0]["section"] == "coming" and "fixed blend" in waiting.items[0]["detail"]
+    vf.save_fits(dbs.market, vf.walk_forward(planted()), now)
+    r = lr.Report(now)
+    lr.volatility(lr.Sources(market=dbs.market), r)
+    item = r.items[0]
+    assert item["section"] == "learned" and item["headline"].startswith("Volatility forecast: learned at 5 of 5")
+    assert vf.ABOUT in item["detail"] and "lower error than the blend" in item["detail"]
+    assert item["evidence"]["items"] > 10_000 and r.metrics["vol.live_horizons"]["value"] == 5

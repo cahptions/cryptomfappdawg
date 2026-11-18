@@ -1483,8 +1483,45 @@ def learner_account(src: Sources, r: Report) -> None:
 
 
 # ── build ────────────────────────────────────────────────────────────────────────────────────────
+def volatility(src: Sources, r: Report) -> None:
+    """KESTREL's volatility forecast: which method each horizon uses and its out-of-sample error against the old blend."""
+    if not _has(src.market, "stk_vol_fits"):
+        return
+    from desk.stocks import vol_forecast as vf
+
+    assert src.market is not None
+    info = vf.latest(src.market)
+    if info is None:
+        r.wait("Volatility forecast", f"{vf.ABOUT} It needs {vf.MIN_FIT_ROWS:,} stock-sessions of realized variance "
+               "for its first fit; every KESTREL chance uses the fixed blend (70% implied, 30% realized) meanwhile.",
+               PLAYS)
+        return
+    live = [h for h in vf.HORIZONS if info["methods"].get(str(h)) == "har_iv"]
+    parts, rows, sessions, stocks = [], 0, 0, 0
+    for h in vf.HORIZONS:
+        e = info["evaluation"].get(str(h)) or {}
+        rows, sessions, stocks = max(rows, e.get("rows") or 0), max(sessions, e.get("sessions") or 0), \
+            max(stocks, e.get("stocks") or 0)
+        cut = e.get("reduction_qlike")
+        text = f"{h} {'session' if h == 1 else 'sessions'}: {'learned' if h in live else 'fixed blend'}"
+        if cut is not None:
+            text += f" ({abs(cut):.0%} {'lower' if cut > 0 else 'higher'} error than the blend)"
+        parts.append(text)
+    headline = (f"Volatility forecast: learned at {len(live)} of {len(vf.HORIZONS)} horizons, the fixed blend elsewhere."
+                if live else "Volatility forecast: still the fixed blend at every horizon.")
+    detail = (f"{vf.ABOUT} Out of sample (QLIKE error of forecasts already realized): {'; '.join(parts)}. Checked on "
+              f"{rows:,} held-out forecasts over {sessions} sessions and {stocks} stocks; a horizon switches only after "
+              f"beating the blend on at least {vf.GATE_SESSIONS} sessions and {vf.GATE_STOCKS} stocks. Fit of "
+              f"{short(info['fit_day'])}.")
+    r.add("learned", headline, detail, items=rows, days=sessions, unit="forecasts", strength="suggestive" if live
+          else "early", link=PLAYS, key="vol-forecast", weight=1.0)
+    r.metric("vol.live_horizons", "Volatility horizons using the learned forecast", len(live), items=rows,
+             days=sessions, unit="forecasts")
+
+
 LOOPS = (plays_calibration, plays_learning, plays_records, plays_behaviour, workspace, paper_forward, evidence,
-         replays, marks_health, health, learner, learner_findings, learner_account)
+         replays, marks_health, health, learner, learner_findings, learner_account,
+         volatility)
 # The two loops that read every graded chance and every recent mark are remembered until those tables change (new
 # grades and marks arrive once a session): on a large desk they are most of the time a report takes.
 HEAVY = frozenset({"plays_calibration", "marks_health"})

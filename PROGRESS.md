@@ -1,5 +1,20 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-18 — Learned volatility forecast (HAR-IV), phase 1
+
+- `desk.stocks.vol_forecast` (spec `stocks_vol_forecast` v1): realized variance per stock and session from archived
+  five-minute bars plus the overnight return, else the squared close-to-close return, with its source (market
+  migration 0014: `stk_rv_daily`, `stk_rv_symbols`, append-only `stk_vol_fits`); a pooled HAR-IV regression in log
+  variance at 1/5/10/21/63 sessions, refit weekly on targets realized before each fit day; out-of-sample QLIKE and
+  log-variance error against the old 0.7/0.3 blend, IV alone and HAR-RV; a horizon goes live only after beating the
+  blend on ≥ 60 sessions × ≥ 30 stocks of held-out forecasts.
+- One `forecast_sigma` now sets KESTREL's volatility in odds, Plays, the chain's distribution and the lotto replay
+  (`odds.MODEL_VERSION` 3: calibration restarts). Replays use only fits made on or before their day. Collection pass
+  job `vol_forecast` (60 s budget, weekly refit); `desk stocks vol-forecast`; Learning report insight; Plays
+  `model.vol_forecast`. Learner features and the PAPER account view keep the blend.
+- Not yet verified on real data: whether HAR-IV beats the blend on the user's stocks, and how long the first rebuild
+  takes on the Dell (`desk stocks vol-forecast` prints both).
+
 ## 2026-11-14 — The Learner (machine learning on every candidate trade), phases 1–4
 
 - Phase 1: every candidate trade it considers, as a parameterised action (10 defined-risk structures × delta × expiry
