@@ -447,6 +447,16 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             except Exception as exc:  # recorded; never stops collection
                 log.warning("option signals failed", extra={"error": str(exc)[:200]})
                 market.job(option_signals.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+        # Past results reports: the realized move from the saved bars and the move options priced the session before
+        # (at most 400 reports and a minute a pass, newest first, the rest next pass). Never stops collection.
+        from desk.stocks import earnings_model
+
+        if _backfill_due(market, earnings_model.JOB, now, 24):
+            try:
+                jobs[earnings_model.JOB] = await run_job(earnings_model.JOB, earnings_model.job(market, utc_now()))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("earnings moves failed", extra={"error": str(exc)[:200]})
+                market.job(earnings_model.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         progress("analysis")
         try:
             preview = preview_now()

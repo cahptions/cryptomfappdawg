@@ -12,6 +12,7 @@ from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
 from desk.stocks import daily
 from desk.stocks import desks as dk
+from desk.stocks import earnings_model as em
 from desk.stocks import market_events as me
 from desk.stocks import option_signals as osg
 from desk.stocks import validation as val
@@ -30,7 +31,8 @@ def current() -> dict[str, tuple[int, str]]:
 
     out = {"stocks_desks": (dk.METHOD_VERSION, h(dk.method_content())),
            "stocks_validation": (val.VERSION, h(val.content())), me.NAME: (me.VERSION, h(me.content())),
-           vf.NAME: (vf.VERSION, h(vf.content())), osg.NAME: (osg.VERSION, h(osg.content()))}
+           vf.NAME: (vf.VERSION, h(vf.content())), osg.NAME: (osg.VERSION, h(osg.content())),
+           em.NAME: (em.VERSION, h(em.content()))}
     out.update({f"stocks_list_{s.id}": (s.version, h(s.content())) for s in LISTS})
     out.update({f"stocks_paper_{s.id}": (s.version, h(s.content())) for s in STRATEGIES})
     from desk.stocks.learner import actions, features, findings, labels, model, policy, promotion, regimes

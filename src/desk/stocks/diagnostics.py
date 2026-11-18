@@ -170,7 +170,9 @@ def diagnose(paths: DeskPaths) -> dict[str, Any]:
                                                                         'no_options', 'failed', 'remaining',
                                                                         'skipped', 'stopped')),
                                          ('option_signals', 'option_signals', ('rows', 'stocks', 'first', 'last',
-                                                                               'remaining'))):
+                                                                               'remaining')),
+                                         ('earnings_moves', 'earnings_moves', ('rows', 'stocks', 'with_implied',
+                                                                               'first', 'last', 'remaining'))):
                     row = conn.execute('SELECT detail_json,last_run_at,last_error FROM stk_jobs WHERE name=?',
                                        (job,)).fetchone()
                     if row is not None:

@@ -3,6 +3,9 @@
   "3": "149baf97f1fb8798d2bac1d3592272128a2f0c48b7451dcdcf873b30f1962dad",
   "4": "d8d368d2ea2d4109d970b93e7dc212f5a250ffb55fecf931f6a3f3e51d712176"
  },
+ "stocks_earnings_model": {
+  "1": "5a6d8b2404cdae080f37c90155b9a9f3a3957abe6ee64bdc6964af9399aecfdd"
+ },
  "stocks_learner_actions": {
   "1": "6e901a5177fd13692d83b627d08fe44510b468915b71c0493d7488a1757356ff"
  },

@@ -21,6 +21,9 @@ Every number is computed as of a day using only what was public before it:
 | Short interest (FINRA) | settlement date + 12 days is before D (FINRA publishes about 8 business days after settlement) |
 | Insider trades (Form 4) | filed before D |
 | 8-K events, results | filed before D; the price reaction is the session after acceptance (after 16:00 New York means the next session), and only if that session is on or before D |
+| Announced results dates (Finnhub's free calendar) | first seen by the decision time and still listed in the newest calendar read by then, or listed up to its report day (a moved or withdrawn date drops out; a new one never shows before it was first seen); confirmed dates and dates estimated from results filings are kept apart (`earnings_dates.known`) |
+| Results timing | the 8-K item 2.02 acceptance time in New York: before 9:30 = before the open, before the close = during market hours, else after the close; Finnhub's `hour` when the date was announced; otherwise unknown |
+| Past results-day moves (`stk_earnings_moves`) | the report's exit session (the first close that reflects the results) is before D; the priced move is from the last chain observed by 4:15 PM New York on the entry session |
 | Treasury yields, VIX | dated before D (Schwab's closing print of $VIX, $TNX or $IRX for a day when connected, else Treasury's par yield or FRED's VIX close) |
 | Prices | the close of D and earlier |
 
