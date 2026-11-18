@@ -53,3 +53,8 @@ at startup, just like the installed app. Run the PAPER/replay browser workflow a
 `stocks_ops.mjs` uses `stocks_fixture_server --scenario ops`: the Portfolio risk page (totals, modelled scenarios,
 quoted/modelled/unknown greeks, one column at 375px), Settings → Phone alerts (channel presence only, switches saved
 with the session token, a test alert to a recorder that sends nothing) and the watchdog on Evidence → Data health.
+
+`stocks_earnings.mjs` uses `stocks_fixture_server --scenario earnings` (port 8883 by default): the stock page's
+Earnings block (cheap, expensive and fairly priced reports, with hints and the announced timing) and the Plays
+Earnings section (a bought straddle and a sold iron butterfly; no play for the fairly priced report), at 1366 and
+375 wide. Synthetic reports only.

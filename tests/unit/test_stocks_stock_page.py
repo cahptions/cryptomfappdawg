@@ -154,6 +154,7 @@ def test_page_sections_come_from_stored_records_with_sources(world):
     assert dividends["trailing_12m"] == pytest.approx(1.0) and dividends["yield"] == pytest.approx(0.02)
     assert dividends["next"]["cash"] == 0.26
     assert page["earnings"] is None  # the synthetic filings carry no EPS and Finnhub is off: nothing is invented
+    assert page["earnings_move"] is None             # no stored chain: no priced move, nothing shown
     assert page["ratings"] is None and page["news"] == []
 
 

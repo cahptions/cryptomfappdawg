@@ -48,6 +48,26 @@ def option_signals_fixture(world: StocksWorld) -> None:
                      observed_at=at, now=at)
 
 
+def earnings_fixture(world: StocksWorld) -> None:
+    """Synthetic results reports for the Earnings section and the stock page (every value invented): S12's options
+    look cheap for its report, S13's expensive, S14's fairly priced; each with eight stored past moves and a chain
+    whose expiries price a 6% results-day standard deviation."""
+    from desk.stocks import earnings_dates as ed
+    from desk.stocks import web
+    from tests.unit.test_stocks_earnings_model import close_on, event_chain, past_moves
+
+    session = world.days[-1]
+    report = session + timedelta(days=7)
+    while not cal.is_trading_day(report):
+        report += timedelta(days=1)
+    ed.save(world.dbs.market, [{"symbol": s, "date": report.isoformat(), "when": ed.AFTER} for s in
+                               ("S12", "S13", "S14")], {"S12", "S13", "S14"}, NOW - timedelta(days=1))
+    for symbol, typical in (("S12", 0.11), ("S13", 0.012), ("S14", 0.048)):
+        event_chain(world, symbol, session, NOW, close_on(world, symbol, session), cal.next_trading_day(report))
+        past_moves(world, symbol, [typical if k % 2 else -typical for k in range(8)])
+    web.utc_now = lambda: NOW            # the page shows a verdict only from a chain at most five days old
+
+
 def stock_page_fixture(world: StocksWorld) -> None:
     """Synthetic company context for S10: every value is invented and labelled as a fixture, never issuer data."""
     import json
@@ -353,6 +373,8 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
             world.market.save_bars(bar.day, extras, "synthetic_browser_fixture", NOW)
         add_chains(world, ["SPY", "QQQ", "CHEAP", "SQZ", "S10", "S11"], world.days[-3:])
         world.dbs.market.execute("UPDATE stk_option_chains SET source='synthetic_browser_fixture'")
+        if args.scenario == "earnings":
+            earnings_fixture(world)
         initial_now = cal.session_close(world.days[-1])+timedelta(minutes=76) if args.scenario == "paper-workflows" else NOW
         process(paths, load_config(paths.config_dir), world.dbs, initial_now)
         process(paths, load_config(paths.config_dir), world.dbs, initial_now, research_only=True)
@@ -505,7 +527,7 @@ def main() -> None:
                                                "paper-workflows", "intraday-workflows", "learning-workflows",
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
                                                "stock-page", "learning-report", "ops", "account", "learner",
-                                               "learner-account"],
+                                               "learner-account", "earnings"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()

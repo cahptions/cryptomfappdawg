@@ -1,5 +1,29 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-18 — Earnings: priced vs expected move, phase 4
+
+- `earnings_dates.known(conn, session, as_of)`: the point-in-time calendar — a Finnhub date counts once first seen and
+  while still listed (or listed up to its report day; a moved date drops out), else an estimate from 8-K item 2.02
+  filings accepted by then; confirmed and estimated kept apart; timing from the acceptance time (before the open /
+  during market hours / after the close) gives each report's entry and exit sessions.
+- `desk.stocks.earnings_model` (spec `stocks_earnings_model` v1, market migration 0016: `stk_earnings_moves`): the
+  results-day move options price (Dubinsky–Johannes event variance from the expiries before/after the report, σ√(2/π))
+  and the straddle/spot of the first expiry after it; past moves close to close, timing-aware and split-adjusted, with
+  the move priced by the last chain observed by 4:15 PM on the entry session (daily job `earnings_moves`, ≤ 400
+  reports a pass, resumable, in Data health); expected move = last 12 moves shrunk n/(n+4) toward priced × the
+  sector's realized/priced ratio; ≥ 1.15 cheap, ≤ 0.85 expensive, else fair, with confidence; < 4 reports no verdict.
+- Plays Earnings section: cheap → buy the ATM straddle, expensive → sell a defined-risk ATM iron butterfly (wings near
+  the straddle's break-evens), fair → none; ranked by the ratio; card text "Options price a ±X% results-day move;
+  KESTREL expects ±Y%…" and `earnings_outlook` on the play. Plays method includes the model version + fingerprint.
+- Learner features v3 (`earn_implied_move`, `earn_typical_move`, `earn_ratio`, known before S; model v4); older
+  experience reads them as missing.
+- Stock page Earnings block ("Options look cheap / expensive / fairly priced for this report", priced vs typical vs
+  expected move with a hint each, announced/estimated and timing; only from a chain ≤ 5 days old). Tests: 13 unit
+  (`test_stocks_earnings_model.py`), a Learner point-in-time test, browser `stocks_earnings.mjs` (scenario
+  `earnings`, 1366 and 375); `stocks_stock_page.mjs` and `stocks_plays.mjs` pass.
+- Not yet verified on real data: how often stored chains bracket a report tightly enough for a priced move (weekly
+  expiries help), Finnhub timing coverage, and whether the verdicts earn money (graded like every play).
+
 ## 2026-11-18 — Option-implied stock signals, a real Options desk and the chain scan, phase 2
 
 - `desk.stocks.option_signals` (spec `stocks_option_signals` v1, market migration 0015: `stk_option_signals`,

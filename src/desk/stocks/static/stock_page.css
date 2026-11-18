@@ -308,6 +308,55 @@
 .sp-tiles .sp-stat dd {
   font-size: 19px;
 }
+.sp-earnings-move {
+  margin: 4px 0 22px;
+  padding: 16px 18px;
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+.sp-earnings-move.cheap {
+  border-left-color: var(--up);
+}
+.sp-earnings-move.expensive {
+  border-left-color: var(--down);
+}
+.sp-em-title {
+  display: block;
+  font-size: var(--text-md);
+  color: var(--text-strong);
+}
+.sp-earnings-move.cheap .sp-em-title {
+  color: var(--up);
+}
+.sp-earnings-move.expensive .sp-em-title {
+  color: var(--down);
+}
+.sp-em-when,
+.sp-em-note {
+  margin: 4px 0 12px;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.sp-em-note {
+  margin: 12px 0 0;
+}
+.sp-em-tiles {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.sp-em-tiles .sp-stat {
+  background: var(--surface-2);
+}
+.sp-em-hint {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+@media (max-width: 650px) {
+  .sp-em-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .sp-signals {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

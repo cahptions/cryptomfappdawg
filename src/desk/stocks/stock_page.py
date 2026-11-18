@@ -349,6 +349,16 @@ def headlines(market: sqlite3.Connection, symbol: str, now: datetime, feeds: dic
     return {"news": (_feed(feeds, "news") or [])[:12], "news_source": "per_stock"}
 
 
+def earnings_move(market: sqlite3.Connection, symbol: str, now: datetime) -> dict[str, Any] | None:
+    """The next report's priced vs expected move (desk.stocks.earnings_model), or None; never stops the page."""
+    from desk.stocks import earnings_model as em
+
+    try:
+        return em.view(market, symbol, now)
+    except (sqlite3.Error, ValueError, ArithmeticError):
+        return None
+
+
 def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str, now: datetime, *,
           detail: dict[str, Any] | None, quote: dict[str, Any] | None, profile: dict[str, Any],
           feeds: dict[str, dict[str, Any]], list_titles: dict[str, str], finnhub_configured: bool,
@@ -375,6 +385,7 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
             "financials": fin, "ratings": ratings(feeds),
             "earnings": earnings(fin, feeds, today, announced=announced(market, today).get(symbol),
                                  window=(((detail or {}).get("events") or {}).get("next_window"))),
+            "earnings_move": None if listing and listing["etf"] else earnings_move(market, symbol, now),
             "short_interest": short_interest(market, symbol, shares),
             "option_signals": osg.view(market, symbol, None if not desk else {
                 "score": desk.get("score"), "verdict": desk.get("verdict"), "voting": weight > 0}),
@@ -388,5 +399,5 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
             "logo": has_logo, "finnhub_configured": finnhub_configured, "sources": sources}
 
 
-__all__ = ["about", "build", "chief_executive", "dividends", "earnings", "financials", "headlines", "insiders",
+__all__ = ["about", "build", "chief_executive", "dividends", "earnings", "earnings_move", "financials", "headlines", "insiders",
            "notable_events", "peers", "periods", "person", "ratings", "related_lists", "score_history", "short_interest"]

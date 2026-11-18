@@ -552,10 +552,83 @@ const KestrelStockPage = (() => {
     return box;
   }
 
+  // The next report's move (desk.stocks.earnings_model): what options price, what the stock usually does, what
+  // KESTREL expects, and whether that makes options cheap, expensive or fairly priced for the report.
+  function tiles(entries) {
+    const grid = el("dl", undefined, "sp-stats sp-tiles sp-em-tiles");
+    for (const [label, value, hint] of entries) {
+      const item = el("div", undefined, "sp-stat");
+      item.append(
+        el("dt", label),
+        el("dd", value),
+        el("p", hint, "sp-em-hint"),
+      );
+      grid.append(item);
+    }
+    return grid;
+  }
+  function earningsMove(m) {
+    const block = el(
+        "div",
+        undefined,
+        `sp-earnings-move${m.verdict ? ` ${m.verdict}` : ""}`,
+      ),
+      pm = (x) => (x == null ? "—" : `±${fmt.pct(x, 1)}`),
+      report = m.report || {};
+    block.append(
+      el("strong", m.title, "sp-em-title"),
+      el(
+        "p",
+        `${m.when}${report.confirmed ? "" : " · time of day unknown"}`,
+        "sp-em-when",
+      ),
+      tiles([
+        [
+          "Priced move",
+          pm(m.implied),
+          "What today's options pay for on results day alone",
+        ],
+        [
+          "Typical past move",
+          pm(m.typical),
+          `Its average over the last ${m.reports} reports`,
+        ],
+        [
+          "Expected move",
+          pm(m.expected),
+          "KESTREL's estimate: its own record, pulled toward the priced move when short",
+        ],
+        [
+          "Expected ÷ priced",
+          m.ratio == null ? "—" : `${fmt.num(m.ratio, 2)}×`,
+          "Above 1.15 cheap, below 0.85 expensive",
+        ],
+      ]),
+    );
+    const notes = [];
+    if (m.confidence)
+      notes.push(`Confidence: ${m.confidence} (${m.reports} past reports).`);
+    else if (m.note) notes.push(`${m.note}.`);
+    if (m.straddle != null && m.expiry)
+      notes.push(
+        `The ${fmt.date(m.expiry, false)} straddle costs ${fmt.pct(m.straddle, 1)} of the price: it also pays for the ordinary days to expiry.`,
+      );
+    block.append(el("p", notes.join(" "), "sp-em-note"));
+    block.append(
+      source(
+        `From the ${fmt.date(m.chain_day)} option chain. Priced move: Dubinsky–Johannes event variance. Expected move: its last ${m.reports} reports, shrunk toward the priced move (prior — ${m.prior_basis}). Research, not advice.`,
+      ),
+    );
+    return block;
+  }
+
   function earnings(profile) {
     const e = profile.earnings,
+      m = profile.earnings_move,
       box = section("earnings", "Earnings");
+    if (m) box.append(earningsMove(m));
     if (!e) {
+      if (m) return box;
       box.append(
         profile.finnhub_configured
           ? el(
