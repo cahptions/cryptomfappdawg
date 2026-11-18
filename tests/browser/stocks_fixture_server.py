@@ -26,6 +26,28 @@ from tests.conftest import REPO
 from tests.stocks_world import NOW, StocksWorld, add_chains, make_world
 
 
+def option_signals_fixture(world: StocksWorld) -> None:
+    """Synthetic option signals on the last session for S10 and eleven other listed stocks (every value invented):
+    S10's calls priced richer than its puts, no borrow rate recorded and too short a history for the usual volume."""
+    from desk.stocks import option_signals as osg
+
+    market = world.dbs.market
+    symbols = ["S10", *[r[0] for r in market.execute(
+        "SELECT symbol FROM stk_listings WHERE etf=0 AND test=0 AND symbol NOT IN ('S10', 'SPY') ORDER BY symbol "
+        "LIMIT 11")]]
+    for back, day in enumerate(reversed(world.days[-6:])):
+        at = cal.session_close(day) + timedelta(minutes=40)
+        for i, s in enumerate(symbols):
+            call = 0.32 + 0.004 * (len(symbols) - i) + 0.002 * (5 - back)
+            m = {"iv_spread": 0.003 * (len(symbols) - i) - 0.01, "pairs": 12, "skew": 0.04 + 0.005 * i,
+                 "call_iv30": call, "put_iv30": 0.33 - 0.001 * (5 - back), "iv30": (call + 0.33) / 2, "iv90": 0.31,
+                 "option_volume": 4000 + 300 * i, "contracts": 120, "liquid": 96,
+                 "detail": {"missing": {}, "expiries": [], "skew_legs": None}}
+            osg.save(market, s, day, "scan", m, price=50.0, stock_volume=2e6,
+                     borrow=(None, None) if s == "S10" else (None, 0) if i % 3 else (2.5 * i, 1), rv22=0.28,
+                     observed_at=at, now=at)
+
+
 def stock_page_fixture(world: StocksWorld) -> None:
     """Synthetic company context for S10: every value is invented and labelled as a fixture, never issuer data."""
     import json
@@ -250,6 +272,14 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
         os.chmod(paths.secrets_file, 0o600)
         alerts.deliver = lambda text, secrets, client=None: ["ntfy"]
         watchdog.record(paths, RISK_NOW, worker_running=True)
+        from desk.stocks import chain_scan
+        from desk.stocks.repo import StocksDatabases, StocksMarket
+
+        scan_dbs = StocksDatabases.open(paths)
+        StocksMarket(scan_dbs.market).job(chain_scan.JOB, RISK_NOW, detail={
+            "session": "2026-11-13", "eligible": 500, "scanned": 471, "thin": 12, "no_options": 9, "failed": 3,
+            "remaining": 5, "requests": 150})
+        scan_dbs.close()
     elif args.scenario == "learner":
         learner_fixture(root)
     elif args.scenario == "learner-account":
@@ -457,6 +487,7 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
                      "https://www.sec.gov/", NOW.isoformat(),symbol))
         if args.scenario == "stock-page":
             stock_page_fixture(world)
+            option_signals_fixture(world)
         if args.scenario in {"populated", "stock-page"}:
             events_fixture(world)
         if args.scenario == "account":

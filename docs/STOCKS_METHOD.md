@@ -320,3 +320,9 @@ shows its record and, separately, each signal's own forward record from the stor
 the research-signed signal ranked against the next month's return on every fifth session; the term slope and IV over
 realized volatility are shown too but are not in the desk). Those per-signal records are shown, not tested with the
 claims: they guide, they never vote.
+
+**Where to see it.** The stock page's **Options signals** panel shows each signal in a plain sentence, a one-line hint
+of what it has meant historically (coloured only when the research gives it a direction), and where the stock ranks
+among the stocks measured on the newest session with signals; a missing signal is marked *Not measured* with the
+reason. Evidence shows the Options desk's status (observer or voting), its live record and each signal's own forward
+record; Evidence → Data health shows the chain scan's coverage.

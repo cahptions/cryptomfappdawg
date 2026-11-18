@@ -308,6 +308,69 @@
 .sp-tiles .sp-stat dd {
   font-size: 19px;
 }
+.sp-signals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sp-signal {
+  min-width: 0;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sp-signal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.sp-signal-head strong {
+  font-size: var(--text-md);
+  color: var(--text-strong);
+}
+.sp-signal-rank {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+.sp-signal-meter {
+  position: relative;
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.sp-signal-meter span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+}
+.sp-signal-text {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+.sp-signal-hint {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.sp-signal-hint.up {
+  color: var(--up);
+}
+.sp-signal-hint.down {
+  color: var(--down);
+}
+.sp-signal.missing strong {
+  color: var(--text-2);
+}
 .sp-links {
   display: flex;
   flex-wrap: wrap;
@@ -1089,6 +1152,9 @@
 @media (max-width: 650px) {
   .stock-identity h1 {
     font-size: 24px;
+  }
+  .sp-signals {
+    grid-template-columns: minmax(0, 1fr);
   }
   .stock-mark {
     width: 40px;

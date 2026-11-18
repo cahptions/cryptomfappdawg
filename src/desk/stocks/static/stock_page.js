@@ -789,6 +789,78 @@ const KestrelStockPage = (() => {
     return box;
   }
 
+  // Option-implied signals (desk.stocks.option_signals): each in plain English with what it has meant
+  // historically and where the stock ranks among the stocks measured the same session. Missing ones say why.
+  function optionSignals(profile) {
+    const o = profile.option_signals;
+    if (!o) return null;
+    const box = section(
+      "options-signals",
+      "Options signals",
+      "What option prices say about the stock: patterns published research found ahead of stock returns. Each is compared with the other stocks measured the same session.",
+    );
+    if (!o.available) {
+      box.append(el("p", o.note, "muted"));
+      return box;
+    }
+    const list = el("ul", undefined, "sp-signals");
+    for (const s of o.signals) {
+      const item = el(
+          "li",
+          undefined,
+          `sp-signal${s.value == null ? " missing" : ""}`,
+        ),
+        head = el("div", undefined, "sp-signal-head");
+      item.dataset.signal = s.key;
+      head.append(el("strong", s.label));
+      if (s.value == null) head.append(el("span", "Not measured", "muted"));
+      else if (s.percentile != null) {
+        const rank = el("span", undefined, "sp-signal-rank"),
+          meter = el("span", undefined, "sp-signal-meter"),
+          fill = el("span");
+        fill.style.width = `${Math.round(100 * s.percentile)}%`;
+        meter.append(fill);
+        meter.setAttribute("aria-hidden", "true");
+        rank.append(
+          meter,
+          el(
+            "span",
+            `Higher than ${Math.round(100 * s.percentile)}% of ${fmt.num(s.compared, 0)} stocks`,
+          ),
+        );
+        head.append(rank);
+      }
+      item.append(head);
+      if (s.value == null)
+        item.append(el("p", s.missing, "sp-signal-text muted"));
+      else
+        item.append(
+          el("p", s.text, "sp-signal-text"),
+          el(
+            "p",
+            s.hint,
+            `sp-signal-hint ${s.lean > 0 ? "up" : s.lean < 0 ? "down" : ""}`,
+          ),
+        );
+      item.title = `${s.research}${s.in_desk ? " · counts in the Options desk" : " · shown, not in the desk"}`;
+      list.append(item);
+    }
+    box.append(list);
+    const desk = o.desk;
+    box.append(
+      source(
+        `Measured ${fmt.date(o.day)} from ${o.source === "scan" ? "the after-close chain scan" : "the chain collected that day"}, against ${fmt.num(o.stocks, 0)} stocks. ` +
+          (desk?.score == null
+            ? "The Options desk has no score for it yet. "
+            : `Options desk: ${fmt.num(desk.score, 0)} (${desk.verdict}). `) +
+          (desk?.voting
+            ? "The desk has earned a vote in the committee."
+            : "The desk is an observer: it gets no vote until its own forward record proves it."),
+      ),
+    );
+    return box;
+  }
+
   function insiders(profile) {
     const ins = profile.insiders;
     if (!ins) return null;
@@ -1024,6 +1096,7 @@ const KestrelStockPage = (() => {
     earnings,
     financials,
     shortInterest,
+    optionSignals,
     insiders,
     dividends,
     peers,

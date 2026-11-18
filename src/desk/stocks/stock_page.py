@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from desk.stocks import calendar as cal
+from desk.stocks import option_signals as osg
 from desk.stocks.earnings_dates import announced
 from desk.stocks.fundamentals import ANNUAL, Fundamentals, _latest_per_period
 from desk.stocks.repo import StocksMarket, StocksResearch, date_of
@@ -365,6 +366,8 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
     shares = shares or details.get("shares_outstanding")
     market_cap = fund.get("market_cap") or (shares * price if shares and price else None) or details.get("market_cap")
     sources = {name: {"label": v["label"], "updated_at": v["updated_at"], "error": v["error"]} for name, v in feeds.items()}
+    desk = ((detail or {}).get("desks") or {}).get("options")
+    weight = ((detail or {}).get("weights") or {}).get("options") or 0
     return {"symbol": symbol, "asof": now.isoformat(),
             "about": about(listing, profile, feeds, chief_executive(market, symbol)),
             "market_cap": market_cap, "shares_outstanding": shares,
@@ -373,6 +376,8 @@ def build(market: sqlite3.Connection, research: sqlite3.Connection, symbol: str,
             "earnings": earnings(fin, feeds, today, announced=announced(market, today).get(symbol),
                                  window=(((detail or {}).get("events") or {}).get("next_window"))),
             "short_interest": short_interest(market, symbol, shares),
+            "option_signals": osg.view(market, symbol, None if not desk else {
+                "score": desk.get("score"), "verdict": desk.get("verdict"), "voting": weight > 0}),
             "insiders": insiders(market, symbol, today),
             "dividends": dividends(market, symbol, price, today),
             **headlines(market, symbol, now, feeds),

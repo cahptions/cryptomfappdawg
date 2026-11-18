@@ -1,5 +1,27 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-18 — Option-implied stock signals, a real Options desk and the chain scan, phase 2
+
+- `desk.stocks.option_signals` (spec `stocks_option_signals` v1, market migration 0015: `stk_option_signals`,
+  `stk_option_scan`): per stock and session the call-put IV spread (Cremers & Weinbaum 2010), OTM put skew (Xing,
+  Zhang & Zhao 2010), option-to-stock volume and its log vs the stock's 60-session median (Johnson & So 2012), the
+  week's change in ATM call / put IV (An, Ang, Bali & Cakici 2014), the 90−30 day term slope and IV / realized vol
+  (Vasquez 2017; realized from `vol_forecast`), and Schwab's `htbRate` / hard-to-borrow flag going forward. Missing
+  measures are missing with a reason; derived measures read earlier rows only. Collected chains back-filled newest
+  first (job `option_signals`, a minute a pass).
+- Options desk (desks v4): the six research-signed signals z-scored across the day's stocks (≥ 10, capped ±3), score
+  = 100 × Φ(mean z). Weight stays 0 until its live record — counted only after desks v4 was registered (validation
+  v3) — is graded working (then 0.4); each signal's forward IC is recorded for Evidence.
+- Learner features v2 (`opt_*`, the newest session before the decision; model v3); older experience reads them as
+  missing.
+- `desk.stocks.chain_scan`: after each close until the next open, one compact Schwab chain (8–100 days, 20 strikes)
+  for the ~500 most liquid stocks/ETFs plus one quotes request per 50 (borrow); ≤ 150 requests / 4 min a pass,
+  resumable; no raw chains kept. Skipped with a reason without Schwab. Coverage in Evidence → Data health.
+- UI: stock page "Options signals" panel (plain sentence, hint, percentile, missing marked); Evidence Options desk card.
+  Stock-page and ops browser tests pass.
+- Not yet verified on real data: Schwab's chain answer size and timing for 500 names, `htbRate` units, and whether
+  any signal shows a forward IC on the user's stocks (needs months of live record).
+
 ## 2026-11-18 — Learned volatility forecast (HAR-IV), phase 1
 
 - `desk.stocks.vol_forecast` (spec `stocks_vol_forecast` v1): realized variance per stock and session from archived

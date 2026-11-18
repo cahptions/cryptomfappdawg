@@ -144,6 +144,28 @@ try {
       "$10M",
     );
     assert.equal(await page.locator("#sp-insiders .viz-bar.down").count(), 1);
+    // Options signals: plain English, a hint, the percentile among the stocks measured, missing ones marked.
+    const signals = page.locator("#sp-options-signals");
+    await signals.getByRole("heading", { name: "Options signals" }).waitFor();
+    const spread = signals.locator('[data-signal="iv_spread"]');
+    assert.match(
+      await spread.innerText(),
+      /Calls priced 2\.6 points of implied volatility richer than puts/,
+    );
+    assert.match(
+      await spread.locator(".sp-signal-hint.up").innerText(),
+      /Calls priced richer than puts — historically a mildly bullish sign/,
+    );
+    assert.match(await spread.innerText(), /Higher than 100% of 12 stocks/);
+    const borrow = signals.locator('[data-signal="borrow"]');
+    assert.ok(await borrow.evaluate((n) => n.classList.contains("missing")));
+    assert.match(await borrow.innerText(), /Not measured/);
+    assert.match(await borrow.innerText(), /Schwab sends a borrow rate/);
+    assert.match(
+      await signals.locator(".sp-source").innerText(),
+      /after-close chain scan.*observer/s,
+    );
+    assert.equal(await signals.locator(".sp-signal").count(), 9);
     await page.locator("#sp-insiders summary").click();
     await page
       .locator("#sp-insiders table")

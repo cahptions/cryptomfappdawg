@@ -1609,6 +1609,7 @@ const KestrelResearch = (() => {
               page.financials(profile, view),
             ]),
         page.shortInterest(profile),
+        page.optionSignals(profile),
         ...(etf ? [] : [page.insiders(profile), page.dividends(profile)]),
       ].filter(Boolean);
       sectionsHost.replaceChildren(...parts);

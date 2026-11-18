@@ -94,6 +94,47 @@ const KestrelEvidence = (() => {
         for (const issue of watch.issues) watchBox.append(el("p", issue.text));
       }
       target.append(watchBox);
+      // The after-close chain scan (desk.stocks.chain_scan): how many of the most liquid stocks it covered.
+      const scan = healthData.option_scan;
+      if (scan) {
+        const box = el("div", undefined, "chain-scan");
+        box.id = "evidence-chain-scan";
+        box.append(el("h3", "Option chain scan"));
+        if (scan.skipped) box.append(el("p", scan.skipped, "muted"));
+        else
+          box.append(
+            el(
+              "p",
+              `Session ${scan.session || "—"}: ${number(scan.scanned || 0)} of ${number(scan.eligible || 0)} eligible stocks scanned` +
+                (scan.remaining
+                  ? `, ${number(scan.remaining)} still to read`
+                  : "") +
+                ".",
+              scan.error_category ? "error" : "muted",
+            ),
+            table(
+              [
+                "Eligible",
+                "Scanned",
+                "Too thin",
+                "No options",
+                "Failed",
+                "Left",
+              ],
+              [
+                [
+                  number(scan.eligible || 0),
+                  number(scan.scanned || 0),
+                  number(scan.thin || 0),
+                  number(scan.no_options || 0),
+                  number(scan.failed || 0),
+                  number(scan.remaining || 0),
+                ],
+              ],
+            ),
+          );
+        target.append(box);
+      }
       const failure = healthData.worker?.last_failure;
       if (failure) {
         target.append(
@@ -157,6 +198,64 @@ const KestrelEvidence = (() => {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       };
       fixes.append(download);
+    }
+    // The Options desk is an observer until its own forward record is graded working; each option signal's
+    // own forward record (rank correlation with the next month's return) is shown beside it, never voting.
+    function optionsDesk(report) {
+      const desk = report.desks?.options,
+        signals = report.options?.signals;
+      if (!desk && !signals) return null;
+      const box = el("section", undefined, "screen-card");
+      box.id = "evidence-options-desk";
+      const voting = (report.proven_live_desks || []).includes("options");
+      box.append(
+        el("h2", "Options desk"),
+        el(
+          "p",
+          voting
+            ? "Its forward record held up, so it has a vote in the committee."
+            : "An observer: no vote until its own forward record is graded working (12 independent months, after correcting for every claim tested).",
+          "muted",
+        ),
+      );
+      const ic = desk?.live?.ic;
+      box.append(
+        el(
+          "p",
+          ic?.n
+            ? `Desk score vs next month's return: average rank correlation ${Number(ic.mean).toFixed(3)} over ${number(ic.n)} weekly observations${report.options?.desk_from ? ` since ${report.options.desk_from}` : ""}. ${desk.grade?.text || ""}`
+            : "No forward record yet for the desk's new signals.",
+        ),
+      );
+      if (signals?.sampled)
+        box.append(
+          table(
+            [
+              "Signal",
+              "Research",
+              "In the desk",
+              "Rank correlation",
+              "Observations",
+              "p",
+            ],
+            Object.entries(signals)
+              .filter(([, v]) => v && typeof v === "object" && v.label)
+              .map(([, v]) => [
+                v.label,
+                v.research,
+                v.in_desk ? "Yes" : "Shown only",
+                v.ic?.mean == null ? "—" : Number(v.ic.mean).toFixed(3),
+                number(v.ic?.n || 0),
+                v.ic?.p == null ? "—" : Number(v.ic.p).toFixed(2),
+              ]),
+          ),
+          el(
+            "p",
+            "Each signal ranked against the next month's return on every fifth session with signals, in the direction its study found. Shown to guide, not tested with the claims.",
+            "muted caption",
+          ),
+        );
+      return box;
     }
     function draw() {
       if (ticket !== generation) return;
@@ -384,6 +483,8 @@ const KestrelEvidence = (() => {
         ])
           explain.append(el("p", text, "muted"));
         app.append(explain);
+        const od = optionsDesk(report);
+        if (od) app.append(od);
       }
       const healthSection = el("section", undefined, "screen-card");
       healthSection.id = "evidence-health";

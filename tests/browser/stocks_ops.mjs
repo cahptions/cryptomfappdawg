@@ -80,6 +80,12 @@ try {
     const accuracy = page.locator("#evidence-accuracy");
     await accuracy.getByText(/broke a rule/).waitFor();
     assert.match(await accuracy.innerText(), /Cash never goes negative/);
+    // ... and the after-close option chain scan's coverage.
+    const scan = page.locator("#evidence-chain-scan");
+    await scan
+      .getByText(/471 of 500 eligible stocks scanned, 5 still to read/)
+      .waitFor();
+    assert.match(await scan.innerText(), /No options/);
     assert.deepEqual(errors, []);
     await page.close();
   }

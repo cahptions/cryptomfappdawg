@@ -141,36 +141,39 @@ def text(key: str, v: float) -> str:
     raise KeyError(key)
 
 
-def hint(key: str, v: float, percentile: float | None = None) -> str:
-    """One line on what it has meant historically (``percentile``: among the stocks measured that day)."""
+def hint(key: str, v: float, percentile: float | None = None) -> tuple[str, int]:
+    """One line on what it has meant historically, and its lean (+1 bullish, −1 bearish, 0 none); ``percentile``:
+    among the stocks measured that day."""
     if key == "term_slope":
-        return ("Near-term options pricier: the market expects a bumpy few weeks (predicts option prices more than "
-                "the stock's direction)" if v < 0 else "The usual shape: longer-dated options a little pricier")
+        return ("Near-term options pricier: the market expects a bumpy few weeks (this predicts option prices more "
+                "than the stock's direction)" if v < 0 else "The usual shape: longer-dated options a little pricier"), 0
     if key == "iv_rv":
         return ("Options price bigger moves than the stock has been making" if v > 1.2 else
                 "Options price smaller moves than the stock has been making" if v < 0.8 else
-                "Options price moves in line with recent ones")
-    if key == "iv_spread":
-        return "No lean either way" if abs(v) < 0.0005 else f"{'Calls' if v > 0 else 'Puts'} priced richer — " + (
-            BULL if v > 0 else BEAR)
-    if key in ("d_call_iv", "d_put_iv"):
-        side = "call" if key == "d_call_iv" else "put"
+                "Options price moves in line with recent ones"), 0
+    if key in ("iv_spread", "d_call_iv", "d_put_iv"):
         if abs(v) < 0.0005:
-            return f"Little change in {side} prices — no lean"
-        return f"{'Rising' if v > 0 else 'Falling'} {side} prices — " + (BULL if v * LEAN[key] > 0 else BEAR)
+            return "No lean either way", 0
+        lean = (1 if v > 0 else -1) * LEAN[key]
+        what = ("Calls priced richer than puts" if v > 0 else "Puts priced richer than calls") if key == "iv_spread" \
+            else f"{'Rising' if v > 0 else 'Falling'} {'call' if key == 'd_call_iv' else 'put'} prices"
+        return f"{what} — {BULL if lean > 0 else BEAR}", lean
     if key == "borrow" and v == 0:
-        return "Easy to borrow — no sign of costly short selling"
+        return "Easy to borrow — no sign of costly short selling", 0
     if key == "os_abnormal":
-        return ("Heavier option trading than usual for this stock — " + BEAR if v > math.log(1.5) else
-                "Lighter option trading than usual — " + BULL if v < -math.log(1.5) else "About its usual option trading")
+        if v > math.log(1.5):
+            return f"Heavier option trading than usual for this stock — {BEAR}", -1
+        if v < -math.log(1.5):
+            return f"Lighter option trading than usual — {BULL}", 1
+        return "About its usual option trading — no lean", 0
     higher = {"skew": "Steeper crash protection", "os_ratio": "Heavier option trading", "borrow": "Costlier to short"}[key]
     if percentile is None:
-        return f"{higher} has been {BEAR}"
+        return f"{higher} has been {BEAR}", 0
     if percentile >= 2 / 3:
-        return f"{higher} than most stocks today — {BEAR}"
+        return f"{higher} than most stocks today — {BEAR}", -1
     if percentile <= 1 / 3:
-        return f"Lower than most stocks today — {BULL}"
-    return "About typical today — no lean"
+        return f"Lower than most stocks today — {BULL}", 1
+    return "About typical today — no lean", 0
 
 
 def sentence(key: str, v: float) -> str:
@@ -410,6 +413,60 @@ def percentiles(signals: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str,
     return dict(out)
 
 
+# ── the stock page ───────────────────────────────────────────────────────────────────────────────
+def missing_reason(key: str, signals: Mapping[str, Any]) -> str:
+    why = signals.get("missing") or {}
+    if key in ("iv_spread", "skew"):
+        return str(why.get(key) or "Not enough liquid quotes")
+    if key == "os_ratio":
+        return "No share or option volume stored for that session"
+    if key == "os_abnormal":
+        return f"Needs at least {OS_MIN} earlier sessions of option volume to know its usual level"
+    if key in ("d_call_iv", "d_put_iv"):
+        return str(why.get("iv30") or "Needs a reading from about a week earlier")
+    if key == "term_slope":
+        return str(why.get("iv90") or why.get("iv30") or "Needs at-the-money options near 30 and 90 days")
+    if key == "iv_rv":
+        return str(why.get("iv30") or "Needs a month of the stock's realized moves")
+    return ("Not recorded: Schwab sends a borrow rate with the after-close scan's quotes, so it appears from the next "
+            "scan on")
+
+
+def view(conn: sqlite3.Connection, symbol: str, desk: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The stock page's Options signals: each signal in plain English with its hint and its percentile among the
+    stocks measured on the newest session with signals; missing ones say why."""
+    try:
+        newest = conn.execute("SELECT MAX(day) FROM stk_option_signals").fetchone()[0]
+    except sqlite3.OperationalError:
+        newest = None
+    if newest is None:
+        return {"available": False, "desk": desk, "note": (
+            "No option signals yet. They come from the after-close chain scan of the most liquid stocks (Schwab) and "
+            "from the chains collected during the day.")}
+    asof = date.fromordinal(int(newest))
+    everyone = read(conn, asof)
+    mine = everyone.get(symbol)
+    if mine is None:
+        return {"available": False, "desk": desk, "asof": asof.isoformat(), "note": (
+            f"No recent option signals for {symbol}: it was not among the stocks measured by {asof:%b %-d}, or its "
+            f"chain had fewer than {MIN_LIQUID} usable quotes.")}
+    pct = percentiles(everyone).get(symbol, {})
+    items = []
+    for key in SIGNALS:
+        v = mine.get(key)
+        item: dict[str, Any] = {"key": key, "label": LABELS[key], "research": RESEARCH[key],
+                                "in_desk": key in DESK_SIGNS, "value": v}
+        if v is None:
+            item["missing"] = missing_reason(key, mine)
+        else:
+            h, lean = hint(key, float(v), pct.get(key))
+            item.update(text=text(key, float(v)), hint=h, lean=lean, percentile=pct.get(key),
+                        compared=sum(1 for o in everyone.values() if o.get(key) is not None))
+        items.append(item)
+    return {"available": True, "desk": desk, "day": mine["day"], "source": mine["source"], "asof": asof.isoformat(),
+            "stocks": len(everyone), "signals": items}
+
+
 # ── backfill from the collected chains ───────────────────────────────────────────────────────────
 def pending(conn: sqlite3.Connection, through: date) -> list[tuple[str, int]]:
     """Collected (stock, session) chains up to ``through`` without a row (nor a recorded failure), newest first."""
@@ -496,5 +553,6 @@ async def job(market: Any, now: datetime) -> dict[str, Any]:
 
 
 __all__ = ["DESK_SIGNS", "JOB", "LABELS", "LEAN", "NAME", "RESEARCH", "SIGNALS", "VERSION", "at_days", "backfill",
-           "borrow_of", "content", "coverage", "derive", "hint", "job", "liquid", "measure", "pending", "percentiles",
-           "read", "realized", "save", "sentence", "share_volume", "text", "version_hash"]
+           "borrow_of", "content", "coverage", "derive", "hint", "job", "liquid", "measure", "missing_reason",
+           "pending", "percentiles", "read", "realized", "save", "sentence", "share_volume", "text", "version_hash",
+           "view"]

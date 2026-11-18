@@ -211,3 +211,22 @@ def test_backfill_from_stored_chains_is_resumable(market: StocksMarket) -> None:
     row = market.conn.execute("SELECT * FROM stk_option_signals WHERE day=?", (days[0].toordinal(),)).fetchone()
     assert row["source"] == "collected" and row["stock_volume"] == 2e6 and row["borrow_rate"] is None
     assert row["iv30"] == pytest.approx(0.30, abs=1e-3)
+
+
+def test_the_stock_page_view_explains_each_signal_and_marks_missing_ones(market: StocksMarket) -> None:
+    assert not osg.view(market.conn, "XYZ")["available"]
+    days = SESSIONS[:30]
+    for i, d in enumerate(days):
+        for j, s in enumerate(["XYZ", "AAA", "BBB", "CCC"]):
+            store(market, s, d, call=0.30 + 0.01 * i + 0.01 * j, put=0.30, borrow=(None, 0) if s == "AAA" else (None, None))
+    got = osg.view(market.conn, "XYZ", {"score": 61.0, "verdict": "Leaning bullish", "voting": False})
+    assert got["available"] and got["stocks"] == 4 and got["day"] == days[-1].isoformat()
+    by = {s["key"]: s for s in got["signals"]}
+    assert set(by) == set(osg.SIGNALS)
+    assert by["iv_spread"]["hint"] == f"Calls priced richer than puts — {osg.BULL}" and by["iv_spread"]["lean"] == 1
+    assert by["iv_spread"]["percentile"] == 0.0 and by["iv_spread"]["compared"] == 4
+    assert by["borrow"]["value"] is None and "Schwab" in by["borrow"]["missing"]
+    assert osg.view(market.conn, "AAA")["signals"][-1]["hint"].startswith("Easy to borrow")
+    assert "No recent option signals" in osg.view(market.conn, "ZZZ")["note"]
+    assert osg.hint("d_put_iv", 0.02)[1] == -1 and osg.hint("skew", 0.2, 0.9) == (
+        f"Steeper crash protection than most stocks today — {osg.BEAR}", -1)
