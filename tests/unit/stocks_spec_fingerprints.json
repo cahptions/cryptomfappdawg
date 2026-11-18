@@ -176,5 +176,8 @@
  },
  "stocks_validation": {
   "2": "052ae64f4c3ecca0fd361ce6a1053c49b0da12f13717b21e8c50c828108f7f14"
+ },
+ "stocks_vol_forecast": {
+  "1": "30c540cc2acc9c56f76f4c4aed89acc6d9ba7f9665f952606f7dfd26ae77602b"
  }
 }

@@ -14,6 +14,7 @@ from desk.stocks import daily
 from desk.stocks import desks as dk
 from desk.stocks import market_events as me
 from desk.stocks import validation as val
+from desk.stocks import vol_forecast as vf
 from desk.stocks.lists import LISTS
 from desk.stocks.paper.strategies import STRATEGIES
 from desk.stocks.repo import StocksDatabases, StocksMarket
@@ -27,7 +28,8 @@ def current() -> dict[str, tuple[int, str]]:
         return sha256_hex(canonical_json(content))
 
     out = {"stocks_desks": (dk.METHOD_VERSION, h(dk.method_content())),
-           "stocks_validation": (val.VERSION, h(val.content())), me.NAME: (me.VERSION, h(me.content()))}
+           "stocks_validation": (val.VERSION, h(val.content())), me.NAME: (me.VERSION, h(me.content())),
+           vf.NAME: (vf.VERSION, h(vf.content()))}
     out.update({f"stocks_list_{s.id}": (s.version, h(s.content())) for s in LISTS})
     out.update({f"stocks_paper_{s.id}": (s.version, h(s.content())) for s in STRATEGIES})
     from desk.stocks.learner import actions, features, findings, labels, model, policy, promotion, regimes

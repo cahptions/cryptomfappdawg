@@ -223,3 +223,57 @@ beside "Not adopted", and adopting them stays the user's explicit choice (`desk 
   pass), one Schwab chain request per stock covering all the expiries it needs, so the 150-name focus is covered about
   every 75 minutes. A name's chain is a snapshot from some time in the session rather than a continuous intraday
   history.
+
+## 10. Volatility forecast (`desk.stocks.vol_forecast`, 2026-11-18)
+
+*How much KESTREL expects the stock to move, learned from its recent daily, weekly and monthly swings plus what options
+imply.* It sets the spread of every KESTREL chance on Plays (and the lotto replay's ranking). Until 2026-11-18 that was
+a fixed blend, 0.7 × implied variance + 0.3 × realized variance; research on the HAR model (Corsi 2009) and its
+implied-volatility extensions shows that regressing the variance that follows on recent daily, weekly and monthly
+realized variance plus implied variance forecasts better than either alone. The blend stays as the fallback, and a
+horizon switches to the learned forecast only after it beat the blend out of sample.
+
+1. **Realized variance**, once per stock and finished session (`stk_rv_daily`, market migration 0014), for the stocks
+   with collected chains or an IV history (at most 500, by dollar volume; the latest 1,000 sessions). With archived
+   minute bars covering at least 75% of the session (and the last minute's close within 2% of the day's close):
+   the sum of squared five-minute log returns from the first open, plus the squared overnight return (previous close
+   to that open): source `minutes5`. Otherwise the squared close-to-close log return: source `daily`. Prices are
+   split-adjusted; a newly recorded split recomputes that stock's rows. A `daily` row from the last 10 sessions is
+   recomputed if its minute bars are archived later. Each row says which source it used.
+2. **Implied variance**: the stock's 30-day at-the-money implied volatility that day — the collected chain's IV30, else
+   the one solved from Massive's real closing trades (`iv_history`) — as IV² / 252 per session. A day without one has
+   no HAR-IV row; that stock-day still feeds the HAR-RV model (the same regression without implied variance).
+3. **The model.** Pooled across stocks, ordinary least squares in log variance, one regression per horizon h of 1, 5,
+   10, 21 and 63 sessions. Target: the log of the average realized variance over the next h sessions. Features: an
+   intercept, the log of the day's realized variance, of its 5-session and of its 22-session average, and (HAR-IV) the
+   log of the implied variance. Each day's variance is floored at 10⁻⁶ (a 0.1% move) before the log, so a flat close
+   is not an infinitely calm day. The log forecast is turned back into a variance with Duan's smearing factor (the
+   mean of exp(residual) over the last 252 sessions of training rows), so it is not biased low. Between fitted
+   horizons the log variance is interpolated linearly in h; beyond 63 sessions the forecast reverts to the stock's own
+   252-session average variance: v(h) = (63·v(63) + (h − 63)·long-run) / h.
+4. **Walk-forward, no look-ahead.** A fit is made on the first session of each week, from the rows whose whole target
+   window ended before that session (the h-session purge), expanding from the first stored session; at least 1,000
+   stock-sessions. A forecast made on day D uses the newest fit on or before D. Fits are appended to `stk_vol_fits`
+   with their fit day and a hash and never rewritten. A test plants a shock after a day and checks that no fit or gate
+   on or before it changes.
+5. **Honest evaluation and the gate.** Every forecast is scored against what followed, out of sample: QLIKE
+   (y/f − ln(y/f) − 1, the standard robust loss for variance forecasts) and the squared error of log variance, for
+   HAR-IV, HAR-RV, implied volatility alone and the old blend, on the same stock-days. Each fit stores the scores of
+   the forecasts realized before its fit day. **A horizon is live only when those held-out forecasts cover at least
+   60 sessions and 30 stocks and HAR-IV has both a lower QLIKE and a lower log-variance error than the old blend**;
+   otherwise that horizon (and the horizons interpolated next to it) keeps the old blend. Without an implied
+   volatility (rare: Plays always has one), HAR-RV is used only where it beat realized volatility alone the same way.
+6. **Use.** `vol_forecast.forecast_sigma(iv, rv, t=…, vol=…)` returns the annual volatility for a horizon of t years
+   (h = t × 252 sessions) and the method used (`har_iv`, `har_rv` or `blend`). Plays feeds each contract's own implied
+   volatility into the IV term, so the smile's shape is kept as under the blend. A replay on a past day (Plays'
+   replay, the lotto replay) uses the newest fit on or before that day and the stock's realized variance up to that
+   day's close, else the blend.
+7. **Cost.** The realized-variance update runs in each collection pass with a 60-second budget (the rest next pass);
+   the weekly refit rebuilds the walk-forward from the stored rows once every stock is current (a fraction of a second
+   per 10,000 stock-sessions; about 10 seconds for 500 stocks × 1,000 sessions). `kestrel stocks vol-forecast`
+   rebuilds and evaluates on demand, with progress.
+
+Limits: most stored sessions before the minute archive began use the noisier close-to-close measure, which mainly
+lowers how much weight the regression can give the single day. The evaluation scores every horizon with the 30-day
+IV, whereas Plays uses each expiry's own IV; both the learned forecast and the blend are scored on the same IV, so the
+comparison is fair, but its size at very short and very long expiries is an estimate.
