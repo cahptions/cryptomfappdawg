@@ -202,6 +202,9 @@
  "stocks_paper_value_momentum": {
   "1": "8af6d42066d277f142049a3752244440b93cad01a3bffb964cc5d9b17f4dae59"
  },
+ "stocks_structure_pricing": {
+  "1": "36e36a852534cf8fd170cf6e34e2468c4fe8ff74dc788f4e1bf12826ad868eab"
+ },
  "stocks_validation": {
   "2": "052ae64f4c3ecca0fd361ce6a1053c49b0da12f13717b21e8c50c828108f7f14",
   "3": "8cfa46c3dae8ef0d355df43cd09b033b70bf822ef3cbf60663c7feadd40cf584"
