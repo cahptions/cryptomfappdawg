@@ -427,6 +427,16 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             except Exception as exc:  # recorded; never stops collection
                 log.warning("volatility forecast failed", extra={"error": str(exc)[:200]})
                 market.job(vol_forecast.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+        # After the close: one compact chain for each of the ~500 most liquid stocks and ETFs through Schwab (at most
+        # 150 requests and four minutes a pass, resuming next pass), for the Options desk's signals.
+        from desk.stocks import chain_scan
+
+        if chain_scan.due(market, now):
+            try:
+                jobs[chain_scan.JOB] = await run_job(chain_scan.JOB, chain_scan.job(suite, market, utc_now()))
+            except Exception as exc:  # recorded; never stops collection
+                log.warning("chain scan failed", extra={"error": str(exc)[:200]})
+                market.job(chain_scan.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
         # Option-implied stock signals from the chains collected during finished sessions (a minute a pass at most,
         # newest first, the rest next pass). Never stops collection.
         from desk.stocks import option_signals

@@ -99,7 +99,7 @@ STOCK: tuple[Feature, ...] = (
         ("d_put_iv", "Change in 30-day at-the-money put IV over about 5 sessions"),
         ("term_slope", "90-day minus 30-day at-the-money IV (Vasquez)"),
         ("iv_rv", "30-day IV over 22-session realized volatility (vol_forecast)"),
-        ("borrow", "Schwab borrow rate, percent a year (0 = easy to borrow; missing before it was recorded)"))),
+        ("borrow", "Schwab borrow rate as sent (0 = easy to borrow; missing before it was recorded)"))),
 )
 MARKET: tuple[Feature, ...] = (
     _f("spy_vs_200d", "market", "stk_bars SPY", PREVIOUS, "SPY against its 200-session average"),

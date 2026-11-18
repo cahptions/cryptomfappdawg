@@ -86,8 +86,9 @@ def parse_chain(body: bytes, symbol: str, expiration: date) -> list[OptionQuote]
     return parse_chains(body, symbol, {expiration}).get(expiration, [])
 
 
-def parse_chains(body: bytes, symbol: str, wanted: set[date]) -> dict[date, list[OptionQuote]]:
-    """Every wanted expiration's standard contracts from one chain answer (a date range covers several)."""
+def parse_chains(body: bytes, symbol: str, wanted: set[date] | None) -> dict[date, list[OptionQuote]]:
+    """Every wanted expiration's standard contracts from one chain answer (a date range covers several; None: every
+    expiration in the answer)."""
     value = _body(body)
     out: dict[str, OptionQuote] = {}
     try:
@@ -98,7 +99,7 @@ def parse_chains(body: bytes, symbol: str, wanted: set[date]) -> dict[date, list
         for field, kind in (("callExpDateMap", "call"), ("putExpDateMap", "put")):
             for key, strikes in (value.get(field) or {}).items():
                 exp = date.fromisoformat(key.split(":")[0])
-                if exp not in wanted:
+                if wanted is not None and exp not in wanted:
                     continue
                 for contracts in strikes.values():
                     for row in contracts:
@@ -366,19 +367,28 @@ class SchwabClient:
                           ) -> tuple[dict[date, list[OptionQuote]], float | None]:
         """Every wanted expiration in ONE chains request (``fromDate`` the first, ``toDate`` the last), the ``strikes``
         nearest the money either side (all when None), and the underlying's price from the same answer."""
+        return await self._chains(symbol, min(expirations), max(expirations), set(expirations), strikes)
+
+    async def chain_window(self, symbol: str, first: date, last: date, *, strikes: int | None = CHAIN_STRIKES
+                           ) -> tuple[dict[date, list[OptionQuote]], float | None]:
+        """Every expiration from ``first`` to ``last`` in one chains request (the after-close chain scan)."""
+        return await self._chains(symbol, first, last, None, strikes)
+
+    async def _chains(self, symbol: str, first: date, last: date, wanted: set[date] | None, strikes: int | None
+                      ) -> tuple[dict[date, list[OptionQuote]], float | None]:
         params: dict[str, Any] = {"symbol": symbol, "contractType": "ALL", "strategy": "SINGLE",
-                                  "fromDate": min(expirations).isoformat(), "toDate": max(expirations).isoformat(),
+                                  "fromDate": first.isoformat(), "toDate": last.isoformat(),
                                   "includeUnderlyingQuote": "true"}
         if strikes:
             params["strikeCount"] = strikes
         body = await self._get("chains", params)
-        parsed = parse_chains(body, symbol, set(expirations))
+        parsed = parse_chains(body, symbol, wanted)
         value = _body(body)
         stats = self.chain_diagnostics.setdefault(symbol, {"raw_contracts": 0, "parsed_contracts": 0,
               "volume_fields_present": 0, "positive_volume_contracts": 0, "reported_volume": 0})
         for field in ("callExpDateMap", "putExpDateMap"):
             for key, by_strike in (value.get(field) or {}).items():
-                if date.fromisoformat(key.split(":")[0]) not in expirations:
+                if wanted is not None and date.fromisoformat(key.split(":")[0]) not in wanted:
                     continue
                 for contracts in by_strike.values():
                     for row in contracts:

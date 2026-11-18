@@ -17,9 +17,10 @@ these stocks: the desk starts without a vote and earns one only from its own for
 * **term_slope** (Vasquez 2017): 90-day minus 30-day at-the-money IV; with **iv_rv**, 30-day IV over the stock's
   realized volatility of the last 22 sessions (desk.stocks.vol_forecast's realized variance). These predicted option
   (straddle) returns rather than stock returns, so they inform the Learner and the stock page, not the desk.
-* **borrow**: Schwab's ``htbRate`` (percent a year) where a quote sends it; a stock Schwab says is easy to borrow
-  (``isHardToBorrow`` false, no rate) counts as 0; no quote, no value. Much of the skew and IV-spread signal is the cost
-  of shorting (borrow-fee studies), so borrow is measured on its own and recorded going forward only.
+* **borrow**: Schwab's ``htbRate`` as sent (unit unverified; only its rank across stocks is used) where a quote
+  sends it; a stock Schwab says is easy to borrow (``isHardToBorrow`` false, no rate) counts as 0; no quote, no value.
+  Much of the skew and IV-spread signal is the cost of shorting (borrow-fee studies), so borrow is measured on its own
+  and recorded going forward only.
 
 Quotes count only with a bid above zero, an ask at or above it, (ask − bid) / mid at most ``MAX_SPREAD``, a mid of at
 least ``MIN_MID`` and a solvable Black-Scholes IV (the day's 3-month Treasury yield and the stock's trailing dividend
@@ -135,7 +136,8 @@ def text(key: str, v: float) -> str:
     if key == "iv_rv":
         return f"Options price {v:.2f}× the moves the stock made over the last month"
     if key == "borrow":
-        return f"Borrowing shares to sell short costs {v:.1f}% a year" if v > 0 else "Easy to borrow: no borrow fee"
+        return (f"Hard to borrow: Schwab quotes a borrow rate of {v:g} (higher = costlier to sell short)" if v > 0
+                else "Easy to borrow: no borrow fee")
     raise KeyError(key)
 
 

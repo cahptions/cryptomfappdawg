@@ -165,6 +165,18 @@ def diagnose(paths: DeskPaths) -> dict[str, Any]:
                 result['history'] = {'sessions': row[0], 'bar_rows_recorded': row[1] or 0,
                                       'minimum_sessions': MIN_BARS, 'last_receipt': row[3],
                                       'note': 'Each stock still needs its own history, liquidity and strategy inputs'}
+                # The after-close chain scan's coverage (desk.stocks.chain_scan) and the option signals it feeds.
+                for job, key, fields in (('chain_scan', 'option_scan', ('session', 'eligible', 'scanned', 'thin',
+                                                                        'no_options', 'failed', 'remaining',
+                                                                        'skipped', 'stopped')),
+                                         ('option_signals', 'option_signals', ('rows', 'stocks', 'first', 'last',
+                                                                               'remaining'))):
+                    row = conn.execute('SELECT detail_json,last_run_at,last_error FROM stk_jobs WHERE name=?',
+                                       (job,)).fetchone()
+                    if row is not None:
+                        detail = json.loads(row['detail_json'] or '{}')
+                        result[key] = {**{k: detail.get(k) for k in fields}, 'last_run_at': row['last_run_at'],
+                                       'error_category': error_category(row['last_error']) if row['last_error'] else None}
                 for row in conn.execute('SELECT name,last_ok_at,last_run_at,last_error FROM stk_jobs LIMIT 50'):
                     name = row['name'] if re.fullmatch(r'[a-z_]{1,40}', row['name']) else 'unknown_job'
                     result['source_health'][name] = {'last_success': row['last_ok_at'], 'last_attempt': row['last_run_at'],

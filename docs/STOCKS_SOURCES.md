@@ -103,4 +103,19 @@ showing observed mentions, reported upvotes and its source time. Social attentio
 - **Option chain history (quotes, open interest) starts when the desk starts collecting, and every collected chain is
   kept** (compressed; the oldest sessions are deleted only past `stocks.option_chain_budget_gb`, default 10 GB, 0 = no
   limit; see [STOCKS.md](STOCKS.md)). They are the only real bid/ask history the app has. Massive Options Basic keeps two years of individual contracts' daily closing trades (no bid/ask or open interest), which the replays use. The **IV history** is solved from them (`desk.stocks.iv_history`): for the 60 most traded optioned stocks, the monthly at-the-money call and put listed nine weeks before each expiry, their implied volatility from each day's closing trade, interpolated to a constant 30 days (`stk_iv_daily`, source `massive_close`). IV rank's year uses the desk's own collected IV30 on the days it has one and these real-trade values on the others, and every rank says how many days came from each. About 4,300 requests in all (3 a name-month), shared with the other option downloads.
+- **Chain scan (2026-11-18, `desk.stocks.chain_scan`).** The day's collection reads chains for a rotating focus list
+  of about 30 names a pass, too few and too changeable to compare stocks with each other. So after each close (from 20
+  minutes past it until the next session opens) a bounded scan reads one compact chain for each of the **500 most
+  liquid US stocks and ETFs** (active listings priced at least $5, ranked by average dollar volume over the last 20
+  stored sessions): one Schwab quotes request per 50 stocks (`quote` and `reference`: the borrow rate `htbRate` and
+  `isHardToBorrow`, recorded from here on; `htbRate` is stored as Schwab sends it, its unit unverified, and used only
+  as a rank across stocks) and one chains request per stock (every expiry 8–100 days out, the 20 strikes nearest the
+  money). About 510 requests a session, under 7 minutes at Schwab's 90-a-minute pacing, through the desk's shared
+  Schwab limiter; at most 150 requests and 4 minutes a collection pass, resuming where the last pass stopped
+  (`stk_option_scan` records each stock's outcome: scanned, thin, no options, failed). A stock whose chain comes back
+  empty is not asked again for 30 days. Only the computed signals and a compact per-expiry snapshot (days, at-the-money
+  call and put IV, volume, open interest; a few hundred bytes) are kept, in `stk_option_signals` (about 0.3 MB a
+  session; the raw chains are not stored, so the chain archive's budget is untouched). Schwab not connected: the scan
+  is skipped and the reason recorded. Coverage (eligible, scanned, thin, no options, failed, left) is in Evidence →
+  Data health. Method: [STOCKS_METHOD.md](STOCKS_METHOD.md) section 11.
 - **Stock history is end-of-day** (Massive's grouped daily bars). **Option chains are Schwab's current quotes** once Schwab is connected (a chain Schwab marks delayed is refused); on Tradier's sandbox they are 15 minutes delayed. Paper fills follow from what is collected: stocks at the next session's open, options at bid/ask from the collected chain at its own timestamp. Nothing pretends to be real-time beyond that.
