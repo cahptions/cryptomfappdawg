@@ -142,31 +142,63 @@ def spread(q: OptionQuote) -> float:
     return (q.ask-q.bid)/q.mid if q.ask is not None and q.bid is not None and q.mid else math.inf
 
 
+def observation(quotes: dict[str, OptionQuote], legs: list[dict[str, Any]], source: str) -> dict[str, Any]:
+    return {"source_key": source, "legs": [{"occ": q.occ, "bid": q.bid, "ask": q.ask,
+                                           "ask_size": q.ask_size,
+                                           "quoted_at": to_iso(q.quoted_at) if q.quoted_at else None}
+                                          for q in (quotes[leg["occ"]] for leg in legs)]}
+
+
+def record_wait(book: PaperBook, account: str, now: datetime, code: str, policy: dict[str, Any],
+                context: dict[str, Any], *, symbol: str = "") -> None:
+    """Freeze the first decision for this condition, then log a new one when book cash or the gate changes."""
+    conn = book.conn
+    previous = lab.state(conn, "retail:" + account, {})
+    session = cal.new_york(now).date()
+    key = [session.isoformat(), code, context["cash"], policy["mode"]]
+    if previous.get("wait_key") == key and previous.get("decision_id"):
+        return
+    did = book.decide(now, session, account, VERSION, symbol, "SKIP", [policy["phase"]],
+                      {"retail_context": {**context, "gate": code, "mode": policy["mode"]}})
+    lab.set_state(conn, "retail:" + account,
+                  {**policy, "asof": to_iso(now), "decision_id": did, "wait_key": key})
+
+
 def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuote],
             snapshots: dict[str,tuple[str,float,dict[Any,list[OptionQuote]]]]) -> int:
     book = PaperBook(conn)
     choices = policies(conn,now)
     count = 0
     cache: dict[tuple[Any,...],list[dict[str,Any]] | None] = {}
+    newest = max(((q.quoted_at, source) for source, _, chains in snapshots.values()
+                  for chain in chains.values() for q in chain if q.quoted_at), default=None)
     for account in lab.SMALL_ACCOUNTS:
         prefix = "retail:"+account
-        if conn.execute("SELECT 1 FROM stk_pending WHERE account=? AND state='PENDING' LIMIT 1",(account,)).fetchone():
-            lab.set_state(conn,prefix,{**lab.state(conn,prefix,{}),"phase":"Waiting for a later fresh entry quote"})
+        pending = conn.execute("SELECT decision_id FROM stk_pending WHERE account=? AND state='PENDING' ORDER BY id LIMIT 1",
+                               (account,)).fetchone()
+        if pending:
+            lab.set_state(conn, prefix, {**lab.state(conn, prefix, {}), "phase": "Waiting for a later fresh entry quote",
+                                         "decision_id": pending["decision_id"], "wait_key": None})
             continue
         cash = book.cash(account)
         marked = conn.execute("SELECT COALESCE(SUM(last_value_micros),0) FROM stk_positions WHERE account=? AND state='OPEN'",
                               (account,)).fetchone()[0]/MICRO
         budget = min(cash,max(0,cash+marked)*TARGET_FRACTION)
+        context: dict[str, Any] = {"cash": cash, "equity": cash + marked, "target_budget": budget,
+                   "snapshot_count": len(snapshots), "pending_orders": 0}
+        if newest:
+            context["observation"] = {"source_key": newest[1], "last_quote_at": to_iso(newest[0])}
         if not snapshots:
-            lab.set_state(conn,prefix,{**lab.state(conn,prefix,{}),"phase":"Waiting for fresh option quotes",
-                                      "budget":budget,"cash":cash})
+            record_wait(book, account, now, "quotes", {"phase": "Waiting for fresh option quotes",
+                        "mode": lab.state(conn, prefix, {}).get("mode", "starter"), "budget": budget, "cash": cash}, context)
             continue
         if not choices:
-            lab.set_state(conn,prefix,{"phase":"Research results are not positive; holding cash","mode":"waiting",
-                                      "asof":to_iso(now),"note":"No positive prior research family is available."})
+            record_wait(book, account, now, "policy", {"phase": "Research results are not positive; holding cash",
+                        "mode": "waiting", "note": "No positive prior research family is available."}, context)
             continue
         held = {leg["occ"] for position in book.positions(account) for leg in position.legs}
         candidates = []
+        unaffordable: tuple[float, str, str, list[dict[str, Any]], dict[str, Any], str] | None = None
         for policy_index, policy in enumerate(choices):
             cfg,evidence = policy["config"],policy["evidence"]
             for symbol,(source,spot,chains) in sorted(snapshots.items()):
@@ -189,7 +221,11 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
                                             or not .2 <= abs(leg["entry_delta"]) <= .75 for leg in legs)):
                             continue
                         unit = amount(lab.impact(legs,quotes,1,True))
-                        if unit > cash or unit <= 0:
+                        if unit <= 0:
+                            continue
+                        if unit > cash:
+                            if unaffordable is None or unit < unaffordable[0]:
+                                unaffordable = (unit, symbol, source, legs, evidence, cfg["structure"])
                             continue
                         # Prefer contracts within the target; a whole-contract floor may exceed it, never cash.
                         concentrated = unit > budget
@@ -198,8 +234,16 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
                                  unit,symbol,expiry)
                         candidates.append((score,policy,symbol,source,spot,legs,unit))
         if not candidates:
-            lab.set_state(conn,prefix,{"phase":"Waiting for an affordable, liquid contract or available cash",
-                "mode":choices[0]["evidence"]["mode"],"budget":budget,"cash":cash,"asof":to_iso(now)})
+            policy = {"phase": "Waiting for an affordable, liquid contract or available cash",
+                      "mode": choices[0]["evidence"]["mode"], "budget": budget, "cash": cash}
+            if unaffordable:
+                unit, symbol, source, legs, prediction, structure = unaffordable
+                record_wait(book, account, now, "cash", policy, {
+                    **context, "one_unit": unit, "structure": structure, "prediction": prediction,
+                    "observation": observation(quotes, legs, source)}, symbol=symbol)
+            else:
+                record_wait(book, account, now, "eligibility", policy,
+                            {**context, "prediction": choices[0]["evidence"]})
             continue
         _score,policy,symbol,source,spot,legs,unit = min(candidates,key=lambda candidate:candidate[0])
         cfg,evidence = policy["config"],policy["evidence"]
@@ -230,13 +274,15 @@ def propose(conn: sqlite3.Connection, now: datetime, quotes: dict[str,OptionQuot
         if unit>budget:
             reason += "; one whole contract exceeds the 25% sizing target but fits available cash"
         did = book.decide(now,cal.new_york(now).date(),account,digest,symbol,"ENTER",[reason],
-                          {"prediction":forecast,"plan":plan})
+                          {"prediction":forecast,"plan":plan,"retail_context":{
+                              **context, "gate": "entry", "mode": evidence["mode"], "one_unit": unit,
+                              "structure": cfg["structure"], "observation": observation(quotes, legs, source)}})
         oid = book.place(did,account,now,cal.new_york(now).date(),plan)
         conn.execute("INSERT INTO stk_learning_intents VALUES (?,?,?,?,?)",
                      (oid,plan["experiment_id"],source,desired,canonical_json(forecast)))
         lab.set_state(conn,spacing_key(account,cfg,symbol),to_iso(now))
         lab.set_state(conn,prefix,{"phase":"Queued an affordable trade; waiting for a later fresh quote",
-            "mode":evidence["mode"],"decision_at":to_iso(now),"symbol":symbol,"structure":cfg["structure"],
+            "mode":evidence["mode"],"decision_at":to_iso(now),"decision_id":did,"symbol":symbol,"structure":cfg["structure"],
             "desired_units":desired,"estimated_entry_cost":amount(lab.impact(legs,quotes,desired,True)),
             "forecast":forecast,"note":reason,"exit_days":exit_days,"exit_basis":evidence.get("exit_basis")})
         count += 1

@@ -650,7 +650,173 @@ const KestrelLearning = (() => {
       save("kestrel-learning-report.md", report.markdown);
     box.append(el("p", report.note, "caption muted"), download);
   }
-  async function show(ticket) {
+  function decisionLink(book, id, label = "View PAPER decision") {
+    return link(label, `#learning/${book}/${id}`);
+  }
+
+  async function showDecision(ticket, book, id) {
+    const data = await api(`learning/decisions/${id}?account=${book}`);
+    if (ticket !== generation) return;
+    app.className = "paper-page learning-page";
+    const header = el("section", undefined, "paper-status");
+    header.append(
+      link(`← Back to the ${data.title}`, `#learning/${book}`),
+      el(
+        "h1",
+        data.action === "SKIP"
+          ? "Why this book waited"
+          : "Why this book queued an order",
+      ),
+      el("p", `${data.title} · ${stamp(data.at)} · PAPER`, "muted"),
+      el("strong", data.reason),
+    );
+    if (data.symbol)
+      header.append(
+        el(
+          "p",
+          [data.symbol, data.structure?.replaceAll("_", " ")]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+      );
+    if (data.next_condition)
+      header.append(
+        el("h2", "What would change the decision"),
+        el("p", data.next_condition),
+      );
+    app.append(header);
+
+    const cash = el("section", undefined, "paper-status");
+    cash.append(el("h2", "At decision time"));
+    const figures = el("div", undefined, "paper-metrics learning-hero-metrics");
+    for (const [label, value] of [
+      ["Ledger cash", data.cash],
+      ["Sizing target", data.target_budget],
+      ["Estimated cost for one unit", data.one_unit],
+    ])
+      figures.append(
+        metric(label, value == null ? "Not captured" : money(value)),
+      );
+    cash.append(figures);
+    if (data.gate === "cash" && data.cash != null && data.one_unit != null)
+      cash.append(
+        el(
+          "p",
+          `The least expensive qualifying unit needed ${money(data.one_unit - data.cash)} more cash.`,
+        ),
+      );
+    if (data.pending_before_decision != null)
+      cash.append(
+        el(
+          "p",
+          `${data.pending_before_decision} pending before this decision.`,
+          "muted",
+        ),
+      );
+    if (data.policy?.mode)
+      cash.append(el("p", policyName(data.policy.mode), "muted"));
+    if (data.policy?.expected_net_return != null)
+      cash.append(
+        el(
+          "p",
+          `Prior research estimate ${percent(data.policy.expected_net_return)} across ${data.policy.blocks} underlying/day blocks. Outcomes available through ${stamp(data.policy.matured_through)}.`,
+          "muted",
+        ),
+      );
+    app.append(cash);
+
+    const sources = el("section", undefined, "paper-status");
+    sources.append(el("h2", "Quote evidence"));
+    if (data.source) {
+      sources.append(
+        el(
+          "p",
+          `${data.source.underlying} observation saved ${stamp(data.source.observed_at)}`,
+        ),
+      );
+      if (data.source.last_quote_at)
+        sources.append(
+          el(
+            "p",
+            `Latest qualifying quote at ${stamp(data.source.last_quote_at)}`,
+            "muted",
+          ),
+        );
+      for (const q of data.source.legs)
+        sources.append(
+          el(
+            "p",
+            `${q.occ} · bid ${q.bid == null ? "—" : money(q.bid)} · ask ${q.ask == null ? "—" : money(q.ask)} · ask size ${q.ask_size ?? "unknown"} · ${stamp(q.quoted_at)}`,
+            "muted",
+          ),
+        );
+    } else {
+      sources.append(
+        el(
+          "p",
+          data.gate === "quotes"
+            ? "No qualifying fresh option quote was available."
+            : "No specific quote receipt was captured for this decision.",
+          "muted",
+        ),
+      );
+    }
+    app.append(sources);
+
+    const outcome = el("section", undefined, "paper-status");
+    outcome.append(el("h2", "What happened afterward"));
+    if (!data.orders.length && data.action === "SKIP")
+      outcome.append(
+        el("p", "PAPER held its cash for this decision. No order was placed."),
+      );
+    for (const order of data.orders)
+      outcome.append(
+        el("strong", `Order #${order.id} · ${order.state.toLowerCase()}`),
+        el(
+          "p",
+          [
+            order.requested_units == null
+              ? null
+              : `${order.requested_units} requested`,
+            order.note,
+            order.resolved_at ? stamp(order.resolved_at) : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          "muted",
+        ),
+      );
+    for (const fill of data.fills)
+      outcome.append(
+        el(
+          "p",
+          [
+            fill.units == null ? "Position opened" : `${fill.units} filled`,
+            stamp(fill.opened_at),
+            `${money(fill.entry_debit)} paid with fees`,
+            fill.closed_at
+              ? `Closed ${stamp(fill.closed_at)}`
+              : "Position open",
+            fill.exit_reason,
+            fill.pnl == null ? null : `${signed(fill.pnl)} realized after fees`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+      );
+    if (!data.orders.length && !data.fills.length && data.action !== "SKIP")
+      outcome.append(
+        el("p", "No subsequent order or position record was found.", "muted"),
+      );
+    app.append(outcome);
+  }
+
+  async function show(ticket, route) {
+    const [, book, id] = route.split("/");
+    if (book === "reference_1k" || book === "reference_5k") {
+      account = book;
+      if (id && /^\d+$/.test(id)) return showDecision(ticket, book, id);
+    }
     let data = await api("learning");
     if (ticket !== generation) return;
     let timer,
@@ -820,6 +986,14 @@ const KestrelLearning = (() => {
               "caption muted",
             ),
           );
+        const decision = a.policy?.decision_id || a.latest_decision_id;
+        if (decision) {
+          const label =
+            a.policy?.phase?.includes("holding cash") || a.policy?.wait_key
+              ? "Why this book waited"
+              : "View PAPER decision";
+          policy.append(decisionLink(a.id, decision, label));
+        }
         selected.append(policy);
       }
       app.append(selected);
@@ -1002,6 +1176,8 @@ const KestrelLearning = (() => {
                   "muted",
                 ),
               );
+              if (a.small_account && order.decision_id)
+                n.append(decisionLink(a.id, order.decision_id));
               grid.append(n);
             }
             if (!grid.children.length)
@@ -1329,6 +1505,8 @@ const KestrelLearning = (() => {
                   a.policy?.mode,
                   a.policy?.phase,
                   a.policy?.decision_at,
+                  a.policy?.decision_id,
+                  a.latest_decision_id,
                   a.policy?.forecast?.policy_hash,
                 ]),
                 d.model.version,

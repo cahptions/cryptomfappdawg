@@ -952,6 +952,8 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
 
 
 def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, Any]:
+    from desk.stocks.learning_decision import latest_id
+
     now = now or utc_now()
     book = PaperBook(conn)
     accounts = []
@@ -1009,6 +1011,7 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
                 "funding_allowed": False,
                 "cap": state(conn, "research_cap") if account == RESEARCH else None,
                 "small_account": account in SMALL_ACCOUNTS,
+                "latest_decision_id": latest_id(conn, account) if account in SMALL_ACCOUNTS else None,
                 "deposits": deposits,
                 "refill": refill_usage,
                 "started_at": conn.execute("SELECT MIN(at) FROM stk_cash WHERE account=? AND reason='DEPOSIT'",

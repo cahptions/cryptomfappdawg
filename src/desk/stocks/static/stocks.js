@@ -1308,7 +1308,8 @@ async function render() {
     } else if (route === "paper") await paperPage(ticket);
     else if (route === "plays" || route.startsWith("plays/"))
       await KestrelPlays.show(ticket, route);
-    else if (route === "learning") await KestrelLearning.show(ticket);
+    else if (route === "learning" || route.startsWith("learning/"))
+      await KestrelLearning.show(ticket, route);
     else if (route === "learner") await KestrelLearner.show(ticket);
     else if (route === "risk") await KestrelRisk.show(ticket);
     else if (route === "proof") await KestrelEvidence.show(ticket);
@@ -1378,6 +1379,7 @@ async function refresh(initial = false) {
       (results || pendingResults) &&
       location.hash !== "#settings" &&
       location.hash !== "#learning" &&
+      !location.hash.startsWith("#learning/") &&
       location.hash !== "#paper" &&
       !location.hash.startsWith("#plays/")
     ) {

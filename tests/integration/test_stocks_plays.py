@@ -278,7 +278,7 @@ def test_collection_adds_a_six_month_and_one_long_dated_expiry() -> None:
 
 def test_the_page_endpoint_serves_the_saved_plays(world: StocksWorld) -> None:
     from desk.stocks import runner, web
-    runner.publish_plays(world.paths, world.dbs, OPEN)
+    runner.publish_plays(world.paths, world.dbs, NOW)
     saved = runner.saved(world.paths, "plays")
     assert saved and saved["categories"]
     with TestClient(web.create_app(world.paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
@@ -309,7 +309,7 @@ def test_a_full_days_board_over_four_megabytes_is_served_compressed(world: Stock
     """A full day's board (sections, budget picks and the Expiry filter's picks) passed 4 MB on 2026-11-12 and the
     page showed "No plays yet"; tracking lost the board too."""
     from desk.stocks import runner, web
-    runner.publish_plays(world.paths, world.dbs, OPEN)
+    runner.publish_plays(world.paths, world.dbs, NOW)
     path = runner.saved_path(world.paths, "plays")
     board = json.loads(path.read_text())
     first = board["categories"][0]

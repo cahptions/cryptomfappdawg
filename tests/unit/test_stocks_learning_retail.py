@@ -170,3 +170,55 @@ def test_small_account_routes_are_read_only_and_include_separate_orders_and_posi
             assert data["total"]==1 and all(r["account"]==account for r in data["orders"])
         assert list(conn.iterdump())==before
         assert len(client.get("/api/stocks/learning").json()["accounts"])==4
+
+
+def test_wait_receipt_survives_deposit_restart_and_later_quote(world):
+    w, conn = world
+    for structure in lab.STRUCTURES:
+        outcome(conn, structure, -.2, AT - timedelta(days=2))
+    chain(w, AT)
+    lab.tick(conn, w.market, AT)
+    account, other = lab.SMALL_ACCOUNTS
+    did = lab.state(conn, "retail:" + account)["decision_id"]
+    url = f"/api/stocks/learning/decisions/{did}"
+    base = "http://127.0.0.1:8767"
+    with TestClient(create_app(w.paths, auto_start=False), base_url=base) as web:
+        before = web.get(url, params={"account": account}).json()
+        assert before["cash"] == 1000 and before["gate"] == "policy" and before["action"] == "SKIP"
+        assert before["orders"] == before["fills"] == []
+        assert before["source"]["last_quote_at"] == to_iso(AT)
+        assert web.get(url, params={"account": other}).status_code == 404
+    fresh = AT + timedelta(minutes=1)
+    chain(w, fresh)
+    lab.tick(conn, w.market, fresh)
+    assert lab.state(conn, "retail:" + account)["decision_id"] == did
+    PaperBook(conn).add_cash(account, fresh, fresh.date(), 200_000_000, "DEPOSIT")
+    later = fresh + timedelta(minutes=1)
+    chain(w, later)
+    lab.tick(conn, w.market, later)
+    with TestClient(create_app(w.paths, auto_start=False), base_url=base) as web:
+        assert web.get(url, params={"account": account}).json() == before
+        assert lab.state(conn, "retail:" + account)["decision_id"] != did
+
+
+def test_missing_quote_and_order_outcomes_use_the_own_book(world):
+    from desk.stocks.learning_decision import read
+
+    w, conn = world
+    lab.tick(conn, w.market, AT)
+    for account in lab.SMALL_ACCOUNTS:
+        wait = read(conn, account, lab.state(conn, "retail:" + account)["decision_id"])
+        assert wait and wait["gate"] == "quotes" and wait["source"] is None
+    selected = AT + timedelta(minutes=1)
+    chain(w, selected)
+    lab.tick(conn, w.market, selected)
+    ids = {account: lab.state(conn, "retail:" + account)["decision_id"] for account in lab.SMALL_ACCOUNTS}
+    opened = selected + timedelta(minutes=1)
+    chain(w, opened)
+    lab.tick(conn, w.market, opened)
+    for account, balance in zip(lab.SMALL_ACCOUNTS, (1000, 5000), strict=True):
+        result = read(conn, account, ids[account])
+        assert result and result["cash"] == balance and result["one_unit"] > 0
+        assert result["orders"][0]["state"] == "FILLED" and result["fills"][0]["entry_debit"] > 0
+        assert result["source"]["legs"][0]["quoted_at"] == to_iso(selected)
+        assert result["fills"][0]["opened_at"] == to_iso(opened)

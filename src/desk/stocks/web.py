@@ -1100,6 +1100,18 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         return control(paths, inputs.enabled)
 
+    @app.get("/api/stocks/learning/decisions/{decision_id}")
+    def learning_decision_detail(decision_id: int,
+                                 account: Literal["reference_1k", "reference_5k"]) -> dict[str, Any]:
+        from desk.stocks import learning, learning_decision
+
+        with reader(paths, learning.FILE) as conn:
+            conn.execute("BEGIN")
+            result = learning_decision.read(conn, account, decision_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="PAPER decision unavailable for this account")
+        return result
+
     @app.get("/api/stocks/learning/chart")
     def learning_history(account: LearningAccount = "uncapped_research",
                          window: Literal["1D", "1W", "1M", "3M", "YTD", "1Y", "Max"] = "Max") -> dict[str, Any]:
@@ -1146,7 +1158,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         with reader(paths, learning.FILE) as conn:
             rows = conn.execute(
-                "SELECT p.id,p.account,p.state,p.created_at,p.note,json_extract(p.order_json,'$.symbol') symbol,"
+                "SELECT p.id,p.decision_id,p.account,p.state,p.created_at,p.note,json_extract(p.order_json,'$.symbol') symbol,"
                 "i.desired_units,COALESCE(SUM(f.units),0) filled_units FROM stk_pending p "
                 "JOIN stk_learning_intents i ON i.order_id=p.id LEFT JOIN stk_learning_fills f ON f.order_id=p.id "
                 "WHERE p.account=? GROUP BY p.id ORDER BY p.id DESC LIMIT ? OFFSET ?", (account,limit,offset))
