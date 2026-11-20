@@ -350,6 +350,24 @@
 .learning-transfer-policy p {
   line-height: 1.6;
 }
+.learning-transfer-review summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.learning-transfer-review ol {
+  margin: 0;
+  padding-left: 1.8rem;
+}
+.learning-transfer-review li {
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.learning-transfer-review li p {
+  margin: 0.3rem 0 0;
+}
+.learning-transfer-review button {
+  margin: 0.7rem 0.5rem 0 0;
+}
 .learning-account-heading {
   margin: 24px 0;
 }

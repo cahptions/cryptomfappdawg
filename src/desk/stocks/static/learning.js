@@ -419,6 +419,8 @@ const KestrelLearning = (() => {
         body.append(el("p", "Waiting for a finished group with a dated prior estimate and the same planned exit horizon."));
       }
       body.append(el("p", `${data.orders_reviewed} recent orders reviewed · ${data.states.waiting || 0} awaiting order resolution · ${data.states.open || 0} with open positions · ${data.states.unfilled || 0} cancelled without a fill. ${data.unresolved_groups} comparable groups still await a final result.`, "muted"));
+      if (data.states.unavailable)
+        body.append(el("p", `${data.states.unavailable} orders have incomplete fill or exit records.`, "notice"));
       body.append(el("p", "Overlapping holdings can reflect the same market move. These observed trades alone cannot establish repeatable edge.", "caption muted"));
       if (data.truncated) body.append(el("p", `Review window covers the latest ${data.order_limit} orders. A partially included session is omitted from the comparison.`, "caption muted"));
       if (!data.orders_reviewed) return;
@@ -433,7 +435,7 @@ const KestrelLearning = (() => {
         row.append(el("p", `${stamp(r.decision_at)} · ${expected}`, "muted"));
         const result = r.state === "closed" && r.net_return != null
           ? `Realized ${signed(r.pnl)} (${percent(r.net_return)}) after fees on ${money(r.entry_debit)} deployed.`
-          : { waiting: "Order awaiting resolution.", open: "Position open. Final result pending.", unfilled: "No fill.", closed: "Final return unavailable." }[r.state];
+          : { waiting: "Order awaiting resolution.", open: "Position open. Final result pending.", unfilled: "No fill.", unavailable: "Final return unavailable." }[r.state];
         row.append(el("p", `${r.filled_units} of ${r.requested_units ?? "?"} units filled. ${result}`));
         if (!r.same_horizon)
           row.append(el("p", "Exit horizon differs or is unavailable. Excluded from the paired comparison.", "caption muted"));
@@ -445,8 +447,13 @@ const KestrelLearning = (() => {
         const prev = el("button", "Newer receipts"), next = el("button", "Older receipts");
         prev.disabled = page === 0;
         next.disabled = (page + 1) * pageSize >= data.receipts.length;
-        prev.onclick = () => { page--; render(); prev.focus(); };
-        next.onclick = () => { page++; render(); next.focus(); };
+        const changePage = (delta) => {
+          page += delta;
+          render();
+          body.querySelector("button:enabled")?.focus();
+        };
+        prev.onclick = () => changePage(-1);
+        next.onclick = () => changePage(1);
         body.append(prev, next);
       }
     }

@@ -452,9 +452,10 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
     paths: dict[int, dict[str, list[tuple[datetime, float, float, float | None]]]] = defaultdict(lambda: defaultdict(list))
     status: dict[int, dict[str, str]] = defaultdict(dict)
     review = ExitReview()
-    for r in research.execute("SELECT p.occ, p.session, p.status, p.packed, x.packed AS receipts FROM stk_track_intraday p "
+    for r in research.execute("SELECT p.occ, p.session, p.status, p.packed, x.packed AS receipts "  # noqa: S608
+                              "FROM stk_track_intraday p "
                               "LEFT JOIN stk_track_quote_receipts x USING (occ, session) "
-                              f"WHERE p.occ IN ({marks}) AND p.session BETWEEN ? AND ? ORDER BY p.session",  # noqa: S608
+                              f"WHERE p.occ IN ({marks}) AND p.session BETWEEN ? AND ? ORDER BY p.session",
                               (*occs, n, day_of(cal.new_york(end).date()))):
         if r["status"] == "quoted" or r["receipts"] is not None:
             review.folded(r["occ"], r["session"], r["receipts"])

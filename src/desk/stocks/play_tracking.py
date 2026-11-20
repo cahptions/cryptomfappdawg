@@ -480,8 +480,8 @@ def freshness(tracked: dict[str, Tracked], last: dict[str, datetime], now: datet
                      for p, a, t in late[:25]]}
 
 
-TABLES = ("stk_track_ticks", "stk_track_intraday", "stk_track_quote_receipts", "stk_track_days", "stk_track_closes", "stk_play_marks",
-          "stk_play_first_seen", "stk_play_twins", "stk_play_quarantine", "stk_play_learning")
+TABLES = ("stk_track_ticks", "stk_track_intraday", "stk_track_quote_receipts", "stk_track_days", "stk_track_closes",
+          "stk_play_marks", "stk_play_first_seen", "stk_play_twins", "stk_play_quarantine", "stk_play_learning")
 
 
 def storage(research: sqlite3.Connection) -> dict[str, Any]:

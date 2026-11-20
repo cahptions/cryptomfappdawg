@@ -1,0 +1,7 @@
+# Stocks v1.0 build handoff
+
+The verified starting point is d4cb73f on claude/funny-rubin-gq99vj. The codex/stocks-v1-recovery branch holds in-progress snapshots. Resume by fetching both branches, inspecting git status, and reading PROGRESS.md, this handoff and docs/STOCKS_V1_RESEARCH.md when present. A recovery checkpoint may contain half-written changes. Use the normal Dell update branch for verified builds.
+
+Work in flight: Plays compares whole-contract alternatives with cash and stresses the same underlying move. Learning joins frozen forecasts to fee-inclusive subsequent outcomes in each small book. Play history retains quote size, timing and exit-side evidence. A precommitted matched forward study tests whether call-minus-put implied volatility improves stock selection. Brain uses published stock research to investigate gaps in chain coverage, records results against ordinary collection and surfaces competing evidence. The research review covers finance, execution, uncertainty communication and interactive application design.
+
+Before release, verify migrations and interruption recovery on disposable data, run Stocks tests, lint and types, browser checks on desktop and phone, and a managed PAPER startup/restart. Verify the pushed commit on the Dell update branch and record tests and limitations in PROGRESS.md. The Dell supplies authenticated feeds and untouched forward results.

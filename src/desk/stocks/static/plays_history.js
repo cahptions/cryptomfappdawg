@@ -509,6 +509,41 @@ const KestrelPlaysHistory = (() => {
     return dense;
   }
 
+  function showExitDepth(box, review, basis, quantity) {
+    box.hidden = !review;
+    if (!review) return;
+    const stats = review.bases?.[basis];
+    box.replaceChildren(el("h3", "Exit depth at your size"));
+    if (!stats) {
+      box.append(el("p", review.reason, "muted"));
+      return;
+    }
+    const supported = stats.capacity_bins.filter((b) => b.capacity >= quantity);
+    const hits = supported.reduce((n, b) => n + b.count, 0);
+    const latest = supported.map((b) => b.latest).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    const shallow = stats.receipts - stats.incomplete - stats.unverified - hits;
+    const unit = quantity === 1 ? "unit" : "units";
+    box.append(el("strong", stats.receipts
+      ? `${hits} of ${stats.receipts} saved responses showed exit size for ${quantity} ${unit}.`
+      : "Waiting for timestamped quotes after this entry."));
+    if (latest) {
+      const when = `${longDate(latest.at)} at ${clock(latest.at)} ET`;
+      const source = latest.source === "schwab_quotes" ? "Schwab quotes" :
+        latest.source === "chains" ? "option chains" : latest.source.replace("collector:", "") + " chain";
+      box.append(el("p", `Last supported exit · ${when} · ${source}. At the displayed bid/ask, P/L was ${usd(latest.pnl * quantity)}. At midpoint it was ${usd(latest.mid_pnl * quantity)}. Crossing the spread cost ${price(latest.spread_cost * quantity)}.`));
+      const midOnly = supported.reduce((n, b) => n + b.mid_only_gains, 0);
+      box.append(el("p", `${midOnly} of ${hits} supported responses showed a gain only at midpoint.`, "caption"));
+    }
+    const gaps = [];
+    if (shallow) gaps.push(`${shallow} had insufficient displayed size`);
+    if (stats.incomplete) gaps.push(`${stats.incomplete} had only some legs`);
+    if (stats.unverified) gaps.push(`${stats.unverified} lacked usable timestamps, prices or sizes`);
+    if (gaps.length) box.append(el("p", gaps.join(" · "), "caption muted"));
+    if (review.legacy_sessions)
+      box.append(el("p", `${review.legacy_sessions} earlier session(s) have chart marks without complete receipt history.`, "caption muted"));
+    box.append(el("p", "Across the retained path, each check uses one feed response, provider quotes up to 60 seconds old and leg timestamps within 15 seconds. P/L assumes the selected entry and includes both sets of fees. Displayed size can disappear before execution. A multi-leg order also needs a counterparty for the package.", "caption muted"));
+  }
+
   function plChart(data) {
     const box = el("section", undefined, "pl-chart"),
       controls = el("div", undefined, "pl-controls"),
@@ -659,9 +694,11 @@ const KestrelPlaysHistory = (() => {
       el("summary", "How this P/L and peak are calculated"),
       methodBody,
     );
-    box.append(freshness, summary, controls, plot, readout, legend, method);
+    const depth = el("section", undefined, "panel pl-exit-depth");
+    box.append(freshness, summary, controls, plot, readout, legend, depth, method);
 
     function draw() {
+      showExitDepth(depth, data.exit_quotes, basis, quantity);
       const available = series(data, range).filter((p) => p[basis]);
       const hiddenTimes = includeEstimates
         ? []
