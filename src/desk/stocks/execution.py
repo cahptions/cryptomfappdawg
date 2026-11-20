@@ -77,8 +77,8 @@ def idea_check(market: StocksMarket, play: dict[str, Any], cutoff: datetime,
     legs = play.get("legs") or []
     risk = float(play["max_loss"])
     cost = float(play["cost"]) if play["action"] == "BUY" else risk
-    if not 2 <= len(legs) <= 4 or len({leg["expiration"] for leg in legs}) != 1:
-        return {"status": "unknown", "why": "This check needs a two- to four-leg position with one expiry."}
+    if not 1 <= len(legs) <= 4 or len({leg["expiration"] for leg in legs}) != 1:
+        return {"status": "unknown", "why": "This check needs one to four legs with one expiry."}
     receipts = {leg.get("chain_received_at") for leg in legs}
     if len(receipts) == 1 and None not in receipts:
         received = next(iter(receipts))

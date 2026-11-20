@@ -17,6 +17,7 @@ from typing import Any
 
 from desk.stocks import attribution
 from desk.stocks import calendar as cal
+from desk.stocks.exit_quotes import ExitReview, receipt_row
 from desk.stocks.paper.fills import OPTION_FEE_PER_CONTRACT as FEE
 from desk.stocks.play_marks import profit, settle_day
 from desk.stocks.play_tracking import get_state, legs_key, tick_time, unpack
@@ -450,8 +451,13 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
     marks = ",".join("?" * len(occs))
     paths: dict[int, dict[str, list[tuple[datetime, float, float, float | None]]]] = defaultdict(lambda: defaultdict(list))
     status: dict[int, dict[str, str]] = defaultdict(dict)
-    for r in research.execute(f"SELECT occ, session, status, packed FROM stk_track_intraday WHERE occ IN ({marks}) "  # noqa: S608
-                              "AND session >= ? ORDER BY session", (*occs, n)):
+    review = ExitReview()
+    for r in research.execute("SELECT p.occ, p.session, p.status, p.packed, x.packed AS receipts FROM stk_track_intraday p "
+                              "LEFT JOIN stk_track_quote_receipts x USING (occ, session) "
+                              f"WHERE p.occ IN ({marks}) AND p.session BETWEEN ? AND ? ORDER BY p.session",  # noqa: S608
+                              (*occs, n, day_of(cal.new_york(end).date()))):
+        if r["status"] == "quoted" or r["receipts"] is not None:
+            review.folded(r["occ"], r["session"], r["receipts"])
         status[r["session"]][r["occ"]] = r["status"]
         for minute, bid, ask, s, _ in unpack(r["packed"]):
             if minute is None or bid is None or ask is None:
@@ -462,6 +468,7 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
     today = cal.new_york(now).date()
     for r in research.execute(f"SELECT * FROM stk_track_ticks WHERE occ IN ({marks}) AND "  # noqa: S608
                               "session = ? ORDER BY at", (*occs, day_of(today))):
+        review.add(r["occ"], receipt_row(r))
         quote_at = tick_time(r)
         if quote_at is not None and r["bid"] is not None and r["ask"] is not None and quote_at <= now:
             paths[day_of(today)][r["occ"]].append((quote_at, r["bid"], r["ask"], r["underlying"]))
@@ -509,6 +516,7 @@ def play_view(research: sqlite3.Connection, session: date, category: str, rank: 
             "daily": daily, "intraday": intraday, "expiration": play["expiration"], "settles": settles.isoformat(),
             "entry_times": {b: t.isoformat() for b, t in entries.items()},
             "exits": exits, "freshness": valuation_status(research, legs, now, exits),
+            "exit_quotes": review.report(legs, action, bases, entries, end),
             "expired": settles < today or any(p["status"] == "settled" for p in daily),
             "greeks": {"then": then, "now": _net(legs, latest), "schwab_now": _net(legs, latest, "schwab_"),
                        "as_of": None if as_of is None else _iso(as_of)},

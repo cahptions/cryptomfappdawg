@@ -395,6 +395,84 @@ const KestrelLearning = (() => {
       : "No entries have filled since.";
     return el("p", `${deposit} ${use}`, "muted");
   }
+
+  function transferReview(account) {
+    const box = el("details", undefined, "paper-status learning-transfer-review"),
+      body = el("div"),
+      status = el("p", "", "caption muted"),
+      refresh = el("button", "Refresh review");
+    status.setAttribute("role", "status");
+    let data, loading = false, page = 0;
+    const pageSize = 5;
+    function render() {
+      const stats = el("div", undefined, "paper-metrics"),
+        list = el("ol");
+      for (const [title, value] of [
+        ["Prior research estimate", percent(data.research_mean)],
+        ["Realized PAPER return", percent(data.realized_mean)],
+        ["Non-overlapping periods", String(data.exposure_periods)],
+      ]) stats.append(metric(title, value));
+      body.replaceChildren(stats);
+      if (data.matched_groups) {
+        body.append(el("p", `${data.matched_orders} closed orders across ${data.matched_groups} symbol/session groups. Both percentages use the same entry debits within each group and give each group equal weight. Cash earns 0% in PAPER.`));
+      } else {
+        body.append(el("p", "Waiting for a finished group with a dated prior estimate and the same planned exit horizon."));
+      }
+      body.append(el("p", `${data.orders_reviewed} recent orders reviewed · ${data.states.waiting || 0} awaiting order resolution · ${data.states.open || 0} with open positions · ${data.states.unfilled || 0} cancelled without a fill. ${data.unresolved_groups} comparable groups still await a final result.`, "muted"));
+      body.append(el("p", "Overlapping holdings can reflect the same market move. These observed trades alone cannot establish repeatable edge.", "caption muted"));
+      if (data.truncated) body.append(el("p", `Review window covers the latest ${data.order_limit} orders. A partially included session is omitted from the comparison.`, "caption muted"));
+      if (!data.orders_reviewed) return;
+      body.append(el("h4", "Decision receipts"));
+      list.start = page * pageSize + 1;
+      for (const r of data.receipts.slice(page * pageSize, (page + 1) * pageSize)) {
+        const row = el("li"), recipe = (r.structure || "Recipe unavailable").replaceAll("_", " ");
+        row.append(el("strong", `${r.symbol} · ${recipe}${r.bucket ? " · " + r.bucket : ""}`));
+        const expected = r.research_estimate == null
+          ? (r.mode === "starter" ? "Fixed starter recipe, with no learned estimate." : "Dated research estimate unavailable.")
+          : `Prior estimate ${percent(r.research_estimate)} from ${r.prior_blocks} research blocks through ${stamp(r.matured_through)}.`;
+        row.append(el("p", `${stamp(r.decision_at)} · ${expected}`, "muted"));
+        const result = r.state === "closed" && r.net_return != null
+          ? `Realized ${signed(r.pnl)} (${percent(r.net_return)}) after fees on ${money(r.entry_debit)} deployed.`
+          : { waiting: "Order awaiting resolution.", open: "Position open. Final result pending.", unfilled: "No fill.", closed: "Final return unavailable." }[r.state];
+        row.append(el("p", `${r.filled_units} of ${r.requested_units ?? "?"} units filled. ${result}`));
+        if (!r.same_horizon)
+          row.append(el("p", "Exit horizon differs or is unavailable. Excluded from the paired comparison.", "caption muted"));
+        if (r.order_state === "CANCELLED" && r.order_note) row.append(el("p", r.order_note, "caption muted"));
+        list.append(row);
+      }
+      body.append(list);
+      if (data.receipts.length > pageSize) {
+        const prev = el("button", "Newer receipts"), next = el("button", "Older receipts");
+        prev.disabled = page === 0;
+        next.disabled = (page + 1) * pageSize >= data.receipts.length;
+        prev.onclick = () => { page--; render(); prev.focus(); };
+        next.onclick = () => { page++; render(); next.focus(); };
+        body.append(prev, next);
+      }
+    }
+    async function load() {
+      if (loading) return;
+      loading = true;
+      refresh.disabled = true;
+      status.textContent = "Reading the account ledger…";
+      try {
+        data = await api(`learning/transfer-review?account=${encodeURIComponent(account)}`);
+        page = 0;
+        render();
+        status.textContent = `Ledger read ${stamp(new Date())}.`;
+      } catch (error) {
+        status.textContent = `Transfer review unavailable. ${error.message}`;
+      } finally {
+        loading = false;
+        refresh.disabled = false;
+      }
+    }
+    refresh.onclick = load;
+    box.ontoggle = () => { if (box.open && !data) load(); };
+    box.append(el("summary", "Did the research transfer to this account?"), body, status, refresh);
+    return box;
+  }
+
   const chartState = new Map();
   function profitChart(a, evidence) {
     const id = a.id;
@@ -655,7 +733,8 @@ const KestrelLearning = (() => {
     if (ticket !== generation) return;
     let timer,
       report = null;
-    const reportBox = el("section", undefined, "learning-report");
+    const reportBox = el("section", undefined, "learning-report"),
+      transferReviews = new Map();
     reportBox.setAttribute("aria-label", "Learning report");
     reportBox.append(
       el("h2", "Learning report"),
@@ -820,7 +899,8 @@ const KestrelLearning = (() => {
               "caption muted",
             ),
           );
-        selected.append(policy);
+        if (!transferReviews.has(a.id)) transferReviews.set(a.id, transferReview(a.id));
+        selected.append(policy, transferReviews.get(a.id));
       }
       app.append(selected);
       // Three headline numbers, then the accounting detail as a dense grid: every figure stays visible.

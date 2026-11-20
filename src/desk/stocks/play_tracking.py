@@ -38,6 +38,7 @@ from desk.core.paths import DeskPaths
 from desk.stocks import calendar as cal
 from desk.stocks import options as opt
 from desk.stocks.contracts import OptionQuote, OptionTick, StockQuote
+from desk.stocks.exit_quotes import pack_receipts
 from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE, day_of
 from desk.stocks.schwab_auth import SchwabAuthError
 from desk.stocks.sources.schwab import OCC
@@ -356,7 +357,7 @@ def fold(research: sqlite3.Connection, session: date, now: datetime, rate: Calla
     close = cal.session_close(session)
     open_minute, close_minute = OPEN.hour * 60 + OPEN.minute, close.hour * 60 + close.minute
     r_session = rate(session)
-    intraday, days = [], []
+    intraday, days, receipts = [], [], []
     for occ, rows in by_occ.items():
         _, kind, strike, expiration = parse_occ(occ)
         points: dict[int, list[float | None]] = {}
@@ -380,6 +381,7 @@ def fold(research: sqlite3.Connection, session: date, now: datetime, rate: Calla
         if points:
             ordered = [points[m] for m in sorted(points)]
             intraday.append((occ, day_of(session), "quoted", len(ordered), pack(ordered), to_iso(now)))
+            receipts.append((occ, day_of(session), pack_receipts(rows)))
         if closing is None or (tick_time(closing) or close-timedelta(days=1)) < close - FRESH_CLOSE:
             continue                       # no quote in the last hour: the marks step models this day instead
         mid = (closing["bid"] + closing["ask"]) / 2
@@ -393,6 +395,8 @@ def fold(research: sqlite3.Connection, session: date, now: datetime, rate: Calla
     with transaction(research):
         research.executemany("INSERT OR IGNORE INTO stk_track_intraday(occ, session, status, points, packed, folded_at)"
                              " VALUES (?, ?, ?, ?, ?, ?)", intraday)
+        research.executemany("INSERT OR IGNORE INTO stk_track_quote_receipts(occ, session, packed) VALUES (?, ?, ?)",
+                             receipts)
         research.executemany(
             "INSERT OR IGNORE INTO stk_track_days(occ, session, status, bid, ask, mark, last, volume, open_interest,"
             " underlying, iv, delta, gamma, theta, vega, schwab_iv, schwab_delta, schwab_gamma, schwab_theta,"
@@ -476,7 +480,7 @@ def freshness(tracked: dict[str, Tracked], last: dict[str, datetime], now: datet
                      for p, a, t in late[:25]]}
 
 
-TABLES = ("stk_track_ticks", "stk_track_intraday", "stk_track_days", "stk_track_closes", "stk_play_marks",
+TABLES = ("stk_track_ticks", "stk_track_intraday", "stk_track_quote_receipts", "stk_track_days", "stk_track_closes", "stk_play_marks",
           "stk_play_first_seen", "stk_play_twins", "stk_play_quarantine", "stk_play_learning")
 
 
