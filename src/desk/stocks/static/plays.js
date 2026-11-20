@@ -543,8 +543,8 @@ const KestrelPlays = (() => {
     );
     if (play.unusual?.tier)
       head.append(el("span", play.unusual.tier, "research-badge quiet"));
-    c.append(head);
-    if (play.idea_id && play.legs?.length >= 2 && play.legs.length <= 4)
+    c.append(head, KestrelPlayComparison.controls(play));
+    if (play.idea_id && play.legs?.length >= 1 && play.legs.length <= 4)
       c.append(executionCheck(play));
     const warning = dontWarning(play);
     if (warning) c.append(warning);
@@ -749,6 +749,7 @@ const KestrelPlays = (() => {
         "IV",
         "Vol/OI",
         "EV",
+        "Compare",
       ],
       plays.map((p) => [
         String(p.rank),
@@ -765,6 +766,7 @@ const KestrelPlays = (() => {
         pct(p.iv, 0),
         p.vol_oi ? `${p.vol_oi.toFixed(1)}×` : "—",
         money(p.expected_value),
+        KestrelPlayComparison.controls(p),
       ]),
     );
   }
@@ -1338,7 +1340,7 @@ const KestrelPlays = (() => {
     strip.textContent = data.asof
       ? `Loaded options session ${data.asof} · ${data.coverage.underlyings} underlyings · ${number(data.coverage.contracts_scored)} contracts scored · ${data.source || "stored chains"} · built ${when(data.generated_at)} · chance model: ${data.calibration.applied ? `calibrated on ${data.calibration.resolved} resolved plays from ${data.calibration.sessions} sessions` : `not yet calibrated (${data.calibration.resolved} of ${data.calibration.needed} resolved plays${data.calibration.needed_sessions ? `, ${data.calibration.sessions ?? 0} of ${data.calibration.needed_sessions} sessions` : ""})`}${data.model.ic ? ` · committee tilt from IC ${data.model.ic.toFixed(3)} over ${data.model.ic_months} months` : " · no committee tilt yet (no positive measured IC)"}`
       : data.message;
-    app.append(strip);
+    app.append(strip, KestrelPlayComparison.openButton());
     if (!data.categories?.length) {
       const empty = panel("No plays yet", data.message);
       empty.append(

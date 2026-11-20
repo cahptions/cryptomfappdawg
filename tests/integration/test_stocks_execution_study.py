@@ -165,9 +165,12 @@ def test_read_only_execution_route_and_paper_controls_are_wired(tmp_path: Path) 
     with TestClient(app, base_url="http://localhost:8767") as client:
         board = client.get("/api/stocks/plays").json()
         play = next(p for c in board["categories"] for p in c["plays"] if len(p.get("legs", [])) >= 2)
-        result = client.get(f"/api/stocks/plays/idea/{play['idea_id']}/execution").json()
+        result = client.get(f"/api/stocks/plays/idea/{play['idea_id']}/execution", params={"compare": True}).json()
         assert result["status"] in {"supported", "unknown", "unsupported"}
         assert [a["label"] for a in result["accounts"]] == ["$1,000 account", "$5,000 account"]
+        scenario = result["comparison"]["scenario"]
+        assert scenario and len(scenario["pnl"]) == 41 and scenario["entry_fees"] > 0
+        assert min(scenario["pnl"]) >= -result["max_loss"] - .02
         assert client.get("/api/stocks/learner/account").json()["execution_study"]["eligible"] == 0
 
 

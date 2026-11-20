@@ -622,7 +622,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             conn.close()
 
     @app.get("/api/stocks/plays/idea/{ident}/execution")
-    def play_execution(ident: str) -> dict[str, Any]:
+    def play_execution(ident: str, compare: bool = False) -> dict[str, Any]:
         from desk.stocks import learning
         from desk.stocks.execution import idea_check
         from desk.stocks.play_selections import idea, idea_id
@@ -645,6 +645,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 else:
                     raise HTTPException(404, "This idea has no stored execution evidence.") from None
         with reader(paths, learning.FILE) as ledger, reader(paths, MARKET_FILE) as market:
+            ledger.execute("BEGIN")
             book = PaperBook(ledger)
             pending = {order.account for order in book.pending()}
             accounts = []
@@ -652,7 +653,12 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 cash = book.cash(ident)
                 equity = cash + sum(p.last_value or 0.0 for p in book.positions(ident))
                 accounts.append({"id": ident, "label": label, "cash": cash, "equity": equity, "pending": ident in pending})
-            return idea_check(StocksMarket(market), play, cutoff, accounts)
+            result = idea_check(StocksMarket(market), play, cutoff, accounts)
+            if compare:
+                from desk.stocks.play_comparison import comparison
+
+                result["comparison"] = comparison(play, cutoff)
+            return result
 
     @app.post("/api/stocks/plays/select")
     def select_play(inputs: PlaySelection) -> dict[str, Any]:
@@ -1119,6 +1125,13 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         with reader(paths, learning.FILE) as conn:
             return learning_chart.history(conn, account, window)
+
+    @app.get("/api/stocks/learning/transfer-review")
+    def learning_transfer_review(account: Literal["reference_1k", "reference_5k"]) -> dict[str, Any]:
+        from desk.stocks import learning, learning_transfer
+
+        with reader(paths, learning.FILE) as conn:
+            return learning_transfer.review(conn, account)
 
     @app.post("/api/stocks/learning/experiments")
     def learning_experiment(inputs: LearningExperiment) -> dict[str, Any]:

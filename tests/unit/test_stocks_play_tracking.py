@@ -321,6 +321,39 @@ def test_a_session_folds_into_intraday_and_one_permanent_close(tmp_path: Path) -
         dbs.close()
 
 
+
+def test_exit_receipts_remain_synchronized_after_fold(tmp_path: Path) -> None:
+    from desk.stocks.exit_quotes import ExitReview
+
+    dbs = research_db(tmp_path)
+    try:
+        conn = dbs.research
+        buy, sell = occ_of("AAL", "call", 100), occ_of("AAL", "call", 105)
+        seen = ny(10, 0)
+        # Closing the first leg requires its bid size and closing the second requires its ask size.
+        rows = [(*tick(buy, seen, 2.0, 2.2)[:-2], 3, 99), (*tick(sell, seen, .9, 1.0)[:-2], 99, 1),
+                (*tick(buy, seen + timedelta(minutes=1), 2.0, 2.2)[:-2], 99, 99),
+                (*tick(sell, seen + timedelta(minutes=2), .9, 1.0)[:-2], 99, 99)]
+        pt.save_ticks(conn, rows)
+        assert pt.fold_due(conn, ny(16, 6), lambda _: .04) == [SESSION]
+        review = ExitReview()
+        for row in conn.execute("SELECT * FROM stk_track_quote_receipts"):
+            review.folded(row["occ"], row["session"], row["packed"])
+        legs = [{"occ": buy, "side": "buy"}, {"occ": sell, "side": "sell"}]
+        basis = review.report(legs, "BUY", {"close": .8}, {"close": ny(9, 45)}, ny(16, 0))["bases"]["close"]
+        assert basis["receipts"] == 3 and basis["incomplete"] == 2 and basis["unverified"] == 0
+        assert [b["capacity"] for b in basis["capacity_bins"]] == [1]
+        assert basis["capacity_bins"][0]["latest"]["spread_cost"] == 15
+        assert not pt.fold_due(conn, ny(16, 15), lambda _: .04)
+        old = day_of(date.today() - timedelta(days=60))
+        conn.execute("INSERT INTO stk_track_intraday SELECT occ,?,status,points,packed,folded_at FROM stk_track_intraday",
+                     (old,))
+        conn.execute("INSERT INTO stk_track_quote_receipts SELECT occ,?,packed FROM stk_track_quote_receipts", (old,))
+        assert pt.compact(conn, date.today()) >= 2
+        assert not conn.execute("SELECT 1 FROM stk_track_quote_receipts WHERE session=?", (old,)).fetchone()
+    finally:
+        dbs.close()
+
 def test_intraday_detail_is_kept_30_days_then_compacted(tmp_path: Path) -> None:
     dbs = research_db(tmp_path)
     try:
