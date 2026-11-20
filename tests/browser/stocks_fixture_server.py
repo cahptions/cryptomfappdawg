@@ -355,7 +355,22 @@ def prepare(root: Path, scenario: str) -> DeskPaths:
     used by the accuracy checks (desk.stocks.accuracy) to test every scenario's numbers."""
     paths = DeskPaths(root / "home", REPO / "config", root / "secrets.env")
     args = argparse.Namespace(scenario=scenario)
-    if args.scenario == "ops":
+    if args.scenario == "portfolio":
+        from datetime import date
+
+        from desk.stocks.repo import StocksDatabases
+        from tests.integration.test_stocks_capital import series
+
+        StocksDatabases.open(paths).close()
+        days = cal.trading_days(date(2026, 1, 5), date(2026, 5, 8))
+        curves, spy = series(days)
+        record = {"run_id": "synthetic", "generated_at": NOW.isoformat(),
+                  "spy_total_curve": {day.isoformat(): level for day, level in spy.items()},
+                  "accounts": [{"id": key, "title": key.title(), "asset": "stock", "sessions": len(curve),
+                                "curve": [{"day": day.isoformat(), "equity": level} for day, level in curve.items()]}
+                               for key, curve in curves.items()]}
+        (paths.home / "stocks-backtest-report.json").write_text(json.dumps(record))
+    elif args.scenario == "ops":
         # Portfolio risk, phone alerts and the watchdog. Alert delivery is a recorder: nothing leaves this computer.
         import os
 
@@ -619,7 +634,7 @@ def main() -> None:
                                                "plays-history", "personal-workflows", "archive-history", "learning-retail",
                                                "stock-page", "learning-report", "ops", "account", "learner",
                                                "learner-account", "earnings", "structure", "learned-trials",
-                                               "attribution"],
+                                               "attribution", "portfolio"],
                         default="populated")
     parser.add_argument("--port", type=int, default=8877)
     args = parser.parse_args()

@@ -58,21 +58,38 @@ const KestrelRisk = (() => {
       selector.append(new Option(label, key));
     selector.value = scope;
     selector.onchange = () => {
-      location.hash = selector.value === "overlay" ? "risk" : `risk/${selector.value}`;
+      location.hash =
+        selector.value === "overlay" ? "risk" : `risk/${selector.value}`;
     };
-    const field = (label, input) => {
-      const node = el("label");
-      node.append(el("span", label), input);
+    const field = (label, id, input) => {
+      const node = el("div", undefined, "risk-field");
+      const caption = el("label", label);
+      input.id = id;
+      caption.htmlFor = id;
+      node.append(caption, input);
       return node;
     };
     function shockInput(value, min, max) {
       const input = el("input");
-      Object.assign(input, { type: "number", value, min, max, step: 1, required: true });
+      Object.assign(input, {
+        type: "number",
+        value,
+        min,
+        max,
+        step: 1,
+        required: true,
+      });
       return input;
     }
-    const move = shockInput(marketMove, -25, 25), vol = shockInput(volPoints, -20, 40);
+    const move = shockInput(marketMove, -25, 25),
+      vol = shockInput(volPoints, -20, 40);
     const apply = el("button", "Apply stress", "primary");
-    form.append(field("Book", selector), field("SPY move (%)", move), field("IV change (points)", vol), apply);
+    form.append(
+      field("Book", "risk-book", selector),
+      field("SPY move (%)", "risk-spy-move", move),
+      field("IV change (points)", "risk-vol-points", vol),
+      apply,
+    );
     form.onsubmit = async (event) => {
       event.preventDefault();
       marketMove = move.valueAsNumber;
@@ -87,21 +104,51 @@ const KestrelRisk = (() => {
     summary.tabIndex = -1;
     summary.append(
       el("h2", "Combined market and volatility shock"),
-      el("p", `SPY ${signed(joint.market_move * 100)}% and volatility ${signed(joint.vol_points)} points.`),
+      el(
+        "p",
+        `SPY ${signed(joint.market_move * 100)}% and volatility ${signed(joint.vol_points)} points.`,
+      ),
     );
     const stats = el("div", undefined, "risk-joint-stats");
-    stats.append(tile("Modelled change", dollars(joint.change)), tile("Options repriced", `${joint.covered_positions} of ${data.positions}`));
+    stats.append(
+      tile("Modelled change", dollars(joint.change)),
+      tile(
+        "Options repriced",
+        `${joint.covered_positions} of ${data.positions}`,
+      ),
+    );
     if (data.account) {
-      stats.append(tile("Ledger equity", data.equity == null ? "unknown" : money(data.equity)),
-        tile("Impact on equity", joint.equity_fraction == null ? "unknown" : `${signed(joint.equity_fraction * 100, 2)}%`));
+      stats.append(
+        tile(
+          "Ledger equity",
+          data.equity == null ? "unknown" : money(data.equity),
+        ),
+        tile(
+          "Impact on equity",
+          joint.equity_fraction == null
+            ? "unknown"
+            : `${signed(joint.equity_fraction * 100, 2)}%`,
+        ),
+      );
     }
     summary.append(stats);
     if (data.other_positions || data.unknown.shock)
-      summary.append(el("p", `${data.unknown.shock} option positions could not be repriced and ${data.other_positions} non-option positions are outside the stress model.`, "muted"));
+      summary.append(
+        el(
+          "p",
+          `${data.unknown.shock} option positions could not be repriced and ${data.other_positions} non-option positions are outside the stress model.`,
+          "muted",
+        ),
+      );
     app.append(heading, form, summary);
     if (!data.positions) {
       app.append(
-        panel("Nothing open", data.account ? "This account has no open option positions." : "No open PAPER options positions or entered tracked plays."),
+        panel(
+          "Nothing open",
+          data.account
+            ? "This account has no open option positions."
+            : "No open PAPER options positions or entered tracked plays.",
+        ),
       );
       return;
     }
@@ -152,21 +199,37 @@ const KestrelRisk = (() => {
     const grid = el("div", undefined, "risk-grid");
     grid.append(shocks, weeks);
     app.append(grid);
-    const each = panel("Positions", data.unknown?.greeks ? `${data.unknown.greeks} positions have incomplete Greeks. The totals include the values that could be computed.` : undefined);
+    const each = panel(
+      "Positions",
+      data.unknown?.greeks
+        ? `${data.unknown.greeks} positions have incomplete Greeks. The totals include the values that could be computed.`
+        : undefined,
+    );
     const rows = table(
-      ["Position", "Book", "Shock P/L", "Stock close", "Delta (sh)", "Vega", "Theta/day", "Greeks"],
-      [...data.rows].sort((a, b) => (a.combined ?? Infinity) - (b.combined ?? Infinity)).map((r) => [
-        r.group === "Tracked"
-          ? link(r.label, `#plays/mine/${encodeURIComponent(r.id)}`)
-          : r.label,
-        r.book,
-        dollars(r.combined),
-        r.price_day ? `${money(r.price)} · ${r.price_day}` : "unknown",
-        signed(r.delta_shares, 1),
-        dollars(r.vega),
-        dollars(r.theta),
-        `${r.basis}${r.beta_assumed ? " · beta taken as 1" : ""}`,
-      ]),
+      [
+        "Position",
+        "Book",
+        "Shock P/L",
+        "Stock close",
+        "Delta (sh)",
+        "Vega",
+        "Theta/day",
+        "Greeks",
+      ],
+      [...data.rows]
+        .sort((a, b) => (a.combined ?? Infinity) - (b.combined ?? Infinity))
+        .map((r) => [
+          r.group === "Tracked"
+            ? link(r.label, `#plays/mine/${encodeURIComponent(r.id)}`)
+            : r.label,
+          r.book,
+          dollars(r.combined),
+          r.price_day ? `${money(r.price)} · ${r.price_day}` : "unknown",
+          signed(r.delta_shares, 1),
+          dollars(r.vega),
+          dollars(r.theta),
+          `${r.basis}${r.beta_assumed ? " · beta taken as 1" : ""}`,
+        ]),
     );
     rows.classList.add("wrap-cells");
     each.append(rows);

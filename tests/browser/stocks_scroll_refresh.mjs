@@ -116,6 +116,8 @@ try {
       "system",
       "settings",
       "risk",
+      "risk/reference_1k",
+      "portfolio",
       "stock/SPY",
       "lists/momentum",
     ]) {

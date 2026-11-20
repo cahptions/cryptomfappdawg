@@ -691,11 +691,109 @@ header .badge {
 .capital-chart {
   margin-top: 16px;
 }
+.capital-provenance {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.capital-provenance :is(summary, code) {
+  color: var(--accent);
+}
+.risk-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) repeat(2, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+  margin-block-end: 16px;
+}
+.risk-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.risk-controls :is(select, input) {
+  min-width: 0;
+  width: 100%;
+}
+.risk-joint-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr));
+  gap: 8px;
+}
+#app .risk-joint .risk-tile {
+  background: var(--surface-2);
+}
+.research-workspace-layout,
+.learning-workspace-layout,
+.learner-review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  align-items: start;
+  gap: 16px;
+  margin-block: 16px;
+}
+.learning-workspace-layout {
+  grid-template-columns: minmax(0, 1.45fr) minmax(240px, 1fr);
+}
+.research-studies {
+  min-width: 0;
+}
+.research-studies > h2 {
+  margin-top: 0;
+}
+.research-studies .workspace-panel {
+  margin-bottom: 14px;
+}
+.research-book-rail article {
+  display: grid;
+  gap: 6px;
+  padding-block: 15px;
+  border-bottom: 1px solid var(--line);
+}
+.research-book-rail article:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.research-book-rail :is(h3, p) {
+  margin: 0;
+}
+.learning-account-heading .workspace-action {
+  margin-bottom: 8px;
+}
+.learning-performance .learning-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.learner-review-layout .learner-status-box {
+  margin: 0;
+}
+.play-board-source {
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  margin-block: 14px;
+  background: var(--surface-1);
+  color: var(--text-2);
+}
+.play-board-source summary {
+  cursor: pointer;
+  font-weight: 620;
+}
 
 @media (max-width: 760px) {
   .capital-layout,
-  .paper-workbench {
+  .paper-workbench,
+  .research-workspace-layout,
+  .learning-workspace-layout,
+  .learner-review-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .risk-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .risk-controls > :is(:first-child, button) {
+    grid-column: 1 / -1;
   }
   .paper-library .paper-strategies {
     grid-template-columns: repeat(2, minmax(0, 1fr));

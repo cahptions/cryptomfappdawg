@@ -39,7 +39,7 @@ from desk.stocks.paper import lab
 from desk.stocks.paper.book import PaperBook, Position
 from desk.stocks.paper.engine import PaperEngine, StepReport
 from desk.stocks.paper.fills import Dividends, fair_spread, index_chain
-from desk.stocks.paper.report import daily_returns, trade_stats
+from desk.stocks.paper.report import daily_returns, spy_total, trade_stats
 from desk.stocks.paper.strategies import STRATEGIES, Strategy, build_structure
 from desk.stocks.prices import Panel, load_panel, split_factors
 from desk.stocks.real_options import RealOptions
@@ -470,6 +470,7 @@ def replay(
         for position in positions:
             reason = ledger.execute("SELECT reasons FROM stk_decisions WHERE id=?", (position.decision_id,)).fetchone()
             trades.append({**position_view(position), "entry_reason": reason[0] if reason else None})
+        benchmark = spy_total(market, selected[max(0, len(selected) - 253)])
         ledger.execute("UPDATE replay_meta SET value='true' WHERE key='complete'")
         return {
             "version": VERSION,
@@ -483,6 +484,7 @@ def replay(
             "first_day": selected[0].isoformat(),
             "last_day": selected[-1].isoformat(),
             "accounts": accounts,
+            "spy_total_curve": {day.isoformat(): level for day, level in benchmark.items() if day <= selected[-1]},
             "trades": trades,
             "trade_detail_limit": 500,
             "decisions": book.decisions(limit=200),

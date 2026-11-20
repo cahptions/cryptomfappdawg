@@ -1,26 +1,51 @@
-# KESTREL Stocks institutional upgrade
+# KESTREL Stocks research workspace and portfolio tools
 
-The operator wants both a complete application redesign and a material upgrade in quantitative workflows. They asked whether a hedge fund would consider KESTREL on par. Keep that assessment evidence-based. Their Stocks scope remains research and simulated PAPER. Preserve existing edits. The last verified Dell release at the start of this work was `1f145e4` on `claude/funny-rubin-gq99vj`. `codex/stocks-institutional-recovery` contains in-progress implementation.
+Use Stocks for research and simulated PAPER. The previous Dell release, `1f145e4`, corrected viewport jumps during background updates. Preserve local edits when fetching. The development checkpoints are on `codex/stocks-institutional-recovery`. The older v1 blueprint, research review and operator handoff cover decision receipts, execution studies and provider limits.
 
-## Recovery procedure
+- [Product and experiment blueprint](STOCKS_V1_BLUEPRINT.md)
+- [Research methods and primary papers](STOCKS_V1_RESEARCH.md)
+- [Earlier v1 operator and build handoff](STOCKS_V1_HANDOFF.md)
 
-Fetch both refs and inspect local status. Start from the tested Dell head in an isolated worktree, review the recovery diff, and complete API and browser verification before publishing application code to `claude/funny-rubin-gq99vj`. Save recovery checkpoints throughout work.
+## What the operator can do
+
+| Workspace | Workflow |
+| --- | --- |
+| Overview | Switch among stored SPY, QQQ and IWM closes. Open the $1,000 and $5,000 book decisions from the same screen. Follow the top ideas into Plays. |
+| PAPER | Pick a strategy from the library. Read its recorded equity, cash, trades and grade. Switch from Forward PAPER to historical replay to inspect decisions for a specific session. |
+| Learning | Read ledger equity, cash and trading P/L beside the account's latest decision and transfer review. Open the scoped options stress test directly from a small book. |
+| Research and Learner | Review experiment outcomes and the account decisions that provide their context. Learner puts the forward test next to the trading gate and surfaces the two frozen lower bounds when the sample matures. |
+| Plays | Open the shortlist from the top of Plays. Expand the option data disclosure for session coverage and model calibration. The stored observations and models also remain available from the idea and Performance views. |
+| Portfolio lab | Choose Forward PAPER strategy accounts or a saved historical replay. Select two to eight strategies, set a cash reserve, a maximum invested weight and an entry cost, then run the comparison. |
+| Portfolio risk | Choose a $1,000 or $5,000 book. Apply a joint SPY and volatility shock and see each option's contribution. The strategy and tracked-play overlay remains available for inspection across independent books. |
+
+The shared navigation and visual system cover the entire Stocks app, including Stocks profiles, Options, Events, Evidence, Schwab account, System and Settings.
+
+## Reproducing the quantitative results
+
+**Portfolio lab.** `src/desk/stocks/capital.py` aligns exact one-session returns on all selected strategy marks and the SPY comparator before splitting chronologically. A missing mark removes the return into that session and the return from it. For Forward PAPER, deposit and recovered sessions are excluded. Risk weights use a long-only minimum-variance fit with 35% diagonal covariance shrinkage and a per-strategy cap. The fit needs at least 40 matched returns and the later evaluation at least 20. The fixed initial weights drift during evaluation. Equal weight and SPY receive the same cash reserve and one-time allocation cost. Cash earns zero. The comparison shows estimated beta to unblended SPY, maximum drawdown and a paired stationary-bootstrap interval for risk-weighted versus equal-weight daily returns. The results panel shows the date cut, evidence source and hash of the aligned returns and settings.
+
+New replays freeze SPY total returns in their report. Older replays use their saved Hold SPY simulation if available. The forward comparator uses the current market store and can change when there are revisions. Strategies with more than one recorded specification are labeled. Fractions of separately funded strategy accounts are a research tool. The paths compound matched observations and leave unobserved moves out. The amount of evidence needed for a strategy allocation decision depends on the return dependence and how many alternatives were tried. A user-selected chronological split can guide exploration. Strategy and parameter choices made after inspecting it need a separately locked prospective test.
+
+**Portfolio risk.** `src/desk/stocks/risk.py` selects the appropriate ledger before calculating the shock. A small-book stress combines only option positions in the chosen account. It uses stored underlying closes, known implied volatility and full Black–Scholes repricing under a combined beta-linked equity move and parallel IV shift. Repricing is conditional on the inputs and ignores spread widening, smile changes and liquidity. Positions without a whole repriced set of legs stay out of the estimate. Coverage counts and close dates appear in the UI. The equity impact percentage requires ledger equity and complete modeled position coverage. The overlay has no shared equity denominator.
+
+**References.** The shrinkage estimator takes its motivation from covariance regularization. Its fixed design choice here is 35%. Politis and Romano describe the stationary bootstrap used for the paired return difference. [Ledoit and Wolf](https://doi.org/10.1016/S0047-259X(03)00096-4) · [Politis and Romano](https://doi.org/10.1080/01621459.1994.10476870)
+
+## Verification and limits
+
+- Reproduced with synthetic data. Perturbing held-out returns changed the outcome and input fingerprint while leaving the fit and allocations identical. Deposits, recovery sessions and a missing equity mark were excluded. Replay used its saved benchmark. Two different contract counts repriced separately in the small books and reconciled to each book's own equity.
+- Reproduced with a managed disposable runtime. The session API responded in 3.62s and PAPER committed 25 accounts in 11.65s. Pause and resume kept 25 cash rows, 40 decisions, 25 equity rows and no positions in that fixture. SQLite integrity and foreign-key checks passed.
+- Dell evidence pending. Real time to first view, data freshness, memory and weekly training cost, recovery through provider expiry, and portfolio comparison coverage on actual account logs. Hedge-fund readiness would also require locked prospective results net of credible execution costs, independent reconciliation, and operator usability measurements.
+
+Targeted checks and the synthetic browser scenario:
 
 ```bash
-git fetch origin claude/funny-rubin-gq99vj codex/stocks-institutional-recovery
-git log -1 --oneline origin/claude/funny-rubin-gq99vj
-git log -1 --oneline origin/codex/stocks-institutional-recovery
+uv run pytest -q tests/integration/test_stocks_capital.py tests/unit/test_stocks_risk.py
+uv run python -m tests.browser.stocks_fixture_server --scenario portfolio --port 8892
+# In a second terminal, with Playwright available
+KESTREL_STOCKS_URL=http://127.0.0.1:8892 node tests/browser/stocks_portfolio.mjs
 ```
 
-## Current implementation
-
-- The new navigation rail and light working surfaces span the whole application. Inter and Instrument Serif are bundled locally. The mobile nav keeps the main routes and adds Portfolio lab and risk.
-- `capital.py` and the read-only `/api/stocks/portfolio` endpoint implement aligned single-session returns, recovery/deposit exclusion for forward data, fit and held-out windows, a capped covariance-shrinkage allocation, matched equal-weight and SPY portfolios, cash, estimated market beta and a paired block-bootstrap interval. Add the portfolio UI, verify dates/point-in-time benchmark use, add tests for no fit leakage, missing intervals, invalid constraints and small samples.
-- The Home API exposes slim ledger-derived small-book balances and decision links. Build the main market chart, the books and the evidence queue into the app's opening view. The existing intraday scanner, lists, Events and Watchlist belong in secondary Home sections or their current routes.
-- Make layout changes for the actual workflows across Stocks, Options, Plays, PAPER, Learning, Research, Learner, Evidence, Risk and Settings. Keep the existing viewport stabilization and browser regressions. Prioritize a clear market/PAPER/Research story and a real workflow on each new screen over decorative elements.
-- Portfolio tools are for research. Build book-specific scope for risk and avoid summing independent experimental books as if they shared one pool. Distinguish exposure models, replay, audited PAPER and prospective results. Institutional readiness still needs independent validation and timestamped provider data, robust research provenance, realistic execution, and repeated operator testing.
-
-Finish without inventing a hedge-fund parity claim. Verify at phone and desktop widths and publish the exact update command on every release.
+## Dell update
 
 ```bash
 cd ~/kestrel &&

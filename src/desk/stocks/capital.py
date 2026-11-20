@@ -1,8 +1,6 @@
 """Chronological, read-only comparisons of allocations to recorded simulation sleeves."""
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 import sqlite3
 from collections.abc import Mapping, Sequence
@@ -13,6 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize
 
+from desk.core.hashing import fingerprint
 from desk.stats.core import stationary_bootstrap_means
 from desk.stocks import calendar as cal
 from desk.stocks.paper.book import MICRO
@@ -96,7 +95,7 @@ def compare(curves: Mapping[str, Curve], benchmark: Curve, excluded: set[date], 
     spy = returns(benchmark)
     calendar = set(spy).union(*(set(series) for series in per_sleeve.values()))
     end = min(max(curve, default=date.max) for curve in curves.values())
-    latest = sorted(day for day in calendar if day <= end)[-window:]
+    latest = cal.trading_days(min(calendar), end)[-window:] if calendar else []
     days = [day for day in latest if day not in excluded and day in spy and all(day in series for series in per_sleeve.values())]
     fit_count = min(max(FIT_MIN, int(.7 * len(days))), len(days) - TEST_MIN) if len(days) >= FIT_MIN + TEST_MIN else 0
     coverage = {"matched": len(days), "considered": len(latest), "excluded": len(set(latest) & excluded),
@@ -129,10 +128,9 @@ def compare(curves: Mapping[str, Curve], benchmark: Curve, excluded: set[date], 
     inputs = {"model": MODEL, "controls": result["controls"], "strategies": list(per_sleeve),
               "days": [d.isoformat() for d in days], "sleeves": array.tolist(),
               "spy": [spy[d] for d in days]}
-    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True, separators=(",", ":"), allow_nan=False).encode())
     result.update(status="ready", fit={"first": days[0].isoformat(), "last": days[fit_count - 1].isoformat(), "n": fit_count},
                   test={"first": days[fit_count].isoformat(), "last": days[-1].isoformat(), "n": len(holdout)},
-                  inputs_sha256=digest.hexdigest(),
+                  inputs_sha256=fingerprint(inputs),
                   allocations=[{"account": name, "weight": float(w * (1 - reserve)), "risk_share": float(r)}
                                for name, w, r in zip(per_sleeve, allocation, shares, strict=True)],
                   metrics={name: metrics(path, market) for name, path in paths.items()},

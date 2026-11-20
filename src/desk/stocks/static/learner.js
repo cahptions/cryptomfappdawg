@@ -529,11 +529,13 @@ const KestrelLearner = (() => {
     if (ticket !== generation) return;
     app.className = "learner-page";
     const p = data.policy;
-    app.append(
-      el("div", "PAPER · RESEARCH ONLY", "eyebrow"),
-      el("h1", "Learner"),
-      el("p", data.label, "muted"),
-    );
+    const heading = el("div", undefined, "workspace-heading");
+    const title = el("div");
+    title.append(el("h1", "Learner"), el("p", data.label));
+    const research = link("Open Research desk", "#research");
+    research.className = "workspace-action";
+    heading.append(title, research);
+    app.append(heading);
     const status = el("section", undefined, "learner-status-box");
     status.setAttribute("role", "status");
     status.append(
@@ -551,10 +553,12 @@ const KestrelLearner = (() => {
       " ",
       link("Learning report →", "#learning"),
     );
-    app.append(status);
+    const judgment = el("div", undefined, "learner-review-layout");
+    status.classList.add("workspace-panel");
     const study = data.execution_study;
     if (study) {
       const forward = el("section", undefined, "learner-status-box");
+      forward.classList.add("workspace-panel");
       forward.append(
         el("h2", "Forward execution study"),
         el(
@@ -594,6 +598,35 @@ const KestrelLearner = (() => {
           "muted",
         ),
       );
+      if (study.confirmation) {
+        const result = study.confirmation;
+        forward.append(
+          table(
+            ["Frozen comparison", "Lower bound per $100"],
+            [
+              [
+                "Learner vs. simple rule",
+                result.paired_lower == null
+                  ? "—"
+                  : money(100 * result.paired_lower),
+              ],
+              [
+                "Learner vs. cash",
+                result.cash_lower == null
+                  ? "—"
+                  : money(100 * result.cash_lower),
+              ],
+            ],
+          ),
+        );
+        forward.append(
+          el(
+            "p",
+            `${percent(result.support, 1)} of eligible sessions could be compared when the sample closed.`,
+            "muted",
+          ),
+        );
+      }
       const coverage = study.quote_coverage;
       if (coverage?.scheduled) {
         forward.append(
@@ -603,8 +636,10 @@ const KestrelLearner = (() => {
           ),
         );
       }
-      app.append(forward);
+      judgment.append(forward);
     }
+    judgment.append(status);
+    app.append(judgment);
     const curves = {
       learner: data.accounts.learner?.curve || [],
       learner_random: data.accounts.learner_random?.curve || [],

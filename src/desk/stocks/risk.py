@@ -266,6 +266,8 @@ def portfolio(ledger: sqlite3.Connection | None, research: sqlite3.Connection | 
     spy_price = spy[0] if spy else None
     per_pct = money("spy_dollars_per_1pct")
     combined = money("combined")
+    if not rows and not other_positions and equity is not None:
+        combined = 0.0
     return {
         "generated_at": now.isoformat(), "positions": len(rows),
         "account": account, "equity": equity, "other_positions": other_positions,

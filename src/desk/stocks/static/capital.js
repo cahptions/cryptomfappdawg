@@ -28,7 +28,7 @@ const KestrelCapital = (() => {
             ...result.accounts
               .filter((a) => a.id in result.coverage.per_strategy)
               .map((a) => [a.title, result.coverage.per_strategy[a.id]]),
-            ["SPY total return", result.coverage.benchmark],
+            ["SPY comparator", result.coverage.benchmark],
           ],
         ),
       );
@@ -104,7 +104,7 @@ const KestrelCapital = (() => {
     const provenance = el("details", undefined, "capital-provenance");
     provenance.append(
       el("summary", "Inspect comparison inputs"),
-      el("p", `SPY total-return data · ${result.benchmark_basis}.`),
+      el("p", `SPY comparator · ${result.benchmark_basis}.`),
       el("p", `Allocation method · ${result.model}.`),
       el("p", "Input fingerprint (SHA-256)"),
       el("code", result.inputs_sha256),
@@ -133,7 +133,7 @@ const KestrelCapital = (() => {
       ),
       el(
         "p",
-        "The blends let initial weights drift. Results compound only matched sessions, skipping unobserved moves. The paths use strategy account marks and a one-time entry cost. You can change strategies or settings after seeing the results, so use this as exploratory evidence.",
+        "The blends simulate fractional allocations and let initial weights drift. Results compound only matched sessions, skipping unobserved moves. The paths use strategy account marks and a one-time entry cost. You can change strategies or settings after seeing the results, so use this as exploratory evidence.",
         "muted",
       ),
       provenance,
@@ -223,7 +223,10 @@ const KestrelCapital = (() => {
         label.append(
           box,
           el("span", a.title),
-          el("small", `${a.sessions} sessions`),
+          el(
+            "small",
+            `${a.sessions} sessions${a.mixed_specifications ? " · multiple rule versions" : ""}`,
+          ),
         );
         choices.append(label);
       }

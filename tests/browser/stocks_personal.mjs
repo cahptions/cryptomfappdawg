@@ -55,7 +55,10 @@ try {
         );
       assert.equal(new Set(widths).size, 1, `cockpit card widths ${widths}`);
     }
-    assert.equal(await page.getByRole("heading", { level: 1 }).innerText(), "Market desk");
+    assert.equal(
+      await page.getByRole("heading", { level: 1 }).innerText(),
+      "Market desk",
+    );
 
     // Numbers first: the fixture shows explanations; turning them off hides captions and is remembered.
     assert.equal(await numbersFirst(page), false);

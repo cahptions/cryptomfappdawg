@@ -1304,8 +1304,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         report = (evidence_document(paths, "report", kind="backtest") if source == "replay"
                   else saved_view(paths, "paper")) or {}
-        metadata = {a["id"]: {"id": a["id"], "title": a["title"], "asset": a["asset"],
-                              "sessions": a["sessions"]} for a in report.get("accounts", []) if not a.get("baseline")}
+        metadata = {a["id"]: {"id": a["id"], "title": a["title"], "asset": a["asset"], "sessions": a["sessions"],
+                              "mixed_specifications": a.get("mixed_specifications", False)}
+                    for a in report.get("accounts", []) if not a.get("baseline")}
         available = sorted(metadata.values(), key=lambda row: (row["asset"], row["title"]))
         base = {"source": source, "accounts": available, "run_id": report.get("run_id"),
                 "report_at": report.get("generated_at")}
@@ -1326,12 +1327,15 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         if source == "replay" and "spy_total_curve" in report:
             benchmark = {date.fromisoformat(day): level for day, level in report["spy_total_curve"].items()}
             benchmark_basis = "Frozen with replay"
+        elif source == "replay":
+            benchmark = {date.fromisoformat(row["day"]): row["equity"] for row in report_curves.get("spy_hold", [])}
+            benchmark_basis = "Saved Hold SPY simulation including its trading costs and cash"
         else:
             since = min((min(curve) for curve in curves.values() if curve), default=utc_now().date())
             with reader(paths, MARKET_FILE) as market:
+                market.execute("BEGIN")
                 benchmark = spy_total(StocksMarket(market), since)
-            benchmark_basis = "Current market store (original replay benchmark unavailable)" if source == "replay" else (
-                "Current market store")
+            benchmark_basis = "Total return from the current market store"
         try:
             result = capital.compare(curves, benchmark, excluded, window=int(window), reserve=reserve / 100,
                                      cap=cap / 100, entry_bps=entry_bps)
