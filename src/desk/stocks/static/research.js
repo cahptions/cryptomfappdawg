@@ -244,16 +244,27 @@ const KestrelResearch = (() => {
     app.classList.add("market-workspace");
     const head = el("div", undefined, "workspace-heading");
     const title = el("div");
-    title.append(el("h1", "Market desk"), el("p", snapshot.asof
-      ? `Research through ${shortDate(snapshot.asof)} · U.S. equities and options`
-      : "U.S. equities and options · awaiting the first research session"));
+    title.append(
+      el("h1", "Market desk"),
+      el(
+        "p",
+        snapshot.asof
+          ? `Research through ${shortDate(snapshot.asof)} · U.S. equities and options`
+          : "U.S. equities and options · awaiting the first research session",
+      ),
+    );
     const open = link("Open portfolio lab ↗", "#portfolio");
     open.className = "workspace-action";
     head.append(title, open);
     const grid = el("section", undefined, "cockpit");
     grid.setAttribute("aria-label", "Market desk");
-    grid.append(cockpitMarket(hub), cockpitBooks(hub.cockpit?.books || []),
-      cockpitIdeas(hub.cockpit), cockpitMovers(hub.cockpit?.movers), cockpitPlays(hub.cockpit?.plays));
+    grid.append(
+      cockpitMarket(hub),
+      cockpitBooks(hub.cockpit?.books || []),
+      cockpitIdeas(hub.cockpit),
+      cockpitMovers(hub.cockpit?.movers),
+      cockpitPlays(hub.cockpit?.plays),
+    );
     const latest = hub.events?.recent?.[0];
     if (latest) {
       const line = link("", "#events");
@@ -366,33 +377,81 @@ const KestrelResearch = (() => {
   function cockpitMarket(hub) {
     const box = el("article", undefined, "cockpit-card cockpit-market");
     const title = el("div", undefined, "workspace-panel-title");
-    title.append(el("h2", "Market overview"), link("Market events ↗", "#events"));
-    const picker = el("div", undefined, "market-picker"), chartHost = el("div");
-    const chart = KestrelCharts.create({id: "overview-market", className: "market-chart", headline: false, legend: false});
+    title.append(
+      el("h2", "Market overview"),
+      link("Market events ↗", "#events"),
+    );
+    const picker = el("div", undefined, "market-picker"),
+      chartHost = el("div");
+    const chart = KestrelCharts.create({
+      id: "overview-market",
+      className: "market-chart",
+      headline: false,
+      legend: false,
+    });
     function select(index) {
       marketBenchmark = index.symbol;
-      for (const b of picker.children) b.setAttribute("aria-pressed", String(b.dataset.symbol === index.symbol));
+      for (const b of picker.children)
+        b.setAttribute(
+          "aria-pressed",
+          String(b.dataset.symbol === index.symbol),
+        );
       const headline = el("div", undefined, "market-quote");
-      const identity = el("div"), figure = el("div");
+      const identity = el("div"),
+        figure = el("div");
       identity.append(el("strong", index.symbol), el("span", index.name));
-      figure.append(el("strong", money(index.price)), el("span", index.change == null ? "—" : percent(index.change), tone(index.change)));
+      figure.append(
+        el("strong", money(index.price)),
+        el(
+          "span",
+          index.change == null ? "—" : percent(index.change),
+          tone(index.change),
+        ),
+      );
       headline.append(identity, figure);
-      chartHost.replaceChildren(headline, chart, el("p", index.asof ? `Stored daily closes through ${shortDate(index.asof)}` : "Awaiting the first stored close", "market-asof"));
+      chartHost.replaceChildren(
+        headline,
+        chart,
+        el(
+          "p",
+          index.asof
+            ? `Stored daily closes through ${shortDate(index.asof)}`
+            : "Awaiting the first stored close",
+          "market-asof",
+        ),
+      );
       chart.update({
-        points: index.history.map(p=>({...p, at:p.day, x:Date.parse(p.day), value:p.close})),
-        label: `${index.symbol} stored closing prices`, empty:"Awaiting stored closing prices",
-        series:[{id:"close", label:index.symbol, color:"var(--accent)", value:p=>p.value}],
-        xFormat:KestrelCharts.date, timeFormat:p=>p.day, tooltipRows:p=>[["Close",money(p.close)]],
+        points: index.history.map((p) => ({
+          ...p,
+          at: p.day,
+          x: Date.parse(p.day),
+          value: p.close,
+        })),
+        label: `${index.symbol} stored closing prices`,
+        empty: "Awaiting stored closing prices",
+        series: [
+          {
+            id: "close",
+            label: index.symbol,
+            color: "var(--accent)",
+            value: (p) => p.value,
+          },
+        ],
+        xFormat: KestrelCharts.date,
+        timeFormat: (p) => p.day,
+        tooltipRows: (p) => [["Close", money(p.close)]],
       });
     }
-    for (const index of hub.benchmarks.slice(0,3)) {
+    for (const index of hub.benchmarks.slice(0, 3)) {
       const b = el("button", index.symbol);
       b.dataset.symbol = index.symbol;
       b.onclick = () => select(index);
       picker.append(b);
     }
     box.append(title, picker, chartHost, benchmarkStrip(hub));
-    const first = hub.benchmarks.find(index => index.symbol === marketBenchmark) || hub.benchmarks[0];
+    const first =
+      hub.benchmarks.find((index) => index.symbol === marketBenchmark) ||
+      hub.benchmarks[0];
     if (first) select(first);
     return box;
   }
@@ -404,20 +463,42 @@ const KestrelResearch = (() => {
     for (const book of books) {
       const card = el("section", undefined, "market-book");
       const head = el("div", undefined, "market-book-heading");
-      head.append(el("h3",book.title), el("span", book.trading_pnl == null ? "—" : `${book.trading_pnl > 0 ? "+" : ""}${money(book.trading_pnl)} P/L`,
-        tone(book.trading_pnl)));
+      head.append(
+        el("h3", book.title),
+        el(
+          "span",
+          book.trading_pnl == null
+            ? "—"
+            : `${book.trading_pnl > 0 ? "+" : ""}${money(book.trading_pnl)} P/L`,
+          tone(book.trading_pnl),
+        ),
+      );
       const data = el("dl", undefined, "market-book-metrics");
-      for (const [label, value] of [["Marked equity", money(book.equity)],["Cash", money(book.cash)],["Pending", String(book.pending)]]) {
-        const stat = el("div"); stat.append(el("dt",label), el("dd",value)); data.append(stat);
+      for (const [label, value] of [
+        ["Marked equity", money(book.equity)],
+        ["Cash", money(book.cash)],
+        ["Pending", String(book.pending)],
+      ]) {
+        const stat = el("div");
+        stat.append(el("dt", label), el("dd", value));
+        data.append(stat);
       }
-      card.append(head, data, el("p",book.phase));
+      card.append(head, data, el("p", book.phase));
       const route = `#learning/${book.id}`;
-      card.append(book.decision_id ? link("Inspect latest decision ↗", `${route}/${book.decision_id}`) : link("Open PAPER book ↗", route));
+      card.append(
+        book.decision_id
+          ? link("Inspect latest decision ↗", `${route}/${book.decision_id}`)
+          : link("Open PAPER book ↗", route),
+      );
       box.append(card);
     }
-    if (!books.length) box.append(el("p","Waiting for the Learning ledgers.", "muted"));
+    if (!books.length)
+      box.append(el("p", "Waiting for the Learning ledgers.", "muted"));
     const links = el("div", undefined, "workspace-actions");
-    links.append(link("Research desk ↗", "#research"), link("PAPER strategies ↗", "#paper"));
+    links.append(
+      link("Research desk ↗", "#research"),
+      link("PAPER strategies ↗", "#paper"),
+    );
     box.append(links);
     return box;
   }

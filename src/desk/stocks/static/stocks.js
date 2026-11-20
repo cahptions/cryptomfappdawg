@@ -1352,9 +1352,16 @@ async function render() {
   app.replaceChildren();
   app.className = "";
   const section = "#" + route.split("/")[0];
-  const name = document.querySelector(`.workspace-rail a[href="${CSS.escape(section)}"]`)?.textContent;
+  const name = document.querySelector(
+    `.workspace-rail a[href="${CSS.escape(section)}"]`,
+  )?.textContent;
   document.getElementById("workspace-location").textContent =
-    name || (section === "#stock" ? "Stock profile" : section === "#lists" ? "Research lists" : "Overview");
+    name ||
+    (section === "#stock"
+      ? "Stock profile"
+      : section === "#lists"
+        ? "Research lists"
+        : "Overview");
   for (const a of document.querySelectorAll("nav a:not(#worker-pill)")) {
     if (a.hash === section) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
