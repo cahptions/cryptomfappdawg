@@ -20,7 +20,7 @@ from desk.core.hashing import canonical_json, sha256_hex
 from desk.core.paths import DeskPaths
 from desk.core.secrets import load_secrets
 from desk.stocks import calendar as cal
-from desk.stocks import collect, daily, validation
+from desk.stocks import collect, daily, research_controls, validation
 from desk.stocks.activity import VERSION as OPTIONS_VERSION
 from desk.stocks.activity import quote_session
 from desk.stocks.analysis import MIN_BARS, Analyzer, stock_detail
@@ -418,7 +418,9 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             from desk.stocks import learning, quote_trials
 
             trial = None
-            if settings.quote_research_trial and (paths.db_dir / learning.FILE).exists():
+            if (paths.db_dir / learning.FILE).exists() and research_controls.enabled(
+                paths, "quote_research_trial", settings.quote_research_trial
+            ):
                 try:
                     uri = (paths.db_dir / learning.FILE).as_uri() + "?mode=ro"
                     with closing(sqlite3.connect(uri, uri=True, timeout=2)) as learning_db:
@@ -549,7 +551,8 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
         from desk.stocks import brain_study
 
         try:
-            brain_study.advance(market.conn, research.conn, utc_now(), enabled=settings.iv_forward_study)
+            enabled = research_controls.enabled(paths, "iv_forward_study", settings.iv_forward_study)
+            brain_study.advance(market.conn, research.conn, utc_now(), enabled=enabled)
         except Exception as exc:
             log.warning("forward IV study failed", extra={"error": type(exc).__name__})
             market.job("iv_forward_study", now, error=type(exc).__name__)

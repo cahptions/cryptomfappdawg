@@ -99,7 +99,7 @@ const KestrelResearchDesk = (() => {
         "p",
         trial.enabled
           ? "The worker can use one existing rotation slot to check a play near the cash limit. On comparable sessions it keeps ordinary rotation as the control."
-          : "The discretionary quote comparison is available in Stocks configuration.",
+          : "The discretionary quote comparison is paused.",
       ),
     );
     const rows = Object.entries(trial.arms).map(([name, arm]) => [
@@ -152,10 +152,41 @@ const KestrelResearchDesk = (() => {
     const data = await api("research/desk");
     if (ticket !== generation) return;
     app.className = "paper-page learning-page";
-    app.append(
+    const iv = showStudy(data.iv_study),
+      quotes = showQuoteTrial(data.quote_trial);
+    function control(section, study, enabled, subject) {
+      const button = el("button", `${enabled ? "Pause" : "Start"} ${subject}`);
+      const message = el("p", undefined, "muted");
+      message.setAttribute("role", "status");
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          await api(`research/studies/${study}`, { enabled: !enabled });
+          if (ticket === generation) await show(ticket);
+        } catch (error) {
+          message.textContent = error.message;
+          button.disabled = false;
+        }
+      };
+      section.append(button, message);
+    }
+    control(
+      iv,
+      "iv_forward_study",
+      data.iv_study.enabled,
+      "forward enrollment",
+    );
+    control(
+      quotes,
+      "quote_research_trial",
+      data.quote_trial.enabled,
+      "quote comparison",
+    );
+    app.replaceChildren(
       el("h1", "Research desk"),
       books(data.books),
-      showStudy(data.iv_study),
+      iv,
+      quotes,
     );
   }
   return { show };

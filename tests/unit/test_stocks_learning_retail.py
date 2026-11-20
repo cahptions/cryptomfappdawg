@@ -138,6 +138,13 @@ def test_positive_research_selects_puts_and_small_trades_get_their_own_realized_
     lab.tick(conn,w.market,end)
     accounts=small_accounts(conn)
     assert all(a["closed_trades"]>0 and a["realized_pnl"]>0 and a["additional_funding"]==0 for a in accounts.values())
+    from desk.stocks.learning_transfer import review
+
+    for account in lab.SMALL_ACCOUNTS:
+        result = review(conn, account)
+        observed = [r for r in result["receipts"] if r["state"] == "closed"]
+        assert observed and sum(r["pnl"] for r in observed) == pytest.approx(accounts[account]["realized_pnl"])
+        assert all(r["decision_id"] and r["research_estimate"] is not None for r in observed)
     assert accounts[lab.SMALL_ACCOUNTS[0]]["realized_pnl"]!=accounts[lab.SMALL_ACCOUNTS[1]]["realized_pnl"]
     assert conn.execute("SELECT COUNT(*) FROM stk_learning_outcomes o JOIN stk_positions p ON p.id=o.position_id "
                         "WHERE p.account IN (?,?)",lab.SMALL_ACCOUNTS).fetchone()[0]==0

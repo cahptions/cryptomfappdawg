@@ -245,7 +245,7 @@ def summary(research: sqlite3.Connection, *, enabled: bool) -> dict[str, Any]:
                   "Cleared the preregistered threshold" if p < .05 and mean is not None and mean > ECONOMIC_BPS else
                   "The challenger did not clear the threshold")
     elif not enabled:
-        status = "Enrollment paused" if reg else "Enrollment available in Stocks configuration"
+        status = "Enrollment paused" if reg else "Enrollment available"
     else:
         status = "Collecting untouched observations" if reg else "Waiting for the worker to register the study"
     return {

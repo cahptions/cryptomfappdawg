@@ -395,6 +395,173 @@ const KestrelLearning = (() => {
       : "No entries have filled since.";
     return el("p", `${deposit} ${use}`, "muted");
   }
+  function transferReview(account) {
+    const box = el(
+        "details",
+        undefined,
+        "paper-status learning-transfer-review",
+      ),
+      body = el("div"),
+      status = el("p", "", "caption muted"),
+      refresh = el("button", "Refresh review");
+    status.setAttribute("role", "status");
+    let data,
+      loading = false,
+      page = 0;
+    const pageSize = 5;
+    function render() {
+      const stats = el("div", undefined, "paper-metrics"),
+        list = el("ol");
+      for (const [title, value] of [
+        ["Prior research estimate", percent(data.research_mean)],
+        ["Realized PAPER return", percent(data.realized_mean)],
+        ["Non-overlapping periods", String(data.exposure_periods)],
+      ])
+        stats.append(metric(title, value));
+      body.replaceChildren(stats);
+      if (data.matched_groups) {
+        body.append(
+          el(
+            "p",
+            `${data.matched_orders} closed orders across ${data.matched_groups} symbol/session groups. Both percentages use the same entry debits within each group and give each group equal weight. Cash earns 0% in PAPER.`,
+          ),
+        );
+      } else {
+        body.append(
+          el(
+            "p",
+            "Waiting for a finished group with a dated prior estimate and the same exit horizon.",
+          ),
+        );
+      }
+      body.append(
+        el(
+          "p",
+          `${data.orders_reviewed} recent orders reviewed · ${data.states.waiting || 0} awaiting order resolution · ${data.states.open || 0} with open positions · ${data.states.unfilled || 0} cancelled without a fill. ${data.unresolved_groups} comparable groups still await a final result.`,
+          "muted",
+        ),
+      );
+      if (data.states.unavailable)
+        body.append(
+          el(
+            "p",
+            `${data.states.unavailable} orders have incomplete fill or exit records.`,
+            "notice",
+          ),
+        );
+      body.append(
+        el(
+          "p",
+          "Overlapping holdings can reflect the same market move. These observed trades alone cannot establish repeatable edge.",
+          "caption muted",
+        ),
+      );
+      if (data.truncated)
+        body.append(
+          el(
+            "p",
+            `Review window covers the latest ${data.order_limit} orders. A partially included session is omitted from the comparison.`,
+            "caption muted",
+          ),
+        );
+      if (!data.orders_reviewed) return;
+      body.append(el("h4", "Decision receipts"));
+      list.start = page * pageSize + 1;
+      for (const r of data.receipts.slice(
+        page * pageSize,
+        (page + 1) * pageSize,
+      )) {
+        const row = el("li"),
+          recipe = (r.structure || "Recipe unavailable").replaceAll("_", " ");
+        row.append(
+          el(
+            "strong",
+            `${r.symbol} · ${recipe}${r.bucket ? " · " + r.bucket : ""}`,
+          ),
+        );
+        const expected =
+          r.research_estimate == null
+            ? r.mode === "starter"
+              ? "Fixed starter recipe, with no learned estimate."
+              : "Dated research estimate unavailable."
+            : `Prior estimate ${percent(r.research_estimate)} from ${r.prior_blocks} research blocks through ${stamp(r.matured_through)}.`;
+        row.append(el("p", `${stamp(r.decision_at)} · ${expected}`, "muted"));
+        const result =
+          r.state === "closed" && r.net_return != null
+            ? `Realized ${signed(r.pnl)} (${percent(r.net_return)}) after fees on ${money(r.entry_debit)} deployed.`
+            : {
+                waiting: "Order awaiting resolution.",
+                open: "Position open. Final result pending.",
+                unfilled: "No fill.",
+                unavailable: "Final return unavailable.",
+              }[r.state];
+        row.append(
+          el(
+            "p",
+            `${r.filled_units} of ${r.requested_units ?? "?"} units filled. ${result}`,
+          ),
+        );
+        if (!r.same_horizon)
+          row.append(
+            el(
+              "p",
+              "Exit horizon differs or is unavailable. Excluded from the paired comparison.",
+              "caption muted",
+            ),
+          );
+        if (r.order_state === "CANCELLED" && r.order_note)
+          row.append(el("p", r.order_note, "caption muted"));
+        row.append(decisionLink(account, r.decision_id));
+        list.append(row);
+      }
+      body.append(list);
+      if (data.receipts.length > pageSize) {
+        const prev = el("button", "Newer receipts"),
+          next = el("button", "Older receipts");
+        prev.disabled = page === 0;
+        next.disabled = (page + 1) * pageSize >= data.receipts.length;
+        const changePage = (delta) => {
+          page += delta;
+          render();
+          body.querySelector("button:enabled")?.focus();
+        };
+        prev.onclick = () => changePage(-1);
+        next.onclick = () => changePage(1);
+        body.append(prev, next);
+      }
+    }
+    async function load() {
+      if (loading) return;
+      loading = true;
+      refresh.disabled = true;
+      status.textContent = "Reading the account ledger…";
+      try {
+        data = await api(
+          `learning/transfer-review?account=${encodeURIComponent(account)}`,
+        );
+        page = 0;
+        render();
+        status.textContent = `Ledger read ${stamp(new Date())}.`;
+      } catch (error) {
+        status.textContent = `Transfer review unavailable. ${error.message}`;
+      } finally {
+        loading = false;
+        refresh.disabled = false;
+      }
+    }
+    refresh.onclick = load;
+    box.ontoggle = () => {
+      if (box.open && !data) load();
+    };
+    box.append(
+      el("summary", "Did the research transfer to this account?"),
+      body,
+      status,
+      refresh,
+    );
+    return box;
+  }
+
   const chartState = new Map();
   function profitChart(a, evidence) {
     const id = a.id;
@@ -654,7 +821,7 @@ const KestrelLearning = (() => {
     return link(label, `#learning/${book}/${id}`);
   }
 
-  async function showDecision(ticket, book, id) {
+  async function showDecision(ticket, book, id, replay) {
     const data = await api(`learning/decisions/${id}?account=${book}`);
     if (ticket !== generation) return;
     app.className = "paper-page learning-page";
@@ -663,13 +830,19 @@ const KestrelLearning = (() => {
       link(`← Back to the ${data.title}`, `#learning/${book}`),
       el(
         "h1",
-        data.action === "SKIP"
-          ? "Why this book waited"
-          : "Why this book queued an order",
+        replay
+          ? "Replay a PAPER decision"
+          : data.action === "SKIP"
+            ? "Why this book waited"
+            : "Why this book queued an order",
       ),
       el("p", `${data.title} · ${stamp(data.at)} · PAPER`, "muted"),
-      el("strong", data.reason),
     );
+    if (!replay)
+      header.append(
+        el("strong", data.reason),
+        link("Replay this decision →", `#learning/${book}/${id}/replay`),
+      );
     if (data.symbol)
       header.append(
         el(
@@ -679,7 +852,7 @@ const KestrelLearning = (() => {
             .join(" · "),
         ),
       );
-    if (data.next_condition)
+    if (!replay && data.next_condition)
       header.append(
         el("h2", "What would change the decision"),
         el("p", data.next_condition),
@@ -808,20 +981,56 @@ const KestrelLearning = (() => {
       outcome.append(
         el("p", "No subsequent order or position record was found.", "muted"),
       );
-    app.append(outcome);
+    if (replay) {
+      const exercise = el("section", undefined, "paper-status");
+      const choices = el("div", undefined, "evidence-actions");
+      exercise.append(el("h2", "What did PAPER do?"), choices);
+      for (const [action, label] of [
+        ["SKIP", "Held cash"],
+        ["ENTER", "Queued an order"],
+      ]) {
+        const choice = el("button", label);
+        choice.onclick = () => {
+          exercise.replaceChildren(
+            el(
+              "h2",
+              data.action === "SKIP"
+                ? "PAPER held cash"
+                : "PAPER queued an order",
+            ),
+            el(
+              "p",
+              action === data.action
+                ? "Your answer matched the stored decision."
+                : "PAPER chose a different action.",
+            ),
+            el("strong", data.reason),
+          );
+          if (data.next_condition)
+            exercise.append(el("p", data.next_condition));
+          app.append(outcome);
+          exercise.tabIndex = -1;
+          exercise.focus();
+        };
+        choices.append(choice);
+      }
+      app.append(exercise);
+    } else app.append(outcome);
   }
 
   async function show(ticket, route) {
-    const [, book, id] = route.split("/");
+    const [, book, id, mode] = route.split("/");
     if (book === "reference_1k" || book === "reference_5k") {
       account = book;
-      if (id && /^\d+$/.test(id)) return showDecision(ticket, book, id);
+      if (id && /^\d+$/.test(id))
+        return showDecision(ticket, book, id, mode === "replay");
     }
     let data = await api("learning");
     if (ticket !== generation) return;
     let timer,
       report = null;
     const reportBox = el("section", undefined, "learning-report");
+    const transferReviews = new Map();
     reportBox.setAttribute("aria-label", "Learning report");
     reportBox.append(
       el("h2", "Learning report"),
@@ -994,7 +1203,9 @@ const KestrelLearning = (() => {
               : "View PAPER decision";
           policy.append(decisionLink(a.id, decision, label));
         }
-        selected.append(policy);
+        if (!transferReviews.has(a.id))
+          transferReviews.set(a.id, transferReview(a.id));
+        selected.append(policy, transferReviews.get(a.id));
       }
       app.append(selected);
       // Three headline numbers, then the accounting detail as a dense grid: every figure stays visible.

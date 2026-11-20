@@ -60,6 +60,10 @@ class BacktestInput(BaseModel):
     enabled: bool = True
 
 
+class ResearchStudyControl(BaseModel):
+    enabled: bool
+
+
 class LearningControl(BaseModel):
     enabled: bool
 
@@ -582,9 +586,17 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                     value.update(view.summary(conn))
         return {**value, "training": train.state(paths)}
 
+    @app.post("/api/stocks/research/studies/{study}")
+    def research_study_control(study: Literal["iv_forward_study", "quote_research_trial"],
+                               inputs: ResearchStudyControl) -> dict[str, bool]:
+        from desk.stocks import research_controls
+
+        research_controls.save(paths, study, inputs.enabled)
+        return {"enabled": inputs.enabled}
+
     @app.get("/api/stocks/research/desk")
     def research_desk() -> dict[str, Any]:
-        from desk.stocks import brain_study, learning, learning_decision, quote_trials
+        from desk.stocks import brain_study, learning, learning_decision, quote_trials, research_controls
 
         with (reader(paths, RESEARCH_FILE) as research, reader(paths, learning.FILE) as ledger,
               reader(paths, MARKET_FILE) as market):
@@ -596,8 +608,10 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                     books.append({"id": ident, "title": title, "phase": policy.get("phase", "Waiting for a decision"),
                                   "decision_id": policy.get("decision_id") or learning_decision.latest_id(ledger, ident)})
             settings = config.settings.stocks
-            return {"books": books, "iv_study": brain_study.summary(research, enabled=settings.iv_forward_study),
-                    "quote_trial": quote_trials.summary(market, utc_now(), enabled=settings.quote_research_trial)}
+            iv = research_controls.enabled(paths, "iv_forward_study", settings.iv_forward_study)
+            quotes = research_controls.enabled(paths, "quote_research_trial", settings.quote_research_trial)
+            return {"books": books, "iv_study": brain_study.summary(research, enabled=iv),
+                    "quote_trial": quote_trials.summary(market, utc_now(), enabled=quotes)}
 
     @app.get("/api/stocks/learner/account")
     def learner_account() -> dict[str, Any]:
@@ -1142,6 +1156,13 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         with reader(paths, learning.FILE) as conn:
             return learning_chart.history(conn, account, window)
+
+    @app.get("/api/stocks/learning/transfer-review")
+    def learning_transfer_review(account: Literal["reference_1k", "reference_5k"]) -> dict[str, Any]:
+        from desk.stocks import learning, learning_transfer
+
+        with reader(paths, learning.FILE) as conn:
+            return learning_transfer.review(conn, account)
 
     @app.post("/api/stocks/learning/experiments")
     def learning_experiment(inputs: LearningExperiment) -> dict[str, Any]:
