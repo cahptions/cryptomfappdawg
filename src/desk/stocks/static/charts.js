@@ -202,6 +202,7 @@ const KestrelCharts = (() => {
       const shown = series.filter((s) => !hidden.has(s.id)),
         main = series[0],
         get = (s) => s.value || ((p) => p[s.id]);
+      const restoreFocus = document.activeElement === plot.firstElementChild;
       plot.replaceChildren();
       legend.replaceChildren();
       tip.hidden = true;
@@ -287,6 +288,7 @@ const KestrelCharts = (() => {
         role: "img",
         tabindex: 0,
         class: `kc-svg ${config.svgClass || ""}`,
+        ...(config.id ? { "data-scroll-key": `chart/${config.id}` } : {}),
         "aria-label":
           config.ariaLabel ||
           `${config.label || "Recorded values"}. Use arrow keys to inspect, plus or minus to zoom, and Escape to return to latest.`,
@@ -681,7 +683,11 @@ const KestrelCharts = (() => {
       // a chart moved by a page refresh loses focus for a moment: only a real move elsewhere closes the readout
       chart.onblur = () =>
         setTimeout(() => {
-          if (document.activeElement !== chart && !chart.matches(":hover"))
+          if (
+            chart.isConnected &&
+            document.activeElement !== chart &&
+            !chart.matches(":hover")
+          )
             reset();
         });
       chart.onkeydown = (e) => {
@@ -739,6 +745,7 @@ const KestrelCharts = (() => {
       if (selected != null && all[selected] && rows.includes(all[selected]))
         paint(rows.indexOf(all[selected]), true, pointer);
       else paint(rows.length - 1, false);
+      if (restoreFocus) chart.focus({ preventScroll: true });
     }
     const observer = new ResizeObserver(() => {
       if (Math.abs(root.clientWidth - width) > 1 && root.clientWidth) render();

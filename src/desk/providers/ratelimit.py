@@ -48,12 +48,12 @@ class RateLimiter:
     # ── synchronous core (one transaction per decision) ───────────────────────────────────────────
     def try_acquire(self, bucket: str, windows: Sequence[Window]) -> float:
         """Record a request and return 0.0, or return how many seconds to wait before trying again."""
-        now = self._clock()
         longest = max(seconds for _, seconds in windows)
         with self._lock:
             conn = self._conn
             conn.execute("BEGIN IMMEDIATE")
             try:
+                now = self._clock()
                 conn.execute("DELETE FROM rate_events WHERE bucket = ? AND (ts < ? OR ts > ?)",
                              (bucket, now - longest, now + _CLOCK_SKEW_TOLERANCE))
                 wait = 0.0

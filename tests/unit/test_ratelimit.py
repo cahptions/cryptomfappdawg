@@ -8,6 +8,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,29 @@ class FakeTime:
         self.now += seconds
         self.slept += seconds
         await asyncio.sleep(0)
+
+
+def test_budget_timestamp_is_sampled_after_waiting_for_the_write_transaction(tmp_path: Path) -> None:
+    fake = FakeTime()
+    limiter = RateLimiter(tmp_path / "runtime.db", clock=fake.clock, offload=False)
+    starting, release = threading.Event(), threading.Event()
+
+    def delay_transaction(sql: str) -> None:
+        if sql == "BEGIN IMMEDIATE":
+            starting.set()
+            release.wait(5)
+
+    limiter._conn.set_trace_callback(delay_transaction)
+    try:
+        with ThreadPoolExecutor() as executor:
+            request = executor.submit(limiter.try_acquire, "stocks", [(2, 60.0)])
+            assert starting.wait(5)
+            fake.now += 3.0
+            release.set()
+            assert request.result(timeout=5) == 0
+        assert limiter._conn.execute("SELECT ts FROM rate_events").fetchone()[0] == fake.now
+    finally:
+        limiter.close()
 
 
 def _windows_ok(times: list[float], windows: list[tuple[int, float]]) -> list[str]:

@@ -132,3 +132,43 @@ def test_the_risk_page_reads_it_and_an_empty_desk_says_so(tmp_path: Path) -> Non
         dbs.close()
     assert nothing["positions"] == 0 and nothing["totals"]["delta_shares"] is None
     assert [s["change"] for s in nothing["scenarios"]] == [None, None, None]
+
+
+def test_joint_repricing_keeps_learning_accounts_separate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from desk.stocks import learning, web
+
+    paths = world(tmp_path)
+    monkeypatch.setattr(web, "utc_now", lambda: NOW)
+    with learning.open_book(paths) as conn:
+        learning.initialize(conn, NOW)
+        book = PaperBook(conn)
+        for account, count in (("reference_1k", 1), ("reference_5k", 2)):
+            decision = book.decide(NOW, TODAY, account, "sha", "SPY", "ENTER", ["x"], {})
+            pid = book.open_position(account=account, spec_sha256="sha", asset="option", symbol="SPY",
+                                     structure="long_call", legs=[{"occ": "SPY261218C00500000", "kind": "call",
+                                     "strike": 500., "expiration": EXPIRY, "quantity": count, "entry_iv": .3}],
+                                     decision_id=decision, at=NOW, day=TODAY, cost=110. * count, fees=1. * count,
+                                     max_loss=111. * count, stop_price=None, expires=date.fromisoformat(EXPIRY), plan={})
+            book.mark(pid, 125. * count)
+    with TestClient(web.create_app(paths, auto_start=False), base_url="http://127.0.0.1:8767") as client:
+        request = {"market_move": -12, "vol_points": 15}
+        one = client.get("/api/stocks/risk", params=request | {"scope": "reference_1k"}).json()
+        five = client.get("/api/stocks/risk", params=request | {"scope": "reference_5k"}).json()
+        assert one["positions"] == five["positions"] == 1
+        assert one["tracked_plays"] == five["tracked_plays"] == 0
+        assert one["rows"][0]["id"] != five["rows"][0]["id"]
+        assert one["equity"] == pytest.approx(1014.)
+        assert five["equity"] == pytest.approx(5028.)
+        assert one["joint_scenario"]["covered_positions"] == 1
+        change = one["joint_scenario"]["change"]
+        assert one["joint_scenario"]["equity_fraction"] == pytest.approx(change / one["equity"])
+        assert five["joint_scenario"]["change"] == pytest.approx(2 * change, abs=.02)
+        spot = one["rows"][0]["price"]
+        t = opt.year_fraction(TODAY, date.fromisoformat(EXPIRY))
+        exact = 100 * (opt.bs_price("call", spot * .88, 500, t, .45, risk.RATE)
+                       - opt.bs_price("call", spot, 500, t, .30, risk.RATE))
+        assert change == pytest.approx(exact, abs=.01)
+        assert client.get("/api/stocks/risk", params={"market_move": -26}).status_code == 422
+        overlay = client.get("/api/stocks/risk", params=request).json()
+        assert overlay["positions"] == 4 and overlay["joint_scenario"]["covered_positions"] == 3
+        assert overlay["joint_scenario"]["equity_fraction"] is None

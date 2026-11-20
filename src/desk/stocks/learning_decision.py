@@ -83,3 +83,28 @@ def read(conn: sqlite3.Connection, account: str, decision_id: int) -> dict[str, 
                    "last_quote_at": observation.get("last_quote_at")} if source else None,
         "orders": orders, "fills": fills,
     }
+
+
+def books(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Current finite-book balances and the latest linkable decision for each account."""
+    out = []
+    for ident, title, _ in learning.ACCOUNTS:
+        if ident not in learning.SMALL_ACCOUNTS:
+            continue
+        cash, funding, count = conn.execute(
+            "SELECT COALESCE(SUM(amount_micros),0),"
+            "COALESCE(SUM(CASE WHEN reason='DEPOSIT' THEN amount_micros END),0),COUNT(*) FROM stk_cash WHERE account=?",
+            (ident,),
+        ).fetchone()
+        marks, open_positions = conn.execute(
+            "SELECT COALESCE(SUM(last_value_micros),0),COUNT(*) FROM stk_positions WHERE account=? AND state='OPEN'",
+            (ident,),
+        ).fetchone()
+        pending = conn.execute("SELECT COUNT(*) FROM stk_pending WHERE account=? AND state='PENDING'", (ident,)).fetchone()[0]
+        policy = learning.state(conn, "retail:" + ident, {})
+        out.append({"id": ident, "title": title, "phase": policy.get("phase", "Waiting for a decision"),
+                    "decision_id": policy.get("decision_id") or latest_id(conn, ident),
+                    "cash": usd(cash) if count else None, "equity": usd(cash + marks) if count else None,
+                    "trading_pnl": usd(cash + marks - funding) if count else None,
+                    "open_positions": open_positions, "pending": pending})
+    return out

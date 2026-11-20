@@ -241,37 +241,29 @@ const KestrelResearch = (() => {
   }
   // Home for one person: their plays' P/L, the market and today's top ideas on one screen, then the research.
   function cockpitHome(hub, ticket) {
-    const hour = new Date().getHours(),
-      greeting =
-        hour < 5
-          ? "Late night"
-          : hour < 12
-            ? "Good morning"
-            : hour < 18
-              ? "Good afternoon"
-              : "Good evening";
-    const head = el("div", undefined, "cockpit-head");
-    head.append(
-      el("h1", greeting),
+    app.classList.add("market-workspace");
+    const head = el("div", undefined, "workspace-heading");
+    const title = el("div");
+    title.append(
+      el("h1", "Market desk"),
       el(
-        "span",
+        "p",
         snapshot.asof
-          ? `Research session ${shortDate(snapshot.asof)}`
-          : "Awaiting the first research session",
-        "muted",
+          ? `Research through ${shortDate(snapshot.asof)} · U.S. equities and options`
+          : "U.S. equities and options · awaiting the first research session",
       ),
     );
-    const grid = el(
-      "section",
-      undefined,
-      `cockpit${hub.cockpit?.plays?.rows?.length ? "" : " no-plays"}`,
-    );
-    grid.setAttribute("aria-label", "Your desk at a glance");
+    const open = link("Open portfolio lab ↗", "#portfolio");
+    open.className = "workspace-action";
+    head.append(title, open);
+    const grid = el("section", undefined, "cockpit");
+    grid.setAttribute("aria-label", "Market desk");
     grid.append(
-      cockpitPlays(hub.cockpit?.plays),
       cockpitMarket(hub),
-      cockpitMovers(hub.cockpit?.movers),
+      cockpitBooks(hub.cockpit?.books || []),
       cockpitIdeas(hub.cockpit),
+      cockpitMovers(hub.cockpit?.movers),
+      cockpitPlays(hub.cockpit?.plays),
     );
     const latest = hub.events?.recent?.[0];
     if (latest) {
@@ -286,9 +278,6 @@ const KestrelResearch = (() => {
       grid.append(line);
     }
     app.append(head, grid);
-    const desk = el("p", undefined, "caption");
-    desk.append(link("Research desk ↗", "#research"));
-    app.append(desk);
     if (snapshot.research_preview?.awaiting_newer_close)
       app.append(
         el(
@@ -384,20 +373,133 @@ const KestrelResearch = (() => {
     );
     return box;
   }
+  let marketBenchmark = "SPY";
   function cockpitMarket(hub) {
     const box = el("article", undefined, "cockpit-card cockpit-market");
-    const title = el("div", undefined, "cockpit-card-head");
-    title.append(el("h2", "Market overview"), link("Events →", "#events"));
-    box.append(title, benchmarkStrip(hub));
-    const ai = (hub.events?.standing || []).find((s) => s.subject === "ai");
-    if (ai)
-      box.append(
+    const title = el("div", undefined, "workspace-panel-title");
+    title.append(
+      el("h2", "Market overview"),
+      link("Market events ↗", "#events"),
+    );
+    const picker = el("div", undefined, "market-picker"),
+      chartHost = el("div");
+    const chart = KestrelCharts.create({
+      id: "overview-market",
+      className: "market-chart",
+      headline: false,
+      legend: false,
+    });
+    function select(index) {
+      marketBenchmark = index.symbol;
+      for (const b of picker.children)
+        b.setAttribute(
+          "aria-pressed",
+          String(b.dataset.symbol === index.symbol),
+        );
+      const headline = el("div", undefined, "market-quote");
+      const identity = el("div"),
+        figure = el("div");
+      identity.append(el("strong", index.symbol), el("span", index.name));
+      figure.append(
+        el("strong", money(index.price)),
         el(
-          "p",
-          `AI stocks ${ai.from_high > -0.0005 ? "at their high" : `${(ai.from_high * 100).toFixed(1).replace("-", "−")}% below their 52-week high`}`,
-          "cockpit-sub",
+          "span",
+          index.change == null ? "—" : percent(index.change),
+          tone(index.change),
         ),
       );
+      headline.append(identity, figure);
+      chartHost.replaceChildren(
+        headline,
+        chart,
+        el(
+          "p",
+          index.asof
+            ? `Stored daily closes through ${shortDate(index.asof)}`
+            : "Awaiting the first stored close",
+          "market-asof",
+        ),
+      );
+      chart.update({
+        points: index.history.map((p) => ({
+          ...p,
+          at: p.day,
+          x: Date.parse(p.day),
+          value: p.close,
+        })),
+        label: `${index.symbol} stored closing prices`,
+        empty: "Awaiting stored closing prices",
+        series: [
+          {
+            id: "close",
+            label: index.symbol,
+            color: "var(--accent)",
+            value: (p) => p.value,
+          },
+        ],
+        xFormat: (p) => KestrelCharts.date(p.at),
+        timeFormat: (p) => p.day,
+        tooltipRows: (p) => [["Close", money(p.close)]],
+      });
+    }
+    for (const index of hub.benchmarks.slice(0, 3)) {
+      const b = el("button", index.symbol);
+      b.dataset.symbol = index.symbol;
+      b.onclick = () => select(index);
+      picker.append(b);
+    }
+    box.append(title, picker, chartHost, benchmarkStrip(hub));
+    const first =
+      hub.benchmarks.find((index) => index.symbol === marketBenchmark) ||
+      hub.benchmarks[0];
+    if (first) select(first);
+    return box;
+  }
+  function cockpitBooks(books) {
+    const box = el("article", undefined, "cockpit-card cockpit-books");
+    const title = el("div", undefined, "workspace-panel-title");
+    title.append(el("h2", "PAPER books"), link("Learning ↗", "#learning"));
+    box.append(title);
+    for (const book of books) {
+      const card = el("section", undefined, "market-book");
+      const head = el("div", undefined, "market-book-heading");
+      head.append(
+        el("h3", book.title),
+        el(
+          "span",
+          book.trading_pnl == null
+            ? "—"
+            : `${book.trading_pnl > 0 ? "+" : ""}${money(book.trading_pnl)} P/L`,
+          tone(book.trading_pnl),
+        ),
+      );
+      const data = el("dl", undefined, "market-book-metrics");
+      for (const [label, value] of [
+        ["Marked equity", money(book.equity)],
+        ["Cash", money(book.cash)],
+        ["Pending", String(book.pending)],
+      ]) {
+        const stat = el("div");
+        stat.append(el("dt", label), el("dd", value));
+        data.append(stat);
+      }
+      card.append(head, data, el("p", book.phase));
+      const route = `#learning/${book.id}`;
+      card.append(
+        book.decision_id
+          ? link("Inspect latest decision ↗", `${route}/${book.decision_id}`)
+          : link("Open PAPER book ↗", route),
+      );
+      box.append(card);
+    }
+    if (!books.length)
+      box.append(el("p", "Waiting for the Learning ledgers.", "muted"));
+    const links = el("div", undefined, "workspace-actions");
+    links.append(
+      link("Research desk ↗", "#research"),
+      link("PAPER strategies ↗", "#paper"),
+    );
+    box.append(links);
     return box;
   }
   // Today's movers among the stocks the app is quoting on Schwab this session (no extra requests).
@@ -484,10 +586,15 @@ const KestrelResearch = (() => {
       value.append(
         el(
           "b",
-          chance == null ? "—" : `${Math.round(chance * 100)}%`,
+          chance == null ? "—" : `${Math.round(chance * 100)}% est. ITM`,
           "accent",
         ),
-        el("small", money(p.action === "SELL" ? p.max_loss : p.cost)),
+        el(
+          "small",
+          p.action === "SELL"
+            ? `Max loss ${money(p.max_loss)}`
+            : `Cost ${money(p.cost)}`,
+        ),
       );
       row.append(name, value);
       box.append(row);

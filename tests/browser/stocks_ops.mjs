@@ -30,7 +30,7 @@ try {
     assert.match(await positions.innerText(), /quotes/);
     assert.match(
       await page.locator("body").innerText(),
-      /1 with unknown greeks/,
+      /1 positions? ha(?:s|ve) incomplete Greeks/,
     );
     if (width === 375) {
       const tiles = await page

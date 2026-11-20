@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>KESTREL Stocks · PAPER</title>
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#f4f3ee" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
     <link
       rel="preload"
@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="/assets/calculator.css" />
     <link rel="stylesheet" href="/assets/account.css" />
     <link rel="stylesheet" href="/assets/neon.css" />
+    <link rel="stylesheet" href="/assets/workspace.css" />
     <script src="/assets/charts.js" defer></script>
     <script src="/assets/stock_page.js" defer></script>
     <script src="/assets/events.js" defer></script>
@@ -41,23 +42,50 @@
     <script src="/assets/play_comparison.js" defer></script>
     <script src="/assets/plays.js" defer></script>
     <script src="/assets/risk.js" defer></script>
+    <script src="/assets/capital.js" defer></script>
     <script src="/assets/account.js" defer></script>
     <script src="/assets/stocks.js" defer></script>
   </head>
   <body>
+    <aside class="workspace-rail">
+      <a class="rail-brand" href="#dashboard">
+        <img src="/assets/mark.svg" width="26" height="26" alt="" />
+        <span>KESTREL<small>MARKET RESEARCH</small></span>
+      </a>
+      <nav aria-label="Main">
+        <div class="rail-group">
+          <span>Workspace</span>
+          <a href="#dashboard">Overview</a>
+          <a href="#stocks">Stocks</a>
+          <a href="#options">Options</a>
+          <a href="#events">Events</a>
+          <a href="#plays">Plays</a>
+        </div>
+        <div class="rail-group">
+          <span>Simulation</span>
+          <a href="#paper">PAPER</a>
+          <a href="#portfolio">Portfolio lab</a>
+          <a href="#risk">Portfolio risk</a>
+          <a href="#learning">Learning</a>
+          <a href="#learner">Learner</a>
+        </div>
+        <div class="rail-group">
+          <span>Research &amp; data</span>
+          <a href="#research">Research desk</a>
+          <a href="#proof">Evidence</a>
+          <a href="#account">Schwab account</a>
+          <a href="#system">System</a>
+          <a href="#settings">Settings</a>
+        </div>
+      </nav>
+    </aside>
     <header>
       <a class="brand" href="#dashboard"
-        ><img src="/assets/mark.svg" width="24" height="24" alt="" /> KESTREL
-        <span>Research</span></a
+        ><img src="/assets/mark.svg" width="22" height="22" alt="" /> KESTREL</a
       >
-      <nav aria-label="Main">
-        <a href="#dashboard">Home</a><a href="#stocks">Stocks</a
-        ><a href="#options">Options</a><a href="#events">Events</a
-        ><a href="#plays">Plays</a><a href="#paper">Paper</a
-        ><a href="#learning">Learning</a><a href="#learner">Learner</a
-        ><a href="#research">Research</a><a href="#proof">Evidence</a
-        ><a href="#account">Account</a>
-      </nav>
+      <div class="workspace-path">
+        <span>Stocks</span><span id="workspace-location">Overview</span>
+      </div>
       <form id="stock-search" role="search">
         <input
           id="quick-symbol"
@@ -146,6 +174,7 @@
     <div id="more-sheet" class="more-sheet" hidden>
       <nav aria-label="More sections">
         <a href="#options">Options</a><a href="#events">Events</a
+        ><a href="#portfolio">Portfolio lab</a><a href="#risk">Portfolio risk</a
         ><a href="#learning">Learning</a><a href="#learner">Learner</a
         ><a href="#research">Research</a><a href="#proof">Evidence</a
         ><a href="#account">My Schwab account</a><a href="#system">System</a

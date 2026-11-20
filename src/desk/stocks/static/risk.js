@@ -1,7 +1,12 @@
 "use strict";
-// Whole-portfolio risk (#risk): every open PAPER options position and My tracked plays added up
-// (desk.stocks.risk). Unknown greeks are shown as unknown, never as zero.
 const KestrelRisk = (() => {
+  const scopes = {
+    overlay: "Strategy and tracked-play overlay",
+    reference_1k: "$1,000 PAPER account",
+    reference_5k: "$5,000 PAPER account",
+  };
+  let marketMove = -5,
+    volPoints = 5;
   const signed = (x, digits = 0) =>
     x === null || x === undefined
       ? "unknown"
@@ -19,27 +24,131 @@ const KestrelRisk = (() => {
     if (sub) box.append(el("small", sub, "muted"));
     return box;
   }
-  async function show(ticket) {
-    const data = await api("risk");
+  async function show(ticket, route) {
+    const account = route.split("/")[1];
+    const scope = Object.hasOwn(scopes, account) ? account : "overlay";
+    const query = new URLSearchParams({
+      scope,
+      market_move: marketMove,
+      vol_points: volPoints,
+    });
+    const data = await api(`risk?${query}`);
     if (ticket !== generation) return;
     app.className = "risk-page";
     const t = data.totals || {};
-    app.append(
-      el("div", "PAPER · RESEARCH ONLY", "eyebrow"),
+    const heading = el("div", undefined, "workspace-heading");
+    const title = el("div");
+    title.append(
       el("h1", "Portfolio risk"),
       el(
         "p",
-        `${data.paper_positions} open PAPER options position${data.paper_positions === 1 ? "" : "s"} and ${data.tracked_plays} of My tracked plays, added up.${data.unknown?.greeks ? ` ${data.unknown.greeks} with unknown greeks are left out of the totals.` : ""}`,
-        "muted",
+        data.account
+          ? "Stress the open options in one simulated account."
+          : "Inspect the open options across independent strategy books and tracked plays.",
       ),
     );
+    const destination = data.account
+      ? link("Open PAPER book", `#learning/${data.account}`)
+      : link("Open Portfolio lab", "#portfolio");
+    destination.className = "workspace-action";
+    heading.append(title, destination);
+    const form = el("form", undefined, "workspace-panel risk-controls");
+    const selector = el("select");
+    for (const [key, label] of Object.entries(scopes))
+      selector.append(new Option(label, key));
+    selector.value = scope;
+    selector.onchange = () => {
+      location.hash =
+        selector.value === "overlay" ? "risk" : `risk/${selector.value}`;
+    };
+    const field = (label, id, input) => {
+      const node = el("div", undefined, "risk-field");
+      const caption = el("label", label);
+      input.id = id;
+      caption.htmlFor = id;
+      node.append(caption, input);
+      return node;
+    };
+    function shockInput(value, min, max) {
+      const input = el("input");
+      Object.assign(input, {
+        type: "number",
+        value,
+        min,
+        max,
+        step: 1,
+        required: true,
+      });
+      return input;
+    }
+    const move = shockInput(marketMove, -25, 25),
+      vol = shockInput(volPoints, -20, 40);
+    const apply = el("button", "Apply stress", "primary");
+    form.append(
+      field("Book", "risk-book", selector),
+      field("SPY move (%)", "risk-spy-move", move),
+      field("IV change (points)", "risk-vol-points", vol),
+      apply,
+    );
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      marketMove = move.valueAsNumber;
+      volPoints = vol.valueAsNumber;
+      await render();
+      if (ticket + 1 === generation && route === location.hash.slice(1))
+        document.getElementById("risk-joint")?.focus({ preventScroll: true });
+    };
+    const summary = el("section", undefined, "workspace-panel risk-joint");
+    const joint = data.joint_scenario;
+    summary.id = "risk-joint";
+    summary.tabIndex = -1;
+    summary.append(
+      el("h2", "Combined market and volatility shock"),
+      el(
+        "p",
+        `SPY ${signed(joint.market_move * 100)}% and volatility ${signed(joint.vol_points)} points.`,
+      ),
+    );
+    const stats = el("div", undefined, "risk-joint-stats");
+    stats.append(
+      tile("Modelled change", dollars(joint.change)),
+      tile(
+        "Options repriced",
+        `${joint.covered_positions} of ${data.positions}`,
+      ),
+    );
+    if (data.account) {
+      stats.append(
+        tile(
+          "Ledger equity",
+          data.equity == null ? "unknown" : money(data.equity),
+        ),
+        tile(
+          "Impact on equity",
+          joint.equity_fraction == null
+            ? "unknown"
+            : `${signed(joint.equity_fraction * 100, 2)}%`,
+        ),
+      );
+    }
+    summary.append(stats);
+    if (data.other_positions || data.unknown.shock)
+      summary.append(
+        el(
+          "p",
+          `${data.unknown.shock} option positions could not be repriced and ${data.other_positions} non-option positions are outside the stress model.`,
+          "muted",
+        ),
+      );
+    app.append(heading, form, summary);
     if (!data.positions) {
       app.append(
         panel(
           "Nothing open",
-          "No open PAPER options positions or entered tracked plays.",
+          data.account
+            ? "This account has no open option positions."
+            : "No open PAPER options positions or entered tracked plays.",
         ),
-        link("Pick a play to track →", "#plays"),
       );
       return;
     }
@@ -90,19 +199,37 @@ const KestrelRisk = (() => {
     const grid = el("div", undefined, "risk-grid");
     grid.append(shocks, weeks);
     app.append(grid);
-    const each = panel("Positions");
+    const each = panel(
+      "Positions",
+      data.unknown?.greeks
+        ? `${data.unknown.greeks} positions have incomplete Greeks. The totals include the values that could be computed.`
+        : undefined,
+    );
     const rows = table(
-      ["Position", "Book", "Delta (sh)", "Vega", "Theta/day", "Greeks"],
-      data.rows.map((r) => [
-        r.group === "Tracked"
-          ? link(r.label, `#plays/mine/${encodeURIComponent(r.id)}`)
-          : r.label,
-        r.book,
-        signed(r.delta_shares, 1),
-        dollars(r.vega),
-        dollars(r.theta),
-        `${r.basis}${r.beta_assumed ? " · beta taken as 1" : ""}`,
-      ]),
+      [
+        "Position",
+        "Book",
+        "Shock P/L",
+        "Stock close",
+        "Delta (sh)",
+        "Vega",
+        "Theta/day",
+        "Greeks",
+      ],
+      [...data.rows]
+        .sort((a, b) => (a.combined ?? Infinity) - (b.combined ?? Infinity))
+        .map((r) => [
+          r.group === "Tracked"
+            ? link(r.label, `#plays/mine/${encodeURIComponent(r.id)}`)
+            : r.label,
+          r.book,
+          dollars(r.combined),
+          r.price_day ? `${money(r.price)} · ${r.price_day}` : "unknown",
+          signed(r.delta_shares, 1),
+          dollars(r.vega),
+          dollars(r.theta),
+          `${r.basis}${r.beta_assumed ? " · beta taken as 1" : ""}`,
+        ]),
     );
     rows.classList.add("wrap-cells");
     each.append(rows);

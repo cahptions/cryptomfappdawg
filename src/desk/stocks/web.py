@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
@@ -601,12 +601,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         with (reader(paths, RESEARCH_FILE) as research, reader(paths, learning.FILE) as ledger,
               reader(paths, MARKET_FILE) as market):
             ledger.execute("BEGIN")
-            books = []
-            for ident, title, _ in learning.ACCOUNTS:
-                if ident in learning.SMALL_ACCOUNTS:
-                    policy = learning.state(ledger, "retail:" + ident, {})
-                    books.append({"id": ident, "title": title, "phase": policy.get("phase", "Waiting for a decision"),
-                                  "decision_id": policy.get("decision_id") or learning_decision.latest_id(ledger, ident)})
+            books = learning_decision.books(ledger)
             settings = config.settings.stocks
             iv = research_controls.enabled(paths, "iv_forward_study", settings.iv_forward_study)
             quotes = research_controls.enabled(paths, "quote_research_trial", settings.quote_research_trial)
@@ -809,7 +804,13 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                               "category": category.get("title"),
                               "idea_id": idea_id(board["asof"], category["id"], str(board.get("method", "unknown")),
                                                  play)})
-        return {**value, "cockpit": {"plays": mine, "ideas": ideas, "ideas_asof": board.get("asof"), "movers": movers}}
+        from desk.stocks import learning, learning_decision
+
+        with reader(paths, learning.FILE) as ledger:
+            ledger.execute("BEGIN")
+            books = learning_decision.books(ledger)
+        return {**value, "cockpit": {"plays": mine, "ideas": ideas, "ideas_asof": board.get("asof"),
+                                     "movers": movers, "books": books}}
 
     @app.post("/api/stocks/ui")
     def ui_preferences(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -1291,15 +1292,77 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
         return diagnose(paths)
 
+    @app.get("/api/stocks/portfolio")
+    def capital_lab(source: Literal["forward", "replay"] = "forward",
+                    accounts: Annotated[list[str] | None, Query()] = None,
+                    window: Literal["63", "126", "252"] = "126",
+                    reserve: int = Query(default=20, ge=0, le=80),
+                    cap: int = Query(default=60, ge=1, le=100),
+                    entry_bps: int = Query(default=10, ge=0, le=100)) -> dict[str, Any]:
+        from desk.stocks import capital
+        from desk.stocks.paper.report import recovery_sessions, spy_total
+
+        report = (evidence_document(paths, "report", kind="backtest") if source == "replay"
+                  else saved_view(paths, "paper")) or {}
+        metadata = {a["id"]: {"id": a["id"], "title": a["title"], "asset": a["asset"], "sessions": a["sessions"],
+                              "mixed_specifications": a.get("mixed_specifications", False)}
+                    for a in report.get("accounts", []) if not a.get("baseline")}
+        available = sorted(metadata.values(), key=lambda row: (row["asset"], row["title"]))
+        base = {"source": source, "accounts": available, "run_id": report.get("run_id"),
+                "report_at": report.get("generated_at")}
+        if not accounts:
+            return {**base, "status": "select"}
+        if len(set(accounts)) != len(accounts) or not 2 <= len(accounts) <= 8 or any(a not in metadata for a in accounts):
+            raise HTTPException(422, "Choose two to eight distinct available strategies.")
+        report_curves = {a["id"]: a["curve"] for a in report.get("accounts", [])}
+        if source == "replay":
+            curves = {a: {date.fromisoformat(row["day"]): row["equity"] for row in report_curves[a][-(int(window) + 1):]}
+                      for a in accounts}
+            excluded: set[date] = set()
+        else:
+            with reader(paths, LEDGER_FILE) as ledger:
+                ledger.execute("BEGIN")
+                curves, excluded = capital.ledger_curves(ledger, accounts, int(window))
+                excluded |= recovery_sessions(PaperBook(ledger))
+        if source == "replay" and "spy_total_curve" in report:
+            benchmark = {date.fromisoformat(day): level for day, level in report["spy_total_curve"].items()}
+            benchmark_basis = "Frozen with replay"
+        elif source == "replay":
+            benchmark = {date.fromisoformat(row["day"]): row["equity"] for row in report_curves.get("spy_hold", [])}
+            benchmark_basis = "Saved Hold SPY simulation including its trading costs and cash"
+        else:
+            since = min((min(curve) for curve in curves.values() if curve), default=utc_now().date())
+            with reader(paths, MARKET_FILE) as market:
+                market.execute("BEGIN")
+                benchmark = spy_total(StocksMarket(market), since)
+            benchmark_basis = "Total return from the current market store"
+        try:
+            result = capital.compare(curves, benchmark, excluded, window=int(window), reserve=reserve / 100,
+                                     cap=cap / 100, entry_bps=entry_bps)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {**base, **result, "benchmark_basis": benchmark_basis}
+
     @app.get("/api/stocks/risk")
-    def portfolio_risk() -> dict[str, Any]:
+    def portfolio_risk(scope: Literal["overlay", "reference_1k", "reference_5k"] = "overlay",
+                       market_move: int = Query(default=-5, ge=-25, le=25),
+                       vol_points: int = Query(default=5, ge=-20, le=40)) -> dict[str, Any]:
+        from desk.stocks.learning import FILE as LEARNING_FILE
         from desk.stocks.risk import portfolio
 
+        account = None if scope == "overlay" else scope
+        ledger_file = LEDGER_FILE if account is None else LEARNING_FILE
+        now = utc_now()
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
-            if (paths.db_dir / LEDGER_FILE).exists():
-                with reader(paths, LEDGER_FILE) as ledger:
-                    return portfolio(ledger, research, market, utc_now())
-            return portfolio(None, research, market, utc_now())
+            market.execute("BEGIN")
+            research.execute("BEGIN")
+            if (paths.db_dir / ledger_file).exists():
+                with reader(paths, ledger_file) as ledger:
+                    ledger.execute("BEGIN")
+                    return portfolio(ledger, research, market, now, account=account,
+                                     market_move=market_move / 100, vol_points=vol_points / 100)
+            return portfolio(None, research, market, now, account=account,
+                             market_move=market_move / 100, vol_points=vol_points / 100)
 
     @app.get("/api/stocks/alerts")
     def alert_settings() -> dict[str, Any]:

@@ -1352,6 +1352,16 @@ async function render() {
   app.replaceChildren();
   app.className = "";
   const section = "#" + route.split("/")[0];
+  const name = document.querySelector(
+    `.workspace-rail .rail-group a[href="${CSS.escape(section)}"]`,
+  )?.textContent;
+  document.getElementById("workspace-location").textContent =
+    name ||
+    (section === "#stock"
+      ? "Stock profile"
+      : section === "#lists"
+        ? "Research lists"
+        : "Overview");
   for (const a of document.querySelectorAll("nav a:not(#worker-pill)")) {
     if (a.hash === section) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -1394,7 +1404,9 @@ async function render() {
       await KestrelLearning.show(ticket, route);
     else if (route === "research") await KestrelResearchDesk.show(ticket);
     else if (route === "learner") await KestrelLearner.show(ticket);
-    else if (route === "risk") await KestrelRisk.show(ticket);
+    else if (route === "portfolio") await KestrelCapital.show(ticket);
+    else if (route === "risk" || route.startsWith("risk/"))
+      await KestrelRisk.show(ticket, route);
     else if (route === "proof") await KestrelEvidence.show(ticket);
     else if (route === "events") await KestrelEvents.show(ticket);
     else if (route === "settings") await settingsPage();
@@ -1471,6 +1483,7 @@ async function refresh(initial = false) {
       location.hash !== "#learning" &&
       !location.hash.startsWith("#learning/") &&
       location.hash !== "#paper" &&
+      location.hash !== "#portfolio" &&
       !location.hash.startsWith("#plays/")
     ) {
       // new research results replace the page in place; while you are typing or dragging they wait a turn
