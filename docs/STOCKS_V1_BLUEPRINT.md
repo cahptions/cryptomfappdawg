@@ -87,6 +87,14 @@ Show the midpoint, executable-side scenario, and the conservative size-constrain
 
 A common stress control on Plays lets a person compare whole-unit expiry payoffs with holding cash under the same percentage move. For different underlyings label this as an equal-percentage shock scenario. Do not silently equate it with a joint probability or a pre-expiry sale. Resolve the $1K and $5K book feasibility separately. A strategy with good mean return per filled trade may lose per submitted intent or be unusable for the smaller account.
 
+## Learning from the plays it turns down
+
+Keep a small prospectively sampled book of declined opportunities. Each sampled case records the actual reason for passing, the selection probability, the cheapest feasible alternative, and how it would be graded later. Follow it on the same clock and with the same price requirements as accepted ideas. An unaffordable play can supply a research observation about direction while contributing zero deployable opportunities for that book. Keep the two counts visible. Extend the existing rejected-idea sampling in `learner/forward.py` before creating another store.
+
+Ask the desk to find its own recurring mistakes. Did a spread threshold reject many subsequently marketable, fee-positive trades? Was apparent success explained by rejected losers it never followed? Have the system nominate one narrow change, freeze it, and race it against the unchanged policy on future matched cases. Publish rejected winners, avoided losses, unobservable exits and the opportunity cost of waiting. Grade the new rule prospectively.
+
+Build a **blind replay**. Show a real archived decision with only the information available then. Let the operator predict what KESTREL did, identify its weakest input, or choose cash. Reveal the next receipt and eventual outcome one step at a time. An operator can practice reading the system, and the team can discover which labels cause predictable mistakes. Reuse the historical/replay routes and keep user choices separate from study labels. Measure whether practice improves later decisions on different cases.
+
 ## The screen an operator should want to open
 
 Home should answer one question first, in the operator's own book. Examples include “Why is PAPER waiting?”, “What changed since I last looked?” and “What evidence would make this play affordable and tradable?” Link directly to the decision, not just the top of a tab. Preserve account, case, scroll position and as-of time through refresh, Back and a phone rotation. Keep the full specialist views as drill-downs.
