@@ -1,5 +1,19 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Stocks v1.0 · Small-book decision history
+
+- In Learning, open either small PAPER account and select **Why this book waited** or **View PAPER decision**.
+  A shareable link shows the ledger cash at the original decision, the recorded quote and policy, the next
+  condition, and later fills or cancellations. Orders also link back to the original decision.
+- The worker records real cash, policy and quote waits in the ledger. Repeated waits with the same session,
+  cash and reason reuse one decision. Older decisions show the original values that were saved.
+- A synthetic test reopened the exact wait after another quote, a later deposit and a dashboard restart.
+  Chromium exercised both accounts at 375 and 1366 pixels. A disposable managed PAPER run committed all
+  25 accounts and preserved its ledger counts after pause/start. The prior Plays failures passed after
+  correcting both fixture clocks to publish the board after the recorded quotes arrived.
+- Dell acceptance still needs the authenticated worker and the operator's own decision data. See
+  [v1.0 handoff](docs/STOCKS_V1_HANDOFF.md) for the remaining experiment and measurement requirements.
+
 ## 2026-11-20 — Stocks v1.0 research design and recovery handoff
 
 - [Blueprint](docs/STOCKS_V1_BLUEPRINT.md) covers decision-time reasoning per PAPER book, a research budget,
