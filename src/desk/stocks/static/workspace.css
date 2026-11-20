@@ -235,3 +235,76 @@ header .badge {
   .tabbar a[aria-current="page"] { color: var(--accent); }
   .tabbar a[aria-current="page"] svg { stroke-width: 2; }
 }
+
+.market-workspace .cockpit {
+  grid-template-columns: minmax(0, 1.6fr) minmax(310px, 1fr);
+  grid-template-areas: "market books" "ideas movers" "plays plays" "event event";
+  gap: 16px;
+}
+.market-workspace .cockpit-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: clamp(16px, 2vw, 24px);
+  background: var(--surface-1);
+  box-shadow: none;
+}
+.market-workspace .cockpit-plays {
+  display: block;
+}
+.market-workspace .cockpit-books { grid-area: books; }
+.market-workspace .cockpit-card-head h2, .market-workspace .workspace-panel-title h2 { font-size: 20px; }
+.market-picker { display:flex; gap:7px; }
+.market-picker button {
+  min-height: 33px;
+  min-width: 47px;
+  padding: 4px 10px;
+  font-weight: 650;
+  font-size: 12px;
+}
+.market-picker button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+.market-quote {
+  display:flex;
+  justify-content:space-between;
+  align-items:end;
+  gap:12px;
+  padding-block: 13px 4px;
+}
+.market-quote > div { display:grid; }
+.market-quote > div:last-child { text-align:right; }
+.market-quote strong { font-size:clamp(25px,3.5vw,38px); line-height:1.1; letter-spacing:-0.045em; }
+.market-quote span, .market-asof { font-size:12px; color:var(--text-2); }
+.market-asof { margin:8px 0 13px; }
+.market-chart .kc-plot { min-height: 140px; }
+.market-chart svg { max-height: 190px; }
+.market-workspace .cockpit-market .benchmark-strip {
+  grid-template-columns:repeat(6,minmax(0,1fr));
+  gap:5px;
+}
+.market-workspace .benchmark-card { padding:7px; }
+.market-workspace .benchmark-card .benchmark-label span { display:none; }
+.market-workspace .benchmark-card strong { font-size:12px; }
+.market-workspace .benchmark-card .spark { display:none; }
+.market-book { border-block-start:1px solid var(--line); padding: 15px 0; }
+.market-book h3, .market-book p { margin:0; }
+.market-book p { font-size:13px; color:var(--text-2); margin-block: 9px 7px; }
+.market-book > a, .workspace-actions a { font-weight:620; font-size:13px; color:var(--accent); }
+.market-book-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.market-book-heading h3 { font-size:16px; }
+.market-book-heading span { font-size:12px; }
+.market-book-metrics { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; margin: 12px 0 0; }
+.market-book-metrics dt { color:var(--text-2); font-size:11px; }
+.market-book-metrics dd { margin:3px 0 0; font-size:clamp(14px,1.65vw,20px); font-weight:670; font-variant-numeric:tabular-nums; }
+.workspace-actions { display:flex; flex-wrap:wrap; gap:8px 16px; border-block-start:1px solid var(--line); padding-block-start:11px; }
+.market-workspace .cockpit-card.cockpit-plays { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 20px; }
+.market-workspace .cockpit-plays .cockpit-list { flex-basis:100%; }
+.market-workspace .cockpit-plays .cockpit-figure { font-size:25px; }
+.market-workspace .cockpit-plays .cockpit-sub { margin:0; }
+.market-workspace .cockpit-event { background:var(--surface-2); }
+@media (max-width: 760px) {
+  .market-workspace .cockpit {
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"market" "books" "ideas" "movers" "plays" "event";
+  }
+  .market-workspace .cockpit-market .benchmark-strip { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .market-book-metrics dd { font-size:18px; }
+}
