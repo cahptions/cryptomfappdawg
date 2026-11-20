@@ -1354,6 +1354,8 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         ledger_file = LEDGER_FILE if account is None else LEARNING_FILE
         now = utc_now()
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
+            market.execute("BEGIN")
+            research.execute("BEGIN")
             if (paths.db_dir / ledger_file).exists():
                 with reader(paths, ledger_file) as ledger:
                     ledger.execute("BEGIN")

@@ -3,7 +3,7 @@
 ## 2026-11-20 — Stocks research workspace and portfolio tools
 
 - The shared desktop navigation and visual system cover Stocks. Overview opens with recent market closes and
-  the two real simulated-book balances. PAPER uses a strategy library and a dedicated detail pane. Learning,
+  the ledger balances for both small simulated books. PAPER uses a strategy library and a dedicated detail pane. Learning,
   Plays, Learner, and Research bring the next action and underlying evidence into the main workflow.
 - Portfolio lab compares capped risk-weighted and equal-weight strategy allocations against SPY and cash on
   the same later sessions, with explicit cash and cost assumptions, coverage counts, uncertainty and an input
@@ -15,6 +15,8 @@
 - The managed PAPER fixture served the session API in 3.62s and committed 25 accounts in 11.65s. It retained ledger
   row counts after pause/resume and passed SQLite integrity checks. Authenticated Dell and untouched results are
   pending. See the [operator handoff](docs/STOCKS_INSTITUTIONAL_HANDOFF.md) for commands and verification.
+- The shared provider budget now timestamps each grant after obtaining the SQLite write transaction. A regression
+  test exercises lock contention. The cross-process budget test passed with the correction.
 
 ## 2026-11-20 — Keep your place during Stocks refreshes
 
