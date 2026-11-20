@@ -826,8 +826,10 @@ const KestrelLearning = (() => {
     if (ticket !== generation) return;
     app.className = "paper-page learning-page";
     const header = el("section", undefined, "paper-status");
+    const back = link(`← Back to the ${data.title}`, `#learning/${book}`);
+    back.className = "workspace-action";
     header.append(
-      link(`← Back to the ${data.title}`, `#learning/${book}`),
+      back,
       el(
         "h1",
         replay

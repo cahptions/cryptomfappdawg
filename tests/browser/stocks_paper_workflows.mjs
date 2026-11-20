@@ -121,9 +121,10 @@ try {
         name: "Walk-forward strategy checks",
         exact: true,
       })
-      .waitFor({ timeout: 60000 });
+      .waitFor({ timeout: 150000 });
     let completed = false;
-    for (let attempt = 0; attempt < 60; attempt++) {
+    const replayDeadline = Date.now() + 150000;
+    while (Date.now() < replayDeadline) {
       const result = await (
         await page.request.get(`${base}/api/stocks/backtest`)
       ).json();

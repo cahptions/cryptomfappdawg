@@ -33,6 +33,7 @@ New replays freeze SPY total returns in their report. Older replays use their sa
 ## Verification and limits
 
 - Reproduced with synthetic data. Perturbing held-out returns changed the outcome and input fingerprint while leaving the fit and allocations identical. Deposits, recovery sessions and a missing equity mark were excluded. Replay used its saved benchmark. Two different contract counts repriced separately in the small books and reconciled to each book's own equity.
+- A completed disposable 63-session backtest supplied 62 matched returns for Momentum and Undervalued, with 42 in the fit and 20 held out. With 20% cash, 60% maximum invested weight and a 10 bp entry cost, the risk-weighted blend returned 5.17%, equal weight 5.24%, the SPY blend 3.77%, and cash 0.00%. The underlying market and fills were synthetic.
 - Reproduced with a managed disposable runtime. The session API responded in 3.62s and PAPER committed 25 accounts in 11.65s. Pause and resume kept 25 cash rows, 40 decisions, 25 equity rows and no positions in that fixture. SQLite integrity and foreign-key checks passed.
 - Dell evidence pending. Real time to first view, data freshness, memory and weekly training cost, recovery through provider expiry, and portfolio comparison coverage on actual account logs. Hedge-fund readiness would also require locked prospective results net of credible execution costs, independent reconciliation, and operator usability measurements.
 
