@@ -380,7 +380,9 @@ const KestrelPlaysHistory = (() => {
           historyTimer = setTimeout(poll, 20000);
           return;
         }
-        await seamless(() => history(ticket, when, fetched));
+        const swapped = await seamless(() => history(ticket, when, fetched));
+        if (!swapped && ticket === generation && serial === historySerial)
+          historyTimer = setTimeout(poll, 20000);
       } catch {
         historyTimer = setTimeout(poll, 20000);
       }

@@ -522,16 +522,29 @@ const KestrelEvidence = (() => {
         }
       };
       if (timer) clearTimeout(timer);
-      if (job.running)
-        timer = setTimeout(async () => {
-          if (ticket !== generation) return;
+      async function poll() {
+        if (ticket !== generation) return;
+        if (!userBusy()) {
           try {
-            data = await api("proof");
-            await seamless(async () => draw());
+            const next = await api("proof");
+            if (ticket !== generation) return;
+            if (
+              !userBusy() &&
+              (await seamless(() => {
+                data = next;
+                draw();
+              }))
+            )
+              return;
           } catch (error) {
-            progress.append(el("p", error.message, "error"));
+            preserveScroll(() =>
+              progress.append(el("p", error.message, "error")),
+            );
           }
-        }, 2000);
+        }
+        if (ticket === generation) timer = setTimeout(poll, 2000);
+      }
+      if (job.running) timer = setTimeout(poll, 2000);
     }
     draw();
   }

@@ -1,5 +1,16 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Keep your place during Stocks refreshes
+
+- PAPER and Learning fetch the next visible rows before replacing the current view. A stock detail refresh
+  stages the profile and option chain together. PAPER replay stages its selected session before swapping.
+- Shared refreshes wait for scrolling to settle and preserve a visible heading or row when content above it
+  changes. A delayed response cannot overwrite a page opened while the request was running.
+- In the phone-width repro, a delayed PAPER response previously sent scroll position from 5,540 to 3,488 pixels.
+  The corrected view stayed at 5,540 throughout. Chromium checked slow refreshes, active scrolling and
+  navigation during a delayed reply across 20 routes at 375px and 1366px. The PAPER chart and replay
+  workflows passed, and 57 targeted automated tests passed.
+
 ## 2026-11-20 — Stocks v1.0 · Quote follow-ups and midpoint changes
 
 - A quote follow-up freezes the exact contracts and decision-time cash. A later synchronized receipt with

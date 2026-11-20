@@ -424,17 +424,26 @@ const KestrelPaper = (() => {
     if (ticket !== generation) return;
     app.className = "paper-page";
     let timer;
-    function draw() {
+    const accountId = (accounts) =>
+      accounts.some((a) => a.id === selected)
+        ? selected
+        : accounts.find((a) => !a.baseline && a.open_positions)?.id ||
+          accounts.find((a) => !a.baseline)?.id ||
+          accounts[0]?.id ||
+          "";
+    const tradePageUrl = (account) =>
+      `paper/trades?account=${encodeURIComponent(account)}&state=${tradeTab === "closed" ? "CLOSED" : "OPEN"}&limit=12&offset=${tradeOffset}&symbol=${encodeURIComponent(filter)}`;
+    const equityUrl = (account) =>
+      `paper/equity?account=${encodeURIComponent(account)}`;
+    const viewKey = () =>
+      JSON.stringify([record, selected, tradeTab, tradeOffset, filter]);
+
+    function draw(preloaded = {}) {
       if (ticket !== generation) return;
       const report = record === "live" ? live.report : backtest.report,
         accounts = report?.accounts || [],
         titles = names(accounts);
-      if (!accounts.some((a) => a.id === selected))
-        selected =
-          accounts.find((a) => !a.baseline && a.open_positions)?.id ||
-          accounts.find((a) => !a.baseline)?.id ||
-          accounts[0]?.id ||
-          "";
+      selected = accountId(accounts);
       const account = accounts.find((a) => a.id === selected),
         hero = el("div", undefined, "explorer-heading"),
         heading = el("div"),
@@ -774,12 +783,16 @@ const KestrelPaper = (() => {
         }),
       );
       if (record === "historical" && report.run_id) {
-        app.append(
-          KestrelReplay.panel(report, account, ticket, titles, tradeDialog),
-          walkForward(report),
+        const replay = KestrelReplay.panel(
+          report,
+          account,
+          ticket,
+          titles,
+          tradeDialog,
         );
+        app.append(replay.host, walkForward(report));
         poll();
-        return;
+        return replay.load();
       }
       const behavior = el(
         "p",
@@ -806,26 +819,34 @@ const KestrelPaper = (() => {
         metric("Closed-trade win rate", percent(account.win_rate)),
       );
       const benchmark = accounts.find((a) => a.id === "spy_hold")?.curve || [];
-      const curveHost = equityChart(account, {
+      const curveAccount = preloaded.curve
+        ? { ...account, curve: preloaded.curve }
+        : account;
+      const curveHost = equityChart(curveAccount, {
         benchmark,
         trades: live.trades?.filter((p) => p.account === account.id) || [],
       });
       app.append(metrics, curveHost);
-      if (record === "live")
-        api(`paper/equity?account=${encodeURIComponent(account.id)}`)
+      if (record === "live" && !preloaded.curve)
+        api(equityUrl(account.id))
           .then((data) => {
             if (
               ticket === generation &&
               curveHost.isConnected &&
               JSON.stringify(data.curve) !== JSON.stringify(account.curve || [])
             ) {
-              account.curve = data.curve;
-              curveHost.replaceWith(
-                equityChart(account, {
-                  benchmark,
-                  trades:
-                    live.trades?.filter((p) => p.account === account.id) || [],
-                }),
+              preserveScroll(() =>
+                curveHost.replaceWith(
+                  equityChart(
+                    { ...account, curve: data.curve },
+                    {
+                      benchmark,
+                      trades:
+                        live.trades?.filter((p) => p.account === account.id) ||
+                        [],
+                    },
+                  ),
+                ),
               );
             }
           })
@@ -879,37 +900,54 @@ const KestrelPaper = (() => {
         ),
         pending = (source.pending || []).filter((o) => o.account === selected);
       let tradeRequest = 0;
-      async function tradeContent() {
+      async function tradeContent(page) {
         const request = ++tradeRequest;
         filter = search.value
           .toUpperCase()
           .trim()
           .replace(/[^A-Z0-9.-]/g, "");
-        content.replaceChildren();
-        let pageTotal;
-        if (record === "live") {
-          try {
-            const page = await api(
-              `paper/trades?account=${encodeURIComponent(selected)}&state=${tradeTab === "closed" ? "CLOSED" : "OPEN"}&limit=12&offset=${tradeOffset}&symbol=${encodeURIComponent(filter)}`,
-            );
-            if (
-              request !== tradeRequest ||
-              ticket !== generation ||
-              !content.isConnected
-            )
-              return;
-            trades = page.trades;
-            decisions = page.decisions;
-            pending = page.pending;
-            pageTotal = page.total;
-          } catch (error) {
-            if (request === tradeRequest && content.isConnected)
-              content.append(el("p", error.message, "error"));
-            return;
-          }
-        }
         for (const b of views.children)
           b.setAttribute("aria-selected", String(b.dataset.id === tradeTab));
+        if (record === "live" && !page) {
+          // Keep the layout while loading, but prevent opening a trade from the previous tab.
+          content.inert = true;
+          content.setAttribute("aria-busy", "true");
+          try {
+            page = await api(tradePageUrl(selected));
+          } catch (error) {
+            if (
+              request === tradeRequest &&
+              ticket === generation &&
+              content.isConnected
+            )
+              preserveScroll(() =>
+                content.replaceChildren(el("p", error.message, "error")),
+              );
+            return;
+          } finally {
+            if (request === tradeRequest) {
+              content.inert = false;
+              content.removeAttribute("aria-busy");
+            }
+          }
+        }
+        if (
+          request !== tradeRequest ||
+          ticket !== generation ||
+          !content.isConnected
+        )
+          return;
+        if (page) {
+          trades = page.trades;
+          decisions = page.decisions;
+          pending = page.pending;
+        }
+        if (app.contains(content) && app.id === "app")
+          preserveScroll(() => renderTrades(page?.total));
+        else renderTrades(page?.total);
+      }
+      function renderTrades(pageTotal) {
+        content.replaceChildren();
         function paging(total) {
           if (total <= 12) return;
           const controls = el("div", undefined, "evidence-actions"),
@@ -940,6 +978,7 @@ const KestrelPaper = (() => {
           const matching = decisions.filter((d) => d.symbol.includes(filter));
           for (const d of matching.slice(tradeOffset, tradeOffset + 12)) {
             const row = el("article");
+            if (d.id != null) row.dataset.scrollKey = `paper-decision-${d.id}`;
             row.append(
               el(
                 "strong",
@@ -1000,6 +1039,7 @@ const KestrelPaper = (() => {
         for (const p of rows) {
           const b = el("button", undefined, "paper-trade-card"),
             pl = p.state === "CLOSED" ? p.pnl : p.unrealized_pnl;
+          b.dataset.scrollKey = `paper-position-${p.id}`;
           b.append(
             el("span", p.symbol, "paper-symbol"),
             el("small", p.structure.replaceAll("_", " ")),
@@ -1060,8 +1100,8 @@ const KestrelPaper = (() => {
         tradeContent();
       };
       section.append(views, content);
-      tradeContent();
       app.append(section);
+      tradeContent(preloaded.page);
       if (record === "historical") {
         const wf = el("section", undefined, "screen-card");
         wf.append(
@@ -1104,15 +1144,6 @@ const KestrelPaper = (() => {
       }
       poll();
     }
-    // A refresh rebuilds the page in place: same scroll position, same focused control.
-    function redraw() {
-      const top = scrollY,
-        focused = document.activeElement;
-      draw();
-      if (focused?.isConnected && document.activeElement !== focused)
-        focused.focus({ preventScroll: true });
-      scrollTo({ top, behavior: "instant" });
-    }
     function poll() {
       clearTimeout(timer);
       timer = setTimeout(
@@ -1137,10 +1168,14 @@ const KestrelPaper = (() => {
             ]);
             const signature = (l, b) =>
               JSON.stringify([
-                l.report?.accounts,
-                l.historical_replays,
-                l.session_status,
-                l.trades?.map((p) => [p.id, p.state, p.unrealized_pnl]),
+                ...(record === "live"
+                  ? [
+                      l.report?.accounts,
+                      l.historical_replays,
+                      l.session_status,
+                      l.trades?.map((p) => [p.id, p.state, p.unrealized_pnl]),
+                    ]
+                  : []),
                 b.job?.running,
                 b.job?.status,
                 b.job?.auto_enabled,
@@ -1149,17 +1184,44 @@ const KestrelPaper = (() => {
               ]);
             const changed =
               signature(live, backtest) !== signature(nextLive, next);
-            live = nextLive;
-            backtest = next;
-            if (changed) seamless(async () => draw());
-            else {
+            if (ticket !== generation) return;
+            if (changed) {
+              const key = viewKey();
+              const id =
+                record === "live"
+                  ? accountId(nextLive.report?.accounts || [])
+                  : "";
+              const [page, equity] = id
+                ? await Promise.all([api(tradePageUrl(id)), api(equityUrl(id))])
+                : [];
+              if (ticket !== generation) return;
+              if (
+                key !== viewKey() ||
+                userBusy() ||
+                app.querySelector(".kc-plot:hover")
+              ) {
+                poll();
+                return;
+              }
+              // Build from complete trades and chart data. A temporary short page clamps scrollY.
+              const swapped = await seamless(() => {
+                live = nextLive;
+                backtest = next;
+                return draw({ page, curve: equity?.curve });
+              });
+              if (!swapped && ticket === generation) poll();
+            } else {
+              live = nextLive;
+              backtest = next;
               const phase = app.querySelector(
                   ".paper-backtest-controls [role='status']",
                 ),
                 progress = app.querySelector(
                   ".paper-backtest-controls progress",
                 );
-              if (phase) phase.textContent = next.job?.phase || "Ready";
+              const label = next.job?.phase || "Ready";
+              if (phase && phase.textContent !== label)
+                preserveScroll(() => (phase.textContent = label));
               if (progress && next.job?.total) {
                 progress.max = next.job.total;
                 progress.value = next.job.completed;
@@ -1167,14 +1229,16 @@ const KestrelPaper = (() => {
               poll();
             }
           } catch (e) {
-            statusLine.textContent = e.message;
+            if (ticket !== generation) return;
+            if (statusLine.textContent !== e.message)
+              preserveScroll(() => (statusLine.textContent = e.message));
             poll();
           }
         },
         backtest.job?.running ? 2000 : 10000,
       );
     }
-    draw();
+    await draw();
   }
   return { show, tradeDialog };
 })();

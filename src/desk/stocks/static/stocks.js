@@ -603,12 +603,14 @@ function discover(selected) {
     content.append(card);
     try {
       const detail = await api(`lists/${encodeURIComponent(id)}`);
-      if (select.value !== id) return;
-      if (detail.rule)
-        how.textContent += ` · Rule: ${detail.rule}${detail.claim ? ` · tested for: ${detail.claim}` : ""}`;
-      rows.replaceChildren(
-        ...detail.rows.map((r) => row(r, list.options_clock)),
-      );
+      if (select.value !== id || !rows.isConnected) return;
+      preserveScroll(() => {
+        if (detail.rule)
+          how.textContent += ` · Rule: ${detail.rule}${detail.claim ? ` · tested for: ${detail.claim}` : ""}`;
+        rows.replaceChildren(
+          ...detail.rows.map((r) => row(r, list.options_clock)),
+        );
+      });
     } catch (error) {
       card.append(el("p", error.message, "error"));
     }
@@ -1177,12 +1179,15 @@ async function settingsPage() {
   updateConnectionControls();
 }
 // ── live updates without a visible reload ──────────────────────────────────────────────────────
-// A background update builds the next version of the page off screen, while the current one stays in use, and then
-// swaps it in within one frame: same layout, scroll position, open sections, focused control and chart readout, so
-// only the values that changed look different (as in a brokerage app). It waits only while you are typing, dragging,
-// selecting text or have a dialog open.
+// Keep the visible content in place when a background refresh changes the height above it.
+const SCROLL_IDLE_MS = 300;
 let pointer = null,
-  pressed = false;
+  pressed = false,
+  lastScroll = -Infinity;
+for (const type of ["scroll", "wheel", "touchmove"])
+  window.addEventListener(type, () => (lastScroll = performance.now()), {
+    passive: true,
+  });
 window.addEventListener("pointermove", (e) => (pointer = e), {
   passive: true,
   capture: true,
@@ -1199,54 +1204,130 @@ window.addEventListener("pointercancel", () => (pressed = false), {
   passive: true,
   capture: true,
 });
+const scrolling = () => performance.now() - lastScroll < SCROLL_IDLE_MS;
 function userBusy() {
   const active = document.activeElement?.tagName?.toUpperCase();
   return (
+    scrolling() ||
     pressed ||
     !!document.querySelector("dialog[open]") ||
     ["INPUT", "SELECT", "TEXTAREA"].includes(active) ||
     String(window.getSelection?.() || "").length > 0
   );
 }
+const anchorSelector =
+  "[data-scroll-key], [id], h1, h2, h3, h4, summary, article, tbody tr";
+function anchorKey(node) {
+  if (node.dataset.scrollKey) return `key:${node.dataset.scrollKey}`;
+  if (node.id) return `id:${node.id}`;
+  const text = node.matches("article, tr")
+    ? node.querySelector("a, strong, th, td")?.textContent
+    : node.textContent;
+  return text?.trim() ? `${node.tagName}:${text.trim()}` : null;
+}
+function scrollAnchor(root) {
+  const top = scrollY;
+  if (!top) return { top, candidates: [] };
+  const line =
+    Math.max(
+      0,
+      document.querySelector("header").getBoundingClientRect().bottom,
+    ) + 12;
+  const count = new Map();
+  const candidates = [];
+  for (const node of root.querySelectorAll(anchorSelector)) {
+    const key = anchorKey(node);
+    if (!key) continue;
+    const index = count.get(key) || 0;
+    count.set(key, index + 1);
+    const rect = node.getBoundingClientRect();
+    if (rect.bottom <= line || rect.top >= innerHeight || !rect.height)
+      continue;
+    const priority = node.dataset.scrollKey ? 0 : 1;
+    // Prefer a nearby row or heading over a container that spans the whole screen.
+    candidates.push({
+      node,
+      key,
+      index,
+      offset: rect.top,
+      distance: Math.abs(rect.top - line) + (priority ? 24 : 0),
+    });
+  }
+  candidates.sort((a, b) => a.distance - b.distance);
+  return { top, candidates: candidates.slice(0, 3) };
+}
+function restoreScroll(root, { top, candidates }) {
+  const nodes = candidates.length
+    ? [...root.querySelectorAll(anchorSelector)]
+    : [];
+  for (const candidate of candidates) {
+    const match = root.contains(candidate.node)
+      ? candidate.node
+      : nodes.filter((node) => anchorKey(node) === candidate.key)[
+          candidate.index
+        ];
+    if (!match?.getClientRects().length) continue;
+    top = scrollY + match.getBoundingClientRect().top - candidate.offset;
+    break;
+  }
+  if (Math.abs(scrollY - top) > 1) scrollTo({ top, behavior: "instant" });
+}
+function preserveScroll(change) {
+  const root = document.getElementById("app");
+  const anchor = scrollAnchor(root);
+  change();
+  restoreScroll(root, anchor);
+}
+
 let swapping = false;
 async function seamless(build) {
   if (swapping) return false;
   swapping = true;
   const live = app,
+    route = location.hash,
+    anchorBeforeBuild = scrollAnchor(live),
     shadow = document.createElement("main");
   shadow.className = live.className;
   shadow.setAttribute("aria-hidden", "true");
   shadow.inert = true;
-  // Laid out at the page's own width so charts measure themselves correctly, but never seen or reachable.
-  shadow.style.cssText = `position:absolute;left:-100000px;top:0;width:${live.clientWidth}px;visibility:hidden;pointer-events:none`;
+  // A fixed staging area cannot affect the scrollable height of the visible document.
+  shadow.style.cssText = `position:fixed;left:-100000px;top:0;width:${live.clientWidth}px;visibility:hidden;pointer-events:none`;
   document.body.append(shadow);
   app = shadow;
-  let built = false;
   try {
     await build();
-    built = true;
-  } finally {
+    if (location.hash !== route || app !== shadow) return false;
     app = live;
-  }
-  try {
-    if (!built) return false;
-    const top = scrollY,
-      focused = document.activeElement,
+    const ticket = generation;
+    // Input can resume while the next view is being fetched.
+    while (scrolling()) {
+      await new Promise((resolve) => setTimeout(resolve, SCROLL_IDLE_MS));
+      if (location.hash !== route || generation !== ticket) return false;
+    }
+    const anchor =
+      Math.abs(scrollY - anchorBeforeBuild.top) <= 1
+        ? anchorBeforeBuild
+        : scrollAnchor(live);
+    const focused = document.activeElement,
       focusId = live.contains(focused) ? focused.id : null,
+      focusKey = live.contains(focused) ? focused.dataset.scrollKey : null,
       open = new Set(
         [...live.querySelectorAll("details[open] > summary")].map((s) =>
           s.textContent.trim(),
         ),
       );
     live.className = shadow.className;
-    live.replaceChildren(...shadow.childNodes); // moved, not copied: every handler stays with its node
+    live.replaceChildren(...shadow.childNodes);
     for (const s of live.querySelectorAll("details > summary"))
       if (open.has(s.textContent.trim())) s.parentElement.open = true;
-    if (focusId)
-      document.getElementById(focusId)?.focus({ preventScroll: true });
-    scrollTo({ top, behavior: "instant" });
+    const nextFocus = focusId
+      ? document.getElementById(focusId)
+      : focusKey
+        ? live.querySelector(`[data-scroll-key="${CSS.escape(focusKey)}"]`)
+        : null;
+    nextFocus?.focus({ preventScroll: true });
+    restoreScroll(live, anchor);
     if (pointer) {
-      // the element under the pointer is new: tell it where the pointer is so a chart readout stays open
       const under = document.elementFromPoint(pointer.clientX, pointer.clientY);
       under?.dispatchEvent(
         new PointerEvent("pointermove", {
@@ -1259,6 +1340,7 @@ async function seamless(build) {
     }
     return true;
   } finally {
+    if (app === shadow) app = live;
     shadow.remove();
     swapping = false;
   }
@@ -1337,8 +1419,7 @@ async function refresh(initial = false) {
     snapshot.worker_running ||= snapshot.collection?.running;
     workerState();
     if (!previous) applyExplain(Boolean(snapshot.ui?.explain));
-    statusLine.replaceChildren();
-    statusLine.className = "";
+    let warning = null;
     // Schwab ends its sign-in 7 days after the browser login; say so on every page before quotes stop.
     const schwab = snapshot.connection?.schwab || {};
     if (
@@ -1347,28 +1428,36 @@ async function refresh(initial = false) {
     ) {
       const left = schwab.login_days_left;
       // Ended early (hours, not 7 days) usually means a newer sign-in on the other computer; Settings says when.
-      const warning = schwab.relogin_required
+      warning = schwab.relogin_required
         ? schwab.ended_early
           ? `Schwab ended this computer's sign-in after ${schwab.ended_after_hours} hours, not 7 days: live quotes and play tracking are stopped.`
           : "Schwab sign-in expired: live quotes and play tracking are stopped."
         : left != null && left < 1.5
           ? `Schwab sign-in ends in ${left < 1 ? `${Math.max(1, Math.round(left * 24))} hours` : "about a day"}: log in again before then so tracking has no gap.`
           : null;
-      if (warning) {
-        statusLine.append(
-          el("strong", warning + " "),
-          link(
-            schwab.ended_early
-              ? "Why, and sign in again →"
-              : "Log in again in Settings →",
-            "#settings",
-          ),
-        );
-        statusLine.className = schwab.relogin_required
-          ? "status-alert"
-          : "status-warn";
-      }
     }
+    const statusClass = warning
+      ? schwab.relogin_required
+        ? "status-alert"
+        : "status-warn"
+      : "";
+    const linkLabel = schwab.ended_early
+      ? "Why, and sign in again →"
+      : "Log in again in Settings →";
+    const statusText = warning ? `${warning} ${linkLabel}` : "";
+    if (
+      statusLine.className !== statusClass ||
+      statusLine.textContent !== statusText
+    )
+      preserveScroll(() => {
+        statusLine.replaceChildren();
+        statusLine.className = statusClass;
+        if (warning)
+          statusLine.append(
+            el("strong", warning + " "),
+            link(linkLabel, "#settings"),
+          );
+      });
     // New research results (a new session analysed, a finished worker pass, new code) are offered, never forced:
     // collection progress and the running/paused state only update the header pill (workerState above).
     const results =
@@ -1386,7 +1475,7 @@ async function refresh(initial = false) {
     ) {
       // new research results replace the page in place; while you are typing or dragging they wait a turn
       pendingResults = userBusy();
-      if (!pendingResults) seamless(render);
+      if (!pendingResults) await seamless(render);
     } else if (location.hash === "#settings") {
       // Keep unsaved credentials intact while updating start/pause state during a long collection pass.
       for (const node of document.querySelectorAll(".collection-controls"))
@@ -1394,8 +1483,14 @@ async function refresh(initial = false) {
       updateConnectionControls();
     }
   } catch (error) {
-    statusLine.textContent = error.message;
-    statusLine.className = "error";
+    if (
+      statusLine.textContent !== error.message ||
+      statusLine.className !== "error"
+    )
+      preserveScroll(() => {
+        statusLine.textContent = error.message;
+        statusLine.className = "error";
+      });
   } finally {
     if (pauseRefresh) clearTimeout(pauseRefresh);
     pauseRefresh = snapshot?.collection?.stopping
@@ -1493,6 +1588,7 @@ document.addEventListener("click", (event) => {
 // Every navigation opens its page at the top (data refreshes call render() directly and keep your place).
 window.addEventListener("hashchange", () => {
   closeMore();
+  app = document.getElementById("app");
   window.scrollTo(0, 0);
   render();
 });

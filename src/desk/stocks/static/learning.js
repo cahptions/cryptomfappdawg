@@ -1040,17 +1040,28 @@ const KestrelLearning = (() => {
       .then((value) => {
         if (ticket !== generation) return;
         report = value;
-        fillReport(reportBox, value);
-        if (view === "checks") draw(); // its weekly reports and download need the report
+        preserveScroll(() => {
+          fillReport(reportBox, value);
+          if (view === "checks") draw(); // its weekly reports and download need the report
+        });
       })
       .catch((error) => {
         if (ticket !== generation) return;
-        reportBox.replaceChildren(
-          el("h2", "Learning report"),
-          el("p", `Report unavailable: ${error.message}`, "error"),
+        preserveScroll(() =>
+          reportBox.replaceChildren(
+            el("h2", "Learning report"),
+            el("p", `Report unavailable: ${error.message}`, "error"),
+          ),
         );
       });
-    function draw() {
+    const pageUrl = () =>
+      view === "orders"
+        ? `learning/orders?account=${account}&offset=${offset}&limit=12`
+        : view === "open" || view === "closed"
+          ? `learning/trades?account=${account}&state=${view === "open" ? "OPEN" : "CLOSED"}&offset=${offset}&limit=12`
+          : null;
+    const viewKey = () => JSON.stringify([account, view, offset]);
+    function draw(preloaded) {
       if (ticket !== generation) return;
       app.replaceChildren();
       app.className = "paper-page learning-page";
@@ -1284,80 +1295,86 @@ const KestrelLearning = (() => {
         views.append(b);
       }
       app.append(views, content);
+      async function loadPage(renderPage) {
+        try {
+          const page = preloaded ?? (await api(pageUrl()));
+          if (ticket !== generation || !content.isConnected) return;
+          if (content.closest("#app")) preserveScroll(() => renderPage(page));
+          else renderPage(page);
+        } catch (error) {
+          if (ticket === generation && content.isConnected)
+            preserveScroll(() =>
+              content.append(el("p", error.message, "error")),
+            );
+        }
+      }
       if (view === "open" || view === "closed") {
         content.append(
           el("h2", view === "open" ? "Account positions" : "Completed trades"),
         );
-        api(
-          `learning/trades?account=${account}&state=${view === "open" ? "OPEN" : "CLOSED"}&offset=${offset}&limit=12`,
-        )
-          .then((page) => {
-            if (ticket !== generation || !content.isConnected) return;
-            const grid = el("div", undefined, "paper-trade-grid");
-            for (const p of page.positions) {
-              const b = el("button", undefined, "paper-trade-card");
-              b.append(
-                el("span", p.symbol, "paper-symbol"),
-                el(
-                  "small",
-                  `${p.structure} · ${p.plan.filled_units} units filled of ${p.plan.desired_units} requested`,
-                ),
-                el(
-                  "strong",
-                  signed(p.state === "CLOSED" ? p.pnl : p.unrealized_pnl || 0),
-                ),
-                el(
-                  "small",
-                  `Entry ${money(p.entry_cost + p.entry_fees)} · ${p.plan.label || `${p.plan.hold_minutes}-minute hypothesis`}`,
-                ),
-              );
-              if (p.state === "CLOSED" && p.exit_reason)
-                b.append(el("small", p.exit_reason));
-              if (p.plan.transfer_policy)
-                b.append(el("small", policyName(p.plan.transfer_policy.mode)));
-              b.onclick = () =>
-                KestrelPaper.tradeDialog(
-                  p,
-                  page.decisions,
-                  Object.fromEntries(
-                    data.accounts.map((x) => [x.id, titleOf(x)]),
-                  ),
-                );
-              grid.append(b);
-            }
-            content.append(grid);
-            if (!page.positions.length)
-              content.append(
-                el(
-                  "p",
-                  "No positions in this view yet. Experiments wait for a later fresh quote before filling.",
-                  "muted",
-                ),
-              );
-            const prev = el("button", "Previous trades"),
-              next = el("button", "Next trades");
-            prev.disabled = offset === 0;
-            next.disabled = offset + 12 >= page.total;
-            prev.onclick = () => {
-              offset = Math.max(0, offset - 12);
-              draw();
-            };
-            next.onclick = () => {
-              offset += 12;
-              draw();
-            };
-            const nav = el("div", undefined, "evidence-actions");
-            nav.append(
-              prev,
-              el("span", `${page.total} stored positions in this view`),
-              next,
+        loadPage((page) => {
+          const grid = el("div", undefined, "paper-trade-grid");
+          for (const p of page.positions) {
+            const b = el("button", undefined, "paper-trade-card");
+            b.dataset.scrollKey = `learning-position-${p.id}`;
+            b.append(
+              el("span", p.symbol, "paper-symbol"),
+              el(
+                "small",
+                `${p.structure} · ${p.plan.filled_units} units filled of ${p.plan.desired_units} requested`,
+              ),
+              el(
+                "strong",
+                signed(p.state === "CLOSED" ? p.pnl : p.unrealized_pnl || 0),
+              ),
+              el(
+                "small",
+                `Entry ${money(p.entry_cost + p.entry_fees)} · ${p.plan.label || `${p.plan.hold_minutes}-minute hypothesis`}`,
+              ),
             );
-            content.append(nav);
-          })
-          .catch((e) => {
-            if (content.isConnected)
-              content.append(el("p", e.message, "error"));
-          });
+            if (p.state === "CLOSED" && p.exit_reason)
+              b.append(el("small", p.exit_reason));
+            if (p.plan.transfer_policy)
+              b.append(el("small", policyName(p.plan.transfer_policy.mode)));
+            b.onclick = () =>
+              KestrelPaper.tradeDialog(
+                p,
+                page.decisions,
+                Object.fromEntries(
+                  data.accounts.map((x) => [x.id, titleOf(x)]),
+                ),
+              );
+            grid.append(b);
+          }
+          content.append(grid);
+          if (!page.positions.length)
+            content.append(
+              el(
+                "p",
+                "No positions in this view yet. Experiments wait for a later fresh quote before filling.",
+                "muted",
+              ),
+            );
+          const prev = el("button", "Previous trades"),
+            next = el("button", "Next trades");
+          prev.disabled = offset === 0;
+          next.disabled = offset + 12 >= page.total;
+          prev.onclick = () => {
+            offset = Math.max(0, offset - 12);
+            draw();
+          };
+          next.onclick = () => {
+            offset += 12;
+            draw();
+          };
+          const nav = el("div", undefined, "evidence-actions");
+          nav.append(
+            prev,
+            el("span", `${page.total} stored positions in this view`),
+            next,
+          );
+          content.append(nav);
+        });
       } else if (view === "orders") {
         content.append(
           el("h2", "Requested, filled and unfilled quantities"),
@@ -1367,59 +1384,54 @@ const KestrelLearning = (() => {
             "muted",
           ),
         );
-        api(`learning/orders?account=${account}&offset=${offset}&limit=12`)
-          .then((page) => {
-            if (ticket !== generation || !content.isConnected) return;
-            const grid = el("div", undefined, "paper-trade-grid");
-            for (const order of page.orders) {
-              const n = el("article", undefined, "paper-trade-card");
-              n.append(
-                el("strong", `${order.symbol} · ${order.state.toLowerCase()}`),
-                el(
-                  "p",
-                  `${order.desired_units.toLocaleString()} requested · ${order.filled_units.toLocaleString()} filled · ${(order.desired_units - order.filled_units).toLocaleString()} unfilled`,
-                ),
-                el("small", stamp(order.created_at)),
-                el(
-                  "p",
-                  order.note ||
-                    "Waiting for a later fresh quote with size at the ask",
-                  "muted",
-                ),
-              );
-              if (a.small_account && order.decision_id)
-                n.append(decisionLink(a.id, order.decision_id));
-              grid.append(n);
-            }
-            if (!grid.children.length)
-              grid.append(
-                el(
-                  "p",
-                  "No orders yet. The system proposes experiments when fresh source quotes arrive.",
-                  "muted",
-                ),
-              );
-            content.append(grid);
-            const nav = el("div", undefined, "evidence-actions"),
-              prev = el("button", "Previous orders"),
-              next = el("button", "Next orders");
-            prev.disabled = offset === 0;
-            next.disabled = offset + 12 >= page.total;
-            prev.onclick = () => {
-              offset = Math.max(0, offset - 12);
-              draw();
-            };
-            next.onclick = () => {
-              offset += 12;
-              draw();
-            };
-            nav.append(prev, el("span", `${page.total} stored orders`), next);
-            content.append(nav);
-          })
-          .catch((error) => {
-            if (content.isConnected)
-              content.append(el("p", error.message, "error"));
-          });
+        loadPage((page) => {
+          const grid = el("div", undefined, "paper-trade-grid");
+          for (const order of page.orders) {
+            const n = el("article", undefined, "paper-trade-card");
+            n.dataset.scrollKey = `learning-order-${order.id}`;
+            n.append(
+              el("strong", `${order.symbol} · ${order.state.toLowerCase()}`),
+              el(
+                "p",
+                `${order.desired_units.toLocaleString()} requested · ${order.filled_units.toLocaleString()} filled · ${(order.desired_units - order.filled_units).toLocaleString()} unfilled`,
+              ),
+              el("small", stamp(order.created_at)),
+              el(
+                "p",
+                order.note ||
+                  "Waiting for a later fresh quote with size at the ask",
+                "muted",
+              ),
+            );
+            if (a.small_account && order.decision_id)
+              n.append(decisionLink(a.id, order.decision_id));
+            grid.append(n);
+          }
+          if (!grid.children.length)
+            grid.append(
+              el(
+                "p",
+                "No orders yet. The system proposes experiments when fresh source quotes arrive.",
+                "muted",
+              ),
+            );
+          content.append(grid);
+          const nav = el("div", undefined, "evidence-actions"),
+            prev = el("button", "Previous orders"),
+            next = el("button", "Next orders");
+          prev.disabled = offset === 0;
+          next.disabled = offset + 12 >= page.total;
+          prev.onclick = () => {
+            offset = Math.max(0, offset - 12);
+            draw();
+          };
+          next.onclick = () => {
+            offset += 12;
+            draw();
+          };
+          nav.append(prev, el("span", `${page.total} stored orders`), next);
+          content.append(nav);
+        });
       } else if (view === "funding") {
         content.append(
           el("h2", "Virtual capital is not trading profit"),
@@ -1741,12 +1753,33 @@ const KestrelLearning = (() => {
                 d.experiment_total,
                 d.pending,
               ]);
-          const changed = signature(data) !== signature(next);
-          data = next;
-          if (changed) await seamless(async () => draw());
-          else poll();
+          if (ticket !== generation) return;
+          if (signature(data) !== signature(next)) {
+            const key = viewKey(),
+              url = pageUrl(),
+              page = url ? await api(url) : null;
+            if (ticket !== generation) return;
+            if (
+              key !== viewKey() ||
+              userBusy() ||
+              app.querySelector(".kc-plot:hover")
+            ) {
+              poll();
+              return;
+            }
+            const swapped = await seamless(() => {
+              data = next;
+              draw(page);
+            });
+            if (!swapped && ticket === generation) poll();
+          } else {
+            data = next;
+            poll();
+          }
         } catch (e) {
-          statusLine.textContent = e.message;
+          if (ticket !== generation) return;
+          if (statusLine.textContent !== e.message)
+            preserveScroll(() => (statusLine.textContent = e.message));
           poll();
         }
       }, 15000);

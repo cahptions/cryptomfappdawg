@@ -1210,6 +1210,8 @@ const KestrelResearch = (() => {
     const query = expiration
       ? `?expiration=${encodeURIComponent(expiration)}`
       : "";
+    const root = container.closest("#app");
+    let anchor;
     try {
       const data = await api(
         `stock/${encodeURIComponent(symbol)}/options${query}`,
@@ -1224,6 +1226,7 @@ const KestrelResearch = (() => {
         requestedChains.set(symbol, Date.now());
         if (ticket !== generation) return;
       }
+      if (root?.contains(container)) anchor = scrollAnchor(root);
       container.replaceChildren(
         sectionTitle(
           "Options chain",
@@ -1364,7 +1367,11 @@ const KestrelResearch = (() => {
       draw();
     } catch (error) {
       if (ticket === generation)
-        container.replaceChildren(el("p", error.message, "error"));
+        preserveScroll(() =>
+          container.replaceChildren(el("p", error.message, "error")),
+        );
+    } finally {
+      if (anchor && root.contains(container)) restoreScroll(root, anchor);
     }
   }
 
@@ -1632,7 +1639,10 @@ const KestrelResearch = (() => {
         if (document.visibilityState === "visible") {
           profile = await api(`stock/${encodeURIComponent(symbol)}/profile`);
           if (ticket !== generation) return;
-          renderProfile();
+          if (!renderedProfile || !userBusy()) {
+            if (sectionsHost.closest("#app")) preserveScroll(renderProfile);
+            else renderProfile();
+          }
         }
       } catch (error) {
         if (ticket === generation && !profile)
@@ -1655,7 +1665,7 @@ const KestrelResearch = (() => {
           data = next;
           latest = data.bars.at(-1);
           previous = data.bars.at(-2);
-          if (changed && !inspected) drawHistory();
+          if (changed && !inspected && !userBusy()) preserveScroll(drawHistory);
           else {
             updateHistoryStatus();
             if (!inspected)
@@ -1675,7 +1685,6 @@ const KestrelResearch = (() => {
       if (ticket === generation)
         setTimeout(pollStock, data.stock_data?.updated_at ? 30000 : 5000);
     }
-    pollStock().then(pollProfile);
     if (d) {
       const rationale = el("section", undefined, "sp-section");
       rationale.append(
@@ -1903,7 +1912,9 @@ const KestrelResearch = (() => {
     aside.append(changeView);
     layout.append(main, aside);
     app.append(layout);
-    await optionChain(symbol, chains, ticket);
+    void pollStock();
+    // Keep the ready stock page in view until its replacement has both the profile and the chain.
+    await Promise.all([optionChain(symbol, chains, ticket), pollProfile()]);
   }
   return { home, stock };
 })();

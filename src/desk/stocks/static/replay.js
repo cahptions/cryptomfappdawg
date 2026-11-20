@@ -141,6 +141,8 @@ const KestrelReplay = (() => {
           if (cache.size > 30) cache.delete(cache.keys().next().value);
         }
         if (!active() || request !== token) return;
+        const live = host.closest("#app");
+        const anchor = live && scrollAnchor(live);
         error.textContent = "";
         content.replaceChildren();
         const metrics = el("div", undefined, "paper-metrics");
@@ -225,6 +227,7 @@ const KestrelReplay = (() => {
           const grid = el("div", undefined, "paper-trade-grid");
           for (const p of data.visible_trades) {
             const b = el("button", undefined, "paper-trade-card");
+            b.dataset.scrollKey = `replay-position-${p.id}`;
             b.append(
               el("span", p.symbol, "paper-symbol"),
               el("strong", money(view === "closed" ? p.pnl : p.unrealized_pnl)),
@@ -276,6 +279,7 @@ const KestrelReplay = (() => {
           }
         }
         clearTimeout(timer);
+        if (anchor) restoreScroll(live, anchor);
         if (playing && index < days.length - 1)
           timer = setTimeout(() => {
             if (active()) step(index + Number(speed.value));
@@ -289,8 +293,7 @@ const KestrelReplay = (() => {
         }
       }
     }
-    setTimeout(load, 0);
-    return host;
+    return { host, load };
   }
   return { panel };
 })();
