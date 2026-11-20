@@ -1126,13 +1126,6 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
         with reader(paths, learning.FILE) as conn:
             return learning_chart.history(conn, account, window)
 
-    @app.get("/api/stocks/learning/transfer-review")
-    def learning_transfer_review(account: Literal["reference_1k", "reference_5k"]) -> dict[str, Any]:
-        from desk.stocks import learning, learning_transfer
-
-        with reader(paths, learning.FILE) as conn:
-            return learning_transfer.review(conn, account)
-
     @app.post("/api/stocks/learning/experiments")
     def learning_experiment(inputs: LearningExperiment) -> dict[str, Any]:
         from desk.core.clock import utc_now

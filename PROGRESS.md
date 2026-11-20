@@ -1,5 +1,16 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Stocks v1.0 · Compare plays and inspect exits
+
+- Shortlist up to three Plays. The comparison shows holding cash and one-unit intrinsic P/L at each idea's
+  expiry for the same percentage move. It shows both PAPER balance fits and the original quote evidence.
+- Historical Plays show how many synchronized receipts supported an exit at the selected quantity, midpoint
+  versus displayed-side P/L, and gaps in quote coverage. The existing intraday retention also prunes the
+  compressed receipt history. Legacy paths can show chart marks without exact size evidence.
+- The tracking, history and execution checks passed 36 tests. A fold test kept two asynchronously received
+  legs out of the supported count and proved retention cleanup. Chromium verified the shortlist, expiry
+  scenario, cash benchmark and both books at 375 and 1366 pixels.
+
 ## 2026-11-20 — Stocks v1.0 · Small-book decision history
 
 - In Learning, open either small PAPER account and select **Why this book waited** or **View PAPER decision**.
