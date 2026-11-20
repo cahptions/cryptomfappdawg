@@ -827,7 +827,7 @@ const KestrelLearning = (() => {
     app.className = "paper-page learning-page";
     const header = el("section", undefined, "paper-status");
     const back = link(`← Back to the ${data.title}`, `#learning/${book}`);
-    back.className = "workspace-action";
+    back.className = "link-button";
     header.append(
       back,
       el(
@@ -1098,7 +1098,7 @@ const KestrelLearning = (() => {
       };
       controls.append(pause);
       hero.append(text, controls);
-      app.append(hero, message);
+      app.append(hero, reportBox, message);
       const status = el("section", undefined, "paper-status");
       status.setAttribute("role", "status");
       status.append(
@@ -1138,6 +1138,7 @@ const KestrelLearning = (() => {
         );
       for (const error of data.collection.errors || [])
         status.append(el("p", error, "error"));
+      app.append(status);
       app.append(
         comparisons(data.accounts, (id) => {
           account = id;
@@ -1170,9 +1171,7 @@ const KestrelLearning = (() => {
         ),
       );
       if (a.small_account) {
-        const stress = link("Stress open options", `#risk/${a.id}`);
-        stress.className = "workspace-action";
-        selected.append(stress);
+        selected.append(link("Stress open options", `#risk/${a.id}`));
         const policy = el(
             "section",
             undefined,
@@ -1222,6 +1221,7 @@ const KestrelLearning = (() => {
           transferReviews.set(a.id, transferReview(a.id));
         selected.append(policy, transferReviews.get(a.id));
       }
+      app.append(selected);
       // Three headline numbers, then the accounting detail as a dense grid: every figure stays visible.
       const metrics = el("div", undefined, "learning-account-metrics"),
         headline = el("div", undefined, "paper-metrics learning-hero-metrics"),
@@ -1267,13 +1267,7 @@ const KestrelLearning = (() => {
             "notice",
           ),
         );
-      const performance = el(
-        "section",
-        undefined,
-        "workspace-panel learning-performance",
-      );
-      performance.append(
-        el("h2", "Account ledger"),
+      app.append(
         metrics,
         el(
           "p",
@@ -1282,10 +1276,6 @@ const KestrelLearning = (() => {
         ),
         profitChart(a, data.evidence),
       );
-      const analysis = el("div", undefined, "learning-workspace-layout");
-      if (a.small_account) analysis.append(performance, selected);
-      else analysis.append(selected, performance);
-      app.append(analysis, status, reportBox);
       app.append(learningEvidence(data));
       if (data.lifecycle?.length) app.append(holding(data.lifecycle));
       const views = el("div", undefined, "research-tabs"),

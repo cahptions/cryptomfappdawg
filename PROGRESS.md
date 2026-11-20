@@ -1,5 +1,15 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Restore the classic Stocks interface
+
+- Restored the dark theme, violet accents, top navigation, original Home cockpit and page layouts from
+  `1f145e4`. Home has expandable index closing history and small PAPER book balances. PAPER and the mobile
+  More menu link to Portfolio lab. Learning books retain direct links to their own options stress tests.
+- Kept allocation comparisons, account-only stress results, Learner confirmation statistics, decision receipts,
+  scroll stability and provider rate-budget corrections.
+- Eighteen focused API and analysis tests passed. Chromium verified both new tools and checked scroll stability
+  on 22 routes at phone and desktop widths.
+
 ## 2026-11-20 — Stocks research workspace and portfolio tools
 
 - The shared desktop navigation and visual system cover Stocks. Overview opens with recent market closes and

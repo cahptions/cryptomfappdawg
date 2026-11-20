@@ -12,8 +12,9 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 850 } });
     const faults = [];
     page.on("pageerror", (error) => faults.push(String(error)));
-    await page.goto(`${base}/#dashboard`);
-    if (width < 960) {
+    await page.goto(`${base}/#paper`);
+    await page.getByRole("heading", { name: "Paper trading" }).waitFor();
+    if (width === 375) {
       await page.getByRole("button", { name: "More", exact: true }).click();
       await page
         .getByRole("navigation", { name: "More sections" })
@@ -21,8 +22,7 @@ try {
         .click();
     } else {
       await page
-        .getByRole("navigation", { name: "Main" })
-        .getByRole("link", { name: "Portfolio lab" })
+        .getByRole("link", { name: "Portfolio lab", exact: true })
         .click();
     }
     await page.getByRole("heading", { name: "Portfolio lab" }).waitFor();

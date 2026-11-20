@@ -1,6 +1,6 @@
 # KESTREL Stocks research workspace and portfolio tools
 
-Use Stocks for research and simulated PAPER. The previous Dell release, `1f145e4`, corrected viewport jumps during background updates. Preserve local edits when fetching. The development checkpoints are on `codex/stocks-institutional-recovery`. The older v1 blueprint, research review and operator handoff cover decision receipts, execution studies and provider limits.
+Use Stocks for research and simulated PAPER. The dark theme and page layouts come from `1f145e4`, which corrected viewport jumps during background updates. Preserve local edits when fetching. The v1 blueprint, research review and operator handoff cover decision receipts, execution studies and provider limits.
 
 - [Product and experiment blueprint](STOCKS_V1_BLUEPRINT.md)
 - [Research methods and primary papers](STOCKS_V1_RESEARCH.md)
@@ -10,15 +10,13 @@ Use Stocks for research and simulated PAPER. The previous Dell release, `1f145e4
 
 | Workspace | Workflow |
 | --- | --- |
-| Overview | Switch among stored SPY, QQQ and IWM closes. Open the $1,000 and $5,000 book decisions from the same screen. Follow the top ideas into Plays. |
-| PAPER | Pick a strategy from the library. Read its recorded equity, cash, trades and grade. Switch from Forward PAPER to historical replay to inspect decisions for a specific session. |
-| Learning | Read ledger equity, cash and trading P/L beside the account's latest decision and transfer review. Open the scoped options stress test directly from a small book. |
-| Research and Learner | Review experiment outcomes and the account decisions that provide their context. Learner puts the forward test next to the trading gate and surfaces the two frozen lower bounds when the sample matures. |
-| Plays | Open the shortlist from the top of Plays. Expand the option data disclosure for session coverage and model calibration. The stored observations and models also remain available from the idea and Performance views. |
-| Portfolio lab | Choose Forward PAPER strategy accounts or a saved historical replay. Select two to eight strategies, set a cash reserve, a maximum invested weight and an entry cost, then run the comparison. |
+| Home | Expand **Index closing history** for stored SPY, QQQ and IWM closes. Expand **Small PAPER books** for both ledgers and their latest decisions. Follow the top ideas into Plays. |
+| PAPER | Pick a strategy from the existing cards. Read its recorded equity, cash, trades and grade. Switch from Forward PAPER to historical replay to inspect decisions for a specific session. |
+| Learning | Read ledger equity, cash and trading P/L alongside the latest decision and transfer review. Select **Stress open options** in either small book. |
+| Research and Learner | Review experiments and the account decisions that provide their context. The Learner forward test shows its two frozen lower bounds when the sample matures. |
+| Plays | Check session coverage and model calibration, shortlist ideas and open Performance for recorded outcomes. Home labels modelled chances and displays whether an amount is cost or maximum loss. |
+| Portfolio lab | Open it from **PAPER**, **Research desk** or the mobile **More** menu. Choose Forward PAPER ledgers or a saved historical replay, then set your strategies, cash reserve, maximum invested weight and entry cost. |
 | Portfolio risk | Choose a $1,000 or $5,000 book. Apply a joint SPY and volatility shock and see each option's contribution. The strategy and tracked-play overlay remains available for inspection across independent books. |
-
-The shared navigation and visual system cover the entire Stocks app, including Stocks profiles, Options, Events, Evidence, Schwab account, System and Settings.
 
 ## Reproducing the quantitative results
 

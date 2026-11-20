@@ -55,14 +55,36 @@ try {
         );
       assert.equal(new Set(widths).size, 1, `cockpit card widths ${widths}`);
     }
-    assert.equal(
-      await page.getByRole("heading", { level: 1 }).innerText(),
-      "Market desk",
+    assert.match(
+      await page.locator("h1").first().innerText(),
+      /^(Good (morning|afternoon|evening)|Late night)$/,
     );
+    assert.equal(
+      await page.evaluate(
+        () => getComputedStyle(document.body).backgroundColor,
+      ),
+      "rgb(0, 0, 0)",
+    );
+    const history = cockpit.getByText("Index closing history", { exact: true });
+    await history.click();
+    await cockpit.getByLabel("Market index").selectOption("QQQ");
+    await cockpit
+      .getByRole("img", { name: /QQQ stored closing prices/ })
+      .waitFor();
+    await history.click();
+    const books = page.getByText("Small PAPER books", { exact: true });
+    await books.click();
+    await page
+      .getByRole("link", { name: "$1,000 account", exact: true })
+      .waitFor();
+    await page
+      .getByRole("link", { name: "$5,000 account", exact: true })
+      .waitFor();
+    await books.click();
 
     // Numbers first: the fixture shows explanations; turning them off hides captions and is remembered.
     assert.equal(await numbersFirst(page), false);
-    const caption = page.locator("#app p.caption").first();
+    const caption = page.locator("#app > p.caption").first();
     await caption.waitFor();
     const saved = page.waitForResponse(
       (r) => r.url().endsWith("/api/stocks/ui") && r.status() === 200,
@@ -105,7 +127,7 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    "Personal desktop/phone: market desk, plays, six index cards, top ideas, latest event and the saved numbers-first toggle passed.",
+    "Personal desktop/phone: cockpit (plays, six index cards, top ideas, latest event, greeting) and the saved numbers-first toggle passed.",
   );
 } finally {
   await browser.close();

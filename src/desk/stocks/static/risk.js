@@ -36,9 +36,8 @@ const KestrelRisk = (() => {
     if (ticket !== generation) return;
     app.className = "risk-page";
     const t = data.totals || {};
-    const heading = el("div", undefined, "workspace-heading");
-    const title = el("div");
-    title.append(
+    app.append(
+      el("div", "PAPER · RESEARCH ONLY", "eyebrow"),
       el("h1", "Portfolio risk"),
       el(
         "p",
@@ -50,9 +49,7 @@ const KestrelRisk = (() => {
     const destination = data.account
       ? link("Open PAPER book", `#learning/${data.account}`)
       : link("Open Portfolio lab", "#portfolio");
-    destination.className = "workspace-action";
-    heading.append(title, destination);
-    const form = el("form", undefined, "workspace-panel risk-controls");
+    const form = el("form", undefined, "panel risk-controls");
     const selector = el("select");
     for (const [key, label] of Object.entries(scopes))
       selector.append(new Option(label, key));
@@ -98,7 +95,7 @@ const KestrelRisk = (() => {
       if (ticket + 1 === generation && route === location.hash.slice(1))
         document.getElementById("risk-joint")?.focus({ preventScroll: true });
     };
-    const summary = el("section", undefined, "workspace-panel risk-joint");
+    const summary = el("section", undefined, "panel risk-joint");
     const joint = data.joint_scenario;
     summary.id = "risk-joint";
     summary.tabIndex = -1;
@@ -140,7 +137,7 @@ const KestrelRisk = (() => {
           "muted",
         ),
       );
-    app.append(heading, form, summary);
+    app.append(destination, form, summary);
     if (!data.positions) {
       app.append(
         panel(

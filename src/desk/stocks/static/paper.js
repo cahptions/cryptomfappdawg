@@ -34,6 +34,12 @@ const KestrelPaper = (() => {
     lotto_runners: "kestrel_run",
     random_lottos: "random_run",
   };
+  const lottoStatus = (data, variant) => {
+    const v = data?.report?.variants?.[variant];
+    return v?.picks
+      ? `${v.picks} picks on real prices · ${percent(v.return)}`
+      : "downloading real past prices";
+  };
   function lottoReplay(card, data, variant) {
     const report = data?.report,
       cover = data?.coverage || report?.coverage,
@@ -157,6 +163,10 @@ const KestrelPaper = (() => {
     );
     card.append(how);
   }
+  const realStatus = (real) =>
+    real?.trades
+      ? `${real.trades} trades on real prices · ${percent(real.return)}`
+      : "downloading real past prices";
   function evidencePanel(account, live, openReplay) {
     const section = el("section", undefined, "paper-evidence"),
       grid = el("div", undefined, "paper-evidence-grid"),
@@ -435,22 +445,21 @@ const KestrelPaper = (() => {
         titles = names(accounts);
       selected = accountId(accounts);
       const account = accounts.find((a) => a.id === selected),
-        hero = el("div", undefined, "workspace-heading paper-heading"),
+        hero = el("div", undefined, "explorer-heading"),
         heading = el("div"),
         tabs = el("div", undefined, "research-tabs paper-record-tabs");
       heading.append(
+        el("div", "YOUR SIMULATED TRADING DESK", "eyebrow"),
         el("h1", "Paper trading"),
         el(
           "p",
-          "Strategy accounts, trade decisions and historical replay.",
+          "Inspect the strategy, the position and the reason behind each simulated trade.",
           "muted",
         ),
       );
-      const capital = link("Compare allocations ↗", "#portfolio");
-      capital.className = "workspace-action";
-      hero.append(heading, capital);
-      const toolbar = el("div", undefined, "paper-toolbar");
-      app.replaceChildren(hero, toolbar);
+      hero.append(heading);
+      hero.append(link("Portfolio lab", "#portfolio"));
+      app.replaceChildren(hero, collectionControls());
       for (const [id, label] of [
         ["live", "Forward PAPER"],
         ["historical", "Historical backtests"],
@@ -469,7 +478,7 @@ const KestrelPaper = (() => {
       }
       tabs.setAttribute("role", "tablist");
       tabs.setAttribute("aria-label", "Trading record");
-      toolbar.append(tabs, collectionControls());
+      app.append(tabs);
       if (record === "live") {
         const s = live.session_status || {},
           note = el("section", undefined, "paper-status");
@@ -540,8 +549,7 @@ const KestrelPaper = (() => {
           openHistory,
           link("Intraday sizing experiments ↗", "#learning"),
         );
-        note.classList.add("paper-session-note");
-        note.append(history);
+        app.append(history);
       } else {
         const job = backtest.job || {},
           section = el("section", undefined, "paper-backtest-controls"),
@@ -679,11 +687,6 @@ const KestrelPaper = (() => {
         poll();
         return;
       }
-      const workbench = el("div", undefined, "paper-workbench"),
-        library = el("aside", undefined, "paper-library workspace-panel"),
-        detail = el("div", undefined, "paper-detail");
-      workbench.append(library, detail);
-      app.append(workbench);
       const strategyHeading = el("div", undefined, "section-heading"),
         strategyCards = el("div", undefined, "paper-strategies"),
         toggle = el("button", showAll ? "Show fewer" : "All strategies");
@@ -691,8 +694,8 @@ const KestrelPaper = (() => {
         showAll = !showAll;
         draw();
       };
-      strategyHeading.append(el("h2", "Strategies"), toggle);
-      library.append(strategyHeading);
+      strategyHeading.append(el("h2", "Choose a strategy to inspect"), toggle);
+      app.append(strategyHeading);
       const featured = showAll
         ? accounts
         : [account, ...accounts.filter((a) => a.id !== selected)].slice(0, 4);
@@ -716,6 +719,14 @@ const KestrelPaper = (() => {
             "small",
             `${a.open_positions || 0} open · ${a.trades || 0} closed · ${a.sessions} ${a.sessions === 1 ? "session" : "sessions"}`,
           ),
+          el(
+            "small",
+            `Forward: ${gradeText(live.report?.accounts?.find((p) => p.id === a.id))}`,
+          ),
+          el(
+            "small",
+            `Historical replay: ${LOTTO_REPLAY[a.id] ? lottoStatus(live.lotto_history, LOTTO_REPLAY[a.id]) : live.historical_replays?.[a.id]?.status === "current" ? live.historical_replays[a.id].grade.text : live.historical_replays?.[a.id]?.status === "stale" ? "Outdated rules · run replay" : live.historical_replays?.[a.id]?.real_prices ? realStatus(live.historical_replays[a.id].real_prices) : live.historical_replays?.[a.id]?.status === "unsupported" ? "Historical inputs unavailable" : "Not graded yet"}`,
+          ),
         );
         b.onclick = () => {
           selected = a.id;
@@ -724,11 +735,10 @@ const KestrelPaper = (() => {
         };
         strategyCards.append(b);
       }
-      library.append(strategyCards);
+      app.append(strategyCards);
       const research = live.option_research;
-      const researchPanel = el("details", undefined, "paper-research");
       if (research?.strategies) {
-        const box = researchPanel;
+        const box = el("details", undefined, "paper-research");
         box.append(
           el(
             "summary",
@@ -757,19 +767,22 @@ const KestrelPaper = (() => {
           );
           box.append(row);
         }
+        app.append(box);
       }
       const selectedTitle = el("div", undefined, "paper-account-title");
       selectedTitle.append(
         el("h2", account.title),
         el("p", account.hypothesis || "", "muted"),
       );
-      const evidence = evidencePanel(account, live, () => {
-        record = "historical";
-        selected = account.id;
-        tradeOffset = 0;
-        draw();
-      });
-      detail.append(selectedTitle);
+      app.append(selectedTitle);
+      app.append(
+        evidencePanel(account, live, () => {
+          record = "historical";
+          selected = account.id;
+          tradeOffset = 0;
+          draw();
+        }),
+      );
       if (record === "historical" && report.run_id) {
         const replay = KestrelReplay.panel(
           report,
@@ -778,8 +791,7 @@ const KestrelPaper = (() => {
           titles,
           tradeDialog,
         );
-        detail.append(replay.host, evidence, walkForward(report));
-        if (researchPanel.children.length) detail.append(researchPanel);
+        app.append(replay.host, walkForward(report));
         poll();
         return replay.load();
       }
@@ -792,7 +804,7 @@ const KestrelPaper = (() => {
             : "This event strategy waits for qualifying evidence and executable prices; its decision timeline records why it traded and, for up to five candidates a session, why it passed one over (no price, liquidity, chain or fitting contract, or over budget).",
         "muted caption",
       );
-      selectedTitle.append(behavior);
+      app.append(behavior);
       const metrics = el("div", undefined, "paper-metrics");
       metrics.append(
         metric("Simulated equity", money(account.equity)),
@@ -815,7 +827,7 @@ const KestrelPaper = (() => {
         benchmark,
         trades: live.trades?.filter((p) => p.account === account.id) || [],
       });
-      detail.append(metrics, curveHost);
+      app.append(metrics, curveHost);
       if (record === "live" && !preloaded.curve)
         api(equityUrl(account.id))
           .then((data) => {
@@ -849,7 +861,7 @@ const KestrelPaper = (() => {
                 ),
               );
           });
-      detail.append(
+      app.append(
         el(
           "p",
           `Each strategy uses its own simulated capital. ${record === "live" ? (typeof account.grade === "object" ? account.grade.text : account.grade) || "Forward evidence is still accumulating." : `Historical reconstruction: ${report.first_day} through ${report.last_day}.`}`,
@@ -860,7 +872,7 @@ const KestrelPaper = (() => {
       if (mix) {
         const collected = mix.collected || 0,
           days = collected + mix.real + mix.real_iv + mix.model;
-        detail.append(
+        app.append(
           el(
             "p",
             days
@@ -1089,8 +1101,7 @@ const KestrelPaper = (() => {
         tradeContent();
       };
       section.append(views, content);
-      detail.append(section, evidence);
-      if (researchPanel.children.length) detail.append(researchPanel);
+      app.append(section);
       tradeContent(preloaded.page);
       if (record === "historical") {
         const wf = el("section", undefined, "screen-card");
@@ -1130,7 +1141,7 @@ const KestrelPaper = (() => {
         for (const note of report.limitations || [])
           limits.append(el("p", note, "muted caption"));
         wf.append(limits);
-        detail.append(wf);
+        app.append(wf);
       }
       poll();
     }

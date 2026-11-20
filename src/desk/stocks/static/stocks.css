@@ -983,7 +983,7 @@ footer {
     margin-left: auto;
   }
 }
-@media (max-width: 960px) {
+@media (max-width: 650px) {
   :root {
     --text-3xl: var(--text-2xl);
     --text-hero: 38px;

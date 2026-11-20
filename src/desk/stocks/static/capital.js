@@ -148,19 +148,14 @@ const KestrelCapital = (() => {
         current = source;
       const catalog = await api(`portfolio?source=${current}`);
       if (ticket !== generation || token !== serial) return;
-      const heading = el("div", undefined, "workspace-heading"),
+      const heading = el("div", undefined, "row"),
         title = el("div");
-      title.append(el("h1", "Portfolio lab"), el("p", description));
+      title.append(el("h1", "Portfolio lab"), el("p", description, "muted"));
       const risk = link("Inspect open exposure", "#risk");
-      risk.className = "workspace-action";
       heading.append(title, risk);
       const layout = el("div", undefined, "capital-layout");
-      const form = el("form", undefined, "workspace-panel capital-controls");
-      const output = el(
-        "section",
-        undefined,
-        "workspace-panel capital-results",
-      );
+      const form = el("form", undefined, "panel capital-controls");
+      const output = el("section", undefined, "panel capital-results");
       const ranges = el("div", undefined, "capital-inputs");
       const choices = el("div", undefined, "capital-choices");
       const report = el("select");

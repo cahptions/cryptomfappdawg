@@ -2,12 +2,11 @@
 
 const KestrelResearchDesk = (() => {
   function books(values) {
-    const grid = el("aside", undefined, "workspace-panel research-book-rail");
-    grid.append(el("h2", "PAPER decision log"));
+    const grid = el("div", undefined, "paper-metrics learning-hero-metrics");
     for (const book of values) {
-      const card = el("article");
+      const card = el("article", undefined, "paper-status");
       card.append(
-        el("h3", book.title),
+        el("h2", book.title),
         el(
           "strong",
           book.cash == null
@@ -19,6 +18,7 @@ const KestrelResearchDesk = (() => {
       );
       if (book.decision_id)
         card.append(
+          el("p", undefined, "caption"),
           link(
             "Read the stored decision →",
             `#learning/${book.id}/${book.decision_id}`,
@@ -176,7 +176,7 @@ const KestrelResearchDesk = (() => {
   async function show(ticket) {
     const data = await api("research/desk");
     if (ticket !== generation) return;
-    app.className = "research-workspace";
+    app.className = "paper-page learning-page";
     const iv = showStudy(data.iv_study),
       quotes = showQuoteTrial(data.quote_trial);
     function control(section, study, enabled, subject) {
@@ -207,24 +207,15 @@ const KestrelResearchDesk = (() => {
       data.quote_trial.enabled,
       "quote comparison",
     );
-    const title = el("div", undefined, "workspace-heading");
-    const intro = el("div");
-    intro.append(
-      el("h1", "Research desk"),
-      el(
-        "p",
-        "Follow prospective experiments and inspect the evidence behind PAPER decisions.",
+    preserveScroll(() =>
+      app.replaceChildren(
+        el("h1", "Research desk"),
+        books(data.books),
+        iv,
+        quotes,
+        link("Portfolio lab", "#portfolio"),
       ),
     );
-    const lab = link("Compare strategy allocations", "#portfolio");
-    lab.className = "workspace-action";
-    title.append(intro, lab);
-    const layout = el("div", undefined, "research-workspace-layout");
-    const studies = el("div", undefined, "research-studies");
-    for (const study of [iv, quotes]) study.classList.add("workspace-panel");
-    studies.append(el("h2", "Prospective experiments"), iv, quotes);
-    layout.append(studies, books(data.books));
-    preserveScroll(() => app.replaceChildren(title, layout));
   }
   return { show };
 })();

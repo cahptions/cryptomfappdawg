@@ -1323,37 +1323,24 @@ const KestrelPlays = (() => {
     boardHorizons = data.horizons || null;
     learner = shadow;
     app.className = "plays-page";
-    const hero = el("div", undefined, "workspace-heading"),
+    const hero = el("div", undefined, "explorer-heading"),
       titles = el("div");
     titles.append(
+      el("div", "OPTIONS OF THE DAY", "eyebrow"),
       el("h1", "Plays"),
       el(
         "p",
-        "Find option ideas, check which contracts fit your cash, and shortlist trades to compare.",
+        "Ranked option ideas from the desks, the options data and what past plays and PAPER trades actually did. Every chance is a model estimate, graded against what happened on recorded plays (Performance charts each one) and calibrated once 30 have resolved. Research, not financial advice.",
+        "muted",
       ),
     );
-    hero.append(titles, KestrelPlayComparison.openButton());
+    hero.append(titles);
     app.append(hero, KestrelPlaysHistory.views("board"));
     const strip = el("p", undefined, "muted caption play-strip");
     strip.textContent = data.asof
       ? `Loaded options session ${data.asof} · ${data.coverage.underlyings} underlyings · ${number(data.coverage.contracts_scored)} contracts scored · ${data.source || "stored chains"} · built ${when(data.generated_at)} · chance model: ${data.calibration.applied ? `calibrated on ${data.calibration.resolved} resolved plays from ${data.calibration.sessions} sessions` : `not yet calibrated (${data.calibration.resolved} of ${data.calibration.needed} resolved plays${data.calibration.needed_sessions ? `, ${data.calibration.sessions ?? 0} of ${data.calibration.needed_sessions} sessions` : ""})`}${data.model.ic ? ` · committee tilt from IC ${data.model.ic.toFixed(3)} over ${data.model.ic_months} months` : " · no committee tilt yet (no positive measured IC)"}`
       : data.message;
-    const provenance = el("details", undefined, "play-board-source");
-    provenance.append(
-      el(
-        "summary",
-        data.asof
-          ? `Stored option chains · ${data.asof} · ${data.coverage.underlyings} underlyings`
-          : "Option data coverage",
-      ),
-      strip,
-      el(
-        "p",
-        "Probabilities are model estimates. Performance shows outcomes for resolved plays.",
-        "muted",
-      ),
-    );
-    app.append(provenance);
+    app.append(strip, KestrelPlayComparison.openButton());
     if (!data.categories?.length) {
       const empty = panel("No plays yet", data.message);
       empty.append(

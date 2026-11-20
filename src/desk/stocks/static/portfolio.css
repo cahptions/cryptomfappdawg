@@ -1,0 +1,82 @@
+.capital-layout {
+  display: grid;
+  grid-template-columns: minmax(230px, 1fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 16px;
+}
+.capital-layout > .panel {
+  min-width: 0;
+}
+.capital-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.capital-controls :is(label, .capital-choices),
+.risk-field {
+  display: grid;
+  gap: 4px;
+}
+.capital-controls :is(input:not([type="checkbox"]), select),
+.risk-field :is(input, select) {
+  width: 100%;
+  min-width: 0;
+}
+.capital-choices {
+  margin-bottom: 16px;
+  max-height: 350px;
+  overflow: auto;
+}
+.capital-choices label {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+}
+.capital-choices small {
+  grid-column: 2;
+  color: var(--muted);
+}
+.capital-summary,
+.risk-joint-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 8px;
+}
+.capital-summary > div {
+  display: grid;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.capital-summary strong {
+  font-size: var(--text-lg);
+}
+.capital-summary span {
+  color: var(--muted);
+}
+.capital-chart,
+.index-history {
+  margin-top: 12px;
+}
+.capital-provenance {
+  overflow-wrap: anywhere;
+}
+.risk-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) repeat(2, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+@media (max-width: 760px) {
+  .capital-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .risk-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .risk-controls > :is(:first-child, button) {
+    grid-column: 1 / -1;
+  }
+}
