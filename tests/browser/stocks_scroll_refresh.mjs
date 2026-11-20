@@ -225,7 +225,7 @@ try {
     );
     await page.close();
     console.log(
-      `${width}px: slow PAPER and Learning refreshes plus a snapshot refresh on 20 routes`,
+      `${width}px: slow PAPER and Learning refreshes plus a snapshot refresh on 22 routes`,
     );
   }
 } finally {

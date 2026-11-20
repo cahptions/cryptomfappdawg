@@ -1008,9 +1008,9 @@ const KestrelLearning = (() => {
           );
           if (data.next_condition)
             exercise.append(el("p", data.next_condition));
-          app.append(outcome);
+          exercise.after(outcome);
           exercise.tabIndex = -1;
-          exercise.focus();
+          exercise.focus({ preventScroll: true });
         };
         choices.append(choice);
       }

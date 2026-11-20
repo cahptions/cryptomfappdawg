@@ -32,15 +32,19 @@ def ledger_curves(conn: sqlite3.Connection, accounts: Sequence[str], window: int
     deposits: set[date] = set()
     for account in accounts:
         rows = conn.execute(
-            "SELECT day,equity_micros FROM stk_equity WHERE account=? ORDER BY day DESC LIMIT ?",
+            "SELECT day,equity_micros,at FROM stk_equity WHERE account=? ORDER BY day DESC LIMIT ?",
             (account, window + 1),
         ).fetchall()
         curves[account] = {date_of(r[0]): r[1] / MICRO for r in rows}
         if rows:
-            deposits.update(date_of(r[0]) for r in conn.execute(
-                "SELECT DISTINCT day FROM stk_cash WHERE account=? AND day>=? AND reason='DEPOSIT'",
-                (account, rows[-1][0]),
-            ))
+            marks_at = {r[0]: r[2] for r in rows}
+            for ordinal, at in conn.execute("SELECT day,at FROM stk_cash WHERE account=? AND day>=? "
+                                            "AND reason='DEPOSIT'", (account, rows[-1][0])):
+                day = date_of(ordinal)
+                mark_at = marks_at.get(ordinal)
+                if not cal.is_trading_day(day) or (mark_at is not None and at > mark_at):
+                    day = cal.next_trading_day(day)
+                deposits.add(day)
     return curves, deposits
 
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -80,7 +80,9 @@ def test_api_uses_ledger_flow_and_gaps_and_frozen_replay_benchmark(tmp_path: Pat
                     continue
                 book.snapshot(day, account, cal.session_close(day), equity, 0.)
         book.add_cash(ACCOUNTS[0], cal.session_close(days[23]), days[23], 200 * MICRO, "DEPOSIT")
+        book.add_cash(ACCOUNTS[0], cal.session_close(days[27]) + timedelta(minutes=1), days[27], 200 * MICRO, "DEPOSIT")
         book.event(cal.session_close(days[25]), None, "RECOVERY", None, {"session": days[25].isoformat()})
+        assert capital.ledger_curves(dbs.ledger, ACCOUNTS, 126)[1] == {days[23], days[28]}
         for day, close in spy.items():
             dbs.market.execute("INSERT INTO stk_bars(symbol, day, open, high, low, close, volume) "
                                "VALUES ('SPY',?,?,?,?,?,1e6)", (day_of(day), close, close, close, close))
@@ -104,8 +106,8 @@ def test_api_uses_ledger_flow_and_gaps_and_frozen_replay_benchmark(tmp_path: Pat
         query = [("accounts", a) for a in ACCOUNTS]
         live = client.get("/api/stocks/portfolio", params=query).json()
         assert live["status"] == "ready"
-        assert live["coverage"]["matched"] == len(days) - 5
-        assert live["coverage"]["excluded"] == 2
+        assert live["coverage"]["matched"] == len(days) - 6
+        assert live["coverage"]["excluded"] == 3
         assert live["benchmark_basis"] == "Total return from the current market store"
         assert client.get("/api/stocks/portfolio", params=[*query, ("cap", "49")]).status_code == 422
         assert client.get("/api/stocks/portfolio", params=[*query, query[0]]).status_code == 422

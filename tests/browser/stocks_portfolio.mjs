@@ -12,7 +12,19 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 850 } });
     const faults = [];
     page.on("pageerror", (error) => faults.push(String(error)));
-    await page.goto(`${base}/#portfolio`);
+    await page.goto(`${base}/#dashboard`);
+    if (width < 960) {
+      await page.getByRole("button", { name: "More", exact: true }).click();
+      await page
+        .getByRole("navigation", { name: "More sections" })
+        .getByRole("link", { name: "Portfolio lab" })
+        .click();
+    } else {
+      await page
+        .getByRole("navigation", { name: "Main" })
+        .getByRole("link", { name: "Portfolio lab" })
+        .click();
+    }
     await page.getByRole("heading", { name: "Portfolio lab" }).waitFor();
     await page
       .getByText("PAPER strategy ledgers will appear", { exact: false })
@@ -40,6 +52,18 @@ try {
       await page.locator(".capital-provenance code").innerText(),
       /^[a-f0-9]{64}$/,
     );
+    await page.route("**/api/stocks/snapshot", async (route) => {
+      const response = await route.fetch();
+      const json = await response.json();
+      json.worker = { ...json.worker, finished_at: "portfolio-refresh" };
+      await route.fulfill({ response, json });
+    });
+    await page.evaluate(() => refresh());
+    assert.equal(
+      await page.getByRole("heading", { name: "Held-out comparison" }).count(),
+      1,
+    );
+    await page.unrouteAll({ behavior: "wait" });
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - innerWidth,
     );

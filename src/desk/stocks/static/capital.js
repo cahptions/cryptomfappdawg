@@ -246,8 +246,13 @@ const KestrelCapital = (() => {
             : "Choose two to eight strategies and evaluate them against equal weight, SPY and cash.",
         ),
       );
-      if (catalog.accounts.length < 2)
-        output.append(link("Open PAPER ↗", "#paper"));
+      if (catalog.accounts.length < 2) {
+        const refresh = el("button", "Refresh strategies");
+        refresh.onclick = () => void renderView();
+        const links = el("div", undefined, "evidence-actions");
+        links.append(refresh, link("Open PAPER ↗", "#paper"));
+        output.append(links);
+      }
       layout.append(form, output);
       app.replaceChildren(heading, layout);
       form.onsubmit = async (e) => {

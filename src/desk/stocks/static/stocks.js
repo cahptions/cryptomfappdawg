@@ -1483,6 +1483,7 @@ async function refresh(initial = false) {
       location.hash !== "#learning" &&
       !location.hash.startsWith("#learning/") &&
       location.hash !== "#paper" &&
+      location.hash !== "#portfolio" &&
       !location.hash.startsWith("#plays/")
     ) {
       // new research results replace the page in place; while you are typing or dragging they wait a turn

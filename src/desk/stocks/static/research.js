@@ -586,10 +586,15 @@ const KestrelResearch = (() => {
       value.append(
         el(
           "b",
-          chance == null ? "—" : `${Math.round(chance * 100)}%`,
+          chance == null ? "—" : `${Math.round(chance * 100)}% est. ITM`,
           "accent",
         ),
-        el("small", money(p.action === "SELL" ? p.max_loss : p.cost)),
+        el(
+          "small",
+          p.action === "SELL"
+            ? `Max loss ${money(p.max_loss)}`
+            : `Cost ${money(p.cost)}`,
+        ),
       );
       row.append(name, value);
       box.append(row);
