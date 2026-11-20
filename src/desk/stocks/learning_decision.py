@@ -21,13 +21,16 @@ NEXT = {
 
 def latest_id(conn: sqlite3.Connection, account: str) -> int | None:
     row = conn.execute(
-        "SELECT id FROM stk_decisions WHERE account=? ORDER BY asof DESC,id DESC LIMIT 1", (account,),
+        "SELECT id FROM stk_decisions WHERE account=? AND action IN ('ENTER','SKIP') "
+        "ORDER BY asof DESC,id DESC LIMIT 1", (account,),
     ).fetchone()
     return int(row["id"]) if row else None
 
 
 def read(conn: sqlite3.Connection, account: str, decision_id: int) -> dict[str, Any] | None:
-    row = conn.execute("SELECT * FROM stk_decisions WHERE id=? AND account=?", (decision_id, account)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM stk_decisions WHERE id=? AND account=? AND action IN ('ENTER','SKIP')", (decision_id, account),
+    ).fetchone()
     if row is None:
         return None
     evidence = json.loads(row["evidence_json"])

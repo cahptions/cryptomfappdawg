@@ -584,8 +584,12 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
         done, contracts, skipped = 0, 0, []
         errors = {}
         coverage = {}
+        provider_calls: dict[str, int] = {}
+        symbol_seconds: dict[str, float] = {}
         wanted = list(dict.fromkeys([*symbols, *(held or {})]))
         for symbol in wanted:
+            provider_calls[symbol] = 1
+            started = time.monotonic()
             try:
                 expirations = await suite.tradier.expirations(symbol)
                 chosen = sorted(set(pick_expirations(expirations, today, (earnings or {}).get(symbol)))
@@ -601,6 +605,7 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                 # Schwab: one chains request covering every chosen expiry (a few for daily-expiry names), with the
                 # underlying's price in the same answer. Tradier: one request an expiry.
                 for group in (spans(expirations, chosen) if ranged else [[e] for e in chosen]):
+                    provider_calls[symbol] += 1
                     if ranged:
                         got, quoted = await ranged(symbol, group)
                         price = price or quoted
@@ -621,6 +626,7 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                     coverage[symbol] = {"status": "empty_chain", "contracts": 0}
                     continue
                 if price is None:
+                    provider_calls[symbol] += 1
                     stock = await suite.tradier.quotes([symbol])
                     price = stock[0].last if stock else None
                 if price is None or price <= 0:
@@ -644,7 +650,8 @@ async def option_chains(suite: StocksSuite, market: StocksMarket, now: datetime,
                 done += 1
             except DeskError as exc:
                 errors[symbol] = str(exc)[:200]
-                continue
+            finally:
+                symbol_seconds[symbol] = round(time.monotonic() - started, 3)
         pruned = market.prune_option_chains(chain_budget_bytes, today)
         detail = {"symbols": done, "contracts": contracts, "skipped": skipped[:20], "pruned": pruned,
                   "chain_storage": {**market.chain_storage(), "budget_bytes": chain_budget_bytes},

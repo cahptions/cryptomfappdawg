@@ -141,6 +141,8 @@ evaluation_history_days = 0     # evidence, rebuild and replay read this many da
 price_history_years = 10        # years of earlier daily bars from Schwab (0 = none, at most 20): docs/STOCKS_METHOD.md §9
 min_price_usd = "1"
 min_median_dollar_volume_usd = "1000000"
+quote_research_trial = false   # compare one existing option rotation slot
+iv_forward_study = false        # opt in to the preregistered stock-selection study
 options_focus_symbols = 150     # ranked focus for bounded option batches; this is not a daily coverage guarantee
 option_chain_budget_gb = 10     # every collected option chain is kept; past this the oldest sessions are pruned (0 = no limit)
 refresh_after_close_minutes = 75

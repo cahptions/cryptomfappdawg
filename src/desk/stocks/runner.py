@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import time
 from collections.abc import Awaitable
-from contextlib import suppress
+from contextlib import closing, suppress
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -414,9 +415,30 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             offset = offset % max(1, len(rotating))
             remainder = max(0, option_limit - len(core))
             wanted = [*core, *(rotating + rotating)[offset:offset + remainder]]
+            from desk.stocks import learning, quote_trials
+
+            trial = None
+            if settings.quote_research_trial and (paths.db_dir / learning.FILE).exists():
+                try:
+                    uri = (paths.db_dir / learning.FILE).as_uri() + "?mode=ro"
+                    with closing(sqlite3.connect(uri, uri=True, timeout=2)) as learning_db:
+                        learning_db.row_factory = sqlite3.Row
+                        learning_db.execute("BEGIN")
+                        trial = quote_trials.assign(market, research.conn, learning_db, now, wanted,
+                                                    set(core) | set(held) | set(requested), suite.option_source)
+                    if trial:
+                        _, ordinary, replacement = trial
+                        wanted = [replacement if symbol == ordinary else symbol for symbol in wanted]
+                except Exception as exc:
+                    log.warning("quote research trial assignment failed", extra={"error": type(exc).__name__})
             jobs["options"] = await run_job("options", collect.option_chains(
                 suite, market, now, wanted, rate=0.04, last_prices={}, held=held,
                 chain_budget_bytes=collect.chain_budget(settings.option_chain_budget_gb)))
+            if trial:
+                try:
+                    quote_trials.finish(market, trial[0], trial[2], utc_now(), jobs["options"])
+                except Exception as exc:
+                    log.warning("quote research trial receipt failed", extra={"error": type(exc).__name__})
             market.attempted_options(wanted, utc_now())
             if jobs["options"].get("ok"):
                 detail = {**jobs["options"], "next_offset": (offset + remainder) % max(1, len(rotating))}
@@ -524,6 +546,13 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             except Exception as exc:  # recorded; never stops collection
                 log.warning("option signals failed", extra={"error": str(exc)[:200]})
                 market.job(option_signals.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
+        from desk.stocks import brain_study
+
+        try:
+            brain_study.advance(market.conn, research.conn, utc_now(), enabled=settings.iv_forward_study)
+        except Exception as exc:
+            log.warning("forward IV study failed", extra={"error": type(exc).__name__})
+            market.job("iv_forward_study", now, error=type(exc).__name__)
         # Past results reports: the realized move from the saved bars and the move options priced the session before
         # (at most 400 reports and a minute a pass, newest first, the rest next pass). Never stops collection.
         from desk.stocks import earnings_model

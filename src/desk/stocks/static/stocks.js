@@ -1310,6 +1310,7 @@ async function render() {
       await KestrelPlays.show(ticket, route);
     else if (route === "learning" || route.startsWith("learning/"))
       await KestrelLearning.show(ticket, route);
+    else if (route === "research") await KestrelResearchDesk.show(ticket);
     else if (route === "learner") await KestrelLearner.show(ticket);
     else if (route === "risk") await KestrelRisk.show(ticket);
     else if (route === "proof") await KestrelEvidence.show(ticket);

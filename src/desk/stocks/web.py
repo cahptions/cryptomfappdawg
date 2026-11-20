@@ -582,6 +582,23 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                     value.update(view.summary(conn))
         return {**value, "training": train.state(paths)}
 
+    @app.get("/api/stocks/research/desk")
+    def research_desk() -> dict[str, Any]:
+        from desk.stocks import brain_study, learning, learning_decision, quote_trials
+
+        with (reader(paths, RESEARCH_FILE) as research, reader(paths, learning.FILE) as ledger,
+              reader(paths, MARKET_FILE) as market):
+            ledger.execute("BEGIN")
+            books = []
+            for ident, title, _ in learning.ACCOUNTS:
+                if ident in learning.SMALL_ACCOUNTS:
+                    policy = learning.state(ledger, "retail:" + ident, {})
+                    books.append({"id": ident, "title": title, "phase": policy.get("phase", "Waiting for a decision"),
+                                  "decision_id": policy.get("decision_id") or learning_decision.latest_id(ledger, ident)})
+            settings = config.settings.stocks
+            return {"books": books, "iv_study": brain_study.summary(research, enabled=settings.iv_forward_study),
+                    "quote_trial": quote_trials.summary(market, utc_now(), enabled=settings.quote_research_trial)}
+
     @app.get("/api/stocks/learner/account")
     def learner_account() -> dict[str, Any]:
         """The Learner PAPER account's page, as the worker last saved it (nothing is computed here)."""

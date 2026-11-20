@@ -220,6 +220,8 @@ class StocksSection(_Section):
     min_median_dollar_volume_usd: Decimal = Decimal("1000000")  # ... trading at least this much a day (median of 20)
     options_focus_symbols: int = Field(default=150, ge=0, le=1000)   # chains collected daily for this many names
     focused_chain_pilot: bool = False              # smaller close scan with a fixed core and randomized coverage
+    quote_research_trial: bool = False             # compare one existing rotation slot on qualifying sessions
+    iv_forward_study: bool = False                 # register the fixed stock-only challenge when enabled
     execution_study: bool = True                   # bounded observational shadow comparison
     option_chain_budget_gb: float = Field(default=10, ge=0)    # raw chains kept; past it the oldest days go (0 = no limit)
     refresh_after_close_minutes: int = Field(default=75, ge=15)      # daily refresh this long after the close

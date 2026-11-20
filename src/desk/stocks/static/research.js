@@ -286,6 +286,9 @@ const KestrelResearch = (() => {
       grid.append(line);
     }
     app.append(head, grid);
+    const desk = el("p", undefined, "caption");
+    desk.append(link("Research desk ↗", "#research"));
+    app.append(desk);
     if (snapshot.research_preview?.awaiting_newer_close)
       app.append(
         el(
