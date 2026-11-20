@@ -1,5 +1,16 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Stocks v1.0 · Quote follow-ups and midpoint changes
+
+- A quote follow-up freezes the exact contracts and decision-time cash. A later synchronized receipt with
+  sufficient size can show if their displayed ask and fees would fit. A missing, stale or unsupported leg
+  leaves the question unresolved.
+- Historical Plays show the count and mean midpoint move for same-feed receipts 10–11 minutes later.
+  Missing pairs remain visible in the denominator. The calculation uses held-position value per unit.
+- The follow-up suite passed 31 tests, including folds with unmatched receipts and affordability checks with
+  old, unknown-size and supported quotes. Authenticated quote availability and its effect on later trades
+  still need field data.
+
 ## 2026-11-20 — Stocks v1.0 · Research desk and evidence studies
 
 - **Research** opens the two books' stored decisions and shows the option-IV comparison and the bounded quote

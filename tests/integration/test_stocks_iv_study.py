@@ -4,7 +4,7 @@ import pytest
 
 from desk.stocks import brain_study as study
 from desk.stocks import calendar as cal
-from desk.stocks.contracts import Bar
+from desk.stocks.contracts import Bar, OptionQuote
 from tests.stocks_world import ASOF, NOW, make_world
 from tests.unit.test_stocks_option_signals import store
 
@@ -77,7 +77,9 @@ def test_quote_trial_keeps_core_and_book_state_and_records_unavailable_outcomes(
         account = learning.SMALL_ACCOUNTS[0]
         book_db.execute("INSERT INTO stk_learning_sources VALUES ('source','S00',?,X'00')", (to_iso(AT),))
         learning_retail.record_wait(book, account, AT, "cash", {"mode": "starter", "phase": "Insufficient cash"},
-                                    {"cash": 1000, "one_unit": 1050, "observation": {"source_key": "source"}}, symbol="S00")
+                                    {"cash": 1000, "one_unit": 1050, "structure": "long_call",
+                                     "observation": {"source_key": "source", "legs": [{"occ": "S00261120C00100000"}]}},
+                                    symbol="S00")
         research = world.dbs.research
         for symbol in ("S00", "S07"):
             research.execute("INSERT INTO stk_scores_latest VALUES (?,?,?,?)",
@@ -101,4 +103,34 @@ def test_quote_trial_keeps_core_and_book_state_and_records_unavailable_outcomes(
         assert list(book_db.iterdump()) == before
     finally:
         book_db.close()
+        world.close()
+
+
+def test_quote_trial_grades_only_the_exact_later_priced_legs(tmp_path):
+    from desk.core.clock import to_iso
+    from desk.stocks import quote_trials
+    from tests.unit.test_stocks_learning import AT, EXP
+
+    world = make_world(tmp_path, n=12)
+    try:
+        symbol, occ = "S00", "S00261120C00100000"
+        day = AT.date()
+        before, after = AT - timedelta(seconds=20), AT + timedelta(seconds=20)
+        world.market.conn.execute(
+            "INSERT INTO stk_research_quote_trials(session,started_at,assigned,follow_up,rotation,source,decision_id,"
+            "account,question_json) VALUES (?,?,'follow_up',?,?,'schwab',1,'reference_1k',?)",
+            (day.toordinal(), to_iso(AT), symbol, "S07",
+             '{"cash":1000,"one_unit":1050,"legs":["S00261120C00100000"]}'),
+        )
+        for at, ask, size in ((before, 9., 3), (after, 9.5, None), (after + timedelta(seconds=5), 9.5, 3)):
+            quote = OptionQuote(occ, symbol, "call", 100, EXP, ask - .1, ask, None, 100, 500, None, at, 3, size)
+            world.market.save_option_chain(symbol, day, EXP, at, 100, [quote], source="schwab")
+            planned = world.market.conn.execute("SELECT * FROM stk_research_quote_trials").fetchone()
+            finding = quote_trials.cash_result(world.market, planned, day, at)
+            assert finding and finding["status"] == ("fits" if at > after else "unknown")
+        quote_trials.finish(world.market, day, symbol, after + timedelta(seconds=5), {})
+        result = quote_trials.summary(world.market.conn, after, enabled=True)
+        assert result["latest"]["result"]["affordability"]["cost"] == pytest.approx(950.65)
+        assert result["affordability"]["fits"] == 1
+    finally:
         world.close()

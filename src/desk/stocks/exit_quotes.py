@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import zlib
+from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from desk.stocks import calendar as cal
@@ -14,6 +15,9 @@ from desk.stocks.execution import Quote, evidence, positions
 from desk.stocks.paper.fills import CONTRACT, OPTION_FEE_PER_CONTRACT
 
 # The working table is cleared after the close. Preserve each response separately, including incomplete evidence.
+MARKOUT_LAG = timedelta(minutes=10)
+MARKOUT_TOLERANCE = timedelta(minutes=1)
+
 ReceiptRow = tuple[str, str, str | None, float | None, float | None, int | None, int | None]
 
 
@@ -55,6 +59,8 @@ class ExitReview:
         fees = 2 * OPTION_FEE_PER_CONTRACT * len(legs)
         summaries: dict[str, dict[str, Any]] = {
             key: {"receipts": 0, "incomplete": 0, "unverified": 0, "capacity_bins": {}} for key in bases}
+        checks = []
+        follow: dict[tuple[str, date], tuple[list[datetime], list[float]]] = defaultdict(lambda: ([], []))
         for (at, source), quotes in sorted(self.receipts.items()):
             received = datetime.fromisoformat(at)
             local = cal.new_york(received)
@@ -63,6 +69,21 @@ class ExitReview:
                 continue
             complete = all(occ in quotes for occ, _ in held)
             check = evidence(closing, quotes, received, received) if complete else {}
+            midpoint = None
+            if "capacity" in check:
+                midpoint = sum(-leg["quantity"] * (leg["bid"] + leg["ask"]) / 2 * CONTRACT for leg in check["legs"])
+                stamps, values = follow[source, local.date()]
+                stamps.append(received)
+                values.append(midpoint)
+            checks.append((at, received, source, quotes, complete, check, midpoint))
+        for at, received, source, quotes, complete, check, midpoint in checks:
+            markout = None
+            if midpoint is not None:
+                stamps, values = follow[source, cal.new_york(received).date()]
+                target = received + MARKOUT_LAG
+                index = bisect_left(stamps, target)
+                if index < len(stamps) and stamps[index] <= target + MARKOUT_TOLERANCE:
+                    markout = values[index] - midpoint
             for basis, entry in bases.items():
                 if received <= entries[basis]:
                     continue
@@ -77,14 +98,18 @@ class ExitReview:
                 # A zero bid provides no sale price even if a provider included a bid size.
                 capacity = 0 if any(qty > 0 and quotes[occ].bid == 0 for occ, qty in held) else check["capacity"]
                 bins = summary["capacity_bins"]
-                bucket = bins.setdefault(capacity, {"capacity": capacity, "count": 0, "mid_only_gains": 0})
+                bucket = bins.setdefault(capacity, {"capacity": capacity, "count": 0, "mid_only_gains": 0,
+                                                     "markout_pairs": 0, "markout_sum": 0.0})
                 bucket["count"] += 1
                 if capacity == 0:
                     continue
                 opening_cash = (-1 if action == "BUY" else 1) * entry * CONTRACT
                 side_pnl = round(opening_cash - check["net_debit"] - fees, 2)
-                mid_value = sum(-leg["quantity"] * (leg["bid"] + leg["ask"]) / 2 * CONTRACT for leg in check["legs"])
-                mid_pnl = round(opening_cash + mid_value - fees, 2)
+                assert midpoint is not None
+                mid_pnl = round(opening_cash + midpoint - fees, 2)
+                if markout is not None:
+                    bucket["markout_pairs"] += 1
+                    bucket["markout_sum"] += markout
                 bucket["mid_only_gains"] += int(mid_pnl > 0 >= side_pnl)
                 bucket["latest"] = {"at": at, "source": source, "pnl": side_pnl, "mid_pnl": mid_pnl,
                                     "spread_cost": round(mid_pnl - side_pnl, 2)}

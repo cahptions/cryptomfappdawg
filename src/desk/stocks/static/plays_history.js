@@ -556,6 +556,18 @@ const KestrelPlaysHistory = (() => {
         ),
       );
     }
+    const paired = supported.reduce((n, b) => n + (b.markout_pairs || 0), 0);
+    const changes = supported.reduce((n, b) => n + (b.markout_sum || 0), 0);
+    if (hits)
+      box.append(
+        el(
+          "p",
+          paired
+            ? `${paired} of ${hits} supported quotes had a same-feed midpoint 10–11 minutes later. The held position's midpoint value changed by ${usd((changes * quantity) / paired)} on average.`
+            : "No supported quote had a matching midpoint 10–11 minutes later.",
+          "muted",
+        ),
+      );
     const gaps = [];
     if (shallow) gaps.push(`${shallow} had insufficient displayed size`);
     if (stats.incomplete) gaps.push(`${stats.incomplete} had only some legs`);

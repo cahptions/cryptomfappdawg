@@ -132,6 +132,14 @@ const KestrelResearchDesk = (() => {
         "muted",
       ),
     );
+    const q = trial.affordability;
+    if (q?.fits || q?.["exceeds cash"] || q?.unknown)
+      box.append(
+        el(
+          "p",
+          `Exact-leg follow-ups: ${q.fits} fit the original cash at the displayed sides plus fees · ${q["exceeds cash"]} exceeded it · ${q.unknown} unresolved.`,
+        ),
+      );
     if (trial.latest) {
       const t = trial.latest;
       box.append(
@@ -145,6 +153,17 @@ const KestrelResearchDesk = (() => {
         ),
       );
     }
+    const latest = trial.latest?.result?.affordability;
+    if (latest)
+      box.append(
+        el(
+          "p",
+          latest.cost == null
+            ? latest.reason
+            : `Updated displayed cost was ${money(latest.cost)} for one unit including fees. The original decision had ${money(latest.cash)} in cash.`,
+          "muted",
+        ),
+      );
     return box;
   }
 

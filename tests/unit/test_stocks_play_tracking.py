@@ -333,7 +333,9 @@ def test_exit_receipts_remain_synchronized_after_fold(tmp_path: Path) -> None:
         # Closing the first leg requires its bid size and closing the second requires its ask size.
         rows = [(*tick(buy, seen, 2.0, 2.2)[:-2], 3, 99), (*tick(sell, seen, .9, 1.0)[:-2], 99, 1),
                 (*tick(buy, seen + timedelta(minutes=1), 2.0, 2.2)[:-2], 99, 99),
-                (*tick(sell, seen + timedelta(minutes=2), .9, 1.0)[:-2], 99, 99)]
+                (*tick(sell, seen + timedelta(minutes=2), .9, 1.0)[:-2], 99, 99),
+                (*tick(buy, seen + timedelta(minutes=10), 2.2, 2.4)[:-2], 3, 99),
+                (*tick(sell, seen + timedelta(minutes=10), .9, 1.0)[:-2], 99, 1)]
         pt.save_ticks(conn, rows)
         assert pt.fold_due(conn, ny(16, 6), lambda _: .04) == [SESSION]
         review = ExitReview()
@@ -341,9 +343,11 @@ def test_exit_receipts_remain_synchronized_after_fold(tmp_path: Path) -> None:
             review.folded(row["occ"], row["session"], row["packed"])
         legs = [{"occ": buy, "side": "buy"}, {"occ": sell, "side": "sell"}]
         basis = review.report(legs, "BUY", {"close": .8}, {"close": ny(9, 45)}, ny(16, 0))["bases"]["close"]
-        assert basis["receipts"] == 3 and basis["incomplete"] == 2 and basis["unverified"] == 0
+        assert basis["receipts"] == 4 and basis["incomplete"] == 2 and basis["unverified"] == 0
         assert [b["capacity"] for b in basis["capacity_bins"]] == [1]
-        assert basis["capacity_bins"][0]["latest"]["spread_cost"] == 15
+        stats = basis["capacity_bins"][0]
+        assert stats["latest"]["spread_cost"] == 15
+        assert stats["markout_pairs"] == 1 and stats["markout_sum"] == pytest.approx(20)
         assert not pt.fold_due(conn, ny(16, 15), lambda _: .04)
         old = day_of(date.today() - timedelta(days=60))
         conn.execute("INSERT INTO stk_track_intraday SELECT occ,?,status,points,packed,folded_at FROM stk_track_intraday",

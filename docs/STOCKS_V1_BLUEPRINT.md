@@ -5,9 +5,9 @@ Scope covers Stocks research and simulated PAPER on one Dell. This blueprint rec
 ## What you can use now
 
 - In **Learning**, select either small account and open its stored PAPER decision. Order rows link to the same records. Decision replay reveals the reason and later outcomes after you choose what PAPER did. The transfer review compares recorded research estimates with closed, fee-inclusive results where the exit policies align.
-- In **Plays**, shortlist options and compare holding cash with the one-unit expiry scenarios. Recorded historical plays show displayed depth for synchronized receipts and the spread cost for the last supported exit at the selected size.
+- In **Plays**, shortlist options and compare holding cash with the one-unit expiry scenarios. Recorded historical plays show displayed depth for synchronized receipts the spread cost for the last supported exit at the selected size, and paired 10–11 minute midpoint changes.
 - In **Research**, review each book's latest decision and the current experiment coverage. Start or pause the preregistered IV study and the discretionary quote comparison independently. The quote comparison substitutes one eligible slot within the existing rotation budget and measures quote usability, operation counts, collection time and retained bytes.
-- The first quote outcome is a measure of chain coverage. Separately testing whether a new quote changes the cash decision or improves later execution is an extension. True broker fills, untouched forward effectiveness, resource costs and an operator usability comparison require observation on the Dell.
+- The quote comparison measures chain coverage for both arms. Follow-ups with the original legs can also resolve whether one unit fits the book at the displayed price plus fees. Portfolio-level execution, untouched forward effectiveness, resource costs and operator comprehension require observation on the Dell.
 
 ## The product
 
