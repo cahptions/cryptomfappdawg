@@ -1,5 +1,17 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Stocks v1.0 research design and recovery handoff
+
+- [Blueprint](docs/STOCKS_V1_BLUEPRINT.md) covers decision-time reasoning per PAPER book, a research budget,
+  executable alternatives, rejected opportunities, forward grading, operator usability and unattended operation.
+- [Primary papers](docs/STOCKS_V1_RESEARCH.md) and [the next-builder handoff](docs/STOCKS_V1_HANDOFF.md)
+  give the rationale, restart prompt, prototype inventory and verification record. The first proposed release
+  explains why a specific small PAPER book waited using its own decision-time evidence.
+- The operator requested design only for this pass. Application prototypes are saved on
+  `codex/stocks-v1-recovery`. `d4cb73f` was the application starting point. The interrupted development suite
+  recorded 974 passes and two unresolved Plays failures; additional fault-injection/Schwab checks passed 80 tests.
+  The real Dell snapshot and disposable startup measurements are identified separately in the blueprint.
+
 ## 2026-11-19 — Small-account refill visibility
 
 - Latest Claude head was still `5cc9092`. Both refills use the small accounts' append-only cash ledgers.
