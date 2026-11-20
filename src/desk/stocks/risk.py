@@ -1,4 +1,4 @@
-"""Whole-portfolio risk: every open PAPER options position and every one of My tracked plays, added up.
+"""Options exposure for an individual small PAPER book or for a cross-book overlay.
 
 For each option leg the greeks come from, in order:
 
@@ -85,12 +85,16 @@ def _sector(market: sqlite3.Connection, symbol: str) -> str:
     return str(row[0]) if row[0] else LABELS.get(sector(row[1]), "Other")
 
 
-def _paper_legs(ledger: sqlite3.Connection) -> Iterable[dict[str, Any]]:
+def _paper_legs(ledger: sqlite3.Connection, account: str | None) -> Iterable[dict[str, Any]]:
+    from desk.stocks.learning import ACCOUNTS
     from desk.stocks.paper.strategies import STRATEGIES
 
-    titles = {s.id: s.title for s in STRATEGIES}
-    for row in ledger.execute("SELECT id, account, symbol, structure, legs_json, marks_json, last_value_micros "
-                              "FROM stk_positions WHERE state='OPEN' AND asset='option' ORDER BY opened_at, id"):
+    titles = {s.id: s.title for s in STRATEGIES} | {key: title for key, title, _ in ACCOUNTS}
+    query = ("SELECT id, account, symbol, structure, legs_json, marks_json, last_value_micros FROM stk_positions "
+             "WHERE state='OPEN' AND asset='option'")
+    if account is not None:
+        query += " AND account=?"
+    for row in ledger.execute(query + " ORDER BY opened_at, id", (account,) if account is not None else ()):
         marks = (json.loads(row["marks_json"]) or {}).get("legs", {}) if row["marks_json"] else {}
         legs = []
         for leg in json.loads(row["legs_json"]):
@@ -131,12 +135,14 @@ def _tracked_legs(research: sqlite3.Connection, now: datetime) -> Iterable[dict[
                "label": label(play), "value": None, "legs": legs}
 
 
-def _leg_risk(leg: dict[str, Any], spot: float | None, b: float, today: date) -> dict[str, Any]:
+def _leg_risk(leg: dict[str, Any], spot: float | None, b: float, today: date,
+              market_move: float, vol_points: float) -> dict[str, Any]:
     """Per-contract-times-quantity dollar greeks and shocks for one leg; unknown parts stay None."""
     contracts = leg["contracts"]
     out: dict[str, Any] = {"basis": "unknown", **dict.fromkeys(("delta_shares", "theta", "vega", "gamma_shares",
-                                                                 "down", "up", "vol_up"))}
-    if not _finite(contracts) or not contracts or leg["kind"] not in ("call", "put") or not _finite(leg["strike"]):
+                                                                 "down", "up", "vol_up", "combined"))}
+    if (not _finite(contracts, leg["strike"]) or not contracts or leg["strike"] <= 0
+            or leg["kind"] not in ("call", "put")):
         return out
     try:
         expiry = date.fromisoformat(str(leg["expiration"]))
@@ -157,10 +163,11 @@ def _leg_risk(leg: dict[str, Any], spot: float | None, b: float, today: date) ->
         now = opt.bs_price(leg["kind"], spot, float(leg["strike"]), t, iv, RATE)
 
         def at(s: float, vol: float) -> float:
-            return float((opt.bs_price(leg["kind"], s, float(leg["strike"]), t, vol, RATE) - now) * size)
+            return float((opt.bs_price(leg["kind"], max(0.01, s), float(leg["strike"]), t, max(0.0001, vol), RATE)
+                          - now) * size)
 
         out.update(down=at(spot * (1 - SHOCK * b), iv), up=at(spot * (1 + SHOCK * b), iv),
-                   vol_up=at(spot, iv + VOL_SHOCK))
+                   vol_up=at(spot, iv + VOL_SHOCK), combined=at(spot * (1 + market_move * b), iv + vol_points))
     return out
 
 
@@ -169,10 +176,21 @@ def _monday(d: date) -> date:
 
 
 def portfolio(ledger: sqlite3.Connection | None, research: sqlite3.Connection | None, market: sqlite3.Connection,
-              now: datetime) -> dict[str, Any]:
+              now: datetime, *, account: str | None = None, market_move: float = -0.05,
+              vol_points: float = 0.05) -> dict[str, Any]:
     today = cal.new_york(now).date()
-    positions = [*(_paper_legs(ledger) if ledger is not None else []),
-                 *(_tracked_legs(research, now) if research is not None else [])]
+    positions = [*(_paper_legs(ledger, account) if ledger is not None else []),
+                 *(_tracked_legs(research, now) if research is not None and account is None else [])]
+    other_positions = 0
+    equity = None
+    if account is not None and ledger is not None:
+        from desk.stocks.paper.book import PaperBook
+
+        book = PaperBook(ledger)
+        open_positions = book.positions(account)
+        other_positions = sum(p.asset != "option" for p in open_positions)
+        if account in book.accounts() and all(p.last_value is not None for p in open_positions):
+            equity = book.cash(account) + sum(p.last_value or 0.0 for p in open_positions)
     spy = _close(market, "SPY")
     prices: dict[str, tuple[float, date] | None] = {}
     betas: dict[str, float | None] = {}
@@ -194,10 +212,11 @@ def portfolio(ledger: sqlite3.Connection | None, research: sqlite3.Connection | 
         row = {k: p[k] for k in ("id", "group", "book", "symbol", "label", "value")}
         row.update(price=spot, price_day=price[1].isoformat() if price else None, beta=betas[symbol],
                    beta_assumed=betas[symbol] is None)
-        sums: dict[str, float | None] = dict.fromkeys(("delta_shares", "theta", "vega", "down", "up", "vol_up"), 0.0)
+        sums: dict[str, float | None] = dict.fromkeys(
+            ("delta_shares", "theta", "vega", "down", "up", "vol_up", "combined"), 0.0 if p["legs"] else None)
         bases = set()
         for leg in p["legs"]:
-            r = _leg_risk(leg, spot, b, today)
+            r = _leg_risk(leg, spot, b, today, market_move, vol_points)
             bases.add(r["basis"])
             for key in sums:
                 value = sums[key]
@@ -212,7 +231,7 @@ def portfolio(ledger: sqlite3.Connection | None, research: sqlite3.Connection | 
                 week["contracts"] += abs(int(leg["contracts"]))
                 week["positions"].add(p["id"])
         row.update(sums)
-        row["basis"] = "unknown" if "unknown" in bases else "modelled" if "modelled" in bases else "quotes"
+        row["basis"] = "unknown" if not bases or "unknown" in bases else "modelled" if "modelled" in bases else "quotes"
         if row["delta_shares"] is not None and spot is not None:
             row["delta_dollars"] = row["delta_shares"] * spot
             row["spy_dollars_per_1pct"] = row["delta_dollars"] * b * 0.01
@@ -227,7 +246,7 @@ def portfolio(ledger: sqlite3.Connection | None, research: sqlite3.Connection | 
                 totals[key] += row[key]
         if row["delta_shares"] is None or row["theta"] is None or row["vega"] is None:
             unknown["greeks"] += 1
-        for key in ("down", "up", "vol_up"):
+        for key in ("down", "up", "vol_up", "combined"):
             if row[key] is not None:
                 totals[key] += row[key]
         if row["down"] is None:
@@ -246,8 +265,14 @@ def portfolio(ledger: sqlite3.Connection | None, research: sqlite3.Connection | 
 
     spy_price = spy[0] if spy else None
     per_pct = money("spy_dollars_per_1pct")
+    combined = money("combined")
     return {
         "generated_at": now.isoformat(), "positions": len(rows),
+        "account": account, "equity": equity, "other_positions": other_positions,
+        "joint_scenario": {"market_move": market_move, "vol_points": vol_points * 100, "change": combined,
+                           "covered_positions": len(rows) - unknown["shock"],
+                           "equity_fraction": combined / equity if combined is not None and equity and equity > 0
+                           and not unknown["shock"] and not other_positions else None},
         "paper_positions": sum(1 for r in rows if r["group"] == "PAPER"),
         "tracked_plays": sum(1 for r in rows if r["group"] == "Tracked"),
         "totals": {"delta_shares": money("delta_shares"), "delta_dollars": money("delta_dollars"),
@@ -268,9 +293,11 @@ def portfolio(ledger: sqlite3.Connection | None, research: sqlite3.Connection | 
                   "latest stored close, the leg's own implied volatility, 4% rate, no dividends), otherwise unknown. "
                   "Unknown is left out of every total and counted, never taken as zero.",
                   "Scenarios are modelled: every leg with a known volatility repriced with each stock moved by its "
-                  "beta to SPY (1 where under 60 days of shared history), or volatility raised 5 points. Time, "
-                  "skew and liquidity are held still.",
-                  "PAPER strategy books and My tracked plays only; the Learning research account is not included."],
+                  "beta to SPY (1 where under 60 days of shared history). Volatility shifts apply across the entire "
+                  "chain. Time and liquidity are held constant. Model prices are floored at a positive stock price "
+                  "and volatility after the shock.",
+                  "The overlay combines independent strategy books and tracked plays for inspection. Select a "
+                  "Learning book to use its own positions and ledger equity."],
         "orders_enabled": False, "mode": "PAPER",
     }
 

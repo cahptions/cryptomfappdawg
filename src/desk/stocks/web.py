@@ -1323,25 +1323,40 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                 ledger.execute("BEGIN")
                 curves, excluded = capital.ledger_curves(ledger, accounts, int(window))
                 excluded |= recovery_sessions(PaperBook(ledger))
-        since = min((min(curve) for curve in curves.values() if curve), default=utc_now().date())
-        with reader(paths, MARKET_FILE) as market:
-            benchmark = spy_total(StocksMarket(market), since)
+        if source == "replay" and "spy_total_curve" in report:
+            benchmark = {date.fromisoformat(day): level for day, level in report["spy_total_curve"].items()}
+            benchmark_basis = "Frozen with replay"
+        else:
+            since = min((min(curve) for curve in curves.values() if curve), default=utc_now().date())
+            with reader(paths, MARKET_FILE) as market:
+                benchmark = spy_total(StocksMarket(market), since)
+            benchmark_basis = "Current market store (original replay benchmark unavailable)" if source == "replay" else (
+                "Current market store")
         try:
             result = capital.compare(curves, benchmark, excluded, window=int(window), reserve=reserve / 100,
                                      cap=cap / 100, entry_bps=entry_bps)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        return {**base, **result}
+        return {**base, **result, "benchmark_basis": benchmark_basis}
 
     @app.get("/api/stocks/risk")
-    def portfolio_risk() -> dict[str, Any]:
+    def portfolio_risk(scope: Literal["overlay", "reference_1k", "reference_5k"] = "overlay",
+                       market_move: int = Query(default=-5, ge=-25, le=25),
+                       vol_points: int = Query(default=5, ge=-20, le=40)) -> dict[str, Any]:
+        from desk.stocks.learning import FILE as LEARNING_FILE
         from desk.stocks.risk import portfolio
 
+        account = None if scope == "overlay" else scope
+        ledger_file = LEDGER_FILE if account is None else LEARNING_FILE
+        now = utc_now()
         with reader(paths, MARKET_FILE) as market, reader(paths, RESEARCH_FILE) as research:
-            if (paths.db_dir / LEDGER_FILE).exists():
-                with reader(paths, LEDGER_FILE) as ledger:
-                    return portfolio(ledger, research, market, utc_now())
-            return portfolio(None, research, market, utc_now())
+            if (paths.db_dir / ledger_file).exists():
+                with reader(paths, ledger_file) as ledger:
+                    ledger.execute("BEGIN")
+                    return portfolio(ledger, research, market, now, account=account,
+                                     market_move=market_move / 100, vol_points=vol_points / 100)
+            return portfolio(None, research, market, now, account=account,
+                             market_move=market_move / 100, vol_points=vol_points / 100)
 
     @app.get("/api/stocks/alerts")
     def alert_settings() -> dict[str, Any]:

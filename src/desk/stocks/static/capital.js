@@ -13,7 +13,7 @@ const KestrelCapital = (() => {
     "Compare recorded strategies on the same dates. Allocation weights are fitted on earlier sessions and evaluated on later ones.";
   const signedPct = (x) =>
     x == null ? "—" : `${x > 0 ? "+" : ""}${percent(x)}`;
-  function paint(result, output) {
+  function paint(result, output, openReplay) {
     output.replaceChildren();
     if (result.status !== "ready") {
       output.append(
@@ -24,17 +24,17 @@ const KestrelCapital = (() => {
         ),
         table(
           ["Strategy", "Returns available"],
-          result.accounts
-            .filter((a) => selected.has(a.id))
-            .map((a) => [a.title, result.coverage.per_strategy[a.id]]),
+          [
+            ...result.accounts
+              .filter((a) => a.id in result.coverage.per_strategy)
+              .map((a) => [a.title, result.coverage.per_strategy[a.id]]),
+            ["SPY total return", result.coverage.benchmark],
+          ],
         ),
       );
-      if (source === "forward") {
+      if (result.source === "forward") {
         const replay = el("button", "Use historical replay", "primary");
-        replay.onclick = () => {
-          source = "replay";
-          void renderView();
-        };
+        replay.onclick = openReplay;
         output.append(replay);
       }
       return;
@@ -86,7 +86,7 @@ const KestrelCapital = (() => {
       series,
       legend: true,
       baseline: 0,
-      xFormat: KestrelCharts.date,
+      xFormat: (p) => KestrelCharts.date(p.day),
       yFormat: (v) => `${v.toFixed(1)}%`,
       timeFormat: (p) => p.day,
       tooltipRows: (p) =>
@@ -101,6 +101,14 @@ const KestrelCapital = (() => {
       result.accounts.map((a) => [a.id, a.title]),
     );
     const spread = result.risk_vs_equal_bps;
+    const provenance = el("details", undefined, "capital-provenance");
+    provenance.append(
+      el("summary", "Inspect comparison inputs"),
+      el("p", `SPY total-return data · ${result.benchmark_basis}.`),
+      el("p", `Allocation method · ${result.model}.`),
+      el("p", "Input fingerprint (SHA-256)"),
+      el("code", result.inputs_sha256),
+    );
     output.append(
       el("h2", "Held-out comparison"),
       period,
@@ -125,17 +133,17 @@ const KestrelCapital = (() => {
       ),
       el(
         "p",
-        "The blends keep fixed initial allocations, then let weights drift. Matched sessions use published simulation marks. Entry costs apply to the invested capital. Comparison results can change when you choose different strategies or dates.",
+        "The blends let initial weights drift. Results compound only matched sessions, skipping unobserved moves. The paths use strategy account marks and a one-time entry cost. You can change strategies or settings after seeing the results, so use this as exploratory evidence.",
         "muted",
       ),
+      provenance,
     );
   }
 
-  let renderView;
   async function show(ticket) {
     app.className = "capital-page";
     let serial = 0;
-    renderView = async () => {
+    async function renderView() {
       const token = ++serial,
         current = source;
       const catalog = await api(`portfolio?source=${current}`);
@@ -257,14 +265,19 @@ const KestrelCapital = (() => {
         try {
           const result = await api(`portfolio?${query}`);
           if (ticket === generation && token === serial)
-            preserveScroll(() => paint(result, output));
+            preserveScroll(() =>
+              paint(result, output, () => {
+                source = "replay";
+                void renderView();
+              }),
+            );
         } catch (err) {
           error.textContent = err.message;
         } finally {
           run.disabled = false;
         }
       };
-    };
+    }
     await renderView();
   }
   return { show };

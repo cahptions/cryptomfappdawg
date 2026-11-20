@@ -175,6 +175,7 @@ def report(book: PaperBook, market: StocksMarket, strategies: Sequence[Strategy]
         a["grade"] = grade(a)
     accounts.sort(key=lambda a: (a["baseline"], -(a["return"] if a["return"] is not None else -1e9)))
     return {"accounts": accounts, "first_day": first.isoformat() if first else None,
+            "spy_total_curve": {d.isoformat(): level for d, level in spy.items()},
             "recovery_sessions": len({d for d in recovery if first and d >= first}),
             "rules": {"min_sessions": MIN_SESSIONS, "min_sessions_portfolio": MIN_SESSIONS_PORTFOLIO,
                       "min_trades": MIN_TRADES, "baselines": BASELINE_FOR}}

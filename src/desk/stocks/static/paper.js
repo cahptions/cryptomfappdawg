@@ -34,12 +34,6 @@ const KestrelPaper = (() => {
     lotto_runners: "kestrel_run",
     random_lottos: "random_run",
   };
-  const lottoStatus = (data, variant) => {
-    const v = data?.report?.variants?.[variant];
-    return v?.picks
-      ? `${v.picks} picks on real prices · ${percent(v.return)}`
-      : "downloading real past prices";
-  };
   function lottoReplay(card, data, variant) {
     const report = data?.report,
       cover = data?.coverage || report?.coverage,
@@ -163,10 +157,6 @@ const KestrelPaper = (() => {
     );
     card.append(how);
   }
-  const realStatus = (real) =>
-    real?.trades
-      ? `${real.trades} trades on real prices · ${percent(real.return)}`
-      : "downloading real past prices";
   function evidencePanel(account, live, openReplay) {
     const section = el("section", undefined, "paper-evidence"),
       grid = el("div", undefined, "paper-evidence-grid"),

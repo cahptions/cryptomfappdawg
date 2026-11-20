@@ -437,7 +437,7 @@ const KestrelResearch = (() => {
             value: (p) => p.value,
           },
         ],
-        xFormat: KestrelCharts.date,
+        xFormat: (p) => KestrelCharts.date(p.at),
         timeFormat: (p) => p.day,
         tooltipRows: (p) => [["Close", money(p.close)]],
       });

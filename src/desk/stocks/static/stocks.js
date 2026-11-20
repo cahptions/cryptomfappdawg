@@ -1353,7 +1353,7 @@ async function render() {
   app.className = "";
   const section = "#" + route.split("/")[0];
   const name = document.querySelector(
-    `.workspace-rail a[href="${CSS.escape(section)}"]`,
+    `.workspace-rail .rail-group a[href="${CSS.escape(section)}"]`,
   )?.textContent;
   document.getElementById("workspace-location").textContent =
     name ||
@@ -1405,7 +1405,8 @@ async function render() {
     else if (route === "research") await KestrelResearchDesk.show(ticket);
     else if (route === "learner") await KestrelLearner.show(ticket);
     else if (route === "portfolio") await KestrelCapital.show(ticket);
-    else if (route === "risk") await KestrelRisk.show(ticket);
+    else if (route === "risk" || route.startsWith("risk/"))
+      await KestrelRisk.show(ticket, route);
     else if (route === "proof") await KestrelEvidence.show(ticket);
     else if (route === "events") await KestrelEvents.show(ticket);
     else if (route === "settings") await settingsPage();
