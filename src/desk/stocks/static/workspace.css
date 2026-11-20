@@ -1,0 +1,237 @@
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/instrument-serif.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: light;
+  --bg: #f4f3ee;
+  --surface-1: #fffefa;
+  --surface-2: #efefe8;
+  --surface-3: #e4e8e1;
+  --line: #dbded5;
+  --line-strong: #bfc9c0;
+  --text-strong: #142a27;
+  --text: #253631;
+  --text-2: #475e57;
+  --text-3: #566d64;
+  --accent: #196752;
+  --accent-ink: #fff;
+  --up: #176b4c;
+  --down: #a43738;
+  --good: #216b49;
+  --warning: #a35a0d;
+  --serious: #ad501a;
+  --critical: #9d333c;
+  --critical-text: #922c36;
+  --grid: #e1e6df;
+  --series-1: #136a55;
+  --series-2: #455b9c;
+  --series-3: #9d502d;
+  --series-4: #75622d;
+  --series-5: #984b73;
+  --series-6: #287582;
+  --series-7: #725597;
+  --series-8: #a7393f;
+  --series-ref: #63736b;
+  --estimate: #815a2d;
+  --shadow-pop: 0 20px 55px rgb(25 53 46 / 0.14), 0 0 0 1px var(--line);
+  --glow: none;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius: 9px;
+  --radius-lg: 12px;
+  --rail-size: clamp(172px, 15vw, 222px);
+  --gutter: clamp(26px, 3vw, 60px);
+  --page: 1530px;
+  --display: "Instrument Serif", Georgia, serif;
+}
+
+.kc-line, .kc-spark-line, svg.spark path, svg.spark polyline,
+.tabbar a[aria-current="page"] svg, .brand img { filter: none; }
+button.primary, .link-button { box-shadow: none; }
+
+.workspace-rail {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--rail-size);
+  padding: 26px 15px 25px;
+  overflow: auto;
+  background: #132d2b;
+  color: #f3f5ef;
+  z-index: 65;
+}
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 9px 20px;
+  color: #fff;
+  letter-spacing: 0.145em;
+  font-weight: 750;
+}
+.rail-brand:hover { color: #fff; }
+.rail-brand small {
+  display: block;
+  margin-top: 2px;
+  color: #acbfb6;
+  letter-spacing: 0.11em;
+  font-size: 9px;
+  font-weight: 550;
+}
+.rail-group {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid #39524b;
+  padding: 16px 0;
+}
+.rail-group > span {
+  padding: 0 11px 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #aec3ba;
+  font-weight: 650;
+}
+.rail-group a {
+  position: relative;
+  padding: 7px 10px 7px 13px;
+  border-radius: 5px;
+  color: #d9e4db;
+  font-size: 13px;
+  font-weight: 540;
+}
+.rail-group a:hover { background: #24433b; color: #fff; }
+.rail-group a[aria-current="page"] { background: #2b4b40; color: #fff; }
+.rail-group a[aria-current="page"]::before {
+  position: absolute;
+  inset: 7px auto 7px 0;
+  width: 3px;
+  border-radius: 3px;
+  background: #98c8a4;
+  content: "";
+}
+.rail-group a:focus-visible, .rail-brand:focus-visible { outline-color: #98c8a4; }
+
+@media (min-width: 961px) {
+  body { padding-inline-start: var(--rail-size); }
+  header {
+    gap: 18px;
+    flex-wrap: nowrap;
+    padding: 8px var(--gutter);
+    min-height: 58px;
+  }
+  header .brand { display: none; }
+  #stock-search { width: clamp(155px, 18vw, 288px); margin-inline-start: auto; }
+  #worker-pill span {
+    display: block;
+    max-width: clamp(130px, 15vw, 245px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+header { background: var(--surface-1); border-color: var(--line); }
+.workspace-path {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.workspace-path span:first-child { color: var(--text-2); }
+.workspace-path span:last-child { font-weight: 650; }
+.workspace-path span + span::before {
+  content: "/";
+  margin-right: 10px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+header .badge {
+  background: #e5eee6;
+  color: #215541;
+  border-color: #c0d2c4;
+  border-radius: 4px;
+  font-size: 10px;
+}
+#app h1 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(43px, 5.5vw, 71px);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  margin-block-end: 12px;
+  color: var(--text-strong);
+}
+#app h2 {
+  font-weight: 660;
+  letter-spacing: -0.025em;
+}
+#app :is(.hub-title, .explorer-heading, .events-title, .workspace-heading) {
+  margin-block-end: 23px;
+  min-width: 0;
+}
+.eyebrow { color: var(--text-2); }
+#app :is(.panel, .screen-card, .paper-status, .paper-backtest-controls, .risk-tile, .learner-status-box) {
+  border-radius: var(--radius);
+  border-color: var(--line);
+  background: var(--surface-1);
+}
+#app .research-tabs button:is([aria-pressed="true"], [aria-selected="true"]) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+#app .table-wrap { border-color: var(--line); }
+.workspace-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+}
+.workspace-heading p { margin: 0; color: var(--text-2); }
+.workspace-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 640;
+  background: var(--surface-1);
+  color: var(--accent);
+}
+.workspace-action:hover { border-color: var(--accent); background: var(--accent-soft); }
+.workspace-heading time { font-size: 13px; color: var(--text-2); }
+.workspace-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: clamp(15px, 2vw, 26px);
+  background: var(--surface-1);
+}
+.workspace-panel > h2:first-child, .workspace-panel-title h2 { margin: 0; }
+.workspace-panel-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-bottom: 13px;
+}
+.workspace-panel-title a { color: var(--accent); font-size: 13px; font-weight: 620; }
+
+@media (max-width: 960px) {
+  :root { --gutter: 18px; }
+  .workspace-rail, .workspace-path { display: none; }
+  header { padding: 11px 18px; }
+  header .brand { gap: 6px; letter-spacing: 0.10em; }
+  #app h1 { font-size: clamp(45px, 8vw, 60px); }
+  .tabbar a[aria-current="page"] { color: var(--accent); }
+  .tabbar a[aria-current="page"] svg { stroke-width: 2; }
+}
