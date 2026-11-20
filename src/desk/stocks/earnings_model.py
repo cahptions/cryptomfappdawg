@@ -377,13 +377,13 @@ def measure(market: Any, symbol: str, report: date, timing: str | None, rate: Ca
     if got != entry or not chains:
         row["note"] = "; ".join(x for x in (note, "No chain stored for the session before the results") if x)
         return row
-    price = market.chain_underlying_price(symbol, entry)
+    chain = market.chains_on(entry, [symbol], observed_by=cutoff).get(symbol, {})
+    price = chain.get("price")
     if not price or price <= 0:
         row["note"] = "; ".join(x for x in (note, "No stock price stored with that chain") if x)
         return row
     priced = implied(atm_points(chains, price, entry, rate(entry), yield_on(symbol, entry, price)), price, entry, exit_)
-    observed = conn.execute("SELECT MAX(observed_at) FROM stk_option_chains WHERE underlying=? AND day=? AND "
-                            "observed_at<=?", (symbol, day_of(entry), to_iso(cutoff))).fetchone()[0]
+    observed = chain.get("observed_at")
     row.update(implied=priced["move"], straddle=priced["straddle"], basis=priced["basis"], observed=observed,
                expiry=date.fromisoformat(priced["expiry"]) if priced["expiry"] else None,
                note="; ".join(x for x in (note, priced["note"]) if x) or None)

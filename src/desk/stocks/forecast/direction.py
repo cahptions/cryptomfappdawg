@@ -51,7 +51,7 @@ from desk.stocks.forecast import store
 
 Array = np.ndarray
 NAME = "stocks_direction_model"
-VERSION = 1
+VERSION = 2
 MODEL = "direction"
 HORIZONS = (1, 5, 10, 21, 63)
 QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
@@ -74,6 +74,7 @@ PARAMS = {"loss": "quantile", "max_iter": 80, "learning_rate": 0.08, "max_leaf_n
 
 def content() -> dict[str, Any]:
     return {"version": VERSION, "horizons": list(HORIZONS), "quantiles": list(QUANTILES), "features": list(pn.NAMES),
+            "calendar_input": "latest complete calendar receipt at each close; legacy records before first receipt",
             "target": "log return from the decision close over h sessions / (reference scale as of the previous "
                       "close x sqrt(h)); reference = RMS daily log return over 63 sessions, floored",
             "ref_sessions": pn.REF_SESSIONS, "var_floor": pn.VAR_FLOOR, "fresh": pn.FRESH,
@@ -83,7 +84,8 @@ def content() -> dict[str, Any]:
             "rearrangement": "sorted predicted quantiles", "baseline": "unconditional quantiles of the training rows",
             "gate": {"rows": GATE_ROWS, "sessions": GATE_SESSIONS, "stocks": GATE_STOCKS, "t": GATE_T,
                      "cal_slack": CAL_SLACK, "loss": "pinball, mean over quantiles, Newey-West t across sessions"},
-            "fit": "weekly on the first session of the week, rows with S + h <= F - 1"}
+            "fit": "weekly on the first session of the week, rows with S + h <= F - 1",
+            "universe": "top dollar volume through each fold's common earliest-horizon cutoff"}
 
 
 def version_hash() -> str:
@@ -229,8 +231,8 @@ def _fit_quantiles(x: Array, z: Array) -> list[Any]:
     return [HistGradientBoostingRegressor(**PARAMS, quantile=tau).fit(x, z) for tau in QUANTILES]
 
 
-def walk_forward(data: Data, fit_col: int, fit_day: date, *, progress: Callable[[str], None] | None = None
-                 ) -> tuple[Fit, dict[str, Any], int]:
+def walk_forward(data: Data, fit_col: int, fit_day: date, *, progress: Callable[[str], None] | None = None,
+                 universes: dict[int, Array] | None = None) -> tuple[Fit, dict[str, Any], int]:
     """The fit on column ``fit_col`` and its purged out-of-sample evaluation. Returns (fit, evaluation, rows)."""
     from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
 
@@ -241,7 +243,8 @@ def walk_forward(data: Data, fit_col: int, fit_day: date, *, progress: Callable[
         for h in HORIZONS:
             z = data.z[h]
             known = np.flatnonzero(np.isfinite(z) & (data.cols + h <= fit_col - 1))
-            if len(known) < MIN_TRAIN:
+            final_known = known[np.isin(data.rows[known], universes[-1])] if universes is not None else known
+            if len(final_known) < MIN_TRAIN:
                 evaluation[str(h)] = {"rows": 0, "sessions": 0, "stocks": 0, "live": False,
                                       "note": f"only {len(known):,} rows with a known outcome"}
                 continue
@@ -251,8 +254,9 @@ def walk_forward(data: Data, fit_col: int, fit_day: date, *, progress: Callable[
                 hi = end - k * BLOCK
                 lo = hi - BLOCK + 1
                 c = data.cols[known]
-                train = known[c + h <= lo - 1]
-                test = known[(c >= lo) & (c <= hi)]
+                eligible = np.isin(data.rows[known], universes[k]) if universes is not None else np.ones(len(known), bool)
+                train = known[(c + h <= lo - 1) & eligible]
+                test = known[(c >= lo) & (c <= hi) & eligible]
                 if len(train) < MIN_TRAIN or len(test) < 100:
                     continue
                 if progress:
@@ -274,7 +278,7 @@ def walk_forward(data: Data, fit_col: int, fit_day: date, *, progress: Callable[
             evaluation[str(h)] = ev
             if progress:
                 progress(f"direction {h}-session horizon: final fit")
-            final = _subsample(known, MAX_ROWS, fit_col * 17 + h)
+            final = _subsample(final_known, MAX_ROWS, fit_col * 17 + h)
             used += len(final)
             fit.horizons[h] = HorizonFit(_fit_quantiles(data.x[final], z[final]),
                                          [float(v) for v in np.quantile(z[final], QUANTILES)], bool(ev.get("live")))
@@ -293,7 +297,22 @@ def refit(market: Any, research: Any, fit_day: date, now: datetime, *,
     if newest is not None and newest >= fit_day:
         return {"fitted": False, "reason": f"a fit for {fit_day.isoformat()} or later exists"}
     started = time.monotonic()
-    chosen = list(symbols) if symbols is not None else pn.candidates(market, MAX_STOCKS)
+    by_fold: dict[int, list[str]] = {}
+    if symbols is None:
+        from datetime import timedelta
+
+        from desk.stocks.calendar import trading_days
+
+        first = market.execute("SELECT MIN(day) FROM stk_bars WHERE day<=?", (fit_day.toordinal(),)).fetchone()[0]
+        start = date.fromordinal(first) if first else fit_day
+        days = trading_days(start, fit_day)
+        by_fold[-1] = pn.candidates(market, MAX_STOCKS, through=fit_day - timedelta(days=1))
+        for k in range(EVAL_BLOCKS):
+            prior = len(days) - 2 - max(HORIZONS) - (k + 1) * BLOCK
+            by_fold[k] = pn.candidates(market, MAX_STOCKS, through=days[prior]) if prior >= 0 else []
+        chosen = sorted({symbol for names in by_fold.values() for symbol in names})
+    else:
+        chosen = list(symbols)
     if progress:
         progress(f"direction: loading {len(chosen)} stocks' daily bars")
     p = pn.load(market, chosen, fit_day, research=research)
@@ -302,7 +321,9 @@ def refit(market: Any, research: Any, fit_day: date, now: datetime, *,
         return {"fitted": False, "reason": "no stored bars through the fit day"}
     data = dataset(p)
     del p
-    fit, evaluation, used = walk_forward(data, fit_col, fit_day, progress=progress)
+    index = {symbol: i for i, symbol in enumerate(chosen)}
+    universes = {k: np.asarray([index[s] for s in names], dtype=int) for k, names in by_fold.items()} or None
+    fit, evaluation, used = walk_forward(data, fit_col, fit_day, progress=progress, universes=universes)
     if not fit.horizons:
         return {"fitted": False, "reason": f"not enough rows with known outcomes ({len(data.rows):,} sampled)",
                 "rows": len(data.rows)}

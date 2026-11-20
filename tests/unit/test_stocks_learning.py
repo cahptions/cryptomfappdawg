@@ -385,12 +385,25 @@ def test_the_small_accounts_are_filled_back_up_once(tmp_path):
         research = (book.cash("research"), book.deposits("research"))
         for account in ("reference_1k", "reference_5k"):          # spent down, as on the user's computer
             book.add_cash(account, AT, AT.date(), -int(book.cash(account) * 0.9 * 1_000_000), "OPEN")
-        conn.execute("DELETE FROM stk_learning_state WHERE key = 'refilled_2026_11_16'")
-        learning.initialize(conn, AT + timedelta(days=1))
+        conn.execute("DELETE FROM stk_learning_state WHERE key = ?", (learning.SMALL_REFILL,))
+        refill_time = AT + timedelta(days=1)
+        learning.initialize(conn, refill_time)
         assert book.cash("reference_1k") == pytest.approx(1000) and book.cash("reference_5k") == pytest.approx(5000)
         assert (book.cash("research"), book.deposits("research")) == research
+        for a in learning.report(conn)["accounts"][2:]:
+            assert len(a["deposits"]) == 2 and a["refill"]["amount"] == pytest.approx(0.9 * a["starting_capital"])
+            assert a["refill"]["positions_opened"] == 0 and a["trading_pnl"] == -a["refill"]["amount"]
+        chain(world, refill_time)
+        learning.tick(conn, world.market, refill_time)
+        assert all(a["pending_orders"] == 1 and a["refill"]["positions_opened"] == 0
+                   for a in learning.report(conn)["accounts"][2:])
+        later = refill_time + timedelta(minutes=1)
+        chain(world, later)
+        learning.tick(conn, world.market, later)
         learning.initialize(conn, AT + timedelta(days=2))                   # only once
-        assert book.cash("reference_1k") == pytest.approx(1000)
+        for a in learning.report(conn)["accounts"][2:]:
+            assert a["refill"]["positions_opened"] == 1 and len(a["deposits"]) == 2
+            assert a["refill"]["entry_debit"] == pytest.approx(a["starting_capital"] - a["cash"])
     finally:
         conn.close()
         world.close()

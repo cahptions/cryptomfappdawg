@@ -10,16 +10,53 @@ from threading import Event
 from typing import Any
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from desk.core.config import load_config
 from desk.core.paths import DeskPaths
 from desk.core.worker_lock import WorkerLock
+from desk.stocks import runner
 from desk.stocks.research_worker import ResearchWorker
 from desk.stocks.runner import process, saved
 from desk.stocks.web import create_app
 from tests.conftest import REPO
 from tests.stocks_world import NOW, make_world
+
+
+def test_paper_report_recovers_after_ledger_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    world = make_world(tmp_path, n=12)
+    loaded = load_config(world.paths.config_dir)
+    report_path = runner.saved_path(world.paths, "paper")
+    report_path.write_text('{"asof": "2026-10-20", "mode": "PAPER"}')
+    write = runner._atomic_private
+
+    def fail_report(path: Path, data: str) -> None:
+        if path == report_path:
+            raise OSError("report write interrupted")
+        write(path, data)
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(runner, "_atomic_private", fail_report)
+            with pytest.raises(OSError, match="report write interrupted"):
+                process(world.paths, loaded, world.dbs, NOW)
+        assert saved(world.paths, "paper")["asof"] == "2026-10-20"
+        assert world.dbs.ledger.execute("SELECT MAX(day) FROM stk_equity").fetchone()[0] == NOW.date().toordinal()
+        ledger = list(world.dbs.ledger.iterdump())
+
+        result = process(world.paths, loaded, world.dbs, NOW)
+        assert "already processed" in result["waiting"]
+        assert list(world.dbs.ledger.iterdump()) == ledger
+        restored = saved(world.paths, "paper")
+        assert restored["asof"] == NOW.date().isoformat()
+        assert restored["mode"] == "PAPER" and restored["orders_enabled"] is False
+        assert restored["accounts"]
+        assert "attribution" in result["learner"]
+        process(world.paths, loaded, world.dbs, NOW + timedelta(minutes=1))
+        assert saved(world.paths, "paper") == restored
+    finally:
+        world.close()
 
 
 def test_zero_revenue_company_does_not_abort_research_or_write_paper(tmp_path: Path) -> None:

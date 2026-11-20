@@ -42,9 +42,10 @@ from desk.stocks.learner import overfit as of
 from desk.stocks.learner import policy
 
 NAME = "stocks_learner_promotion"
-VERSION = 2                         # v2: the deflated Sharpe ratio is required as well
+VERSION = 3                         # also require quote-supported forward comparison
 FORWARD_DAYS = 20
 MIN_RULE_DAYS = 5
+MIN_PAIRED_DAYS = 16
 DRAWS = 2000
 
 
@@ -55,7 +56,8 @@ def content() -> dict[str, Any]:
             "vs_rules": "difference of daily means over the same window, 90% bootstrap resampling each side",
             "confirmed": "both lower ends above zero and the deflated Sharpe ratio of the paired daily differences "
                          "against Random >= overfit.REQUIRED, N = every model trial recorded",
-            "overfit": of.version_hash()}
+            "overfit": of.version_hash(), "minimum_paired_days": MIN_PAIRED_DAYS,
+            "confirm_also": "matched execution study against challenger and cash"}
 
 
 def version_hash() -> str:
@@ -194,6 +196,8 @@ def judge(book: Any, decisions: Mapping[int, int], trials: tuple[int, float] = (
     if len(rule_days) < MIN_RULE_DAYS:
         return {**out, "verdict": None, "why": f"the rule-based option strategies entered on {len(rule_days)} days in "
                                                f"the window ({MIN_RULE_DAYS} needed to compare); it stays provisional"}
+    if len(paired) < MIN_PAIRED_DAYS:
+        return {**out, "verdict": None, "why": f"{len(paired)} paired twin days of {MIN_PAIRED_DAYS} required."}
     ranges = bool(vs_random and vs_random["low"] > 0 and vs_rules and vs_rules["low"] > 0)
     ok = ranges and bool(deflated and deflated["passes"])
     luck = (f"; deflated Sharpe ratio {deflated['dsr']:.2f} after {deflated['trials']:,} model trials (needs "
@@ -206,23 +210,46 @@ def judge(book: Any, decisions: Mapping[int, int], trials: tuple[int, float] = (
 
 def review(ledger: sqlite3.Connection, research: sqlite3.Connection, now: datetime) -> dict[str, Any]:
     """Record each version's provisional stage when it first trades, and its verdict once its forward days are in."""
+    from desk.stocks.learner import forward
     from desk.stocks.paper.book import PaperBook
 
     book = PaperBook(ledger)
     done = stages(research)
+    comparison = forward.summary(research)
     out = {}
     trials = of.counter(research, "model")
     for (code, pv), decisions in versions(ledger, research).items():
         have = done.get((code, pv), {})
+        if (code, pv) != (md.version_hash(), policy.version_hash()):
+            continue  # Keep the historical result under its original rules.
         if "provisional" not in have:
             first = min(decisions.values())
             _record(research, code, pv, "provisional", {"first_session": date.fromordinal(first).isoformat(),
                                                         "rule": content()}, now)
-        result = judge(book, decisions, trials)
-        if result["verdict"] and result["verdict"] not in have:
-            _record(research, code, pv, result["verdict"], result, now)
+        verdict = have.get("confirmed") or have.get("failed")
+        result = verdict or _execution_gate(judge(book, decisions, trials), comparison)
+        if (stage := result.get("verdict")) and stage not in have:
+            _record(research, code, pv, stage, result, now)
         out[f"{code}/{pv}"] = result
     return out
+
+
+def _execution_gate(result: dict[str, Any], study: dict[str, Any]) -> dict[str, Any]:
+    if result["verdict"] != "confirmed":
+        return result
+    from desk.stocks.learner.forward import MIN_SUPPORT
+
+    confirmation = study["confirmation"]
+    if confirmation is None:
+        return {**result, "verdict": None, "execution_study": study,
+                "why": "Waiting for the quote-supported comparison against the matched challenger and cash."}
+    if confirmation["support"] < MIN_SUPPORT:
+        return {**result, "verdict": None, "execution_study": study,
+                "why": "The frozen comparison had too few comparable days to confirm."}
+    if not confirmation["passes"]:
+        return {**result, "verdict": "failed", "execution_study": study,
+                "why": "The frozen quote-supported comparison fell below the economic threshold."}
+    return {**result, "execution_study": study}
 
 
 def overview(ledger: sqlite3.Connection | None, research: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -237,6 +264,12 @@ def overview(ledger: sqlite3.Connection | None, research: sqlite3.Connection) ->
         try:
             for key, decisions in versions(ledger, research).items():
                 progress[key] = judge(PaperBook(ledger), decisions, of.counter(research, "model"))
+                if key == current:
+                    from desk.stocks.learner import forward
+
+                    have = done.get(key, {})
+                    progress[key] = (have.get("confirmed") or have.get("failed")
+                                     or _execution_gate(progress[key], forward.summary(research)))
         except sqlite3.OperationalError:
             progress = {}
     for key in sorted(set(done) | set(progress) | {current}):

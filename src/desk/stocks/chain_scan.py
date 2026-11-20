@@ -20,6 +20,7 @@ the session has closed, through Schwab's read-only market data and the desk's sh
 
 from __future__ import annotations
 
+import random
 import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -33,6 +34,7 @@ from desk.storage.db import transaction
 
 JOB = "chain_scan"
 NAMES = 500
+PILOT_NAMES = 150
 MIN_PRICE = 5.0
 RANK_SESSIONS = 20
 NO_OPTIONS_DAYS = 30
@@ -54,7 +56,7 @@ def session_to_scan(now: datetime) -> date | None:
     return d if now < opens else None
 
 
-def eligible(conn: Any, day: date, n: int = NAMES) -> list[str]:
+def eligible(conn: Any, day: date, n: int = NAMES, *, focused: bool = False) -> list[str]:
     """The ``n`` most liquid stocks and ETFs as of ``day`` (stored bars up to it), less those without options lately."""
     sessions = cal.trading_days(day - timedelta(days=RANK_SESSIONS * 2), day)[-RANK_SESSIONS:]
     if not sessions:
@@ -67,7 +69,14 @@ def eligible(conn: Any, day: date, n: int = NAMES) -> list[str]:
         "GROUP BY b.symbol", (sessions[0].toordinal(), day.toordinal())).fetchall()
     ranked = sorted(((r[1] or 0.0, r[0]) for r in rows if r[0] not in skip and (r[2] or 0) >= MIN_PRICE),
                     key=lambda x: (-x[0], x[1]))
-    return [s for _, s in ranked[:n]]
+    names = [s for _, s in ranked]
+    if not focused or len(names) <= n:
+        return names[:n]
+    core = names[:n * 2 // 3]
+    boundary = names[len(core):len(core) + n // 6]
+    remainder = names[len(core) + len(boundary):]
+    outside = random.Random(f"{day}:focused-chain-scan-v1").sample(remainder, n - len(core) - len(boundary))  # noqa: S311
+    return [*core, *boundary, *outside]
 
 
 def outcomes(conn: Any, day: date) -> dict[str, str]:
@@ -92,13 +101,14 @@ def _record(conn: Any, day: date, symbol: str, status: str, note: str | None, no
 
 
 async def scan(client: Any, market: Any, now: datetime, *, names: int = NAMES, max_requests: int = PASS_REQUESTS,
+               focused: bool = False,
                max_seconds: float = PASS_SECONDS, clock: Callable[[], float] = time.monotonic) -> dict[str, Any]:
     """One bounded pass of the scan (module docstring). Returns its coverage, requests and why it stopped."""
     conn = market.conn
     day = session_to_scan(now)
     if day is None:
         return {"skipped": "no closed session to scan until the market closes", **coverage(conn, None)}
-    wanted = eligible(conn, day, names)
+    wanted = eligible(conn, day, min(PILOT_NAMES, names) if focused else names, focused=focused)
     done = outcomes(conn, day)
     todo = [s for s in wanted if s not in done]
     started, used, stopped = clock(), 0, None
@@ -151,7 +161,13 @@ async def scan(client: Any, market: Any, now: datetime, *, names: int = NAMES, m
                 _record(conn, day, symbol, "scanned" if m["liquid"] >= osg.MIN_LIQUID else "thin",
                         None if m["liquid"] >= osg.MIN_LIQUID else f"{m['liquid']} liquid contracts", now)
     conn.execute("DELETE FROM stk_option_scan WHERE day<?", ((day - timedelta(days=KEEP_DAYS)).toordinal(),))
-    out = {"requests": used, **coverage(conn, day, len(wanted))}
+    usable = sum(status == "scanned" and done.get(symbol) != "scanned"
+                 for symbol, status in outcomes(conn, day).items())
+    wanted_set = set(wanted)
+    selected = {s: status for s, status in outcomes(conn, day).items() if s in wanted_set}
+    out = {"requests": used, "coverage_policy": "focused pilot" if focused else "broad",
+           "usable_per_request": round(usable / used, 3) if used else None,
+           **coverage(conn, day, len(wanted)), "remaining": max(0, len(wanted) - len(selected))}
     if stopped and out["remaining"]:
         out["stopped"] = stopped
     return out

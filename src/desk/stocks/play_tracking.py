@@ -185,7 +185,7 @@ Save = Callable[[list[OptionTick], str], None]
 
 def _from_chain(q: OptionQuote, underlying: float | None) -> OptionTick:
     return OptionTick(q.occ, q.bid, q.ask, q.last, None, q.volume, q.open_interest, None, None, None, None, None,
-                      underlying, q.quoted_at)
+                      underlying, q.quoted_at, q.bid_size, q.ask_size)
 
 
 async def quote_pass(due_now: Sequence[Tracked], save: Save, *, schwab: QuoteClient | None, chains: ChainClient | None,
@@ -263,16 +263,17 @@ async def quote_pass(due_now: Sequence[Tracked], save: Save, *, schwab: QuoteCli
 
 def tick_rows(ticks: Iterable[OptionTick], at: datetime, session: date, source: str) -> list[tuple[Any, ...]]:
     return [(t.occ, to_iso(at), day_of(session), t.bid, t.ask, t.last, t.mark, t.volume, t.open_interest, t.iv,
-             t.delta, t.gamma, t.theta, t.vega, t.underlying_price, to_iso(t.quoted_at) if t.quoted_at else None, source)
-            for t in ticks]
+             t.delta, t.gamma, t.theta, t.vega, t.underlying_price, to_iso(t.quoted_at) if t.quoted_at else None, source,
+             t.bid_size, t.ask_size) for t in ticks]
 
 
 def save_ticks(research: sqlite3.Connection, rows: list[tuple[Any, ...]]) -> None:
     if rows:
         research.executemany(
             "INSERT OR IGNORE INTO stk_track_ticks(occ, at, session, bid, ask, last, mark, volume, open_interest,"
-            " schwab_iv, schwab_delta, schwab_gamma, schwab_theta, schwab_vega, underlying, quoted_at, source)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+            " schwab_iv, schwab_delta, schwab_gamma, schwab_theta, schwab_vega, underlying, quoted_at, source,"
+            " bid_size, ask_size)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
 
 
 def archive_ticks(market: sqlite3.Connection, tracked: dict[str, Tracked], session: date, after: str | None,
@@ -291,7 +292,7 @@ def archive_ticks(market: sqlite3.Connection, tracked: dict[str, Tracked], sessi
         for q in json.loads(zlib.decompress(r["chain_zlib"])):
             if q[0] in tracked and q[3] is not None and q[4] is not None:
                 tick = OptionTick(q[0], q[3], q[4], q[5], None, q[6], q[7], None, None, None, None, None,
-                                  r["underlying_price"], datetime.fromisoformat(q[9]) if q[9] else None)
+                                  r["underlying_price"], datetime.fromisoformat(q[9]) if q[9] else None, *q[10:12])
                 rows.extend(tick_rows([tick], at, session, f"collector:{r['source']}"))
     return rows, newest
 
@@ -620,7 +621,7 @@ async def catch_up_close(research: sqlite3.Connection, now: datetime, board: dic
 async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now: datetime, *,
                    board: dict[str, Any] | None, schwab: QuoteClient | None, chains: ChainClient | None,
                    rate: Callable[[date], float], history: Any = None,
-                   clock: Callable[[], datetime] = utc_now) -> dict[str, Any]:
+                   clock: Callable[[], datetime] = utc_now, execution_study: bool = False) -> dict[str, Any]:
     """Fold closed sessions, compact old detail, mark and repair plays and, in market hours, quote what is due."""
     from desk.stocks import play_marks
     from desk.stocks.play_archive import recover
@@ -673,7 +674,14 @@ async def run_pass(market: sqlite3.Connection, research: sqlite3.Connection, now
         with transaction(research):
             save_ticks(research, tick_rows(ticks, clock(), today, source))
 
-    result = await quote_pass(due_now, save, schwab=schwab, chains=chains, use_quotes=not retry)
+    from desk.stocks.learner import forward
+
+    sample = await forward.sample(research, schwab, now, clock) if execution_study else None
+    reserved = sample["requests"] if sample else 0
+    report["execution_study"] = sample
+    result = await quote_pass(due_now, save, schwab=schwab, chains=chains, use_quotes=not retry,
+                              budget=REQUESTS_PER_PASS - reserved)
+    result.requests += reserved
     report["personal_updates"] += advance(market, research, clock())
     if result.endpoint:
         put_state(research, "endpoint", {"state": result.endpoint, "day": today.isoformat(), "at": to_iso(now)}, now)
@@ -745,7 +753,7 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, now: datetime | None = N
         stocks_market = StocksMarket(market)
         report = await run_pass(market, research, now, board=board, schwab=suite.schwab if suite else None,
                                 chains=suite.options if suite else None, history=suite.schwab if suite else None,
-                                rate=lambda d: _rate(stocks_market, d))
+                                rate=lambda d: _rate(stocks_market, d), execution_study=loaded.settings.stocks.execution_study)
         put_state(research, "cycle", {"slot": slot(now), "at": to_iso(now)}, now)
         if market_open(now) and suite is not None:           # PAPER lottos sold at triple during the session
             report["paper_take_profits"] = await paper_take_profits(paths, suite.schwab, now)

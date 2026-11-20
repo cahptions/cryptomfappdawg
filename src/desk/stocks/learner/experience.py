@@ -312,7 +312,7 @@ def recorded(conn: sqlite3.Connection, source: str, session: date) -> bool:
 
 
 def record_forward(market: Any, research: Any, session: date, now: datetime, *,
-                   books: Sequence[tuple[str, sqlite3.Connection]] = ()) -> dict[str, Any]:
+                   books: Sequence[tuple[str, sqlite3.Connection]] = (), frozen: bool = False) -> dict[str, Any]:
     """Record ``session``'s candidates from its stored chains (``market``/``research``: StocksMarket/StocksResearch).
     Called once Plays has recorded that session; idempotent."""
     from desk.stocks import plays as pl
@@ -322,7 +322,8 @@ def record_forward(market: Any, research: Any, session: date, now: datetime, *,
     started = time.monotonic()
     ic, months, ic_source = pl.committee_ic(research)
     ctx = pl.Context(session, now, pl._rate(market, session), ic, months, ic_source, {}, [])
-    tables = [tb for u in pl.load(market, research, session) if (tb := pl.table(u, ctx)) is not None]
+    tables = [tb for u in pl.load(market, research, session, now if frozen else None, frozen=frozen)
+              if (tb := pl.table(u, ctx)) is not None]
     from desk.stocks.forecast import structure as st
 
     ctx.outlook = st.outlook(market.conn, research.conn, session, [tb.u.symbol for tb in tables])

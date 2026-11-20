@@ -1,5 +1,59 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-19 — Small-account refill visibility
+
+- Latest Claude head was still `5cc9092`. Both refills use the small accounts' append-only cash ledgers.
+  The old Funding view only read the research ledger's funding events, so it hid those deposits.
+- Both small-account cards now distinguish equity and available cash and show pending orders, the refill check
+  and later filled entries. The Funding tab lists each account's own deposits. The existing one-time rule
+  still leaves previous losses in trading P/L.
+- A disposable test restored $900 and $4,500 respectively, then filled both accounts from later quotes
+  without another deposit. The Dell's actual results can be checked with `python3 scripts/stocks-retail-status.py`.
+
+## 2026-11-19 — Stocks audit implementation
+
+- Plays now exposes an Execution check for multi-leg ideas, including the observed quote time, simultaneous
+  capacity, one-unit loss and cash fit for both small PAPER accounts. Chain replacements and complete earnings
+  calendar receipts support decision-time lookups. New recorded ideas retain their own leg evidence.
+- The Learner now tracks a prospective call-spread comparison with a matched simple rule, cash and a seeded
+  sample of rejected ideas. Promotion requires that study and more paired twin days. Point-in-time model inputs
+  and raw structure rankings are versioned. Use `desk stocks learner-ablate` to compare feature groups.
+- PAPER gives eligible close processing priority over optional jobs. Paper shows the current wait, next action
+  and ledger timing. The optional focused chain pilot measures usable coverage against request count.
+- On disposable data, the managed dashboard reached a verified 25-account PAPER commit in 3.4–8.3 seconds.
+  Pause and Start preserved the commit timestamp and the cash, decision, position and equity row counts.
+  The read-only accuracy command ran 25 checks with zero violations. Chromium exercised the new views at
+  1366px and 375px.
+- These changes are built on the preserved takeover edits below. Dell feed coverage, billed cost, real fill
+  disagreements, human comprehension and prospective edge need operator data. See [PAPER](docs/STOCKS_PAPER.md).
+
+## 2026-11-19 — Stocks PAPER takeover
+
+- Fetched all remote branches. Continued from Claude's `5cc9092` on `claude/funny-rubin-gq99vj`, 231 commits after
+  the previous Codex checkpoint `5bdcaa3`. Local work is in the separate `codex/stocks-paper-takeover` worktree.
+- The November 12 finding in `a39e9b8` resolves the original exit-code-1 diagnosis in the November 5 incident
+  report. Claude versioned the News desk and validation rules, which older databases had correctly refused to
+  overwrite. Subsequent work added accuracy checks, forward Learner gates and trials, limit-entry simulation,
+  direction and volatility models, earnings and option signals, and trade P/L attribution.
+- Reproduced a PAPER reporting gap with an interrupted snapshot write after the ledger commit. A completed session
+  now repairs its missing or stale report using the ledger and stored market data. A current snapshot is reused.
+  Later passes retain the Learner's decision, trial and attribution results in the worker status.
+- Corrected the small-account card's sizing label. The number is the next trade's target based on equity and
+  available cash. One affordable position may exceed it under the existing execution rule.
+- Started the production dashboard and its managed worker on disposable data created by `5bdcaa3` (503 synthetic
+  price sessions). The worker migrated the data, completed two passes at the default interval, and cleared all 36
+  pending entries with STOP. Pause released the lock and persisted across a dashboard restart. Start PAPER
+  launched a new worker, rebuilt the missing November 18 report for all 25 accounts, and kept pending orders at
+  zero. The read-only accuracy audit reported zero violations on the fixture.
+- The full offline suite at `5cc9092` passed (2,086 tests, five opt-in provider tests deselected). The patched
+  PAPER, migration and worker checks passed (52 tests). Chromium passed PAPER workflows and diagnostics,
+  the Learner account, learned trials, attribution, structure pricing, earnings and small-account sizing at
+  desktop and 375px. Ruff, strict mypy and pinned Prettier passed.
+- Operator acceptance still requires an authenticated run on the Dell. The cloud workspace had no Stocks credentials,
+  operator database or usable Dell connection. Real-data forecast coverage, limit-fill observations, Learner
+  promotion and trial results still depend on the evidence recorded there. The November 18 limit-entry change
+  supersedes the phase 5 note about the Learner always paying the ask.
+
 ## 2026-11-18 — Closing the loop: the Learner tries what it learned, phase 6
 
 - **Findings → trials** (`learner/trials.py`, spec `stocks_learner_trials` v1; research migration 0023): each

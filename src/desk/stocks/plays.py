@@ -311,6 +311,7 @@ class Underlying:
     average_volume: dict[str, float] = field(default_factory=dict)
     option_volume_avg: float | None = None
     vol_state: vf.State | None = None           # recent realized variance for KESTREL's volatility forecast
+    receipts: dict[date, str] = field(default_factory=dict)
 
     def desk(self, name: str) -> float | None:
         d = (self.detail.get("desks") or {}).get(name) or {}
@@ -370,29 +371,32 @@ EARNINGS_DAYS = (1, 21)            # calendar days from the session to the resul
 EARNINGS_EXPIRY = 45                # the first expiry after the results, at most this many days out
 
 
-def load(market: StocksMarket, research: StocksResearch, session: date, now: datetime | None = None
-         ) -> list[Underlying]:
-    """Every underlying with a chain on ``session``; results dates as known at ``now`` (None: everything stored)."""
-    chains = market.chains_on(session)
+def load(market: StocksMarket, research: StocksResearch, session: date, now: datetime | None = None,
+         *, frozen: bool = False) -> list[Underlying]:
+    """Every underlying with a chain on the session, optionally constrained to a frozen cutoff."""
+    chains = market.chains_on(session, observed_by=now if frozen else None)
     if not chains:
         return []
     symbols = sorted(chains)
     marks = ",".join("?" * len(symbols))   # placeholders only; values are bound
+    cutoff = to_iso(now) if frozen and now else None
     details = {r["symbol"]: json.loads(r["detail_json"]) for r in research.conn.execute(
-        f"SELECT symbol, detail_json FROM stk_scores_latest WHERE symbol IN ({marks})", symbols)}  # noqa: S608
+        f"SELECT symbol, detail_json FROM stk_scores_latest WHERE symbol IN ({marks}) "  # noqa: S608
+        "AND (? IS NULL OR (asof<=? AND computed_at<=?))", (*symbols, cutoff, day_of(session), cutoff))}
     scores = [r[0] for r in research.conn.execute(
-        "SELECT json_extract(detail_json, '$.committee.score') FROM stk_scores_latest") if r[0] is not None]
+        "SELECT json_extract(detail_json, '$.committee.score') FROM stk_scores_latest "
+        "WHERE ? IS NULL OR (asof<=? AND computed_at<=?)", (cutoff, day_of(session), cutoff)) if r[0] is not None]
     mean = statistics.fmean(scores) if scores else 50.0
     sd = statistics.pstdev(scores) if len(scores) >= 10 else 0.0
     iv_rows: dict[str, list[tuple[int, float | None, float | None]]] = defaultdict(list)
     sql = ("SELECT underlying, day, json_extract(summary_json, '$.iv30') iv, json_extract(summary_json, "  # noqa: S608
            "'$.activity.volume') vol FROM stk_option_daily WHERE day >= ? AND day <= ? AND underlying IN ("
-           + marks + ") ORDER BY day")                                  # placeholders only; values are bound
-    for r in market.conn.execute(sql, (day_of(session - timedelta(days=400)), day_of(session), *symbols)):
+           + marks + ") AND (? IS NULL OR observed_at<=?) ORDER BY day")  # placeholders only; values are bound
+    for r in market.conn.execute(sql, (day_of(session - timedelta(days=400)), day_of(session), *symbols, cutoff, cutoff)):
         iv_rows[r["underlying"]].append((r["day"], r["iv"], r["vol"]))
     year = year_of_iv(market.conn, {s: {d: iv for d, iv, _ in iv_rows.get(s, []) if iv} for s in symbols}, session)
     prior_days = market.option_days(session, PRIOR_SESSIONS)
-    prior_chains = [market.chains_on(d, symbols) for d in prior_days]
+    prior_chains = [market.chains_on(d, symbols, observed_by=now if frozen else None) for d in prior_days]
     dates = ed.known(market.conn, session, now, set(symbols))
     priors = em.Priors(market.conn, session) if dates else None
     rate = _rate(market, session)
@@ -402,7 +406,8 @@ def load(market: StocksMarket, research: StocksResearch, session: date, now: dat
         price = c["price"]
         if not price or price <= 0:
             continue
-        u = Underlying(symbol, float(price), c["observed_at"], c["source"], c["expirations"])
+        u = Underlying(symbol, float(price), c["observed_at"], c["source"], c["expirations"],
+                       receipts=c.get("receipt_times", {}))
         u.detail = details.get(symbol, {})
         u.committee = (u.detail.get("committee") or {}).get("score")
         u.z = None if u.committee is None or sd <= 0 else (u.committee - mean) / sd
@@ -1228,8 +1233,9 @@ def finish(c: Candidate, ctx: Context) -> dict[str, Any]:
                      "bid": q.bid, "ask": q.ask, "mid": round(float(tb.mid[i]), 4), "last": q.last,
                      "iv": round(float(tb.iv[i]), 4), "delta": round(g.delta, 4), "gamma": round(g.gamma, 5),
                      "theta": round(g.theta_per_day, 4), "vega": round(g.vega_per_point, 4), "volume": q.volume,
-                     "open_interest": q.open_interest,
-                     "quoted_at": q.quoted_at.isoformat() if q.quoted_at else None})
+                     "open_interest": q.open_interest, "bid_size": q.bid_size, "ask_size": q.ask_size,
+                     "quoted_at": q.quoted_at.isoformat() if q.quoted_at else None,
+                     "chain_received_at": u.receipts.get(q.expiration)})
     first = tb.quotes[c.legs[0][0]]
     i0 = c.legs[0][0]
     expiration = first.expiration
@@ -2218,7 +2224,7 @@ def learned_sections(market: StocksMarket, research: StocksResearch, tables: Seq
 
 
 def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledger: PaperBook | None = None,
-          previous: dict[str, Any] | None = None) -> dict[str, Any]:
+          previous: dict[str, Any] | None = None, frozen: bool = False) -> dict[str, Any]:
     """Score the latest options session into plays; record them once the session has closed; grade expired ones."""
     graded = grade(market, research, now)
     graded += grade_events(market, research, now)
@@ -2247,7 +2253,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     ctx = Context(session, now, _rate(market, session), ic, months, source, calibration(research), research.watchlist(),
                   flagged_before(research, session))
     ctx.vol_model = vf.model_on(market.conn, session)
-    tables = [tb for u in load(market, research, session, now) if (tb := table(u, ctx)) is not None]
+    tables = [tb for u in load(market, research, session, now, frozen=frozen) if (tb := table(u, ctx)) is not None]
     ctx.outlook = st.outlook(market.conn, research.conn, session, [tb.u.symbol for tb in tables])
     out_categories = []
     recorded: dict[str, list[dict[str, Any]]] = {}
@@ -2258,7 +2264,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
     early = so_far(research.conn, [c.id for c in CATEGORIES if not (track.get(c.id) or {}).get("resolved")])
     paper = paper_records(ledger)
     learned = lrn.latest(research.conn) or {}
-    closed = session_closed(session, now)
+    closed = session_closed(session, now) and (bool(tables) or not frozen)
     unrecorded = closed and research.conn.execute("SELECT 1 FROM stk_play_days WHERE session = ?",
                                                   (day_of(session),)).fetchone() is None
     shadow: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(dict)
@@ -2273,6 +2279,7 @@ def build(market: StocksMarket, research: StocksResearch, now: datetime, *, ledg
             if id(c) not in finished:
                 p = finish(c, ctx)
                 variant = lrn.BY_VARIANT[live[category]] if category in live else None
+                p["raw_rank_score"] = float(c.score)
                 p["selection_score"] = float(variant.rank(p) if variant and variant.rank else c.score)
                 finished[id(c)] = p
             return finished[id(c)]

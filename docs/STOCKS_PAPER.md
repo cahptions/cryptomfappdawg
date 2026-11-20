@@ -173,6 +173,41 @@ RECOVERY event, and the report counts and lists each account's recovery sessions
 shows beside its forward sessions. Ledgers from before that event are read the same way: a session stepped in the same
 pass as a later one was caught up.
 
+## Execution evidence and forward evaluation
+
+Open **Execution check** on a multi-leg Plays idea to see its decision cutoff, provider quote times, one-unit
+maximum loss and cash fit for the $1,000 and $5,000 accounts. Cash fit uses today's PAPER cash and the
+recorded idea price. The retail engine also applies its own strategy, liquidity and position checks.
+Quote support requires one receipt, quotes at most 60 seconds old, at most 15 seconds of skew across legs
+and enough displayed size at the order's signed limit. A supported receipt indicates displayed liquidity.
+The receipt gives no information about queue position or a broker fill. A missing, old or unsynchronized
+leg produces **unknown**. Saved ideas retain their leg evidence even after the raw chain is pruned.
+
+The **Forward execution study** on Learner records each session once. It compares the first eligible one-unit
+Learner call debit spread with a simple rule matched by underlying, expiry, loss and net delta, plus a cash
+baseline and one randomly sampled rejected peer. Each arm uses a $500 research budget. The tracker can use one
+existing quote request per five-minute slot during the next session's first hour. Grades require at least
+80% complete windows and use the first supported receipt, entry fees and the official expiry close. A second
+estimate allows two more cents of debit. Missing days remain visible, and comparable PAPER fills are shown
+alongside the quote-supported results. Promotion also requires 16 paired Learner twin days, 20 non-overlapping
+position blocks and 80% matched coverage. At the frozen evaluation point, both lower 95% bounds and the mean
+across all comparable days must reach one percent of budget versus cash and the matched rule.
+
+Run `desk stocks learner-ablate` for held-out, purged walk-forward comparisons of feature groups on recorded
+candidates. Use `--source replay` explicitly for historical replay. Results are descriptive. The prospective
+panel provides independent evidence once enough observations mature.
+
+Paper shows the latest close required, current wait reason and next action. The deadline record preserves the
+successful session's ledger timestamp across later passes. When required data is ready, PAPER steps before
+optional backfills. The `paper_step` records retain receipt and commit timestamps for measuring lag over time.
+The existing worker lock and the daily ledger transaction prevent reprocessing.
+
+Set `execution_study = false` under `[stocks]` to stop study capture without removing past receipts. New
+Learner versions remain provisional when study evidence is unavailable. Set `focused_chain_pilot = true`
+to test a smaller close-scan universe with recurring names, candidates near the selection boundary and a
+seeded outside sample. The default remains the broad scan. Compare usable chains per request, evidence
+coverage, compressed storage and cost on the authenticated Dell before changing the default.
+
 ## The strategies
 
 Each is preregistered: hypothesis, rule and exits are frozen by version in `stk_specs` before it trades.

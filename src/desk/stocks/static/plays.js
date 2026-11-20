@@ -464,6 +464,70 @@ const KestrelPlays = (() => {
     return p;
   }
 
+  function executionCheck(play) {
+    const box = el("details", undefined, "play-execution");
+    const body = el("div");
+    box.append(el("summary", "Execution check"), body);
+    box.addEventListener("toggle", async () => {
+      if (!box.open || body.childNodes.length) return;
+      body.textContent = "Reading saved quote evidence…";
+      body.setAttribute("role", "status");
+      try {
+        const data = await api(
+          `plays/idea/${encodeURIComponent(play.idea_id)}/execution`,
+        );
+        const labels = {
+          supported: "Joint quote supports one unit",
+          unsupported:
+            "The saved receipt did not support one unit at the quoted price",
+          unknown: "Joint quote coverage unknown",
+        };
+        body.replaceChildren(
+          el("strong", labels[data.status]),
+          el("p", data.why, "muted"),
+        );
+        if (data.max_loss !== undefined)
+          body.append(
+            el(
+              "p",
+              `One unit · ${money(data.cost_or_collateral)} cash or collateral · ${money(data.max_loss)} maximum loss`,
+            ),
+          );
+        if (data.quoted_at || data.cutoff)
+          body.append(
+            el(
+              "small",
+              `Quote ${data.quoted_at ? when(data.quoted_at) : "unavailable"} · cutoff ${when(data.cutoff)}`,
+            ),
+          );
+        for (const a of data.accounts || []) {
+          const fit = a.pending
+            ? "already has a pending entry"
+            : `${a.cash_units} under cash sizing${a.over_target ? " (one above target)" : ""} · ${a.quoted_units === null ? "quote capacity unknown" : `${a.quoted_units} quote-supported`}`;
+          body.append(
+            el("p", `${a.label} · ${money(a.cash)} available · ${fit}`),
+          );
+        }
+        if (data.legs?.length) {
+          const quotes = el("ul");
+          for (const leg of data.legs) {
+            quotes.append(
+              el(
+                "li",
+                `${leg.quantity > 0 ? "Buy" : "Sell"} ${leg.occ.trim()} · ${money(leg.bid)} bid / ${money(leg.ask)} ask · ${leg.size ?? "unknown"} displayed on this side · ${when(leg.at)}`,
+              ),
+            );
+          }
+          body.append(quotes);
+        }
+        if (data.basis) body.append(el("small", data.basis, "muted"));
+      } catch (error) {
+        body.textContent = error.message;
+      }
+    });
+    return box;
+  }
+
   function card(play) {
     const c = el("article", undefined, "setup-card play-card"),
       head = el("div", undefined, "setup-heading play-heading");
@@ -480,6 +544,8 @@ const KestrelPlays = (() => {
     if (play.unusual?.tier)
       head.append(el("span", play.unusual.tier, "research-badge quiet"));
     c.append(head);
+    if (play.idea_id && play.legs?.length >= 2 && play.legs.length <= 4)
+      c.append(executionCheck(play));
     const warning = dontWarning(play);
     if (warning) c.append(warning);
     if (play.learner_pick)
@@ -1286,6 +1352,10 @@ const KestrelPlays = (() => {
     tabs.setAttribute("role", "tablist");
     tabs.setAttribute("aria-label", "Play categories");
     const body = el("section", undefined, "play-body");
+    const lead = el("section", undefined, "play-strip play-decision");
+    lead.hidden = true;
+    app.append(lead);
+    const leadChecks = new Map();
     const controls = filters(draw),
       summary = el("p", undefined, "play-filter-summary");
     summary.setAttribute("role", "status");
@@ -1306,6 +1376,8 @@ const KestrelPlays = (() => {
       };
       tabs.append(mine);
       const bank = state.category === "bankroll";
+      lead.replaceChildren();
+      lead.hidden = true;
       for (const part of [controls.element, controls.budgets, summary])
         part.style.display = bank ? "none" : "";
       if (bank) {
@@ -1417,6 +1489,51 @@ const KestrelPlays = (() => {
         body.append(el("h3", "Overall ranking · all prices"));
       }
       if (!budget) body.append(evidence, record(cat, band));
+      const best = shown[0];
+      if (best?.idea_id) {
+        lead.hidden = false;
+        lead.append(
+          el(
+            "strong",
+            `${best.symbol} · ${money(best.max_loss)} maximum loss per unit`,
+          ),
+          el(
+            "p",
+            `Quote ${when(best.quoted_at)} · ${cat.record?.resolved || 0} graded in this category`,
+            "muted",
+          ),
+          link("Open first ranked idea ↗", `#plays/idea/${best.idea_id}`),
+        );
+        if (best.legs?.length >= 2 && best.legs.length <= 4) {
+          const facts = el(
+            "p",
+            "Reading quote support and PAPER cash…",
+            "muted",
+          );
+          lead.insertBefore(facts, lead.lastChild);
+          if (!leadChecks.has(best.idea_id))
+            leadChecks.set(
+              best.idea_id,
+              api(
+                `plays/idea/${encodeURIComponent(best.idea_id)}/execution`,
+              ).catch(() => null),
+            );
+          void leadChecks.get(best.idea_id).then((data) => {
+            const status = {
+              supported: "Joint quote supports one unit",
+              unsupported: "Quote did not support one unit",
+              unknown: "Joint quote coverage unknown",
+            };
+            const sizing = (data?.accounts || []).map(
+              (a) =>
+                `${a.label.split(" ")[0]} ${a.cash_units ? "one unit fits cash" : "no unit available"}`,
+            );
+            facts.textContent = data
+              ? [status[data.status], ...sizing].join(" · ")
+              : "Quote and cash check unavailable";
+          });
+        }
+      }
       if (!shown.length) {
         if (
           !budget &&

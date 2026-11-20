@@ -56,7 +56,7 @@ from desk.stocks.forecast import vol_surprise as vs
 
 Array = np.ndarray
 NAME = "stocks_structure_pricing"
-VERSION = 1
+VERSION = 2
 GRID = 2400
 SPAN = 6.0
 CHECKPOINTS = (5, 21)                # sessions after the decision for the price ranges along the way
@@ -68,7 +68,8 @@ GATE_T = 2.0
 
 
 def content() -> dict[str, Any]:
-    return {"version": VERSION, "grid": GRID, "span": SPAN, "checkpoints": list(CHECKPOINTS), "range": list(RANGE),
+    return {"version": VERSION, "ranking_baseline": "frozen pre-reranking score; require short- and overlap-lag tests",
+            "grid": GRID, "span": SPAN, "checkpoints": list(CHECKPOINTS), "range": list(RANGE),
             "direction_share": DIRECTION_SHARE, "direction": [dr.VERSION, dr.version_hash()],
             "vol_surprise": [vs.VERSION, vs.version_hash()],
             "distribution": "today's KESTREL quantile function (chain smile else lognormal), spread x surprise "
@@ -395,27 +396,35 @@ def gates(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
     may rank (``live``)."""
     try:
         rows = conn.execute(
-            "SELECT p.category, p.session, p.rank, json_extract(p.play_json, '$.structure_value.edge_per_risk'), "
-            "o.net_return FROM stk_plays p JOIN stk_play_outcomes o USING (session, category, rank) WHERE "
+            "SELECT p.category, p.session, "
+            "COALESCE(json_extract(p.play_json,'$.raw_rank_score'), -p.rank), "
+            "json_extract(p.play_json, '$.structure_value.edge_per_risk'), "
+            "o.net_return, p.expiration-p.session FROM stk_plays p JOIN stk_play_outcomes o "
+            "USING (session, category, rank) WHERE "
             "instr(p.category, '@') = 0 AND json_extract(p.play_json, '$.structure_value.edge_per_risk') IS NOT NULL "
-            "AND o.net_return IS NOT NULL").fetchall()
+            "AND o.net_return IS NOT NULL "
+            "AND (json_extract(p.play_json,'$.raw_rank_score') IS NOT NULL "
+            "OR COALESCE(json_extract(p.play_json,'$.structure_ranked'),0)=0)").fetchall()
     except sqlite3.OperationalError:
         return {}
-    by: dict[str, dict[int, list[tuple[int, float, float]]]] = defaultdict(lambda: defaultdict(list))
-    for category, session, rank, edge, net in rows:
-        by[category][int(session)].append((int(rank), float(edge), float(net)))
+    by: dict[str, dict[int, list[tuple[float, float, float, int]]]] = defaultdict(lambda: defaultdict(list))
+    for category, session, rank, edge, net, days in rows:
+        by[category][int(session)].append((float(rank), float(edge), float(net), int(days)))
     out: dict[str, dict[str, Any]] = {}
     for category, sessions in by.items():
         edge_rho, rank_rho = [], []
         for session in sorted(sessions):
             items = sessions[session]
-            a = _spearman([e for _, e, _ in items], [n for _, _, n in items])
-            b = _spearman([-r for r, _, _ in items], [n for _, _, n in items])
+            a = _spearman([e for _, e, _, _ in items], [n for _, _, n, _ in items])
+            b = _spearman([r for r, _, _, _ in items], [n for _, _, n, _ in items])
             if a is not None and b is not None:
                 edge_rho.append(a)
                 rank_rho.append(b)
         diff = np.asarray(edge_rho) - np.asarray(rank_rho)
-        t = dr.newey_west_t(diff, 1) if len(diff) >= 3 else None
+        overlap = max((max(0, d) for rows in sessions.values() for _, _, _, d in rows), default=1)
+        lag = min(max(1, overlap * 5 // 7), max(1, len(diff) // 2))
+        short, long = dr.newey_west_t(diff, 1), dr.newey_west_t(diff, lag)
+        t = min(short, long) if short is not None and long is not None else None
         live = len(diff) >= GATE_SESSIONS and float(diff.mean()) > 0 and t is not None and t >= GATE_T
         out[category] = {"sessions": len(diff), "plays": sum(len(v) for v in sessions.values()),
                          "edge_rho": round(float(np.mean(edge_rho)), 4) if edge_rho else None,

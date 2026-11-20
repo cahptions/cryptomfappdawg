@@ -47,6 +47,7 @@ LIFECYCLE_SWITCH = "lifecycle_switch"
 MIN_COMPARISON_DAYS = 4
 MIN_COMPARISON_BLOCKS = 12
 CHECK_METHOD_VERSION = 3        # 3: the 2026-11-13 promotion rules (desk.stocks.learning_promotion)
+SMALL_REFILL = "refilled_2026_11_16"
 SOLD, SETTLED = "sold at a quote", "settled at intrinsic"     # stk_learning_outcomes.basis
 HELD_LEGS = "(held legs)"     # stk_learning_sources.underlying of a per-contract quote observation of held/pending legs
 
@@ -186,7 +187,7 @@ def initialize(conn: sqlite3.Connection, now: datetime) -> None:
 def refill(conn: sqlite3.Connection, now: datetime) -> None:
     """At the user's request (2026-11-16) the two small accounts' cash is filled back up to their starting amounts,
     once, recorded as deposits so their trading P/L is not changed by it."""
-    if state(conn, "refilled_2026_11_16") is not None:
+    if state(conn, SMALL_REFILL) is not None:
         return
     book = PaperBook(conn)
     day = cal.new_york(now).date()
@@ -195,7 +196,7 @@ def refill(conn: sqlite3.Connection, now: datetime) -> None:
             short = to_micros(capital, cost=False) - to_micros(book.cash(account), cost=False)
             if short > 0:
                 book.add_cash(account, now, day, short, "DEPOSIT")
-    set_state(conn, "refilled_2026_11_16", {"at": to_iso(now)})
+    set_state(conn, SMALL_REFILL, {"at": to_iso(now)})
 
 
 def fund(book: PaperBook, account: str, required: float, now: datetime) -> bool:
@@ -887,7 +888,8 @@ def tick(conn: sqlite3.Connection, market: StocksMarket, now: datetime) -> dict[
             if settled:
                 record_nav(conn, now)
             check_in(conn,now)
-        result = {"phase": "Market closed; saved experiments and losses are retained", "orders": 0, "settled": settled}
+        result = {"phase": "Market closed; saved experiments and losses are retained", "orders": 0, "settled": settled,
+                  "at": to_iso(now)}
         set_state(conn, "progress", result)
         return result
     rows = market.conn.execute(
@@ -953,6 +955,7 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
     now = now or utc_now()
     book = PaperBook(conn)
     accounts = []
+    refill_at = state(conn, SMALL_REFILL, {}).get("at")
     for account, title, capital in ACCOUNTS:
         marked = conn.execute(
             "SELECT COALESCE(SUM(last_value_micros),0),COUNT(*) FROM stk_positions WHERE state='OPEN' AND account=?", (account,)
@@ -982,6 +985,20 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
             "SELECT COUNT(*) FROM stk_positions WHERE account=? AND state='OPEN' AND expires_day<?",
             (account, cal.new_york(now).date().toordinal()),
         ).fetchone()[0]
+        deposits = []
+        refill_usage = None
+        if account in SMALL_ACCOUNTS:
+            deposits = [dict(r) for r in conn.execute(
+                "SELECT at,amount_micros/1000000.0 amount FROM stk_cash "
+                "WHERE account=? AND reason='DEPOSIT' ORDER BY id", (account,)
+            )]
+            if refill_at:
+                count, spent, last = conn.execute(
+                    "SELECT COUNT(*),COALESCE(SUM(entry_cost_micros+entry_fees_micros),0),MAX(opened_at) "
+                    "FROM stk_positions WHERE account=? AND opened_at>=?", (account, refill_at)
+                ).fetchone()
+                refill_usage = {"at": refill_at, "amount": sum(d["amount"] for d in deposits[1:] if d["at"] == refill_at),
+                                "positions_opened": count, "entry_debit": spent / MICRO, "last_entry": last}
         accounts.append(
             {
                 "id": account,
@@ -992,6 +1009,8 @@ def report(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, A
                 "funding_allowed": False,
                 "cap": state(conn, "research_cap") if account == RESEARCH else None,
                 "small_account": account in SMALL_ACCOUNTS,
+                "deposits": deposits,
+                "refill": refill_usage,
                 "started_at": conn.execute("SELECT MIN(at) FROM stk_cash WHERE account=? AND reason='DEPOSIT'",
                                            (account,)).fetchone()[0],
                 "return_on_start": (equity-contributed)/capital,

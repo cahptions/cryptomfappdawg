@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from collections.abc import Awaitable
+from contextlib import suppress
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -27,7 +29,7 @@ from desk.stocks.paper import lab
 from desk.stocks.paper.book import PaperBook
 from desk.stocks.paper.engine import PaperEngine
 from desk.stocks.paper.report import report
-from desk.stocks.paper.strategies import STRATEGIES
+from desk.stocks.paper.strategies import STRATEGIES, Strategy
 from desk.stocks.prices import load_panel
 from desk.stocks.repo import StocksDatabases, StocksMarket, StocksResearch
 from desk.stocks.schwab_close import target_session
@@ -46,7 +48,7 @@ SAVED_LIMITS = {"plays": 64_000_000}
 
 
 def saved_path(paths: DeskPaths, name: str) -> Path:
-    if name not in {"worker", "paper", "research", "progress", "options", "plays", "plays-performance"}:
+    if name not in {"worker", "paper", "research", "progress", "options", "plays", "plays-performance", "deadline"}:
         raise ValueError("unknown Stocks record")
     return paths.home / f"stocks-{name}.json"
 
@@ -111,7 +113,7 @@ def _backfill_due(market: StocksMarket, name: str, now: datetime, hours: float, 
     return bool(job["detail"].get("remaining")) or _due(market, name, now, hours)
 
 
-def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None:
+def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime, *, learning_jobs: bool = True) -> None:
     """Rebuild Plays from the stored chains (skipped when nothing it reads has changed). A failure here is reported on
     the Plays page and never stops research collection."""
     from desk.stocks import plays
@@ -122,7 +124,7 @@ def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None
         previous = None
     try:
         value = plays.build(StocksMarket(dbs.market), StocksResearch(dbs.research), now, ledger=PaperBook(dbs.ledger),
-                            previous=previous)
+                            previous=previous, frozen=True)
         from desk.stocks.play_selections import register
 
         register(dbs.research, value, now)
@@ -136,7 +138,13 @@ def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None
     # due and a few replay days. Recorded as the "learner" job; never stops collection or changes the board.
     from desk.stocks.learner import job as learner_job
 
-    learner_job.run(paths, dbs, value, now)
+    if learning_jobs:
+        learner_job.run(paths, dbs, value, now)
+    else:
+        try:
+            learner_job.record_candidates(paths, dbs, value, now)
+        except Exception as exc:
+            StocksMarket(dbs.market).job("learner_preview", now, error=type(exc).__name__)
     if value.get("categories"):
         from desk.stocks.play_tracking import first_seen
 
@@ -146,7 +154,8 @@ def publish_plays(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> None
             log.warning("plays first sighting not recorded", extra={"error": type(exc).__name__})
 
 
-def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime) -> dict[str, Any]:
+def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime, *,
+                     learning_jobs: bool = True) -> dict[str, Any]:
     """Refresh a mutable research view during backfill; never step PAPER or rewrite frozen evidence."""
     settings = loaded.settings.stocks
     market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
@@ -154,7 +163,7 @@ def research_preview(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabase
 
     # Available option observations are published even with no/unfinished/denied stock-history backfill.
     _atomic_private(saved_path(paths, "options"), json.dumps(options_view(market, now), allow_nan=False))
-    publish_plays(paths, dbs, now)
+    publish_plays(paths, dbs, now, learning_jobs=learning_jobs)
     expected = target_session(market, now, timedelta(minutes=settings.refresh_after_close_minutes))
     days = [d for d in market.bar_days() if expected - timedelta(days=settings.history_days) <= d <= expected]
     if not days:
@@ -216,6 +225,15 @@ def recorded_plays(conn: Any, session: date, categories: tuple[str, ...]) -> dic
     return out
 
 
+def _publish_paper(paths: DeskPaths, book: PaperBook, market: StocksMarket, strategies: tuple[Strategy, ...],
+                   session: date, now: datetime) -> None:
+    result = report(book, market, strategies)
+    result.update(asof=session.isoformat(), generated_at=now.isoformat(), mode="PAPER", orders_enabled=False,
+                  caveats=["Synthetic/offline tests do not establish profitability.",
+                           "Daily option snapshots and modeled marks are research approximations; see STOCKS_PAPER.md."])
+    _atomic_private(saved_path(paths, "paper"), json.dumps(result, allow_nan=False))
+
+
 def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: datetime, *,
             research_only: bool = False) -> dict[str, Any]:
     """Only today's actually available closed-session analysis creates forward orders; no historical entry replay."""
@@ -233,29 +251,36 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
     if not available or available[-1] != target:
         return {"waiting": f"Waiting for published {target.isoformat()} closing prices", "paper": None}
     history = [d for d in available if d >= target - timedelta(days=settings.history_days)]
-    if book.last_step() is None and len(history) < MIN_BARS:
+    last = book.last_step()
+    if last is None and len(history) < MIN_BARS:
         return {"waiting": f"PAPER is running; downloading history ({len(history)}/{MIN_BARS} sessions minimum). "
                            "Eligible strategies will simulate trades automatically when data is ready.", "paper": None}
-    if book.last_step() == target:
-        from desk.stocks.learner.job import paper_step
-
-        paper_step(paths, dbs, now)          # a session the Learner recorded after this step is still decided in time
-        return {"asof": target.isoformat(), "waiting": "Session already processed; collection/backfill continues"}
-    _memory_guard()
-    panel = load_panel(market, target - timedelta(days=settings.history_days), target)
-    analyzer = Analyzer(market, research, settings)
     learned, retired = lab.strategies(research)
     from desk.stocks.learner import trials
+    from desk.stocks.learner.job import paper_step
     from desk.stocks.learner.policy import STRATEGIES as LEARNER_ACCOUNTS
 
     tried, ended = trials.strategies(research.conn)          # learned trials: entries from learner.trials
     strategies = (*STRATEGIES, *learned, *LEARNER_ACCOUNTS, *tried)   # the Learner's accounts: entries from learner.policy
+
+    if last == target:
+        # The ledger commits before the report is written. Repair a missing or stale report without stepping again.
+        current = None
+        with suppress(DeskError):
+            current = saved(paths, "paper")
+        if not current or current.get("asof") != target.isoformat():
+            _publish_paper(paths, book, market, strategies, target, now)
+        return {"asof": target.isoformat(), "waiting": "Session already processed; collection/backfill continues",
+                "learner": paper_step(paths, dbs, now)}
+
+    _memory_guard()
+    panel = load_panel(market, target - timedelta(days=settings.history_days), target)
+    analyzer = Analyzer(market, research, settings)
     from desk.stocks.learner.fills import saved_quotes
 
     engine = PaperEngine(market, book, settings, strategies, retired | ended,
                          intraday=lambda occ, day: saved_quotes(research.conn, occ, day))
     # Missed sessions manage existing exposure only; no retrospectively discovered entries or fabricated bars.
-    last = book.last_step()
     missed = [d for d in available if last is not None and last < d < target]
     gaps = ([d.isoformat() for d in cal.trading_days(last, target) if last < d < target]
             if last is not None else [])
@@ -265,20 +290,18 @@ def process(paths: DeskPaths, loaded: LoadedConfig, dbs: StocksDatabases, now: d
     if refreshed.day is not None:                      # Lotto strategies buy the Plays picks recorded for this session
         refreshed.day.ctx.plays = recorded_plays(research.conn, target, ("lottos",))
     stepped = engine.step(target, now, refreshed.day, allow_entries=not paths.stop_file.exists())
+    ledger_completed_at = utc_now().isoformat()
+    receipt = market.conn.execute("SELECT received_at FROM stk_bar_days WHERE day=?",
+                                  (target.toordinal(),)).fetchone()
     research.record_run("paper_step", now, now, target, stepped.skipped is None,
                         {"session": target.isoformat(), "intervening_sessions": gaps,
                          "recovery_simulation": bool(gaps), "managed_stored_sessions": [d.isoformat() for d in missed],
+                         "ledger_completed_at": ledger_completed_at, "price_received_at": receipt[0] if receipt else None,
                          "computed_at": now.isoformat(), "stop": paths.stop_file.exists()})
-    result = report(book, market, strategies)
-    result.update(generated_at=now.isoformat(), mode="PAPER", orders_enabled=False,
-                  caveats=["Synthetic/offline tests do not establish profitability.",
-                           "Daily option snapshots and modeled marks are research approximations; see STOCKS_PAPER.md."])
-    _atomic_private(saved_path(paths, "paper"), json.dumps(result, allow_nan=False))
-    from desk.stocks.learner.job import paper_step
-
+    _publish_paper(paths, book, market, strategies, target, now)
     learner = paper_step(paths, dbs, now)       # the Learner account's decisions for the session, and its page
     return {"refresh": refreshed.as_json(), "paper": stepped.as_json(), "missed_sessions_managed": len(missed),
-            "learner": learner}
+            "learner": learner, "ledger_completed_at": ledger_completed_at}
 
 
 async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, company_limit: int = 20,
@@ -310,18 +333,64 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             raise
         return await work
 
-    def preview_now() -> dict[str, Any]:
+    def preview_now(*, learning_jobs: bool = False) -> dict[str, Any]:
         progress('research_preview')
         try:
-            return process(paths, loaded, dbs, utc_now(), research_only=True)
+            return research_preview(paths, loaded, dbs, utc_now(), learning_jobs=learning_jobs)
         except MemoryPressure as exc:
             return {'waiting': str(exc), 'paper': None}
+
+    analysis: dict[str, Any] | None = None
+
+    def priority_step(*, check_missing: bool = False) -> None:
+        nonlocal analysis
+        if research_only or analysis is not None:
+            return
+        attempted = utc_now()
+        target = target_session(market, attempted, timedelta(minutes=settings.refresh_after_close_minutes))
+        receipt = market.conn.execute("SELECT received_at FROM stk_bar_days WHERE day=? AND rows>0",
+                                      (target.toordinal(),)).fetchone()
+        if receipt is None and not check_missing and not paths.stop_file.exists():
+            return
+        progress("analysis")
+        started = time.monotonic()
+        try:
+            analysis = process(paths, loaded, dbs, attempted)
+        except MemoryPressure as exc:
+            analysis = {"waiting": str(exc), "paper": None}
+        completed = utc_now()
+        clock = {"asof": target.isoformat(), "started_at": attempted.isoformat(), "finished_at": completed.isoformat(),
+                 "price_received_at": receipt[0] if receipt else None, "ledger_completed_at": analysis.get("ledger_completed_at"),
+                 "elapsed_seconds": round(time.monotonic() - started, 3),
+                 "waiting": analysis.get("waiting"), "last_processed": str(PaperBook(dbs.ledger).last_step() or ""),
+                 "stepped": bool(analysis.get("paper") and not analysis["paper"]["skipped"])}
+        with suppress(DeskError):
+            previous = saved(paths, "deadline")
+            if previous and previous.get("asof") == clock["asof"] and previous.get("stepped") and not clock["stepped"]:
+                clock = {**previous, "last_attempt_at": attempted.isoformat(), "waiting": clock["waiting"]}
+        _atomic_private(saved_path(paths, "deadline"), json.dumps(clock, allow_nan=False))
+        from desk.stocks.learner import forward
+
+        # Keep missing and waiting sessions in the experiment's denominator. A late recovery books no shadow entry.
+        study_day = cal.last_closed_session(attempted, timedelta(minutes=settings.refresh_after_close_minutes))
+        if settings.execution_study:
+            analysis["forward_study"] = forward.advance(
+                market, research.conn, dbs.ledger, study_day, completed, stopped=paths.stop_file.exists())
 
     try:
         progress("starting")
         # Publish usable stored research before lengthy network work, then again after a price batch.
         # The input signature skips unchanged analysis. Neither preview may step the PAPER book.
         preview_now()
+        if not research_only:
+            current = utc_now()
+            target = target_session(market, current, timedelta(minutes=settings.refresh_after_close_minutes))
+            # Retained same-session chains and ledger repairs can proceed without waiting for a new rotation.
+            if paths.stop_file.exists() or PaperBook(dbs.ledger).last_step() == target or market.conn.execute(
+                "SELECT 1 FROM stk_option_chains WHERE day=? AND observed_at<=? AND contracts>0 LIMIT 1",
+                (target.toordinal(), current.isoformat()),
+            ).fetchone():
+                priority_step()
         options_job = market.jobs().get("options", {})
         requested = market.requested_options(now)
         local = cal.new_york(now)
@@ -353,18 +422,12 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
                 detail = {**jobs["options"], "next_offset": (offset + remainder) % max(1, len(rotating))}
                 market.job("options", now, detail=detail)
             preview_now()  # New chains must not wait behind SEC, prices or corporate-action downloads.
-        directory = market.jobs().get("listings", {}).get("detail", {})
-        needs_mapping = suite.sec.contact_configured and (not directory.get("with_cik") or directory.get("warning"))
-        if _due(market, "listings", now, 24) or needs_mapping:
-            jobs["listings"] = await run_job("listings", collect.listings(suite, market, now))
+        priority_step()
         if suite.massive.configured:
             jobs["prices"] = await run_job("prices", collect.prices(suite, market, now, history_days=settings.history_days,
                                                   after_close=timedelta(minutes=settings.refresh_after_close_minutes),
                                                   max_days=price_days))
             preview_now()
-            if _due(market, "corporate_actions", now, 24):
-                jobs["corporate_actions"] = await run_job("corporate_actions", collect.corporate_actions(suite, market, now,
-                                                                            history_days=settings.history_days))
         # Same evening: today's closing bars from Schwab five minutes after the close, then checks against Massive.
         from desk.stocks import schwab_close
 
@@ -372,6 +435,14 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             jobs["schwab_close"] = await run_job("schwab_close", schwab_close.job(suite, market, now))
             if jobs["schwab_close"].get("close", {}).get("stored"):
                 preview_now()
+        priority_step(check_missing=True)
+        directory = market.jobs().get("listings", {}).get("detail", {})
+        needs_mapping = suite.sec.contact_configured and (not directory.get("with_cik") or directory.get("warning"))
+        if _due(market, "listings", now, 24) or needs_mapping:
+            jobs["listings"] = await run_job("listings", collect.listings(suite, market, now))
+        if suite.massive.configured and _due(market, "corporate_actions", now, 24):
+            jobs["corporate_actions"] = await run_job("corporate_actions", collect.corporate_actions(
+                suite, market, now, history_days=settings.history_days))
         if suite.sec.contact_configured:
             jobs["companies"] = await run_job("companies", collect.companies(suite, market, now,
                                                         collect.stale_companies(market, now, limit=company_limit)))
@@ -438,7 +509,8 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
 
         if chain_scan.due(market, now):
             try:
-                jobs[chain_scan.JOB] = await run_job(chain_scan.JOB, chain_scan.job(suite, market, utc_now()))
+                jobs[chain_scan.JOB] = await run_job(chain_scan.JOB, chain_scan.job(
+                    suite, market, utc_now(), focused=settings.focused_chain_pilot))
             except Exception as exc:  # recorded; never stops collection
                 log.warning("chain scan failed", extra={"error": str(exc)[:200]})
                 market.job(chain_scan.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
@@ -462,16 +534,9 @@ async def cycle(paths: DeskPaths, loaded: LoadedConfig, *, price_days: int = 5, 
             except Exception as exc:  # recorded; never stops collection
                 log.warning("earnings moves failed", extra={"error": str(exc)[:200]})
                 market.job(earnings_model.JOB, now, error=f"{type(exc).__name__}: {str(exc)[:240]}")
-        progress("analysis")
-        try:
-            preview = preview_now()
-            if research_only:
-                analysis = preview
-            else:
-                progress('analysis')
-                analysis = process(paths, loaded, dbs, utc_now())
-        except MemoryPressure as exc:
-            analysis = {"waiting": str(exc), "paper": None}
+        preview = preview_now(learning_jobs=True)
+        if research_only:
+            analysis = preview
         # Notable events never stop collection or PAPER: a failure is recorded on the System page.
         try:
             from desk.stocks import market_events

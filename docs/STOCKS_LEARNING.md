@@ -34,6 +34,10 @@ retain their own ledgers and behavior.
 
 ## Small-account tests
 
+The November 16 refill was a one-time deposit to restore starting cash. Each small account's **Virtual funding**
+tab lists its own deposits and entry debits since the refill. On the Dell, run `python3 scripts/stocks-retail-status.py`
+from the KESTREL checkout for a read-only summary of balances, deposits, orders, last quotes and worker settings.
+
 The Learning page always shows both small accounts together: equity, trading P/L, return on starting capital, cash,
 trade counts and policy status. Select an account to inspect its own chart, open/closed trades, orders, fills and original
 decision evidence. Accounts start forward when this update first runs; earlier research returns are not scaled into

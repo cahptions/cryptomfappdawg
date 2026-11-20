@@ -422,49 +422,73 @@ class StocksMarket:
                  to_iso(q.quoted_at) if q.quoted_at else None,
                  *([q.bid_size, q.ask_size] if q.bid_size is not None or q.ask_size is not None else [])] for q in quotes]
         self.conn.execute(
-            "INSERT OR REPLACE INTO stk_option_chains(underlying, day, expiration, observed_at, underlying_price, contracts,"
-            " chain_zlib, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO stk_option_chains(underlying, day, expiration, observed_at, underlying_price, contracts,"
+            " chain_zlib, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(underlying, day, expiration) DO UPDATE SET "
+            "observed_at=excluded.observed_at, underlying_price=excluded.underlying_price, contracts=excluded.contracts, "
+            "chain_zlib=excluded.chain_zlib WHERE excluded.observed_at>=stk_option_chains.observed_at",
             (underlying, day_of(day), day_of(expiration), to_iso(observed_at), underlying_price, len(rows), _pack(rows), source))
 
     def option_chain(self, underlying: str, day: date | None = None, *, observed_by: datetime | None = None
                      ) -> tuple[date | None, dict[date, list[OptionQuote]]]:
-        """The newest stored chain for ``underlying`` (on or before ``day``), every expiration."""
-        cutoff = to_iso(observed_by) if observed_by else "9999"
-        row = self.conn.execute("SELECT MAX(day) AS d FROM stk_option_chains WHERE underlying = ? AND day <= ? "
-                                "AND observed_at<=?", (underlying, day_of(day) if day else 2**31, cutoff)).fetchone()
-        if row is None or row["d"] is None:
+        """The newest available session and its latest chain per expiry at the observation cutoff."""
+        args = (underlying, day_of(day) if day else 2**31, to_iso(observed_by) if observed_by else "9999")
+        sql = ("SELECT day FROM stk_option_chains WHERE underlying=? AND day<=? AND observed_at<=? "
+               "ORDER BY day DESC LIMIT 1")
+        recent = self.conn.execute(sql, args).fetchone()
+        archived = (self.conn.execute(sql.replace("stk_option_chains", "stk_option_chain_history"), args).fetchone()
+                    if observed_by is not None else None)
+        chosen = max((int(r[0]) for r in (recent, archived) if r is not None), default=None)
+        if chosen is None:
             return None, {}
-        out: dict[date, list[OptionQuote]] = {}
-        for r in self.conn.execute("SELECT * FROM stk_option_chains WHERE underlying = ? AND day = ? "
-                                   "AND observed_at<=? ORDER BY expiration", (underlying, row["d"], cutoff)):
-            expiration = date_of(r["expiration"])
-            out[expiration] = [OptionQuote(q[0], underlying, q[1], q[2], expiration, q[3], q[4], q[5], q[6], q[7], q[8],
-                                           datetime.fromisoformat(q[9]) if q[9] else None, *q[10:12])
-                               for q in _unpack(r["chain_zlib"])]
-        return date_of(row["d"]), out
+        session = date_of(chosen)
+        chain = self.chains_on(session, [underlying], observed_by=observed_by).get(underlying, {})
+        return session, chain.get("expirations", {})
 
     def option_days(self, before: date, limit: int) -> list[date]:
         """The most recent days with stored chains before ``before``, newest first."""
         return [date_of(r["day"]) for r in self.conn.execute(
             "SELECT DISTINCT day FROM stk_option_chains WHERE day < ? ORDER BY day DESC LIMIT ?", (day_of(before), limit))]
 
-    def chains_on(self, day: date, symbols: Sequence[str] | None = None) -> dict[str, dict[str, Any]]:
-        """Every chain stored for ``day``: underlying → {price, observed_at, source, expirations: {date: [OptionQuote]}}.
-        The price is the one recorded with the newest expiry observation."""
+    def chains_on(self, day: date, symbols: Sequence[str] | None = None, *,
+                  observed_by: datetime | None = None) -> dict[str, dict[str, Any]]:
+        """Chains from one session, using the last observation per expiry available at the cutoff."""
         wanted = None if symbols is None else set(symbols)
+        if wanted == set():
+            return {}
         out: dict[str, dict[str, Any]] = {}
-        for r in self.conn.execute("SELECT * FROM stk_option_chains WHERE day = ? ORDER BY underlying, observed_at",
-                                   (day_of(day),)):
+        where = "WHERE day=?"
+        args: tuple[Any, ...] = (day_of(day),)
+        if observed_by is not None:
+            where += " AND observed_at<=?"
+            args += (to_iso(observed_by),)
+        if wanted is not None and len(wanted) <= 500:
+            where += " AND underlying IN (" + ",".join("?" for _ in wanted) + ")"
+            args += tuple(sorted(wanted))
+        # The default path reads today's latest snapshots. A cutoff can need superseded versions.
+        sql = "SELECT * FROM stk_option_chains " + where  # noqa: S608 — fixed fragments with bound parameters
+        if observed_by is not None and self.conn.execute(
+            "SELECT 1 FROM stk_option_chains WHERE day=? AND observed_at>? LIMIT 1",
+            (day_of(day), to_iso(observed_by)),
+        ).fetchone():
+            sql = sql.replace("stk_option_chains", "stk_option_chain_history") + " UNION ALL " + sql
+            args = (*args, *args)
+            sql = ("SELECT underlying, day, expiration, observed_at, underlying_price, contracts, chain_zlib, source FROM "  # noqa: S608
+                   "(SELECT *, ROW_NUMBER() OVER(PARTITION BY underlying, expiration ORDER BY observed_at DESC) AS n "
+                   "FROM (" + sql + ")) WHERE n=1")
+        for r in self.conn.execute(sql + " ORDER BY underlying, observed_at", args):
             symbol = r["underlying"]
             if wanted is not None and symbol not in wanted:
                 continue
-            item = out.setdefault(symbol, {"price": None, "observed_at": None, "source": r["source"], "expirations": {}})
+            item = out.setdefault(symbol, {"price": None, "observed_at": None, "source": r["source"],
+                                           "expirations": {}, "receipt_times": {}})
             if r["underlying_price"]:
                 item["price"], item["observed_at"] = r["underlying_price"], r["observed_at"]
             expiration = date_of(r["expiration"])
+            item["receipt_times"][expiration] = r["observed_at"]
             item["expirations"][expiration] = [
                 OptionQuote(q[0], symbol, q[1], q[2], expiration, q[3], q[4], q[5], q[6], q[7], q[8],
-                            datetime.fromisoformat(q[9]) if q[9] else None) for q in _unpack(r["chain_zlib"])]
+                            datetime.fromisoformat(q[9]) if q[9] else None, *q[10:12])
+                for q in _unpack(r["chain_zlib"])]
         return out
 
     def chain_underlying_price(self, underlying: str, day: date) -> float | None:
@@ -476,7 +500,9 @@ class StocksMarket:
         """Collected raw chains: sessions kept, first and last, and their compressed bytes (the stored blobs; the
         database file also holds indexes and free pages, which SQLite reuses rather than returns)."""
         rows = self.conn.execute("SELECT day, SUM(length(chain_zlib)) AS bytes, SUM(contracts) AS contracts "
-                                 "FROM stk_option_chains GROUP BY day ORDER BY day").fetchall()
+                                 "FROM (SELECT day, chain_zlib, contracts FROM stk_option_chains UNION ALL "
+                                 "SELECT day, chain_zlib, contracts FROM stk_option_chain_history) "
+                                 "GROUP BY day ORDER BY day").fetchall()
         total = sum(r["bytes"] for r in rows)
         return {"sessions": len(rows), "first": date_of(rows[0]["day"]).isoformat() if rows else None,
                 "last": date_of(rows[-1]["day"]).isoformat() if rows else None, "bytes": total,
@@ -489,8 +515,9 @@ class StocksMarket:
         out: dict[str, Any] = {"sessions": 0, "bytes": 0, "through": None}
         if max_bytes is None:
             return out
-        rows = self.conn.execute("SELECT day, SUM(length(chain_zlib)) AS bytes FROM stk_option_chains "
-                                 "GROUP BY day ORDER BY day").fetchall()
+        rows = self.conn.execute("SELECT day, SUM(length(chain_zlib)) AS bytes "
+                                 "FROM (SELECT day, chain_zlib FROM stk_option_chains UNION ALL "
+                                 "SELECT day, chain_zlib FROM stk_option_chain_history) GROUP BY day ORDER BY day").fetchall()
         over = sum(r["bytes"] for r in rows) - max_bytes
         doomed = []
         for r in rows:
@@ -500,7 +527,9 @@ class StocksMarket:
             over -= r["bytes"]
             out["bytes"] += r["bytes"]
         if doomed:
-            self.conn.execute("DELETE FROM stk_option_chains WHERE day <= ?", (doomed[-1],))
+            with transaction(self.conn):
+                self.conn.execute("DELETE FROM stk_option_chains WHERE day <= ?", (doomed[-1],))
+                self.conn.execute("DELETE FROM stk_option_chain_history WHERE day <= ?", (doomed[-1],))
             out.update(sessions=len(doomed), through=date_of(doomed[-1]).isoformat())
         return out
 

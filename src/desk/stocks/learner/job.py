@@ -99,10 +99,9 @@ def refresh_account(paths: DeskPaths, dbs: StocksDatabases, now: datetime) -> di
         return {"error": f"{type(exc).__name__}: {str(exc)[:240]}"}
 
 
-def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], now: datetime) -> dict[str, Any]:
-    """Record the closed session Plays just built (once), then label and replay within this pass's budgets."""
+def record_candidates(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """Freeze the closing decision inputs before the ledger step. Historical jobs have their own budget."""
     market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
-    register_specs(market, now)
     out: dict[str, Any] = {}
     if plays.get("session_closed") and plays.get("asof"):
         session = date.fromisoformat(plays["asof"])
@@ -110,10 +109,18 @@ def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], n
             book = _learning_book(paths)
             try:
                 books = [("paper", dbs.ledger), *([("learning", book)] if book is not None else [])]
-                out["recorded"] = ex.record_forward(market, research, session, now, books=books)
+                out["recorded"] = ex.record_forward(market, research, session, now, books=books, frozen=True)
             finally:
                 if book is not None:
                     book.close()
+    return out
+
+
+def after_plays(paths: DeskPaths, dbs: StocksDatabases, plays: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """Freeze the closing candidates, then label and replay within the collection budget."""
+    market, research = StocksMarket(dbs.market), StocksResearch(dbs.research)
+    register_specs(market, now)
+    out = record_candidates(paths, dbs, plays, now)
     out["account_view"] = refresh_account(paths, dbs, now)
     out["labels"] = lb.run(research.conn, market.conn, lb.ForwardPrices(market.conn, research.conn), now)
     from desk.stocks.learner import fills

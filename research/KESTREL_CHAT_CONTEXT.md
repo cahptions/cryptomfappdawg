@@ -2,6 +2,18 @@
 
 Prepared: 2026-10-22 (UTC).
 
+## Current Stocks workflow — November 19, 2026
+
+- Preserve existing edits, fetch the current Stocks head, and read the latest entries in [PROGRESS.md](../PROGRESS.md)
+  before continuing. The Stocks work is scoped to research and virtual PAPER.
+- Give the Dell operator the exact update command with every shipped change, using the verified remote branch.
+  The established path is `cd ~/kestrel && git pull --ff-only origin claude/funny-rubin-gq99vj && uv sync`.
+  Fully close and reopen KESTREL Stocks or restart its server after updating so the running process loads the new assets.
+- Keep the $1,000 and $5,000 Learning ledgers separate. The November 16 refill was a one-time deposit.
+  Show deposited cash, marked equity, pending orders and post-refill fills separately. Keep losses in trading P/L.
+  `python3 scripts/stocks-retail-status.py` reads only the local machine and ledger status needed for this issue.
+- Synthetic checks establish application behavior. Real receipt times, fills and provider state require the Dell's data.
+
 ## What this document is
 
 This is a structured handoff from the visible conversation and inspected repository. It is **not a verbatim chat export**: many earlier assistant replies are unavailable in the current conversation history. It preserves the user's stated goals, corrections, constraints, recent implementation work and remaining uncertainty without inventing missing messages.

@@ -645,28 +645,27 @@ every position decided on them has closed:
   90% range resampling each side's days; at least 5 rule entry days are needed, otherwise it stays provisional and says
   so.
 
-Both lower ends above zero and (v2) a deflated Sharpe ratio of at least 0.95 for the paired daily differences against
-Random, counting every model trial ever recorded: **confirmed**. Otherwise **failed**, kept and shown; a new version starts its own test.
-Realised returns at real fills only. Stages are appended to `stk_learn_promotions`. Frozen as
-`stocks_learner_promotion` v1. Nothing is adopted anywhere by a confirmation: it is a label of evidence, in the style
-of the Learning promotions.
+Promotion v3 requires both lower ends above zero, at least 16 paired twin days and a deflated Sharpe ratio
+of at least 0.95 for the paired daily differences, counting every model trial recorded. It also requires
+the quote-supported [forward comparison against a matched rule and cash](STOCKS_PAPER.md#execution-evidence-and-forward-evaluation).
+Missing comparison evidence leaves the version provisional. Stages are appended to `stk_learn_promotions`,
+and a new Learner version starts its own test.
 
 ## Learner picks on Plays (`learner/graduation.py`, phase 6)
 
-- **Graduated** when the current Learner version (model code + policy) is **confirmed** by promotion v2 (its first 20
-  entry days beat Random and the rule-based strategies, both 90% ranges above zero, deflated Sharpe ratio ≥ 0.95).
+- **Graduated** when the current Learner version (model code + policy) is **confirmed** by promotion v3.
   From then its newest decided trades (the newest session it traded, at most 5 sessions old) are a real Plays
   section, **🤖 Learner picks**, each valued at today's quotes of its own contracts (a contract missing from today's
   chain is left out), with the Learner's dials, mode and exit rule on the card. Recorded, twinned and graded at expiry
   like every section; the section's id is `learner_picks` and its graduation is part of the Plays rule version.
 - **Until then** the picks are a **shadow preview** on the Learner page only ("Preview (shadow): not shown on Plays
   until it graduates").
-- **Demoted automatically**: at each PAPER step the latest 20 entry days whose positions have all closed are judged by
-  the same test (`promotion.judge` on those days). A failure demotes it and the section goes away. It graduates again
+- **Demoted automatically**: at each PAPER step `promotion.judge` compares the latest 20 fully closed entry days
+  against Random and the rule-based strategies. A failure demotes it and the section goes away. It graduates again
   only when a later window, starting after the failed one, passes. A new version (new model code or policy) starts
   from nothing.
 - Every change is a row in `stk_learn_graduation` (research migration `0023`). Frozen as `stocks_learner_graduation`
-  v1.
+  v2.
 
 ## The Learner page (`#learner`; `learner/account.py`)
 

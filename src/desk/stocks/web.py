@@ -238,16 +238,21 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
         pending = len(book.pending())
     delay = load_config(paths.config_dir).settings.stocks.refresh_after_close_minutes
     now = utc_now()
-    target = cal.last_closed_session(now, timedelta(minutes=delay))
     local = cal.new_york(now)
     trading_day = cal.is_trading_day(local.date())
     market_open = trading_day and (local.hour,local.minute) >= (9,30) and now < cal.session_close(local.date())
     next_day = (local.date() if trading_day and now < cal.session_close(local.date()) + timedelta(minutes=delay)
                 else cal.next_trading_day(local.date()))
     with reader(paths, MARKET_FILE) as conn:
-        days = StocksMarket(conn).bar_days()
+        from desk.stocks.schwab_close import target_session
+
+        market = StocksMarket(conn)
+        target = target_session(market, now, timedelta(minutes=delay))
+        jobs = market.jobs()
+        days = market.bar_days()
         latest = days[-1] if days else None
-        price_error = StocksMarket(conn).jobs().get("prices", {}).get("last_error")
+        target_available = target in days
+        price_error = jobs.get("prices", {}).get("last_error")
         from desk.stocks import lotto_history
 
         try:                                   # lottos replayed on real past prices, and how far the download is
@@ -258,10 +263,20 @@ def paper(paths: DeskPaths) -> dict[str, Any]:
         from desk.stocks import option_research
 
         result["option_research"] = option_research.load(paths.home)
+    source_health = {}
+    for name in ("prices", "schwab_close", "options"):
+        if row := jobs.get(name):
+            close = row.get("detail", {}).get("close") if name == "schwab_close" else None
+            skipped = close.get("skipped") if isinstance(close, dict) else None
+            error = str(row.get("last_error") or skipped or "").lower().replace("-", " ")
+            source_health[name] = {"last_ok_at": row.get("last_ok_at"), "failed": bool(row.get("last_error")),
+                                   "authorization": any(word in error for word in (
+                                       "authoriz", "sign in", "401", "refresh token"))}
     result["session_status"] = {"last_processed": last.isoformat() if last else None,
         "latest_prices": latest.isoformat() if latest else None, "expected_close": target.isoformat(),
-        "waiting_for_prices": latest is None or latest < target, "pending_orders": pending,
-        "price_source_error": bool(price_error),
+        "waiting_for_prices": not target_available, "pending_orders": pending,
+        "price_source_error": bool(price_error), "deadline": saved_view(paths, "deadline"),
+        "source_health": source_health,
         "market_open": market_open,
         "next_daily_update_after": (cal.session_close(next_day) + timedelta(minutes=delay)).isoformat(),
         "explanation": "Sessions are recorded trading days, not imports or application restarts. Evidence-grade "
@@ -402,6 +417,16 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             while not automation_stop.is_set():
                 await asyncio.to_thread(collector.maintain)
                 if collector.status().get("enabled") and not paths.stop_file.exists():
+                    now = utc_now()
+                    session = cal.last_closed_session(now)
+                    since_close = now - cal.session_close(session)
+                    deadline = saved_view(paths, "deadline") or {}
+                    # Give collection the close window before starting optional CPU-heavy work.
+                    if since_close < timedelta(minutes=config.settings.stocks.refresh_after_close_minutes + 30) and (
+                            deadline.get("last_processed") != session.isoformat()):
+                        with suppress(TimeoutError):
+                            await asyncio.wait_for(automation_stop.wait(), 5)
+                        continue
                     async with analysis_start_lock:
                         if not evidence.status()["running"]:
                             await asyncio.to_thread(backtests.maintain)
@@ -560,7 +585,7 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
     @app.get("/api/stocks/learner/account")
     def learner_account() -> dict[str, Any]:
         """The Learner PAPER account's page, as the worker last saved it (nothing is computed here)."""
-        from desk.stocks.learner import account, train
+        from desk.stocks.learner import account, forward, train
 
         value = account.saved(paths.home)
         if value is None:
@@ -569,7 +594,9 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
                      "regimes": {"held_out": []}, "promotion": [], "by_regime": [], "baselines": {"spy": [], "rules": []},
                      "gate": {"ok": False, "why": "The Learner's account has not been built yet: it appears after the "
                                                   "next closing session is recorded."}}
-        return {**value, "training": train.state(paths)}
+        with reader(paths, RESEARCH_FILE) as conn:
+            study = forward.summary(conn)
+        return {**value, "training": train.state(paths), "execution_study": study}
 
     @app.get("/api/stocks/plays/bankroll")
     def plays_bankroll(amount: float = Query(gt=0, le=10_000_000, allow_inf_nan=False),
@@ -593,6 +620,39 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
             return view(conn, ident, utc_now())
         finally:
             conn.close()
+
+    @app.get("/api/stocks/plays/idea/{ident}/execution")
+    def play_execution(ident: str) -> dict[str, Any]:
+        from desk.stocks import learning
+        from desk.stocks.execution import idea_check
+        from desk.stocks.play_selections import idea, idea_id
+
+        with reader(paths, RESEARCH_FILE) as research:
+            try:
+                found = idea(research, ident)
+                play = found["play"]
+                cutoff = datetime.fromisoformat(found["identified_at"])
+            except DeskError:
+                # Horizon cards may be viewed here without writing an idea or starting quote collection.
+                board = saved_view(paths, "plays") or {}
+                for category in board.get("categories", []):
+                    matching = next((p for key in ("plays", "budget_plays", "horizon_plays")
+                                     for p in category.get(key, []) if ident == idea_id(
+                                         board["asof"], category["id"], str(board.get("method", "unknown")), p)), None)
+                    if matching is not None:
+                        play, cutoff = matching, datetime.fromisoformat(board["generated_at"])
+                        break
+                else:
+                    raise HTTPException(404, "This idea has no stored execution evidence.") from None
+        with reader(paths, learning.FILE) as ledger, reader(paths, MARKET_FILE) as market:
+            book = PaperBook(ledger)
+            pending = {order.account for order in book.pending()}
+            accounts = []
+            for ident, label in zip(learning.SMALL_ACCOUNTS, ("$1,000 account", "$5,000 account"), strict=True):
+                cash = book.cash(ident)
+                equity = cash + sum(p.last_value or 0.0 for p in book.positions(ident))
+                accounts.append({"id": ident, "label": label, "cash": cash, "equity": equity, "pending": ident in pending})
+            return idea_check(StocksMarket(market), play, cutoff, accounts)
 
     @app.post("/api/stocks/plays/select")
     def select_play(inputs: PlaySelection) -> dict[str, Any]:
@@ -982,7 +1042,36 @@ def create_app(paths: DeskPaths, loaded: LoadedConfig | None = None, *, worker: 
 
     @app.get("/api/stocks/paper")
     def paper_record() -> dict[str, Any]:
-        return paper(paths)
+        value = paper(paths)
+        status, state = value["session_status"], collector.status()
+        health = status["source_health"]
+        if paths.stop_file.exists():
+            reason = "STOP is active. Existing positions can still be managed."
+        elif not state["enabled"]:
+            reason = "PAPER is paused. Use Start PAPER to resume."
+        elif state["error"]:
+            reason = state["error"]
+        elif status["waiting_for_prices"] and any(health.get(name, {}).get("authorization")
+                                                  for name in ("prices", "schwab_close")):
+            reason = "The closing price connection needs authorization. Open Settings to reconnect."
+        elif status["waiting_for_prices"]:
+            reason = "Waiting for the next complete daily close."
+        elif not state["running"] and auto_start:
+            reason = "Waiting for the PAPER worker to start."
+        elif status["last_processed"] != status["expected_close"]:
+            deadline = status["deadline"] or {}
+            wait = deadline.get("waiting") if deadline.get("asof") == status["expected_close"] else None
+            reason = wait or "The daily ledger is being processed."
+        else:
+            reason = None
+        status["reason"] = reason
+        status["worker_running"] = state["running"]
+        progress = saved_view(paths, "progress") or {}
+        if state["running"] and progress.get("phase") == "idle":
+            with suppress(ValueError, TypeError):
+                status["next_worker_check"] = (datetime.fromisoformat(progress.get("updated_at", ""))
+                                               + timedelta(minutes=5)).isoformat()
+        return value
 
     @app.get("/api/stocks/learning")
     def learning_report() -> dict[str, Any]:

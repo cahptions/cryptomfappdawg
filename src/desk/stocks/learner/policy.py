@@ -251,6 +251,7 @@ class Option:
     legs: list[dict[str, Any]] | None = None     # one unit at the session's quotes, once priced
     index: int = -1                              # the row's place in its stored group
     price: float = 0.0                           # the stock's price the group was valued at
+    quote_cutoff: str | None = None              # when the candidate group was frozen
 
     @property
     def key(self) -> str:
@@ -272,12 +273,17 @@ class Pricer:
         self.market = market
         self.session = session
         self.quotes: dict[str, dict[str, Any] | None] = {}
+        self.cutoffs: dict[str, str | None] = {}
 
     def __call__(self, o: Option) -> list[dict[str, Any]] | None:
-        if o.symbol not in self.quotes:
-            day, chains = self.market.option_chain(o.symbol, self.session)
-            self.quotes[o.symbol] = fills.index_chain(chains) if day == self.session else None
-        quotes = self.quotes[o.symbol]
+        key = o.symbol
+        if key not in self.quotes or self.cutoffs.get(key) != o.quote_cutoff:
+            until = datetime.fromisoformat(o.quote_cutoff) if o.quote_cutoff else None
+            day, chains = (self.market.option_chain(key, self.session, observed_by=until) if until else
+                           self.market.option_chain(key, self.session))
+            self.cutoffs[key] = o.quote_cutoff
+            self.quotes[key] = fills.index_chain(chains) if day == self.session else None
+        quotes = self.quotes[key]
         return None if quotes is None else order_legs(quotes, o.row["legs"])
 
 
@@ -293,7 +299,7 @@ def session_candidates(research: sqlite3.Connection, session: date) -> list[Opti
             out.append(Option(g["symbol"], r, group["stock"], group["market"],
                               md.row_vector(group["stock"], group["market"], r["x"], False),
                               "unknown" if sector is None else str(int(sector)), index=i,
-                              price=float(group["price"])))
+                              price=float(group["price"]), quote_cutoff=g["decided_at"]))
     return out
 
 
@@ -522,6 +528,8 @@ def entry_fill(o: Option, table: fl.Table | None, pricer: Pricer | None, session
     """The limit a trade is entered at (``content()["entry"]``): the fraction, its chance of filling, each leg's
     limit price and the seeded draw that decides a fill no stored quote can settle (recorded in the decision)."""
     far: dict[str, Any] = {"fraction": 1.0, "chance": 1.0, "limits": None, "draw": None, "fills": fl.version_hash()}
+    if pricer is not None:
+        pricer(o)
     quotes = None if pricer is None else pricer.quotes.get(o.symbol)
     if table is None or not quotes or o.price <= 0:
         return {**far, "why": "no fill model or no decision quotes: pays the far side"}

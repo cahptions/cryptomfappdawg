@@ -552,6 +552,59 @@ const KestrelLearner = (() => {
       link("Learning report →", "#learning"),
     );
     app.append(status);
+    const study = data.execution_study;
+    if (study) {
+      const forward = el("section", undefined, "learner-status-box");
+      forward.append(
+        el("h2", "Forward execution study"),
+        el(
+          "p",
+          `${study.eligible} eligible days · ${study.graded} graded · ${study.paired} with comparable outcomes · ${study.cash_days} Learner cash days · ${study.unobserved_days} days without candidate evidence`,
+        ),
+        el(
+          "p",
+          `${study.independent_blocks} of ${study.needed_blocks} non-overlapping matched blocks · ${study.rejected_observed} of ${study.rejected_sampled} sampled rejected ideas had a gradable result`,
+        ),
+        el(
+          "p",
+          `Conservative dollars per $100 budgeted on comparable days · Learner ${money(study.dollars_per_100.learner)} · Simple rule ${money(study.dollars_per_100.challenger)} · Cash $0.00`,
+        ),
+        el(
+          "p",
+          study.confirmation?.passes
+            ? "Passed the frozen forward comparison"
+            : study.confirmation
+              ? "The frozen forward comparison missed the confirmation thresholds"
+              : "Waiting for enough evidence to confirm",
+          "muted",
+        ),
+        study.paper_compared
+          ? el(
+              "p",
+              `Of ${study.paper_compared} comparable Learner entries, PAPER alone filled ${study.paper_only}; sampled quotes alone supported ${study.quote_support_only}.`,
+            )
+          : el(
+              "p",
+              "No comparable PAPER entries with complete sampled quote coverage yet.",
+              "muted",
+            ),
+        el(
+          "small",
+          `${study.quote_requests_recorded} sampled quote requests · ${number(study.quote_evidence_bytes)} bytes of evidence. ${study.basis}`,
+          "muted",
+        ),
+      );
+      const coverage = study.quote_coverage;
+      if (coverage?.scheduled) {
+        forward.append(
+          el(
+            "p",
+            `${coverage.complete} of ${coverage.scheduled} scheduled quote windows had complete evidence. The observed and best-case support counts are ${coverage.supported_min} and ${coverage.supported_max}.`,
+          ),
+        );
+      }
+      app.append(forward);
+    }
     const curves = {
       learner: data.accounts.learner?.curve || [],
       learner_random: data.accounts.learner_random?.curve || [],

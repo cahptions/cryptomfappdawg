@@ -18,6 +18,7 @@ acceptance time in New York gives its timing: before the open, during market hou
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import statistics
 from collections import defaultdict
@@ -50,6 +51,8 @@ def save(conn: sqlite3.Connection, rows: list[dict[str, Any]], keep: set[str], n
     stamp = to_iso(now)
     kept = [r for r in rows if r.get("symbol") in keep and r.get("date")]
     with transaction(conn):
+        conn.execute("INSERT OR IGNORE INTO stk_earnings_calendar_receipts VALUES (?,?)",
+                     (stamp, json.dumps([[r["symbol"], r["date"], r.get("when")] for r in kept], allow_nan=False)))
         conn.executemany(
             "INSERT INTO stk_earnings_dates(symbol, report_date, hour, source, first_seen, last_seen) "
             "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(symbol, report_date) DO UPDATE SET hour = excluded.hour, "
@@ -62,12 +65,23 @@ def announced(conn: sqlite3.Connection, session: date) -> dict[str, dict[str, An
     """Each stock's next announced report on or after ``session``, from the newest calendar read (a date that has
     dropped out of it was moved or withdrawn)."""
     try:
+        receipt = conn.execute("SELECT observed_at,calendar_json FROM stk_earnings_calendar_receipts "
+                               "ORDER BY observed_at DESC LIMIT 1").fetchone()
+    except sqlite3.OperationalError:
+        receipt = None
+    if receipt is not None:
+        out: dict[str, dict[str, Any]] = {}
+        for symbol, report, hour in sorted(json.loads(receipt[1]), key=lambda x: x[1]):
+            if report >= session.isoformat():
+                out.setdefault(symbol, {"date": report, "when": hour, "source": LABEL, "seen": receipt[0]})
+        return out
+    try:
         latest = conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates").fetchone()[0]
     except sqlite3.OperationalError:
         return {}
     if latest is None:
         return {}
-    out: dict[str, dict[str, Any]] = {}
+    out = {}
     for symbol, day, hour in conn.execute(
             "SELECT symbol, report_date, hour FROM stk_earnings_dates WHERE last_seen = ? AND report_date >= ? "
             "ORDER BY report_date", (latest, day_of(session))):
@@ -120,6 +134,20 @@ def _calendar(conn: sqlite3.Connection, since: date, as_of: datetime | None,
     """Each stock's next calendar date on or after ``since`` as the calendar stood at ``as_of`` (None: now)."""
     stamp = to_iso(as_of) if as_of else "9999"
     where, args = _only("symbol", symbols)
+    try:
+        receipt = conn.execute("SELECT observed_at,calendar_json FROM stk_earnings_calendar_receipts "
+                               "WHERE observed_at<=? ORDER BY observed_at DESC LIMIT 1", (stamp,)).fetchone()
+    except sqlite3.OperationalError:
+        receipt = None
+    if receipt is not None:
+        saved: dict[str, dict[str, Any]] = {}
+        for symbol, iso_day, hour in sorted(json.loads(receipt[1]), key=lambda row: row[1]):
+            if iso_day >= since.isoformat() and (symbols is None or symbol in symbols):
+                entry, exit_ = sessions(date.fromisoformat(iso_day), hour)
+                saved.setdefault(symbol, {"date": iso_day, "to": iso_day, "confirmed": True, "timing": hour,
+                                          "source": LABEL, "seen": receipt[0],
+                                          "entry": entry.isoformat(), "exit": exit_.isoformat()})
+        return saved
     try:
         newest = conn.execute("SELECT MAX(last_seen) FROM stk_earnings_dates WHERE last_seen <= ?", (stamp,)).fetchone()[0]
         rows = conn.execute("SELECT symbol, report_date, hour, first_seen, last_seen FROM stk_earnings_dates "  # noqa: S608

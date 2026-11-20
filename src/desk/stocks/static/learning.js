@@ -342,7 +342,7 @@ const KestrelLearning = (() => {
       el("h2", "Small-account tests"),
       el(
         "p",
-        "These accounts choose affordable trades from the research available at each decision. Each keeps its own cash and results. Their cash was filled back up once on 16 Nov (counted as funding, not profit); every trade is sized from the cash they hold now.",
+        "These accounts use the research available at each decision and keep separate balances and results. The November 16 refill counts as funding. The target is 25% of equity, limited by available cash. A single contract or multi-leg position may exceed the target if cash covers it.",
         "muted",
       ),
     );
@@ -353,21 +353,23 @@ const KestrelLearning = (() => {
       open.onclick = () => select(a.id);
       card.append(
         el("h3", titleOf(a)),
-        el("strong", money(a.equity), "learning-account-equity"),
+        el("strong", `Equity ${money(a.equity)}`, "learning-account-equity"),
       );
       for (const [title, value] of [
         ["Net trading P/L", signed(a.trading_pnl)],
         ["Return on starting balance", percent(a.return_on_start)],
         ["Cash available", money(a.cash)],
         [
-          "Next trade up to",
+          "Next trade target",
           money(Math.min(a.cash, 0.25 * Math.max(0, a.equity ?? 0))),
         ],
         ["Trades", `${a.open_positions} open · ${a.closed_trades} closed`],
+        ["Pending orders", String(a.pending_orders)],
       ])
         stats.append(el("dt", title), el("dd", value));
       card.append(
         stats,
+        refillSummary(a),
         el("p", `Now: ${a.policy?.phase || "Waiting for fresh quotes"}`),
         el("p", policyName(a.policy?.mode), "caption muted"),
         open,
@@ -376,6 +378,22 @@ const KestrelLearning = (() => {
     }
     section.append(grid);
     return section;
+  }
+  function refillSummary(a) {
+    if (!a.refill)
+      return el(
+        "p",
+        "One-time refill is awaiting its first ledger check.",
+        "muted",
+      );
+    const { at, amount, positions_opened, entry_debit } = a.refill;
+    const deposit = amount
+      ? `Refill added ${money(amount)} on ${stamp(at)}.`
+      : `Refill checked on ${stamp(at)} and added no cash.`;
+    const use = positions_opened
+      ? `Since then, ${positions_opened} ${positions_opened === 1 ? "entry" : "entries"} filled for ${money(entry_debit)} including fees.`
+      : "No entries have filled since.";
+    return el("p", `${deposit} ${use}`, "muted");
   }
   const chartState = new Map();
   function profitChart(a, evidence) {
@@ -1032,7 +1050,20 @@ const KestrelLearning = (() => {
               "notice",
             ),
           );
-        else if (!a.funding_allowed)
+        else if (a.small_account) {
+          content.append(refillSummary(a));
+          for (const [index, deposit] of (a.deposits || []).entries()) {
+            const row = el("article", undefined, "paper-pending");
+            row.append(
+              el("strong", money(deposit.amount)),
+              el(
+                "p",
+                `${stamp(deposit.at)} · ${index === 0 ? "Starting deposit" : "Virtual top-up"}`,
+              ),
+            );
+            content.append(row);
+          }
+        } else if (!a.funding_allowed)
           content.append(
             el(
               "p",

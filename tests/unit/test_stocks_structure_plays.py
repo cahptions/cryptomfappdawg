@@ -163,7 +163,7 @@ def test_expiry_labels_carry_the_delta_hedged_return(world: Any) -> None:
 def test_the_model_version_moves_with_the_new_features_and_labels() -> None:
     from desk.stocks.learner import model as md
 
-    assert md.VERSION == 8 and "dir_q50" in md.FEATURES and "struct_edge_risk" in md.FEATURES
+    assert md.VERSION == 9 and "dir_q50" in md.FEATURES and "struct_edge_risk" in md.FEATURES
 
 
 def test_the_direction_vs_volatility_insight_reads_the_stored_fits(world: Any) -> None:

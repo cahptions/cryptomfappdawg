@@ -30,6 +30,7 @@ def learned(tmp_path_factory: pytest.TempPathFactory) -> Any:
         close = cal.session_close(d) + timedelta(minutes=30)
         pl.build(w.market, w.research, close)
         ex.record_forward(w.market, w.research, d, close)
+        lb.run(w.research.conn, w.market.conn, lb.ForwardPrices(w.market.conn, w.research.conn), close, limit=10_000)
     now = cal.session_close(w.days[-1]) + timedelta(hours=4)
     lb.run(w.research.conn, w.market.conn, lb.ForwardPrices(w.market.conn, w.research.conn), now, limit=10_000)
     try:
@@ -56,6 +57,17 @@ def test_the_dataset_has_every_feature_and_only_known_labels(learned: Any) -> No
     assert (~np.isnan(ds.y["s1"])).sum() > (~np.isnan(ds.y["exp"])).sum() > 0
     capped = md.load(w.research.conn, max_rows=500)
     assert 0 < len(capped) <= 500
+
+
+def test_forward_fold_uses_the_actual_label_receipt(learned: Any) -> None:
+    w, now = learned
+    on_time = md.load(w.research.conn, available_at=now - timedelta(days=100))
+    assert len(on_time) == 0
+    latest = md.load(w.research.conn, available_at=now)
+    assert len(latest) > 0
+    before = md.load(w.research.conn)
+    assert len(latest) == len(before)
+    assert np.all(latest.day["exp"] >= before.day["exp"])
 
 
 def test_walk_forward_never_trains_on_a_label_known_after_the_test_starts() -> None:

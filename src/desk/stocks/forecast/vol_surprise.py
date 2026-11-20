@@ -33,6 +33,7 @@ from __future__ import annotations
 import math
 import sqlite3
 import time
+from bisect import bisect_left
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -41,6 +42,7 @@ from typing import Any
 import numpy as np
 
 from desk.core.hashing import canonical_json, sha256_hex
+from desk.stocks import calendar as cal
 from desk.stocks import vol_forecast as vf
 from desk.stocks.forecast import panel as pn
 from desk.stocks.forecast import store
@@ -48,7 +50,7 @@ from desk.stocks.forecast.direction import newey_west_t, peak_mb
 
 Array = np.ndarray
 NAME = "stocks_vol_surprise"
-VERSION = 1
+VERSION = 2
 MODEL = "vol_surprise"
 HORIZONS = vf.HORIZONS
 NAMES = ("log_iv", "iv_rv_gap", "har_b", "log_rv_day", "log_rv_week", "log_rv_month", "term_slope", "skew",
@@ -68,6 +70,7 @@ PARAMS = {"max_iter": 120, "learning_rate": 0.06, "max_leaf_nodes": 15, "min_sam
 
 def content() -> dict[str, Any]:
     return {"version": VERSION, "horizons": list(HORIZONS), "features": list(NAMES),
+            "availability": "option signals and complete earnings calendar receipts known at each close",
             "target": "log(mean realized variance over t+1..t+h / (IV30^2/252) on t)",
             "baseline": "HAR-IV log forecast of the same ratio from vol_forecast's newest fit on or before t (no smear)",
             "vol_forecast": [vf.VERSION, vf.version_hash()], "stride": STRIDE, "max_rows": MAX_ROWS,
@@ -134,12 +137,18 @@ def _side(market: Any, symbols: Sequence[str], days: Sequence[date]) -> dict[str
     index = {s: i for i, s in enumerate(symbols)}
     col = {d.toordinal(): j for j, d in enumerate(days)}
     if n and m:
+        closes = [cal.session_close(d) for d in days]
         try:
-            for symbol, day, iv30, iv90, skew, spread in market.execute(
-                    "SELECT symbol, day, iv30, iv90, skew, iv_spread FROM stk_option_signals WHERE day>=? AND day<=? "
-                    "AND liquid>=?", (days[0].toordinal(), days[-1].toordinal(), MIN_LIQUID)):
+            for symbol, day, iv30, iv90, skew, spread, observed, computed in market.execute(
+                    "SELECT symbol, day, iv30, iv90, skew, iv_spread, observed_at, computed_at "
+                    "FROM stk_option_signals WHERE day>=? AND day<=? AND liquid>=? ORDER BY day",
+                    (days[0].toordinal(), days[-1].toordinal(), MIN_LIQUID)):
                 i, j = index.get(symbol), col.get(int(day))
                 if i is None or j is None:
+                    continue
+                known = max(datetime.fromisoformat(observed), datetime.fromisoformat(computed))
+                j = max(j, bisect_left(closes, known))
+                if j >= m:
                     continue
                 if iv30 and iv90:
                     out["term_slope"][i, j] = iv90 - iv30
@@ -357,8 +366,6 @@ def for_session(market: Any, symbols: Sequence[str], session: date, loader: stor
     wanted = list(symbols)
     if not wanted:
         return out
-    from desk.stocks import calendar as cal
-
     days = cal.trading_days(session - timedelta(days=60), session)[-vf.MONTH - 5:]
     panel = _recent_panel(market, wanted, days)
     model = vf.model_on(market, session)

@@ -6,6 +6,12 @@ const KestrelPaper = (() => {
     filter = "",
     tradeOffset = 0,
     showAll = false;
+  const when = (stamp) =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(stamp)) + " ET";
   const names = (accounts) =>
     Object.fromEntries(accounts.map((a) => [a.id, a.title]));
   const signed = (n) => {
@@ -469,11 +475,12 @@ const KestrelPaper = (() => {
         note.append(
           el(
             "strong",
-            s.waiting_for_prices
-              ? "Waiting for the next complete daily close"
-              : s.market_open
-                ? "Daily strategy record · awaiting this session's close"
-                : "Market closed · showing the last processed daily session",
+            s.reason ||
+              (s.waiting_for_prices
+                ? "Waiting for the next complete daily close"
+                : s.market_open
+                  ? "Daily strategy record · awaiting this session's close"
+                  : "Market closed · showing the last processed daily session"),
           ),
           el(
             "p",
@@ -482,6 +489,24 @@ const KestrelPaper = (() => {
           ),
           link("Check data health ↗", "#proof"),
         );
+        if (s.reason?.includes("Settings"))
+          note.append(link("Open connection Settings ↗", "#settings"));
+        if (s.reason?.includes("Start PAPER"))
+          note.append(link("Open PAPER controls ↗", "#system"));
+        if (s.deadline?.price_received_at)
+          note.append(
+            el(
+              "small",
+              `Decision pass ${s.deadline.asof} · ${s.deadline.elapsed_seconds}s · price receipt ${when(s.deadline.price_received_at)}`,
+            ),
+          );
+        if (s.next_worker_check)
+          note.append(
+            el(
+              "small",
+              `Next worker check around ${when(s.next_worker_check)}`,
+            ),
+          );
         if (s.next_daily_update_after)
           note.append(
             el(

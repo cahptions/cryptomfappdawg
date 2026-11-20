@@ -78,6 +78,10 @@ def add_parser(sub: Any) -> None:
     accuracy.set_defaults(func=run)
     commands.add_parser("learner", help="read-only: the Learner's experience log, labels, last model and its held-out "
                         "results (shadow only; docs/STOCKS_LEARNER.md)").set_defaults(func=run)
+    ablation = commands.add_parser("learner-ablate", help="read-only: compare signal groups on stored held-out candidates")
+    ablation.add_argument("--source", choices=("forward", "replay"), default="forward")
+    ablation.add_argument("--rows", type=int, metavar="1000–50000", default=20_000)
+    ablation.set_defaults(func=run)
     commands.add_parser("learner-train", help="train, freeze and register the Learner's shadow model now (a few "
                         "minutes; never adopted by any trading)").set_defaults(func=run)
     commands.add_parser("learner-bench", help="time and memory of a Learner training on a synthetic year (no data is "
@@ -158,6 +162,19 @@ def _run(args: argparse.Namespace) -> int:
                                 progress=lambda line: print("  " + line, file=sys.stderr, flush=True))
         print(json.dumps(report, indent=2) if args.json else accuracy.text(report))
         return 1 if report["violations"] else 0
+    if args.stocks_command == "learner-ablate":
+        from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
+
+        from desk.core.clock import utc_now
+        from desk.stocks.learner import ablation
+        from desk.stocks.repo import MARKET_FILE, RESEARCH_FILE
+        from desk.stocks.web import reader
+
+        if not 1000 <= args.rows <= 50_000:
+            raise DeskError("--rows must be between 1000 and 50000.")
+        with reader(paths, RESEARCH_FILE) as research_db, reader(paths, MARKET_FILE) as market_db, threadpool_limits(1):
+            print(json.dumps(ablation.run(research_db, market_db, utc_now(), rows=args.rows, source=args.source), indent=2))
+        return 0
     if args.stocks_command == "learner-bench":
         from desk.stocks.learner import bench
 

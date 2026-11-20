@@ -20,14 +20,18 @@ three option signals (call−put IV spread, OTM put skew, IV / realized vol) and
 
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
+from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import numpy as np
+
+from desk.core.clock import to_iso
 
 Array = np.ndarray
 VAR_FLOOR = 1e-6                # a 0.1% daily move, as vol_forecast
@@ -72,12 +76,11 @@ def _chunks(items: Sequence[str], n: int = 500) -> Iterable[Sequence[str]]:
         yield items[i:i + n]
 
 
-def candidates(conn: sqlite3.Connection, limit: int, *, min_sessions: int = 300) -> list[str]:
-    """The stocks to learn from: those with at least ``min_sessions`` stored bars, the ``limit`` with the highest
-    average dollar volume over their whole stored history (not a recent window, so the choice does not favour what
-    happened to do well lately). ETFs and test listings are left out."""
+def candidates(conn: sqlite3.Connection, limit: int, *, min_sessions: int = 300, through: date | None = None) -> list[str]:
+    """Most liquid eligible stocks through a declared universe cutoff."""
     skip = {r[0] for r in conn.execute("SELECT symbol FROM stk_listings WHERE etf=1 OR test=1")}
-    rows = conn.execute("SELECT symbol, COUNT(*) n, AVG(close*volume) dv FROM stk_bars GROUP BY symbol").fetchall()
+    rows = conn.execute("SELECT symbol,COUNT(*),AVG(close*volume) FROM stk_bars WHERE day<=? GROUP BY symbol",
+                        (through.toordinal() if through else 2**31,)).fetchall()
     ok = [(r[0], float(r[2] or 0.0)) for r in rows if r[1] >= min_sessions and r[0] not in skip]
     ok.sort(key=lambda x: (-x[1], x[0]))
     return [s for s, _ in ok[:limit]]
@@ -113,8 +116,8 @@ def _matrix(conn: sqlite3.Connection, symbols: Sequence[str], first: int, last: 
                 close[index[symbol], j] = c
                 dollars[index[symbol], j] = c * (v or 0.0)
         for symbol, execution, a, b in conn.execute(
-                f"SELECT symbol, execution_date, split_from, split_to FROM stk_splits WHERE symbol IN ({marks})",  # noqa: S608
-                tuple(chunk)):
+                f"SELECT symbol, execution_date, split_from, split_to FROM stk_splits WHERE execution_date<=? "  # noqa: S608
+                f"AND symbol IN ({marks})", (last, *chunk)):
             if a and b and a > 0 and b > 0:
                 cut = int(np.searchsorted(ordinals, int(execution)))          # the columns before the split
                 close[index[symbol], :cut] /= b / a
@@ -189,12 +192,19 @@ def side_data(market: sqlite3.Connection, research: sqlite3.Connection | None, s
                         out["committee"][i, j] = float(c)
         except sqlite3.OperationalError:
             pass
+    from desk.stocks import calendar as cal
+
+    closes = [cal.session_close(day) for day in days]
     try:
-        for symbol, day, spread, skew, iv30, rv22 in market.execute(
-                "SELECT symbol, day, iv_spread, skew, iv30, rv22 FROM stk_option_signals WHERE day>=? AND day<=? AND "
-                "liquid>=?", (lo, hi, MIN_LIQUID)):
+        for symbol, day, spread, skew, iv30, rv22, observed, computed in market.execute(
+                "SELECT symbol, day, iv_spread, skew, iv30, rv22, observed_at, computed_at FROM stk_option_signals "
+                "WHERE day>=? AND day<=? AND liquid>=? ORDER BY day", (lo, hi, MIN_LIQUID)):
             i, j = index.get(symbol), col.get(int(day))
             if i is None or j is None:
+                continue
+            known = max(datetime.fromisoformat(observed), datetime.fromisoformat(computed))
+            j = max(j, bisect_left(closes, known))
+            if j >= len(days):
                 continue
             if spread is not None:
                 out["opt_iv_spread"][i, j] = spread
@@ -237,6 +247,17 @@ def earnings_days(conn: sqlite3.Connection, symbols: Sequence[str], days: Sequen
                 announced[symbol].append((int(report), seen_day))
     except sqlite3.OperationalError:
         return out
+    cutoffs = [to_iso(cal.session_close(d)) for d in days]
+    receipts = {}
+    try:
+        for stamp, blob in conn.execute(
+            "SELECT observed_at,calendar_json FROM stk_earnings_calendar_receipts "
+            "WHERE observed_at<=? ORDER BY observed_at", (cutoffs[-1],),
+        ):
+            receipts[bisect_left(cutoffs, stamp)] = blob
+    except sqlite3.OperationalError:
+        pass
+    legacy_columns = np.arange(m) < min(receipts, default=m)
     for symbol, filed in filings.items():
         f = np.asarray(sorted(set(filed)))
         k = np.searchsorted(f, ordinals, side="right") - 1          # the last filing on or before the session
@@ -246,10 +267,21 @@ def earnings_days(conn: sqlite3.Connection, symbols: Sequence[str], days: Sequen
     for symbol, reports in announced.items():
         nearest = np.full(m, np.inf)
         for report, seen in reports:
-            known = (ordinals >= seen) & (ordinals < report)
+            known = (ordinals >= seen) & (ordinals < report) & legacy_columns
             nearest = np.where(known, np.minimum(nearest, report - ordinals), nearest)
         row = out[index[symbol]]
         row[:] = np.where(np.isfinite(nearest), nearest, row)   # an announced date beats the estimate
+    starts = sorted(receipts)
+    for start, end in zip(starts, [*starts[1:], m], strict=True):
+        best: dict[str, np.ndarray] = {}
+        for symbol, report, _ in json.loads(receipts[start]):
+            if symbol in index:
+                delta = date.fromisoformat(report).toordinal() - ordinals[start:end]
+                upcoming = np.where(delta > 0, delta, np.inf)
+                best[symbol] = np.minimum(best[symbol], upcoming) if symbol in best else upcoming
+        for symbol, nearest in best.items():
+            row = out[index[symbol], start:end]
+            row[:] = np.where(np.isfinite(nearest), nearest, row)
     return out
 
 

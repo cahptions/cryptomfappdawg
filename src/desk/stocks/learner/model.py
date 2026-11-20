@@ -73,7 +73,7 @@ from desk.stocks.learner import regimes as rg
 from desk.stocks.learner.experience import unpack
 
 NAME = "stocks_learner_model"
-VERSION = 8                         # v8: forecast features (features v4), labels v2; v7: ensemble of members;
+VERSION = 9                         # v9: label availability; v8: forecast features and labels v2; v7: ensemble;
 #                                     v6: market-neutral target; v5: the net target
 CHECKPOINT_TARGETS = ("s1", "s5", "s10", "s21", "exp")
 TARGET = "net"                      # what the expected return and its range are trained on and judged by
@@ -96,7 +96,8 @@ MODELS_DIR = "learner-models"
 
 
 def content() -> dict[str, Any]:
-    return {"version": VERSION, "features": list(FEATURES), "categorical": list(CATEGORICAL), "params": PARAMS,
+    return {"version": VERSION, "availability": "forward label outcome and actual publication, whichever is later",
+            "features": list(FEATURES), "categorical": list(CATEGORICAL), "params": PARAMS,
             "exit_params": EXIT_PARAMS, "max_rows": MAX_ROWS, "folds": FOLDS, "test_share": TEST_SHARE,
             "embargo": EMBARGO, "clip_high": CLIP_HIGH, "min_rows": MIN_ROWS, "quantiles": list(QUANTILES),
             "actions": act.version_hash(), "features_version": ft.version_hash(), "labels": lb.version_hash(),
@@ -188,9 +189,11 @@ def _groups(conn: sqlite3.Connection, sources: Sequence[str], max_rows: int, see
 
 
 def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "replay"), max_rows: int = MAX_ROWS,
-         seed: int = 7, market: sqlite3.Connection | None = None) -> Dataset:
+         seed: int = 7, market: sqlite3.Connection | None = None, available_at: datetime | None = None) -> Dataset:
     """Every labelled candidate (at most ``max_rows``: whole stock-sessions, a seeded sample) with its targets, and the
     net target at the expected fill (``fills``, as of each decision session)."""
+    from desk.stocks import calendar as cal
+
     av, lv = act.version_hash(), lb.version_hash()
     X: list[list[float]] = []
     session, source, explore, index = [], [], [], []
@@ -210,9 +213,15 @@ def load(conn: sqlite3.Connection, *, sources: Sequence[str] = ("forward", "repl
                             "actions_version=?", (src, sess, sym, av)).fetchone()[0]
         g = unpack(blob)
         labels: dict[int, dict[str, tuple[float, int]]] = defaultdict(dict)
-        for checkpoint, label_day, lblob in conn.execute(
-                "SELECT checkpoint, day, labels_zlib FROM stk_learn_labels WHERE source=? AND session=? AND symbol=? "
+        for checkpoint, label_day, lblob, stamp in conn.execute(
+                "SELECT checkpoint, day, labels_zlib, labelled_at FROM stk_learn_labels "
+                "WHERE source=? AND session=? AND symbol=? "
                 "AND actions_version=? AND labels_version=?", (src, sess, sym, av, lv)):
+            if src == "forward" and available_at is not None:
+                stamped = datetime.fromisoformat(stamp)
+                if stamped > available_at:
+                    continue
+                label_day = max(int(label_day), cal.new_york(stamped).date().toordinal())
             for r in lb.unpack_labels(lblob):
                 if checkpoint.startswith("exp:"):
                     idx, settled, _mfe, _mae, _n, _have, exits, *rest = r
@@ -811,7 +820,7 @@ def train(conn: sqlite3.Connection, home: Path, now: datetime, *, max_rows: int 
     started = time.monotonic()
     say = progress or (lambda _text: None)
     say("loading the experience log")
-    ds = load(conn, max_rows=max_rows, market=market)
+    ds = load(conn, max_rows=max_rows, market=market, available_at=now)
     if len(ds) < MIN_ROWS or len(np.unique(ds.session)) < MIN_SESSIONS:
         return {"trained": False, "rows": len(ds), "sessions": len(np.unique(ds.session)),
                 "reason": f"needs {MIN_ROWS} labelled candidates from {MIN_SESSIONS} sessions"}

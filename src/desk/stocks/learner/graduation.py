@@ -28,7 +28,7 @@ from desk.stocks.learner import policy
 from desk.stocks.learner import promotion as pr
 
 NAME = "stocks_learner_graduation"
-VERSION = 1
+VERSION = 2
 WINDOW = pr.FORWARD_DAYS
 SECTION = "learner_picks"
 PICK_AGE = 5                         # sessions: older decisions are not shown as today's picks
@@ -36,8 +36,8 @@ PICK_AGE = 5                         # sessions: older decisions are not shown a
 
 def content() -> dict[str, Any]:
     return {"version": VERSION, "window": WINDOW, "section": SECTION, "pick_age": PICK_AGE,
-            "graduate": "the current version (model code + policy) confirmed by promotion v2",
-            "demote": "the latest `window` entry days whose positions have all closed fail promotion v2's bar "
+            "graduate": "the current version (model code + policy) confirmed by promotion v3",
+            "demote": "the latest `window` entry days whose positions have all closed fail promotion v3's bar "
                       "(both 90% ranges above zero and the deflated Sharpe ratio >= 0.95)",
             "again": "a demoted version graduates again when a later window passes the same bar",
             "promotion": pr.version_hash()}
@@ -122,7 +122,7 @@ def step(research: sqlite3.Connection, book: Any, decisions: dict[int, int], now
                                                              json.dumps(detail, allow_nan=False, default=str)))
 
     if state is None:
-        record("graduated", {"why": "confirmed by its forward test", "basis": "promotion v2"})
+        record("graduated", {"why": "confirmed by its forward test", "basis": "promotion v3"})
         return {"graduated": True, "changed": "graduated"}
     window = latest_window(book, decisions)
     result = pr.judge(book, window, of.counter(research, "model"))

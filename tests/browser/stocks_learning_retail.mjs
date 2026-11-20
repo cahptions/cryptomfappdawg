@@ -25,11 +25,24 @@ try {
       await page.request.get(`${base}/api/stocks/learning`)
     ).json();
     assert.equal(data.accounts.length, 4);
+    assert.match(
+      await page.locator(".learning-small-accounts").innerText(),
+      /may exceed the target if cash covers it/,
+    );
     for (const id of ["reference_1k", "reference_5k"]) {
       const a = data.accounts.find((a) => a.id === id);
       assert.equal(a.additional_funding, 0);
       assert.equal(a.contributed, a.starting_capital);
       assert.ok(a.closed_trades > 0 && a.realized_pnl > 0);
+      const card = page
+        .locator(".learning-account-card")
+        .filter({ has: page.getByRole("heading", { name: a.title }) });
+      const target = card.locator('dt:text-is("Next trade target") + dd');
+      const targetAmount = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+      }).format(Math.min(a.cash, 0.25 * Math.max(0, a.equity)));
+      assert.equal(await target.innerText(), targetAmount);
       await page.getByRole("button", { name: a.title, exact: true }).click();
       await page
         .getByRole("heading", { name: a.title, exact: true, level: 2 })
@@ -42,6 +55,14 @@ try {
         .locator(".paper-metric")
         .filter({ hasText: "Additional virtual funding" });
       assert.equal(await funding.locator("strong").innerText(), "$0.00");
+      await page
+        .getByRole("button", { name: "Virtual funding", exact: true })
+        .click();
+      await page.getByText(/Starting deposit/).waitFor();
+      assert.match(
+        await page.locator(".paper-trades").innerText(),
+        /Refill checked .* added no cash/,
+      );
       await page
         .getByRole("button", { name: "Closed trades", exact: true })
         .click();
