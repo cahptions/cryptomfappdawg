@@ -1,6 +1,13 @@
 # KESTREL Stocks v1.0 · A research desk that can change its mind
 
-**Build brief for the next engineer.** Scope covers Stocks research and simulated PAPER on one Dell. This document specifies a design. The [handoff](STOCKS_V1_HANDOFF.md) identifies partially written prototypes and open checks. The [research notes](STOCKS_V1_RESEARCH.md) connect the proposal to finance, execution and application-design papers.
+Scope covers Stocks research and simulated PAPER on one Dell. This blueprint records the product design. The handoff covers the shipped workflow, how to start the comparisons and which measurements still need operator data. [Build and operator handoff](STOCKS_V1_HANDOFF.md) · [Research papers and methods](STOCKS_V1_RESEARCH.md)
+
+## What you can use now
+
+- In **Learning**, select either small account and open its stored PAPER decision. Order rows link to the same records. Decision replay reveals the reason and later outcomes after you choose what PAPER did. The transfer review compares recorded research estimates with closed, fee-inclusive results where the exit policies align.
+- In **Plays**, shortlist options and compare holding cash with the one-unit expiry scenarios. Recorded historical plays show displayed depth for synchronized receipts and the spread cost for the last supported exit at the selected size.
+- In **Research**, review each book's latest decision and the current experiment coverage. Start or pause the preregistered IV study and the discretionary quote comparison independently. The quote comparison substitutes one eligible slot within the existing rotation budget and measures quote usability, operation counts, collection time and retained bytes.
+- The first quote outcome is a measure of chain coverage. Separately testing whether a new quote changes the cash decision or improves later execution is an extension. True broker fills, untouched forward effectiveness, resource costs and an operator usability comparison require observation on the Dell.
 
 ## The product
 

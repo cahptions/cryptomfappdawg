@@ -2,6 +2,18 @@
 
 The first question worth a forward test is whether the difference between call and put implied volatility improves selection among stocks KESTREL can already observe. The first question worth an operator test is whether someone looking at a full $1,000 balance can tell what PAPER actually did. Both have observable answers. The studies below inform how to measure them. KESTREL’s forward effect size, attainable fills on the Dell, and operator comprehension are unmeasured here.
 
+## What the implementation measures
+
+| Study | Measured outcome | Decision rule |
+| --- | --- | --- |
+| Call-minus-put IV | Paired stock price return in basis points, next regular open through fifth close. See the protocol shown in Research for admission and grading deadlines. | The app waits for the 30 scheduled blocks to resolve. At least 24 graded pairs are needed. The one-sided sign test counts a pair as a win when the difference exceeds 10 bp. A final success also requires a mean above 10 bp. |
+| Quote allocation | Usable chains, provider operations, elapsed symbol collection time and retained compressed chain bytes during the assigned collection window. Failures remain in the assigned count. | One eligible rotation slot per market session. Cash-limit follow-up and ordinary rotation share the same usability definition. Coverage and cost are descriptive. The next decision's profitability is a separate outcome. |
+| Research transfer | Per-symbol/session pairs of frozen research estimates and fee-inclusive outcomes from closed orders with comparable horizons. | Entry-debit weighting within a group, equal weight across groups. Report sample counts and overlapping exposure. A partial or absent fill remains visible in its own receipt. |
+
+A missed window counts toward the IV study denominator after enrollment. Outcomes may still grade when enrollment is paused. The quote comparison calls an interrupted collection unknown when the completion record never arrives. Both switches are in the Research desk. The simulated engines use the same order policies as before this research release.
+
+At 24 graded observations, an exact one-sided sign test at 5% requires at least 17 wins. Its nominal power is about 56% if the actual independent win chance is 70%, before imposing the separate mean requirement. That power calculation is an assumption check. Shared market shocks, coverage and dependence can make the observed information content lower. Report an underpowered or coverage-limited experiment directly rather than treating it as a losing trading rule.
+
 ## Which signal earns a place?
 
 **Empirical asset pricing.** Cremers and Weinbaum compared subsequent stock returns across portfolios formed from the implied-volatility difference between calls and puts with the same strike and expiry. Their working paper weighted pairs by average open interest and used American-option valuations with discrete dividends. The published paper reported a 50-basis-point weekly difference between portfolios of stocks with relatively expensive calls and relatively expensive puts. The effect weakened over their sample. KESTREL uses selected liquid pairs 10–60 calendar days from expiry and a Black–Scholes calculation with trailing dividend yield. Pricing assumptions, selection and the historical period all limit transfer of that estimate. [Deviations from Put-Call Parity and Stock Return Predictability, JFQA 2010](https://doi.org/10.1017/S002210901000013X) · [Authors’ paper, §2.3](https://citeseerx.ist.psu.edu/document?doi=f3fafcded1695d2b5a07097dd25a3c41c0ad61c3&repid=rep1&type=pdf) · [KESTREL signal calculation](../src/desk/stocks/option_signals.py)

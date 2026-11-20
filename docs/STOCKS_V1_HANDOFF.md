@@ -1,64 +1,8 @@
-# Continue KESTREL Stocks v1.0
+# KESTREL Stocks v1.0 operator and build handoff
 
-Read the [product and experiment blueprint](STOCKS_V1_BLUEPRINT.md), then the [primary-source research review](STOCKS_V1_RESEARCH.md). The operator requested the idea and a build-ready handoff for another model. The regular Dell branch contains the design. Partially written application changes are preserved separately on the remote recovery branch.
+The Stocks release covers account-specific decision history, play comparison, historical exit receipts, Learning transfer review and a Research desk with prospective controls. [Product and experiment blueprint](STOCKS_V1_BLUEPRINT.md) · [Research methods and primary papers](STOCKS_V1_RESEARCH.md)
 
-## Prompt to paste into the next coding session
-
-> Build KESTREL Stocks v1.0 from docs/STOCKS_V1_BLUEPRINT.md and docs/STOCKS_V1_RESEARCH.md. Start by fetching both the normal Stocks branch and the named recovery branch, inspecting local edits, and reading PROGRESS.md and this handoff. Preserve every existing edit. Use the recovered code as prototypes and review each against the design and the current head. Work only on Stocks research and simulated PAPER.
->
-> Implement the blueprint in independently shippable slices. Begin with the deep-linked “Why this book waited” view for a real $1K or $5K PAPER decision. Reconstruct it from the account's own ledger, frozen policy, decision-time cash when available, and timestamped evidence. A policy wait can exist with no order. Show exactly why and what could change it. Verify historical stability after a deposit, restart and late receipt. Show which checks passed and which require the Dell. Complete this slice before wiring the bounded research collector or enrolling a prospective study.
->
-> Progress toward the full blueprint. For every new signal or model name its comparator, prospective metric, evidence class, marginal cost and losing condition. Save and push recoverable checkpoints while working. Publish verified slices to the established Dell branch. Update PROGRESS.md and give the operator the exact update command with each release. A chat reset must be recoverable from Git and the handoff alone.
-
-## Fetch and inspect without touching local edits
-
-From the Dell checkout or a fresh clone with access to the same remote:
-
-```bash
-cd ~/kestrel &&
-git fetch origin refs/heads/claude/funny-rubin-gq99vj:refs/remotes/origin/claude/funny-rubin-gq99vj refs/heads/codex/stocks-v1-recovery:refs/remotes/origin/codex/stocks-v1-recovery &&
-git status --short --branch &&
-git log -1 --oneline origin/claude/funny-rubin-gq99vj &&
-git log -1 --oneline origin/codex/stocks-v1-recovery &&
-git diff --stat d4cb73f origin/codex/stocks-v1-recovery -- src tests
-```
-
-Keep the operator's checkout in place. Build in a separate worktree from the current regular Stocks head. Read prototypes with `git show origin/codex/stocks-v1-recovery:src/desk/stocks/learning_transfer.py`. Review selected diffs before carrying them into the new worktree. The rollback point for each future slice is its preceding verified application commit. Additive migrations must remain readable on restart.
-
-## What exists
-
-The last application release when the design work started was `d4cb73f`. Claude's `5cc9092` and the earlier `5bdcaa3` are historical checkpoints. The recovery branch contains unverified code written before the operator narrowed this turn to design.
-
-| Area | Recovery prototype | Remaining work |
-| --- | --- | --- |
-| Learning | `src/desk/stocks/learning_transfer.py`, Learning client, read-only transfer-review web handler | Review joins from frozen policy through partial fills to fee-inclusive cash. Add decision-level deep links, policy waits with no order, legacy-data handling and independent book reconciliation. |
-| Plays | `play_comparison.py`, `static/play_comparison.js`, Plays and execution view edits | Verify persistent shortlist, normal/archive/horizon routing, differing expirations, cash comparison and whole-unit scenarios in both books. Trace UI requests to the actual handler. |
-| Exit quotes | `exit_quotes.py`, `play_tracking.py`, `play_history.py`, research migration 0026 | Verify nullable legacy paths, all legs at a common receipt, side sizes, retention budget, folding before/after restart and duplicate resistance. |
-| Forward science | `brain_study.py` and research migration 0027 | The recovered Python defines feature, decision and grading helpers. Review timestamps, dividends/borrow, calendar, dependence and statistical power. Implement the public summary, runner integration and restart tests before enrollment. |
-| Research Brain and allocation | The blueprint, existing `runner.py`, `collect.py`, `activity.py`, `option_signals.py`, `learner/forward.py` | Central decision screen, decision-boundary evaluations, matched acquisition experiment, historical reconciliation and operator acceptance remain design work. |
-
-The existing production ledger, small-book refills, historical ablations, forward call-spread comparison and PAPER recovery already shipped in earlier work. Review current source before duplicating any of them.
-
-## Verification inherited by the next session
-
-- **Synthetic startup and restart**. Session API 2.61s, first PAPER ledger commit 7.61s, 25 accounts; pause/start preserved rows, and SQLite integrity and foreign keys passed. The browser fixture rendered Home, Plays, Learning, Learner and Paper at 1366px and 375px. This predates the assembled prototypes.
-- **Offline run during development**. 974 passed and two failures. Both failures were in `tests/integration/test_stocks_plays.py`. The first category's plays list was empty in `test_the_page_endpoint_serves_the_saved_plays` and `test_a_full_days_board_over_four_megabytes_is_served_compressed`. Root cause remains unverified. Reproduce in an isolated worktree at `d4cb73f`, then on the proposed slice. Inspect whether the fixture's quote dates satisfy selection. Keep production freshness rules intact.
-- **Paired reliability and Schwab checks**. An additional offline fault-injection/Schwab run passed 80 checks. It used disposable data and test responses. Live Schwab session and entitlements on the Dell, real human comprehension, weekly resource costs and untouched outcomes remain open.
-- **Real operator evidence**. The November 19 report confirms use of both refills and separately reports available cash, equity, entries and holding policy. The [blueprint](STOCKS_V1_BLUEPRINT.md) records the relevant counts and amounts.
-
-Useful entry commands from the project root:
-
-```bash
-uv run pytest -q tests/integration/test_stocks_plays.py -k 'page_endpoint_serves or four_megabytes'
-uv run pytest -q tests/fault_injection/test_stocks_reliability.py tests/integration/test_stocks_execution_study.py tests/integration/test_stocks_update_restart.py
-uv run desk stocks check-accuracy --json
-uv run desk stocks learner-ablate --help
-python3 scripts/stocks-retail-status.py
-```
-
-Run tests and destructive fault injection only with disposable data. The retail status and accuracy commands read the configured local installation. Preserve source provenance and report real performance only when measured on that installation.
-
-For future **application** releases the established operator command is:
+## Update and open the shipped workflows
 
 ```bash
 cd ~/kestrel &&
@@ -67,4 +11,41 @@ uv sync &&
 uv run desk stocks restart
 ```
 
-For the design-only update a fast-forward pull is sufficient. The Markdown can be read directly in the repository or given to another coding model.
+- **Learning.** Choose the $1,000 or $5,000 account. Select **Why this book waited** or **View PAPER decision**. That direct link includes the book and decision ID. The Orders tab also links to earlier decisions. **Replay this decision** reveals the action and result after a choice.
+- **Plays.** Select **Shortlist** on up to three ideas and use **Compare ideas**. The same percentage shock applies to each idea at its own expiry. Open a recorded historical play and choose a quantity to see quote support and the corresponding spread cost.
+- **Research.** Follow either book's decision from **Research desk** on Home. **Start forward enrollment** and **Start quote comparison** enable the experiments for later worker passes. Both default to paused on a fresh installation. The IV enrollment schedule is fixed when the worker registers it. Pausing enrollment preserves the schedule and permits grading earlier cases.
+- **Learning transfer.** Open **Did the research transfer to this account?** on a small book. The paired return averages require dated prior evidence and comparable exit horizons. Missing, open, cancelled and unevaluable records remain visible.
+
+## Build and verification record
+
+The verified workflow began from `8a4260f`. `6f2ed18` shipped decision history and `29f91b8` shipped play comparison and exit receipts. The prior unverified work is preserved on `codex/stocks-v1-recovery`. The implementation work was staged on `codex/stocks-v1-build`. User edits in the original workspace were kept in place while the release was built in separate worktrees.
+
+| Workflow | Reproduced with disposable data | Dell evidence still needed |
+| --- | --- | --- |
+| Decision history | A known policy wait with no order kept the original cash and quote after a later deposit, another quote and application recreation. The other account's URL returned 404. A later fill linked to its own frozen order and book. | Historical coverage varies with the data originally captured. Independently reconcile a sample of real waits, orders and closed positions. |
+| Play comparison and exits | A supported two-leg receipt yielded one whole supported exit. Two separate receipts remained incomplete after folding. Retention removed expired packed receipts. Chromium verified shortlist, expiry scenario and both book balances. | Real spread and displayed size coverage by time of day, markouts, settlement edge cases and realized portfolio-level execution sensitivity. |
+| IV forward study | Tests froze a matched pair and ignored a revised feature. A fresh future bar produced a synthetic 200 bp mean paired result. The incomplete sample left its p-value blank. A missed window was counted. | Authenticated feed coverage, untouched matched pairs, regime dependence and the final result after enough calendar time. The 200 bp fixture demonstrates grading behavior. |
+| Discretionary quote experiment | The chosen arm stayed fixed through a repeated call. The core rotation entries stayed eligible, an unavailable result remained in the denominator and the book was unchanged. | A candidate appears when an otherwise-qualified play for a small book is close to its cash limit, its decision is fresh and a comparable discretionary symbol is available. Measure data yield and costs once eligible sessions accumulate. |
+| PAPER operations | A managed disposable startup served the session API in 3.91s and committed 25 accounts in 12.92s. Pause/start retained original ledger rows and integrity. Desktop and mobile checks exercise the app's normal routes. | Repeat on the Dell with its authenticated feeds. Record memory, collection lag, storage and weekly training time and run a seven-day soak. Human task timing and comprehension need operator participation. |
+
+The earlier two Plays test failures came from asking a frozen view for fixture quotes before their receipt clock. The corrected tests request published views after the receipts. The production cutoff remains in force.
+
+## Continue from the shipped baseline
+
+1. Collect a read-only Dell report using `python3 scripts/stocks-retail-status.py`. Reconstruct observations, estimates and missing evidence for a sample of real cases, including at least one no-order wait in each book.
+2. For acquisition, compare usable chains per 100 observed provider operations, per hour and per retained GiB. Extend the endpoint to require a resolution of the frozen affordability question for both arms before treating coverage as improved decisions. Capture provider billing separately.
+3. For execution, add preregistered fixed-lag markouts, per-intent performance across matched quote assumptions, and assignment/settlement observations where available. Keep simulated fills, snapshot depth and settlement distinct.
+4. For learning, expand rejected-play follow-up from the established matched study and benchmark against cash. Run the existing ablation before proposing a model change. Treat strategy promotion as its own decision after untouched results mature.
+5. Measure the four operator tasks on desktop and phone, counterbalance order, and compare error types and task time with the previous app. Record support counts and decide whether to simplify parts of the interface from the results.
+
+From the project root:
+
+```bash
+uv run desk stocks check-accuracy --json
+uv run desk stocks learner-ablate --source forward --rows 20000
+uv run pytest -q tests/integration/test_stocks_iv_study.py tests/integration/test_stocks_execution_study.py
+```
+
+Pause either research experiment in the Research desk to stop assigning new work. Historical decisions and already recorded outcomes remain queryable. Quote receipts use additive storage and follow existing retention.
+
+For future changes, fetch current branches, inspect local edits and preserve them. Update PROGRESS.md and give the operator the exact Dell update command with each verified slice.

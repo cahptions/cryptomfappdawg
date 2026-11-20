@@ -1,5 +1,22 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Stocks v1.0 · Research desk and evidence studies
+
+- **Research** opens the two books' stored decisions and shows the option-IV comparison and the bounded quote
+  allocation pilot. Both have persistent Start/Pause controls. Research results are independent of order placement.
+- The IV study freezes its protocol and matched stock pairs before the next open. It accounts for missed and
+  inconclusive cases, keeps prior decisions through feature revisions and delays its p-value until the scheduled
+  sample matures. The quote pilot allocates at most one existing discretionary slot per session and records
+  evidence coverage, provider calls, elapsed collection time and retained chain bytes.
+- Both small books have a transfer review of qualifying research estimates and fee-inclusive outcomes.
+  A decision replay reveals the chosen action and later result after the operator makes a guess.
+- The focused release checks passed 192 tests. Ruff, mypy and Prettier passed. Chromium exercised the Research
+  controls, persistence, decision replay and transfer view at 375 and 1366 pixels. A synthetic managed run served
+  the session API at 3.91s and committed PAPER at 12.92s across 25 accounts. The worker resumed without duplicate
+  ledger rows. Real acquisition costs, unattended performance, usability and untouched results need Dell data.
+- Updated the [blueprint](docs/STOCKS_V1_BLUEPRINT.md), [research](docs/STOCKS_V1_RESEARCH.md), and
+  [operator handoff](docs/STOCKS_V1_HANDOFF.md) with the shipped workflows and remaining measurements.
+
 ## 2026-11-20 — Stocks v1.0 · Compare plays and inspect exits
 
 - Shortlist up to three Plays. The comparison shows holding cash and one-unit intrinsic P/L at each idea's
