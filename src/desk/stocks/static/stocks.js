@@ -565,8 +565,6 @@ function discover(selected) {
   async function draw() {
     const id = select.value,
       list = snapshot.lists.find((l) => l.id === id);
-    if (location.hash !== `#lists/${id}`)
-      history.replaceState(null, "", `#lists/${id}`);
     content.replaceChildren();
     if (!list) return;
     const card = el("section", undefined, "list-card"),
@@ -615,7 +613,9 @@ function discover(selected) {
       card.append(el("p", error.message, "error"));
     }
   }
-  select.onchange = draw;
+  select.onchange = () => {
+    location.hash = `lists/${select.value}`;
+  };
   draw();
 }
 async function stock(symbol, ticket) {

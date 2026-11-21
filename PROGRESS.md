@@ -1,5 +1,12 @@
 # PROGRESS.md — Session-to-session state
 
+## 2026-11-20 — Keep research lists in browser history
+
+- Choosing a different Stocks research list now adds a history entry. The previous list used to be replaced,
+  so Back could skip straight to Stocks. Rendering or refreshing a list preserves the current URL.
+- Reproduced the skipped entry in Chromium. Back and Forward now restore both lists, and Back from a stock
+  profile returns to its list. The navigation and Stocks smoke checks passed at phone and desktop widths.
+
 ## 2026-11-20 — Restore the classic Stocks interface
 
 - Restored the dark theme, violet accents, top navigation, original Home cockpit and page layouts from
